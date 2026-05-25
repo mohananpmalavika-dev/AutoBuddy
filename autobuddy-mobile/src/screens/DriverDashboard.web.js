@@ -39,6 +39,10 @@ const DRIVER_MENU_OPTIONS = [
   { key: 'blocked', label: 'Blocked' },
   { key: 'safety', label: 'Safety' },
 ];
+const PRIMARY_DRIVER_MENU_KEY = 'requests';
+const SECONDARY_DRIVER_MENU_OPTIONS = DRIVER_MENU_OPTIONS.filter(
+  (menu) => menu.key !== PRIMARY_DRIVER_MENU_KEY,
+);
 const DEFAULT_CITY_LOCATION = {
   latitude: 13.0827,
   longitude: 80.2707,
@@ -86,7 +90,8 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   const [rideStartOtp, setRideStartOtp] = useState('');
   const [rideEndOtp, setRideEndOtp] = useState('');
   const [showProfile, setShowProfile] = useState(false);
-  const [activeDriverMenu, setActiveDriverMenu] = useState('requests');
+  const [activeDriverMenu, setActiveDriverMenu] = useState(PRIMARY_DRIVER_MENU_KEY);
+  const [showDriverMenus, setShowDriverMenus] = useState(false);
   
   const googleMapsWebKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
   const placesConfigured = isPlacesConfigured();
@@ -883,18 +888,58 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
           {!!error && <Text style={styles.error}>{error}</Text>}
           {!!message && <Text style={styles.message}>{message}</Text>}
           {loading && <ActivityIndicator color={COLORS.primary} style={styles.loader} />}
-          <View style={styles.menuRow}>
-            {DRIVER_MENU_OPTIONS.map((menu) => (
-              <TouchableOpacity
-                key={menu.key}
-                style={[styles.menuChip, activeDriverMenu === menu.key && styles.menuChipActive]}
-                onPress={() => setActiveDriverMenu(menu.key)}>
-                <Text style={[styles.menuChipText, activeDriverMenu === menu.key && styles.menuChipTextActive]}>
-                  {menu.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
+          <View style={styles.dashboardTopRow}>
+            <TouchableOpacity
+              style={[
+                styles.primaryMenuButton,
+                activeDriverMenu === PRIMARY_DRIVER_MENU_KEY && styles.primaryMenuButtonActive,
+              ]}
+              onPress={() => {
+                setActiveDriverMenu(PRIMARY_DRIVER_MENU_KEY);
+                setShowDriverMenus(false);
+              }}>
+              <Text style={styles.primaryMenuButtonText}>Ride Requests</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.menuToggleButton}
+              onPress={() => setShowDriverMenus((prev) => !prev)}>
+              <Text style={styles.menuToggleButtonText}>{showDriverMenus ? 'Hide Menus' : 'Other Menus'}</Text>
+            </TouchableOpacity>
           </View>
+
+          {showDriverMenus && (
+            <View style={styles.secondaryMenuRow}>
+              {SECONDARY_DRIVER_MENU_OPTIONS.map((menu) => (
+                <TouchableOpacity
+                  key={menu.key}
+                  style={[styles.menuChip, activeDriverMenu === menu.key && styles.menuChipActive]}
+                  onPress={() => {
+                    setActiveDriverMenu(menu.key);
+                    setShowDriverMenus(false);
+                  }}>
+                  <Text style={[styles.menuChipText, activeDriverMenu === menu.key && styles.menuChipTextActive]}>
+                    {menu.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
+          {activeDriverMenu !== PRIMARY_DRIVER_MENU_KEY && (
+            <View style={styles.activeMenuInfoRow}>
+              <Text style={styles.activeMenuInfoText}>
+                {DRIVER_MENU_OPTIONS.find((menu) => menu.key === activeDriverMenu)?.label || 'Menu'}
+              </Text>
+              <TouchableOpacity
+                style={styles.menuToggleButton}
+                onPress={() => {
+                  setActiveDriverMenu(PRIMARY_DRIVER_MENU_KEY);
+                  setShowDriverMenus(false);
+                }}>
+                <Text style={styles.menuToggleButtonText}>Back to Requests</Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
           {activeDriverMenu === 'safety' && (
             <>
@@ -1334,7 +1379,40 @@ const styles = StyleSheet.create({
   },
   refreshText: { color: COLORS.textMain, fontWeight: '700', fontSize: 12 },
   title: { fontSize: 22, fontWeight: '900', color: COLORS.textMain, marginTop: 12, marginBottom: 10 },
-  menuRow: { flexDirection: 'row', gap: 8, marginBottom: 10, flexWrap: 'wrap' },
+  dashboardTopRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
+  primaryMenuButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    backgroundColor: '#E8F5E9',
+    ...SHADOWS.soft,
+  },
+  primaryMenuButtonActive: {
+    borderColor: COLORS.primaryDark,
+    backgroundColor: '#D5ECD8',
+  },
+  primaryMenuButtonText: { color: COLORS.primaryDark, fontWeight: '800', textAlign: 'center' },
+  menuToggleButton: {
+    borderWidth: 1,
+    borderColor: '#D2DED6',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    backgroundColor: '#F8FBF9',
+  },
+  menuToggleButtonText: { color: COLORS.textMain, fontWeight: '700' },
+  secondaryMenuRow: { flexDirection: 'row', gap: 8, marginBottom: 10, flexWrap: 'wrap' },
+  activeMenuInfoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  activeMenuInfoText: { color: COLORS.textMain, fontWeight: '800', fontSize: 14 },
   menuChip: {
     borderWidth: 1,
     borderColor: '#D2DED6',

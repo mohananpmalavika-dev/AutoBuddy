@@ -32,6 +32,10 @@ const PASSENGER_MENU_OPTIONS = [
   { key: 'wallet', label: 'Wallet' },
   { key: 'history', label: 'Ride History' },
 ];
+const PRIMARY_PASSENGER_MENU_KEY = 'ride';
+const SECONDARY_PASSENGER_MENU_OPTIONS = PASSENGER_MENU_OPTIONS.filter(
+  (menu) => menu.key !== PRIMARY_PASSENGER_MENU_KEY,
+);
 
 const DEFAULT_REGION = { latitude: 13.0827, longitude: 80.2707, latitudeDelta: 0.05, longitudeDelta: 0.05 };
 const passengerMapStyle = [];
@@ -66,7 +70,8 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
   const [scheduledAtInput, setScheduledAtInput] = useState('');
   const [selectingPoint, setSelectingPoint] = useState('pickup');
   const [mapError, setMapError] = useState('');
-  const [activePassengerMenu, setActivePassengerMenu] = useState('ride');
+  const [activePassengerMenu, setActivePassengerMenu] = useState(PRIMARY_PASSENGER_MENU_KEY);
+  const [showPassengerMenus, setShowPassengerMenus] = useState(false);
   const mapRef = useRef(null);
   const [driverLiveAddress, setDriverLiveAddress] = useState('');
   const pickupAddressRequestRef = useRef(0);
@@ -969,18 +974,58 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
           {autoFetchingTripData && <ActivityIndicator color={COLORS.primary} style={styles.loader} />}
           {!!error && <Text style={styles.error}>{error}</Text>}
           {!!message && <Text style={styles.message}>{message}</Text>}
-          <View style={styles.menuRow}>
-            {PASSENGER_MENU_OPTIONS.map((menu) => (
-              <TouchableOpacity
-                key={menu.key}
-                style={[styles.menuChip, activePassengerMenu === menu.key && styles.menuChipActive]}
-                onPress={() => setActivePassengerMenu(menu.key)}>
-                <Text style={[styles.menuChipText, activePassengerMenu === menu.key && styles.menuChipTextActive]}>
-                  {menu.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
+          <View style={styles.dashboardTopRow}>
+            <TouchableOpacity
+              style={[
+                styles.primaryMenuButton,
+                activePassengerMenu === PRIMARY_PASSENGER_MENU_KEY && styles.primaryMenuButtonActive,
+              ]}
+              onPress={() => {
+                setActivePassengerMenu(PRIMARY_PASSENGER_MENU_KEY);
+                setShowPassengerMenus(false);
+              }}>
+              <Text style={styles.primaryMenuButtonText}>Ride Booking</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.menuToggleButton}
+              onPress={() => setShowPassengerMenus((prev) => !prev)}>
+              <Text style={styles.menuToggleButtonText}>{showPassengerMenus ? 'Hide Menus' : 'Other Menus'}</Text>
+            </TouchableOpacity>
           </View>
+
+          {showPassengerMenus && (
+            <View style={styles.secondaryMenuRow}>
+              {SECONDARY_PASSENGER_MENU_OPTIONS.map((menu) => (
+                <TouchableOpacity
+                  key={menu.key}
+                  style={[styles.menuChip, activePassengerMenu === menu.key && styles.menuChipActive]}
+                  onPress={() => {
+                    setActivePassengerMenu(menu.key);
+                    setShowPassengerMenus(false);
+                  }}>
+                  <Text style={[styles.menuChipText, activePassengerMenu === menu.key && styles.menuChipTextActive]}>
+                    {menu.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
+          {activePassengerMenu !== PRIMARY_PASSENGER_MENU_KEY && (
+            <View style={styles.activeMenuInfoRow}>
+              <Text style={styles.activeMenuInfoText}>
+                {PASSENGER_MENU_OPTIONS.find((menu) => menu.key === activePassengerMenu)?.label || 'Menu'}
+              </Text>
+              <TouchableOpacity
+                style={styles.menuToggleButton}
+                onPress={() => {
+                  setActivePassengerMenu(PRIMARY_PASSENGER_MENU_KEY);
+                  setShowPassengerMenus(false);
+                }}>
+                <Text style={styles.menuToggleButtonText}>Back to Ride</Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
           {activePassengerMenu === 'wallet' && (
             <View style={styles.infoBlock}>
@@ -1390,7 +1435,40 @@ const styles = StyleSheet.create({
   },
   title: { color: COLORS.textMain, fontSize: 22, fontWeight: '800' },
   route: { color: COLORS.textMuted, marginTop: 4, marginBottom: 10 },
-  menuRow: { flexDirection: 'row', gap: 8, marginBottom: 10, flexWrap: 'wrap' },
+  dashboardTopRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
+  primaryMenuButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    backgroundColor: '#E8F5E9',
+    ...SHADOWS.soft,
+  },
+  primaryMenuButtonActive: {
+    borderColor: COLORS.primaryDark,
+    backgroundColor: '#D5ECD8',
+  },
+  primaryMenuButtonText: { color: COLORS.primaryDark, fontWeight: '800', textAlign: 'center' },
+  menuToggleButton: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    backgroundColor: COLORS.bg,
+  },
+  menuToggleButtonText: { color: COLORS.textMain, fontWeight: '700' },
+  secondaryMenuRow: { flexDirection: 'row', gap: 8, marginBottom: 10, flexWrap: 'wrap' },
+  activeMenuInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+    gap: 8,
+  },
+  activeMenuInfoText: { color: COLORS.textMain, fontWeight: '800', fontSize: 14 },
   menuChip: {
     borderWidth: 1,
     borderColor: COLORS.border,

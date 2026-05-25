@@ -137,6 +137,10 @@ OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4.1-mini").strip()
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").strip()
 API_RATE_LIMIT_MAX_REQUESTS = settings.api_rate_limit_max_requests
 API_RATE_LIMIT_WINDOW_SECONDS = settings.api_rate_limit_window_seconds
+MAX_REQUEST_BODY_BYTES = max(
+    65536,
+    min(10 * 1024 * 1024, int(os.environ.get("MAX_REQUEST_BODY_BYTES", str(1024 * 1024)))),
+)
 TRIP_DISTANCE_MIN_SEGMENT_KM = float(os.environ.get("TRIP_DISTANCE_MIN_SEGMENT_KM", "0.03"))
 TRIP_DISTANCE_MAX_SEGMENT_KM = float(os.environ.get("TRIP_DISTANCE_MAX_SEGMENT_KM", "8.0"))
 TRIP_DISTANCE_MAX_POINTS = int(os.environ.get("TRIP_DISTANCE_MAX_POINTS", "1200"))
@@ -172,6 +176,10 @@ SENTRY_DSN = os.environ.get("SENTRY_DSN", "").strip()
 SENTRY_TRACE_SAMPLE_RATE = float(os.environ.get("SENTRY_TRACE_SAMPLE_RATE", "0.1"))
 ENABLE_METRICS = os.environ.get("ENABLE_METRICS", "true").strip().lower() in {"1", "true", "yes", "on"}
 REQUEST_ID_HEADER = "X-Request-ID"
+READINESS_DB_PING_TIMEOUT_MS = max(
+    200,
+    min(10000, int(os.environ.get("READINESS_DB_PING_TIMEOUT_MS", "1500"))),
+)
 FERNET_SECRET = (settings.fernet_secret or "").strip()
 FERNET_SECRET_CONFIGURED = bool(settings.fernet_secret)
 if not FERNET_SECRET:
@@ -664,6 +672,30 @@ async def api_guardrails_middleware(request: Request, call_next):
     status_code = 500
     response: Optional[Any] = None
     try:
+        if request.method in {"POST", "PUT", "PATCH"}:
+            content_length_value = str(request.headers.get("content-length") or "").strip()
+            if content_length_value:
+                try:
+                    if int(content_length_value) > MAX_REQUEST_BODY_BYTES:
+                        response = build_error_response(
+                            request,
+                            status_code=413,
+                            message="Request payload is too large.",
+                            code="payload_too_large",
+                            details={"max_bytes": MAX_REQUEST_BODY_BYTES},
+                        )
+                        status_code = int(response.status_code)
+                        return response
+                except ValueError:
+                    response = build_error_response(
+                        request,
+                        status_code=400,
+                        message="Invalid Content-Length header.",
+                        code="invalid_content_length",
+                    )
+                    status_code = int(response.status_code)
+                    return response
+
         user_agent_value = str(request.headers.get("user-agent") or "").lower()
         if client_ip in BLOCKED_IPS or await runtime_state.is_ip_blocked(client_ip):
             await audit_log(
@@ -7266,6 +7298,56 @@ async def health_check():
     }
 
 
+def _worker_health(task: Optional[asyncio.Task]) -> str:
+    if task is None:
+        return "missing"
+    if task.cancelled():
+        return "cancelled"
+    if task.done():
+        return "stopped"
+    return "running"
+
+
+@api_router.get("/ready")
+async def readiness_check():
+    started = time.perf_counter()
+    now = datetime.utcnow().isoformat()
+    worker_state = {
+        "driver_health_monitor": _worker_health(driver_health_monitor_task),
+        "ride_dispatch_worker": _worker_health(ride_dispatch_worker_task),
+        "analytics_warehouse_worker": _worker_health(analytics_warehouse_worker_task),
+    }
+    redis_runtime_ok = runtime_state.is_redis_enabled
+    redis_requirement_ok = (not (IS_PRODUCTION_ENV and REQUIRE_REDIS_IN_PRODUCTION)) or redis_runtime_ok
+    database_ok = True
+    db_error: Optional[str] = None
+    try:
+        await db.command("ping", maxTimeMS=READINESS_DB_PING_TIMEOUT_MS)
+    except Exception as exc:
+        database_ok = False
+        db_error = str(exc)
+
+    workers_ok = all(state == "running" for state in worker_state.values())
+    ready = database_ok and redis_requirement_ok and workers_ok
+    payload = {
+        "status": "ready" if ready else "not_ready",
+        "database": "ok" if database_ok else "error",
+        "redis_runtime_state": "ok" if redis_runtime_ok else "degraded",
+        "redis_required": bool(IS_PRODUCTION_ENV and REQUIRE_REDIS_IN_PRODUCTION),
+        "workers": worker_state,
+        "request_limits": {
+            "api_rate_limit_window_seconds": API_RATE_LIMIT_WINDOW_SECONDS,
+            "api_rate_limit_max_requests": API_RATE_LIMIT_MAX_REQUESTS,
+            "max_request_body_bytes": MAX_REQUEST_BODY_BYTES,
+        },
+        "elapsed_ms": round((time.perf_counter() - started) * 1000, 2),
+        "timestamp": now,
+    }
+    if db_error:
+        payload["database_error"] = db_error
+    return JSONResponse(status_code=200 if ready else 503, content=payload)
+
+
 @api_router.get("/metrics")
 async def metrics():
     if not ENABLE_METRICS or generate_latest is None:
@@ -8103,8 +8185,14 @@ async def add_security_headers(request: Request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Cross-Origin-Resource-Policy"] = "same-site"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(self)"
     response.headers["X-XSS-Protection"] = "0"
+    if request.url.path.startswith("/api"):
+        response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+    if request.url.path.startswith("/api/auth"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
     if IS_PRODUCTION_ENV:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     # Ensure CORS response headers are set in a strict, explicit way.

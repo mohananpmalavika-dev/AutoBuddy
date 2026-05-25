@@ -44,6 +44,10 @@ const PASSENGER_MENU_OPTIONS = [
   { key: 'wallet', label: 'Wallet' },
   { key: 'history', label: 'Ride History' },
 ];
+const PRIMARY_PASSENGER_MENU_KEY = 'ride';
+const SECONDARY_PASSENGER_MENU_OPTIONS = PASSENGER_MENU_OPTIONS.filter(
+  (menu) => menu.key !== PRIMARY_PASSENGER_MENU_KEY,
+);
 
 export default function PassengerMap({ token, user, onLogout, onProfilePress = undefined }) {
   const autoPickupInitializedRef = useRef(false);
@@ -87,8 +91,9 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
   const [intercityReturnTrip, setIntercityReturnTrip] = useState(false);
   const [passengerCountInput, setPassengerCountInput] = useState('1');
   const [showProfile, setShowProfile] = useState(false);
+  const [showPassengerMenus, setShowPassengerMenus] = useState(false);
   const [driverLiveAddress, setDriverLiveAddress] = useState('');
-  const [activePassengerMenu, setActivePassengerMenu] = useState('ride');
+  const [activePassengerMenu, setActivePassengerMenu] = useState(PRIMARY_PASSENGER_MENU_KEY);
   const placesConfigured = isPlacesConfigured();
   const googleMapsWebKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
   const liveTrackStatuses = useMemo(() => new Set(['accepted', 'driver_arrived', 'in_progress']), []);
@@ -995,18 +1000,60 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
             {!!error && <Text style={styles.error}>{error}</Text>}
             {!!message && <Text style={styles.message}>{message}</Text>}
 
-            <View style={styles.menuRow}>
-              {PASSENGER_MENU_OPTIONS.map((menu) => (
-                <TouchableOpacity
-                  key={menu.key}
-                  style={[styles.menuChip, activePassengerMenu === menu.key && styles.menuChipActive]}
-                  onPress={() => setActivePassengerMenu(menu.key)}>
-                  <Text style={[styles.menuChipText, activePassengerMenu === menu.key && styles.menuChipTextActive]}>
-                    {menu.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+            <View style={styles.dashboardTopRow}>
+              <TouchableOpacity
+                style={[
+                  styles.primaryMenuButton,
+                  activePassengerMenu === PRIMARY_PASSENGER_MENU_KEY && styles.primaryMenuButtonActive,
+                ]}
+                onPress={() => {
+                  setActivePassengerMenu(PRIMARY_PASSENGER_MENU_KEY);
+                  setShowPassengerMenus(false);
+                }}>
+                <Text style={styles.primaryMenuButtonText}>Ride Booking</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.menuToggleButton}
+                onPress={() => setShowPassengerMenus((prev) => !prev)}>
+                <Text style={styles.menuToggleButtonText}>
+                  {showPassengerMenus ? 'Hide Menus' : 'Other Menus'}
+                </Text>
+              </TouchableOpacity>
             </View>
+
+            {showPassengerMenus && (
+              <View style={styles.secondaryMenuRow}>
+                {SECONDARY_PASSENGER_MENU_OPTIONS.map((menu) => (
+                  <TouchableOpacity
+                    key={menu.key}
+                    style={[styles.menuChip, activePassengerMenu === menu.key && styles.menuChipActive]}
+                    onPress={() => {
+                      setActivePassengerMenu(menu.key);
+                      setShowPassengerMenus(false);
+                    }}>
+                    <Text style={[styles.menuChipText, activePassengerMenu === menu.key && styles.menuChipTextActive]}>
+                      {menu.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            {activePassengerMenu !== PRIMARY_PASSENGER_MENU_KEY && (
+              <View style={styles.activeMenuInfoRow}>
+                <Text style={styles.activeMenuInfoText}>
+                  {PASSENGER_MENU_OPTIONS.find((menu) => menu.key === activePassengerMenu)?.label || 'Menu'}
+                </Text>
+                <TouchableOpacity
+                  style={styles.menuToggleButton}
+                  onPress={() => {
+                    setActivePassengerMenu(PRIMARY_PASSENGER_MENU_KEY);
+                    setShowPassengerMenus(false);
+                  }}>
+                  <Text style={styles.menuToggleButtonText}>Back to Ride</Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
             {activePassengerMenu === 'safety' && <KeralaSafetyCard safety={keralaSafety} />}
 
@@ -1536,7 +1583,40 @@ const styles = StyleSheet.create({
   error: { color: COLORS.danger, marginTop: 8 },
   message: { color: '#1B5E20', marginTop: 8 },
   route: { color: '#666666', marginTop: 10, marginBottom: 10 },
-  menuRow: { flexDirection: 'row', gap: 8, marginBottom: 10, flexWrap: 'wrap' },
+  dashboardTopRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
+  primaryMenuButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    backgroundColor: '#E8F5E9',
+    ...SHADOWS.soft,
+  },
+  primaryMenuButtonActive: {
+    borderColor: COLORS.primaryDark,
+    backgroundColor: '#D5ECD8',
+  },
+  primaryMenuButtonText: { color: COLORS.primaryDark, fontWeight: '800', textAlign: 'center' },
+  menuToggleButton: {
+    borderWidth: 1,
+    borderColor: '#CBD9D0',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    backgroundColor: '#F6FAF7',
+  },
+  menuToggleButtonText: { color: '#355243', fontWeight: '700' },
+  secondaryMenuRow: { flexDirection: 'row', gap: 8, marginBottom: 10, flexWrap: 'wrap' },
+  activeMenuInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+    gap: 8,
+  },
+  activeMenuInfoText: { color: COLORS.textMain, fontWeight: '800', fontSize: 14 },
   menuChip: {
     borderWidth: 1,
     borderColor: '#CBD9D0',

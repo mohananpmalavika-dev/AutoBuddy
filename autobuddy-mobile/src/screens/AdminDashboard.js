@@ -27,6 +27,10 @@ const ADMIN_MENU_OPTIONS = [
   { key: 'registration', label: 'Registration' },
   { key: 'kyc', label: 'KYC' },
 ];
+const PRIMARY_ADMIN_MENU_KEY = 'analytics';
+const SECONDARY_ADMIN_MENU_OPTIONS = ADMIN_MENU_OPTIONS.filter(
+  (menu) => menu.key !== PRIMARY_ADMIN_MENU_KEY,
+);
 
 function emptyRoleSubscriptionConfig() {
   return {
@@ -125,7 +129,8 @@ export default function AdminDashboard({ token, user, onLogout }) {
   const [approvedDriverFareConfigs, setApprovedDriverFareConfigs] = useState([]);
   const [ongoingTrips, setOngoingTrips] = useState([]);
   const [tripCancelReasons, setTripCancelReasons] = useState({});
-  const [activeAdminMenu, setActiveAdminMenu] = useState('analytics');
+  const [activeAdminMenu, setActiveAdminMenu] = useState(PRIMARY_ADMIN_MENU_KEY);
+  const [showAdminMenus, setShowAdminMenus] = useState(false);
   const [driverUsers, setDriverUsers] = useState([]);
   const [passengerUsers, setPassengerUsers] = useState([]);
   const [liveCounts, setLiveCounts] = useState({
@@ -676,22 +681,62 @@ export default function AdminDashboard({ token, user, onLogout }) {
         {!!message && <Text style={styles.message}>{message}</Text>}
         {loading && <ActivityIndicator color={COLORS.primary} style={styles.loader} />}
 
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.menuBar}
-          contentContainerStyle={styles.menuBarContent}>
-          {ADMIN_MENU_OPTIONS.map((menu) => (
+        <View style={styles.dashboardTopRow}>
+          <TouchableOpacity
+            style={[
+              styles.primaryMenuButton,
+              activeAdminMenu === PRIMARY_ADMIN_MENU_KEY && styles.primaryMenuButtonActive,
+            ]}
+            onPress={() => {
+              setActiveAdminMenu(PRIMARY_ADMIN_MENU_KEY);
+              setShowAdminMenus(false);
+            }}>
+            <Text style={styles.primaryMenuButtonText}>Overview</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.menuToggleButton}
+            onPress={() => setShowAdminMenus((prev) => !prev)}>
+            <Text style={styles.menuToggleButtonText}>{showAdminMenus ? 'Hide Menus' : 'Other Menus'}</Text>
+          </TouchableOpacity>
+        </View>
+
+        {showAdminMenus && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.menuBar}
+            contentContainerStyle={styles.menuBarContent}>
+            {SECONDARY_ADMIN_MENU_OPTIONS.map((menu) => (
+              <TouchableOpacity
+                key={menu.key}
+                style={[styles.menuChip, activeAdminMenu === menu.key && styles.menuChipActive]}
+                onPress={() => {
+                  setActiveAdminMenu(menu.key);
+                  setShowAdminMenus(false);
+                }}>
+                <Text style={[styles.menuChipText, activeAdminMenu === menu.key && styles.menuChipTextActive]}>
+                  {menu.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        )}
+
+        {activeAdminMenu !== PRIMARY_ADMIN_MENU_KEY && (
+          <View style={styles.activeMenuInfoRow}>
+            <Text style={styles.activeMenuInfoText}>
+              {ADMIN_MENU_OPTIONS.find((menu) => menu.key === activeAdminMenu)?.label || 'Menu'}
+            </Text>
             <TouchableOpacity
-              key={menu.key}
-              style={[styles.menuChip, activeAdminMenu === menu.key && styles.menuChipActive]}
-              onPress={() => setActiveAdminMenu(menu.key)}>
-              <Text style={[styles.menuChipText, activeAdminMenu === menu.key && styles.menuChipTextActive]}>
-                {menu.label}
-              </Text>
+              style={styles.menuToggleButton}
+              onPress={() => {
+                setActiveAdminMenu(PRIMARY_ADMIN_MENU_KEY);
+                setShowAdminMenus(false);
+              }}>
+              <Text style={styles.menuToggleButtonText}>Back to Overview</Text>
             </TouchableOpacity>
-          ))}
-        </ScrollView>
+          </View>
+        )}
 
         <View style={[styles.section, activeAdminMenu !== 'analytics' && styles.hiddenSection]}>
           <Text style={styles.sectionTitle}>Overview</Text>
@@ -1397,6 +1442,39 @@ const styles = StyleSheet.create({
   },
   menuBar: { marginBottom: 14 },
   menuBarContent: { gap: 8, paddingRight: 10 },
+  dashboardTopRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
+  primaryMenuButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#2E7D32',
+    borderRadius: 12,
+    backgroundColor: '#E8F5E9',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    ...SHADOWS.soft,
+  },
+  primaryMenuButtonActive: {
+    borderColor: '#1B5E20',
+    backgroundColor: '#D5ECD8',
+  },
+  primaryMenuButtonText: { color: '#1B5E20', fontWeight: '800', textAlign: 'center' },
+  menuToggleButton: {
+    borderWidth: 1,
+    borderColor: '#CBD9D0',
+    borderRadius: 12,
+    backgroundColor: '#F6FAF7',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  menuToggleButtonText: { color: '#355243', fontWeight: '700' },
+  activeMenuInfoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  activeMenuInfoText: { color: '#1E3126', fontWeight: '800', fontSize: 14 },
   menuChip: {
     borderWidth: 1,
     borderColor: '#CBD9D0',
