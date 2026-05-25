@@ -26,7 +26,10 @@ import VoiceTextInput from '../components/VoiceTextInput';
 import { usePassengerRideRealtime } from '../hooks/usePassengerRideRealtime';
 
 const PASSENGER_MENU_OPTIONS = [
-  { key: 'ride', label: 'Ride' },
+  { key: 'ride', label: 'Ride Booking' },
+  { key: 'trip', label: 'Active Trip' },
+  { key: 'drivers', label: 'Drivers' },
+  { key: 'wallet', label: 'Wallet' },
   { key: 'history', label: 'Ride History' },
 ];
 
@@ -966,8 +969,6 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
           {autoFetchingTripData && <ActivityIndicator color={COLORS.primary} style={styles.loader} />}
           {!!error && <Text style={styles.error}>{error}</Text>}
           {!!message && <Text style={styles.message}>{message}</Text>}
-          <RevenueCard token={token} role={user?.role} />
-
           <View style={styles.menuRow}>
             {PASSENGER_MENU_OPTIONS.map((menu) => (
               <TouchableOpacity
@@ -981,81 +982,88 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
             ))}
           </View>
 
+          {activePassengerMenu === 'wallet' && (
+            <View style={styles.infoBlock}>
+              <Text style={styles.infoTitle}>Wallet & Revenue</Text>
+              <RevenueCard token={token} role={user?.role} />
+            </View>
+          )}
+
           {activePassengerMenu === 'ride' && (
             <>
               <View style={styles.searchBlock}>
-            <Text style={styles.searchLabel}>Select Point</Text>
-            <View style={styles.modeRow}>
-              <TouchableOpacity
-                style={[styles.selectChip, selectingPoint === 'pickup' && styles.selectChipActive]}
-                onPress={() => setSelectingPoint('pickup')}>
-                <Text style={[styles.selectChipText, selectingPoint === 'pickup' && styles.selectChipTextActive]}>
-                  Pickup
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.selectChip, selectingPoint === 'dropoff' && styles.selectChipActive]}
-                onPress={() => setSelectingPoint('dropoff')}>
-                <Text style={[styles.selectChipText, selectingPoint === 'dropoff' && styles.selectChipTextActive]}>
-                  Drop
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.clearChip} onPress={clearLocations}>
-                <Text style={styles.clearChipText}>Clear</Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.pickupLabelRow}>
-              <Text style={styles.searchLabel}>Pickup Search</Text>
-              <TouchableOpacity
-                style={styles.currentLocationInlineChip}
-                onPress={() => autofillPickupFromCurrentLocation({ silent: false })}
-                disabled={loading || locatingPickup}>
-                <Text style={styles.currentLocationInlineText}>
-                  {locatingPickup ? 'Fetching...' : 'Use Current'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-            <VoiceTextInput
-              value={pickupQuery}
-              onChangeText={(text) => handleSearchTextChange('pickup', text)}
-              placeholder="Enter pickup area, landmark, or address"
-              placeholderTextColor={COLORS.textMuted}
-              style={styles.searchInput}
-            />
-            {searchingPickup && <Text style={styles.searchHint}>Searching pickup...</Text>}
-            {pickupSuggestions.map((item) => (
-              <TouchableOpacity
-                key={`pickup-${item.placeId}`}
-                style={styles.suggestionRow}
-                onPress={() => handleSelectSuggestion('pickup', item)}>
-                <Text style={styles.suggestionText}>{item.description}</Text>
-              </TouchableOpacity>
-            ))}
-            {locationValidation.pickup && (
-              <Text style={styles.validationText}>Pickup location is required before booking.</Text>
-            )}
+                <Text style={styles.searchLabel}>Select Point</Text>
+                <View style={styles.modeRow}>
+                  <TouchableOpacity
+                    style={[styles.selectChip, selectingPoint === 'pickup' && styles.selectChipActive]}
+                    onPress={() => setSelectingPoint('pickup')}>
+                    <Text style={[styles.selectChipText, selectingPoint === 'pickup' && styles.selectChipTextActive]}>
+                      Pickup
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.selectChip, selectingPoint === 'dropoff' && styles.selectChipActive]}
+                    onPress={() => setSelectingPoint('dropoff')}>
+                    <Text style={[styles.selectChipText, selectingPoint === 'dropoff' && styles.selectChipTextActive]}>
+                      Drop
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.clearChip} onPress={clearLocations}>
+                    <Text style={styles.clearChipText}>Clear</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.pickupLabelRow}>
+                  <Text style={styles.searchLabel}>Pickup Search</Text>
+                  <TouchableOpacity
+                    style={styles.currentLocationInlineChip}
+                    onPress={() => autofillPickupFromCurrentLocation({ silent: false })}
+                    disabled={loading || locatingPickup}>
+                    <Text style={styles.currentLocationInlineText}>
+                      {locatingPickup ? 'Fetching...' : 'Use Current'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <VoiceTextInput
+                  value={pickupQuery}
+                  onChangeText={(text) => handleSearchTextChange('pickup', text)}
+                  placeholder="Enter pickup area, landmark, or address"
+                  placeholderTextColor={COLORS.textMuted}
+                  style={styles.searchInput}
+                />
+                {searchingPickup && <Text style={styles.searchHint}>Searching pickup...</Text>}
+                {pickupSuggestions.map((item) => (
+                  <TouchableOpacity
+                    key={`pickup-${item.placeId}`}
+                    style={styles.suggestionRow}
+                    onPress={() => handleSelectSuggestion('pickup', item)}>
+                    <Text style={styles.suggestionText}>{item.description}</Text>
+                  </TouchableOpacity>
+                ))}
+                {locationValidation.pickup && (
+                  <Text style={styles.validationText}>Pickup location is required before booking.</Text>
+                )}
 
-            <Text style={styles.searchLabel}>Drop Search</Text>
-            <VoiceTextInput
-              value={dropoffQuery}
-              onChangeText={(text) => handleSearchTextChange('dropoff', text)}
-              placeholder="Enter drop area, landmark, or address"
-              placeholderTextColor={COLORS.textMuted}
-              style={styles.searchInput}
-            />
-            {searchingDropoff && <Text style={styles.searchHint}>Searching drop...</Text>}
-            {dropoffSuggestions.map((item) => (
-              <TouchableOpacity
-                key={`drop-${item.placeId}`}
-                style={styles.suggestionRow}
-                onPress={() => handleSelectSuggestion('dropoff', item)}>
-                <Text style={styles.suggestionText}>{item.description}</Text>
-              </TouchableOpacity>
-            ))}
-            {locationValidation.dropoff && (
-              <Text style={styles.validationText}>Drop location is required before booking.</Text>
-            )}
-          </View>
+                <Text style={styles.searchLabel}>Drop Search</Text>
+                <VoiceTextInput
+                  value={dropoffQuery}
+                  onChangeText={(text) => handleSearchTextChange('dropoff', text)}
+                  placeholder="Enter drop area, landmark, or address"
+                  placeholderTextColor={COLORS.textMuted}
+                  style={styles.searchInput}
+                />
+                {searchingDropoff && <Text style={styles.searchHint}>Searching drop...</Text>}
+                {dropoffSuggestions.map((item) => (
+                  <TouchableOpacity
+                    key={`drop-${item.placeId}`}
+                    style={styles.suggestionRow}
+                    onPress={() => handleSelectSuggestion('dropoff', item)}>
+                    <Text style={styles.suggestionText}>{item.description}</Text>
+                  </TouchableOpacity>
+                ))}
+                {locationValidation.dropoff && (
+                  <Text style={styles.validationText}>Drop location is required before booking.</Text>
+                )}
+              </View>
               <View style={styles.infoBlock}>
                 <Text style={styles.infoTitle}>Ride Type</Text>
                 <View style={styles.modeRow}>
@@ -1090,7 +1098,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                 )}
               </View>
 
-<View style={styles.actionsRow}>
+              <View style={styles.actionsRow}>
                 <TouchableOpacity style={styles.actionButton} onPress={createBooking} disabled={loading}>
                   <Text style={styles.actionText}>
                     {bookingMode === 'scheduled'
@@ -1107,7 +1115,11 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                   <Text style={styles.actionText}>Refresh</Text>
                 </TouchableOpacity>
               </View>
+            </>
+          )}
 
+          {activePassengerMenu === 'drivers' && (
+            <>
               {fare && (
                 <View style={styles.infoBlock}>
                   <Text style={styles.infoTitle}>Fare Estimate</Text>
@@ -1128,7 +1140,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                 </View>
               )}
 
-              {nearbyDrivers.length > 0 && (
+              {nearbyDrivers.length > 0 ? (
                 <View style={styles.infoBlock}>
                   <View style={styles.driverHeaderRow}>
                     <Text style={styles.infoTitle}>Nearest Drivers (Top 5)</Text>
@@ -1188,7 +1200,35 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                     </Text>
                   )}
                 </View>
+              ) : (
+                <View style={styles.infoBlock}>
+                  <Text style={styles.infoText}>No nearby drivers yet. Create a booking first.</Text>
+                </View>
               )}
+            </>
+          )}
+
+          {activePassengerMenu === 'trip' && (
+            <>
+              {activeBooking ? (
+                <View style={styles.infoBlock}>
+                  <Text style={styles.infoTitle}>Live Trip</Text>
+                  <Text style={styles.infoText}>Track ride status, OTP, and driver updates here.</Text>
+                </View>
+              ) : (
+                <View style={styles.infoBlock}>
+                  <Text style={styles.infoText}>No active ride right now.</Text>
+                </View>
+              )}
+
+              <View style={styles.actionsRow}>
+                <TouchableOpacity
+                  style={styles.actionButtonMuted}
+                  onPress={refreshPassengerDashboard}
+                  disabled={loading}>
+                  <Text style={styles.actionText}>Refresh</Text>
+                </TouchableOpacity>
+              </View>
 
               {activeBooking && (
                 <View style={styles.infoBlock}>
@@ -1255,7 +1295,6 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
               )}
             </>
           )}
-
           {activePassengerMenu === 'history' && (
             <View style={styles.infoBlock}>
               <View style={styles.driverHeaderRow}>

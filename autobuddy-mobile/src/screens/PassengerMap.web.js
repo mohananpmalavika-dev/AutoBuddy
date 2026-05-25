@@ -37,7 +37,11 @@ import PassengerProfile from './PassengerProfile';
 
 const LOGO_SOURCE = require('../../assets/images/autobuddy-logo.jpg');
 const PASSENGER_MENU_OPTIONS = [
-  { key: 'ride', label: 'Ride' },
+  { key: 'ride', label: 'Ride Booking' },
+  { key: 'trip', label: 'Active Trip' },
+  { key: 'drivers', label: 'Drivers' },
+  { key: 'safety', label: 'Safety' },
+  { key: 'wallet', label: 'Wallet' },
   { key: 'history', label: 'Ride History' },
 ];
 
@@ -1004,25 +1008,17 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
               ))}
             </View>
 
+            {activePassengerMenu === 'safety' && <KeralaSafetyCard safety={keralaSafety} />}
+
+            {activePassengerMenu === 'wallet' && (
+              <View style={styles.infoBlock}>
+                <Text style={styles.infoTitle}>Wallet & Revenue</Text>
+                <RevenueCard token={token} role={user?.role} />
+              </View>
+            )}
+
             {activePassengerMenu === 'ride' && (
               <>
-                <KeralaSafetyCard safety={keralaSafety} />
-                <RevenueCard token={token} role={user?.role} />
-                {activeBooking ? (
-                  <FadeSlideView>
-                    <GlassCard style={styles.premiumCallout}>
-                      <LiveEtaPulse eta={liveEtaLabel} />
-                      <Text style={styles.premiumTitle}>Your AutoBuddy is on the way</Text>
-                      <Text style={styles.premiumMalayalam}>നിങ്ങളുടെ AutoBuddy എത്തിക്കൊണ്ടിരിക്കുന്നു</Text>
-                    </GlassCard>
-                  </FadeSlideView>
-                ) : (
-                  <PremiumEmptyState
-                    title="No active ride"
-                    subtitle="Book a ride to see live driver tracking here."
-                    malayalam="ലൈവ് ഡ്രൈവർ ട്രാക്കിംഗ് ഇവിടെ കാണിക്കും."
-                  />
-                )}
                 <View style={styles.selectedBlock}>
                   <View style={styles.pickupLabelRow}>
                     <Text style={styles.infoTitle}>Pickup Search</Text>
@@ -1206,7 +1202,11 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                     <Text style={styles.actionText}>Refresh</Text>
                   </TouchableOpacity>
                 </View>
+              </>
+            )}
 
+            {activePassengerMenu === 'drivers' && (
+              <>
                 {fare && (
                   <View style={styles.infoBlock}>
                     <Text style={styles.infoTitle}>Fare Estimate</Text>
@@ -1227,7 +1227,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                   </View>
                 )}
 
-                {nearbyDrivers.length > 0 && (
+                {nearbyDrivers.length > 0 ? (
                   <View style={styles.infoBlock}>
                     <View style={styles.driverHeaderRow}>
                       <Text style={styles.infoTitle}>Nearest Drivers (Top 5)</Text>
@@ -1299,6 +1299,10 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                       </Text>
                     )}
                   </View>
+                ) : (
+                  <View style={styles.infoBlock}>
+                    <Text style={styles.infoText}>No nearby drivers yet. Create a booking first.</Text>
+                  </View>
                 )}
 
                 {blockedDriverIds.length > 0 && (
@@ -1314,6 +1318,35 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                     ))}
                   </View>
                 )}
+              </>
+            )}
+
+            {activePassengerMenu === 'trip' && (
+              <>
+                {activeBooking ? (
+                  <FadeSlideView>
+                    <GlassCard style={styles.premiumCallout}>
+                      <LiveEtaPulse eta={liveEtaLabel} />
+                      <Text style={styles.premiumTitle}>Your AutoBuddy is on the way</Text>
+                      <Text style={styles.premiumMalayalam}>Live trip updates are shown here.</Text>
+                    </GlassCard>
+                  </FadeSlideView>
+                ) : (
+                  <PremiumEmptyState
+                    title="No active ride"
+                    subtitle="Book a ride to start tracking live trip details."
+                    malayalam="No active ride now."
+                  />
+                )}
+
+                <View style={styles.actionsRow}>
+                  <TouchableOpacity
+                    style={styles.actionButtonMuted}
+                    onPress={refreshPassengerDashboard}
+                    disabled={loading}>
+                    <Text style={styles.actionText}>Refresh</Text>
+                  </TouchableOpacity>
+                </View>
 
                 {activeBooking && (
                   <>
@@ -1374,7 +1407,6 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                 )}
               </>
             )}
-
             {activePassengerMenu === 'history' && (
               <View style={styles.infoBlock}>
                 <View style={styles.driverHeaderRow}>

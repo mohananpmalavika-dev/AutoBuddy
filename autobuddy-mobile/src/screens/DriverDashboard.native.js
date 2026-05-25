@@ -37,6 +37,14 @@ const DEFAULT_DRIVER_LOCATION = {
 };
 
 const STATUS_FLOW = ['accepted', 'driver_arrived', 'in_progress', 'completed'];
+const DRIVER_MENU_OPTIONS = [
+  { key: 'requests', label: 'Ride Requests' },
+  { key: 'trip', label: 'Active Trip' },
+  { key: 'earnings', label: 'Earnings' },
+  { key: 'fare', label: 'Fare Tools' },
+  { key: 'blocked', label: 'Blocked' },
+  { key: 'trust', label: 'Trust' },
+];
 
 export default function DriverDashboard({ token, user, onLogout, onProfilePress = undefined }) {
   const snapPoints = useMemo(() => ['26%', '55%'], []);
@@ -79,6 +87,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   const [driverFareRequestInfo, setDriverFareRequestInfo] = useState(null);
   const [rideStartOtp, setRideStartOtp] = useState('');
   const [rideEndOtp, setRideEndOtp] = useState('');
+  const [activeDriverMenu, setActiveDriverMenu] = useState('requests');
   const liveLocationRideStatuses = useMemo(() => new Set(['accepted', 'driver_arrived', 'in_progress']), []);
   const activeRideStatus = String(activeRide?.status || '').toLowerCase();
   const activeRideId = String(activeRide?.id || '').trim() || null;
@@ -759,221 +768,268 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
           {!!error && <Text style={styles.error}>{error}</Text>}
           {!!message && <Text style={styles.message}>{message}</Text>}
           {loading && <ActivityIndicator color={COLORS.primary} style={styles.loader} />}
-          <DriverTrustCard token={token} />
-          <RevenueCard token={token} role={user?.role} />
-          <View style={styles.earningsCard}>
-            <TouchableOpacity style={styles.refreshButton} onPress={() => setShowFareCalculator((prev) => !prev)} disabled={loading}>
-              <Text style={styles.refreshText}>{showFareCalculator ? 'Hide Fare Details' : 'Fare Details'}</Text>
-            </TouchableOpacity>
+          <View style={styles.menuRow}>
+            {DRIVER_MENU_OPTIONS.map((menu) => (
+              <TouchableOpacity
+                key={menu.key}
+                style={[styles.menuChip, activeDriverMenu === menu.key && styles.menuChipActive]}
+                onPress={() => setActiveDriverMenu(menu.key)}>
+                <Text style={[styles.menuChipText, activeDriverMenu === menu.key && styles.menuChipTextActive]}>
+                  {menu.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
           </View>
-          {showFareCalculator && (
-            <View style={styles.earningsCard}>
-              <ScrollView
-                style={styles.fareDetailsScroll}
-                contentContainerStyle={styles.fareDetailsContent}
-                nestedScrollEnabled
-                showsVerticalScrollIndicator>
-                <Text style={styles.fareTitle}>Fare Details</Text>
-                {!!pricingRules && (
+
+          {activeDriverMenu === 'trust' && <DriverTrustCard token={token} />}
+
+          {activeDriverMenu === 'earnings' && (
+            <>
+              <RevenueCard token={token} role={user?.role} />
+              {!!earnings ? (
+                <View style={styles.earningsCard}>
+                  <Text style={styles.earningsText}>
+                    Today INR {earnings.today_earnings} ({earnings.today_rides} rides)
+                  </Text>
+                  <Text style={styles.earningsText}>
+                    Lifetime INR {earnings.total_earnings} ({earnings.total_rides} rides)
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.earningsCard}>
+                  <Text style={styles.earningsText}>No earnings summary yet.</Text>
+                </View>
+              )}
+            </>
+          )}
+
+          {activeDriverMenu === 'fare' && (
+            <>
+              <View style={styles.earningsCard}>
+                <TouchableOpacity style={styles.refreshButton} onPress={() => setShowFareCalculator((prev) => !prev)} disabled={loading}>
+                  <Text style={styles.refreshText}>{showFareCalculator ? 'Hide Fare Details' : 'Fare Details'}</Text>
+                </TouchableOpacity>
+              </View>
+              {showFareCalculator && (
+                <View style={styles.earningsCard}>
+                  <ScrollView
+                    style={styles.fareDetailsScroll}
+                    contentContainerStyle={styles.fareDetailsContent}
+                    nestedScrollEnabled
+                    showsVerticalScrollIndicator>
+                    <Text style={styles.fareTitle}>Fare Details</Text>
+                    {!!pricingRules && (
+                      <>
+                        <Text style={styles.earningsText}>
+                          Trip Fare = max(Min Fare, (Base Fare + Distance x Per KM) x Time Multiplier)
+                        </Text>
+                        <Text style={styles.earningsText}>
+                          Base Fare INR {Number(pricingRules.base_fare || 0).toFixed(2)} | Per KM INR {Number(pricingRules.per_km_rate || 0).toFixed(2)}
+                        </Text>
+                        <Text style={styles.earningsText}>
+                          Min Fare INR {Number(pricingRules.minimum_fare || 0).toFixed(2)} | Surge {Number(pricingRules.surge_multiplier || 1).toFixed(2)}x | Night {Number(pricingRules.night_multiplier || 1).toFixed(2)}x
+                        </Text>
+                        <Text style={styles.earningsText}>
+                          Radius A: {Number(pricingRules.driver_base_search_radius_km || 5).toFixed(1)} km | Radius B: {Number(pricingRules.driver_long_distance_search_radius_km || 12).toFixed(1)} km
+                        </Text>
+                        <Text style={styles.earningsText}>
+                          Extra Pickup: if driver distance {'>'} A, extra = (distance - A) x INR {Number(
+                            pricingRules.driver_pickup_surcharge_per_km || pricingRules.per_km_rate || 0,
+                          ).toFixed(2)}
+                        </Text>
+                      </>
+                    )}
+                    <Text style={styles.fareTitle}>Edit Fare Calculator</Text>
+                    <Text style={styles.earningsText}>Status: {driverFareStatus}</Text>
+                    {!!driverFareRequestInfo?.status && (
+                      <Text style={styles.earningsText}>Last Request: {String(driverFareRequestInfo.status)}</Text>
+                    )}
+                    {!!driverFareRequestInfo?.request_type && (
+                      <Text style={styles.earningsText}>Request Type: {String(driverFareRequestInfo.request_type)}</Text>
+                    )}
+                    {!!driverFareRequestInfo?.reject_reason && (
+                      <Text style={styles.error}>Reason: {driverFareRequestInfo.reject_reason}</Text>
+                    )}
+                    <Text style={styles.fieldLabel}>Base Fare (INR)</Text>
+                    <VoiceTextInput value={driverFareConfig.base_fare} onChangeText={(v) => updateDriverFareField('base_fare', v)} style={styles.otpInput} keyboardType="decimal-pad" placeholder="Base fare" placeholderTextColor={COLORS.textMuted} />
+                    <Text style={styles.fieldLabel}>Per KM Rate (INR)</Text>
+                    <VoiceTextInput value={driverFareConfig.per_km_rate} onChangeText={(v) => updateDriverFareField('per_km_rate', v)} style={styles.otpInput} keyboardType="decimal-pad" placeholder="Per KM rate" placeholderTextColor={COLORS.textMuted} />
+                    <Text style={styles.fieldLabel}>Minimum Fare (INR)</Text>
+                    <VoiceTextInput value={driverFareConfig.minimum_fare} onChangeText={(v) => updateDriverFareField('minimum_fare', v)} style={styles.otpInput} keyboardType="decimal-pad" placeholder="Minimum fare" placeholderTextColor={COLORS.textMuted} />
+                    <Text style={styles.fieldLabel}>Surge Multiplier</Text>
+                    <VoiceTextInput value={driverFareConfig.surge_multiplier} onChangeText={(v) => updateDriverFareField('surge_multiplier', v)} style={styles.otpInput} keyboardType="decimal-pad" placeholder="Surge multiplier" placeholderTextColor={COLORS.textMuted} />
+                    <Text style={styles.fieldLabel}>Night Multiplier</Text>
+                    <VoiceTextInput value={driverFareConfig.night_multiplier} onChangeText={(v) => updateDriverFareField('night_multiplier', v)} style={styles.otpInput} keyboardType="decimal-pad" placeholder="Night multiplier" placeholderTextColor={COLORS.textMuted} />
+                    <Text style={styles.fieldLabel}>Radius A (KM)</Text>
+                    <VoiceTextInput value={driverFareConfig.driver_base_search_radius_km} onChangeText={(v) => updateDriverFareField('driver_base_search_radius_km', v)} style={styles.otpInput} keyboardType="decimal-pad" placeholder="Radius A (KM)" placeholderTextColor={COLORS.textMuted} />
+                    <Text style={styles.fieldLabel}>Radius B (KM)</Text>
+                    <VoiceTextInput value={driverFareConfig.driver_long_distance_search_radius_km} onChangeText={(v) => updateDriverFareField('driver_long_distance_search_radius_km', v)} style={styles.otpInput} keyboardType="decimal-pad" placeholder="Radius B (KM)" placeholderTextColor={COLORS.textMuted} />
+                    <Text style={styles.fieldLabel}>Extra Pickup Per KM (INR)</Text>
+                    <VoiceTextInput value={driverFareConfig.driver_pickup_surcharge_per_km} onChangeText={(v) => updateDriverFareField('driver_pickup_surcharge_per_km', v)} style={styles.otpInput} keyboardType="decimal-pad" placeholder="Extra pickup per KM" placeholderTextColor={COLORS.textMuted} />
+                    <Text style={styles.fieldLabel}>Peak Hours (comma-separated)</Text>
+                    <VoiceTextInput value={driverFareConfig.peak_hours} onChangeText={(v) => updateDriverFareField('peak_hours', v)} style={styles.otpInput} placeholder="Peak hours comma separated" placeholderTextColor={COLORS.textMuted} />
+                    <TouchableOpacity style={styles.acceptButton} onPress={submitDriverFareCalculator} disabled={loading}>
+                      <Text style={styles.acceptText}>Submit For Admin Approval</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.refreshButton} onPress={requestResetToAdminDefault} disabled={loading}>
+                      <Text style={styles.refreshText}>Request Reset To Admin Default</Text>
+                    </TouchableOpacity>
+                  </ScrollView>
+                </View>
+              )}
+            </>
+          )}
+
+          {activeDriverMenu === 'blocked' && (
+            blockedPassengerIds.length > 0 ? (
+              <View style={styles.earningsCard}>
+                <Text style={styles.fareTitle}>Blocked Passengers</Text>
+                {blockedPassengerIds.slice(0, 10).map((passengerId) => (
+                  <View key={passengerId} style={styles.blockedRow}>
+                    <Text style={styles.earningsText}>{passengerId}</Text>
+                    <TouchableOpacity
+                      style={styles.blockButton}
+                      onPress={() => toggleBlockedPassenger(passengerId, true)}
+                      disabled={loading}>
+                      <Text style={styles.acceptText}>Unblock</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <View style={styles.earningsCard}>
+                <Text style={styles.earningsText}>No blocked passengers.</Text>
+              </View>
+            )
+          )}
+
+          {activeDriverMenu === 'trip' && (
+            activeRide ? (
+              <View style={styles.requestCard}>
+                <Text style={styles.passengerName}>Active Ride: {activeRide.passenger_name || 'Passenger'}</Text>
+                <Text style={styles.requestDetails}>Status: {activeRide.status}</Text>
+                <Text style={styles.requestDetails}>
+                  Fare INR {activeRide.estimated_fare} | {activeRide.distance_km} km
+                </Text>
+                {!!normalizeLocation(activeRide.pickup_location) && (
+                  <Text style={styles.requestDetails}>
+                    From: {normalizeLocation(activeRide.pickup_location).address}
+                  </Text>
+                )}
+                {!!normalizeLocation(activeRide.drop_location || activeRide.dropoff_location) && (
+                  <Text style={styles.requestDetails}>
+                    To: {normalizeLocation(activeRide.drop_location || activeRide.dropoff_location).address}
+                  </Text>
+                )}
+                {String(activeRide.status) === 'driver_arrived' && (
                   <>
-                    <Text style={styles.earningsText}>
-                      Trip Fare = max(Min Fare, (Base Fare + Distance x Per KM) x Time Multiplier)
-                    </Text>
-                    <Text style={styles.earningsText}>
-                      Base Fare INR {Number(pricingRules.base_fare || 0).toFixed(2)} | Per KM INR {Number(pricingRules.per_km_rate || 0).toFixed(2)}
-                    </Text>
-                    <Text style={styles.earningsText}>
-                      Min Fare INR {Number(pricingRules.minimum_fare || 0).toFixed(2)} | Surge {Number(pricingRules.surge_multiplier || 1).toFixed(2)}x | Night {Number(pricingRules.night_multiplier || 1).toFixed(2)}x
-                    </Text>
-                    <Text style={styles.earningsText}>
-                      Radius A: {Number(pricingRules.driver_base_search_radius_km || 5).toFixed(1)} km | Radius B: {Number(pricingRules.driver_long_distance_search_radius_km || 12).toFixed(1)} km
-                    </Text>
-                    <Text style={styles.earningsText}>
-                      Extra Pickup: if driver distance {'>'} A, extra = (distance - A) x INR {Number(
-                        pricingRules.driver_pickup_surcharge_per_km || pricingRules.per_km_rate || 0,
-                      ).toFixed(2)}
-                    </Text>
+                    <Text style={styles.otpHint}>Ask passenger for OTP to start trip</Text>
+                    <VoiceTextInput
+                      value={rideStartOtp}
+                      onChangeText={setRideStartOtp}
+                      keyboardType="number-pad"
+                      placeholder="Enter passenger OTP"
+                      placeholderTextColor={COLORS.textMuted}
+                      style={styles.otpInput}
+                      maxLength={8}
+                    />
                   </>
                 )}
-                <Text style={styles.fareTitle}>Edit Fare Calculator</Text>
-                <Text style={styles.earningsText}>Status: {driverFareStatus}</Text>
-                {!!driverFareRequestInfo?.status && (
-                  <Text style={styles.earningsText}>Last Request: {String(driverFareRequestInfo.status)}</Text>
+                {String(activeRide.status) === 'in_progress' && (
+                  <>
+                    <Text style={styles.otpHint}>Enter passenger completion OTP (optional)</Text>
+                    <VoiceTextInput
+                      value={rideEndOtp}
+                      onChangeText={setRideEndOtp}
+                      keyboardType="number-pad"
+                      placeholder="Enter completion OTP"
+                      placeholderTextColor={COLORS.textMuted}
+                      style={styles.otpInput}
+                      maxLength={8}
+                    />
+                  </>
                 )}
-                {!!driverFareRequestInfo?.request_type && (
-                  <Text style={styles.earningsText}>Request Type: {String(driverFareRequestInfo.request_type)}</Text>
-                )}
-                {!!driverFareRequestInfo?.reject_reason && (
-                  <Text style={styles.error}>Reason: {driverFareRequestInfo.reject_reason}</Text>
-                )}
-                <Text style={styles.fieldLabel}>Base Fare (INR)</Text>
-                <VoiceTextInput value={driverFareConfig.base_fare} onChangeText={(v) => updateDriverFareField('base_fare', v)} style={styles.otpInput} keyboardType="decimal-pad" placeholder="Base fare" placeholderTextColor={COLORS.textMuted} />
-                <Text style={styles.fieldLabel}>Per KM Rate (INR)</Text>
-                <VoiceTextInput value={driverFareConfig.per_km_rate} onChangeText={(v) => updateDriverFareField('per_km_rate', v)} style={styles.otpInput} keyboardType="decimal-pad" placeholder="Per KM rate" placeholderTextColor={COLORS.textMuted} />
-                <Text style={styles.fieldLabel}>Minimum Fare (INR)</Text>
-                <VoiceTextInput value={driverFareConfig.minimum_fare} onChangeText={(v) => updateDriverFareField('minimum_fare', v)} style={styles.otpInput} keyboardType="decimal-pad" placeholder="Minimum fare" placeholderTextColor={COLORS.textMuted} />
-                <Text style={styles.fieldLabel}>Surge Multiplier</Text>
-                <VoiceTextInput value={driverFareConfig.surge_multiplier} onChangeText={(v) => updateDriverFareField('surge_multiplier', v)} style={styles.otpInput} keyboardType="decimal-pad" placeholder="Surge multiplier" placeholderTextColor={COLORS.textMuted} />
-                <Text style={styles.fieldLabel}>Night Multiplier</Text>
-                <VoiceTextInput value={driverFareConfig.night_multiplier} onChangeText={(v) => updateDriverFareField('night_multiplier', v)} style={styles.otpInput} keyboardType="decimal-pad" placeholder="Night multiplier" placeholderTextColor={COLORS.textMuted} />
-                <Text style={styles.fieldLabel}>Radius A (KM)</Text>
-                <VoiceTextInput value={driverFareConfig.driver_base_search_radius_km} onChangeText={(v) => updateDriverFareField('driver_base_search_radius_km', v)} style={styles.otpInput} keyboardType="decimal-pad" placeholder="Radius A (KM)" placeholderTextColor={COLORS.textMuted} />
-                <Text style={styles.fieldLabel}>Radius B (KM)</Text>
-                <VoiceTextInput value={driverFareConfig.driver_long_distance_search_radius_km} onChangeText={(v) => updateDriverFareField('driver_long_distance_search_radius_km', v)} style={styles.otpInput} keyboardType="decimal-pad" placeholder="Radius B (KM)" placeholderTextColor={COLORS.textMuted} />
-                <Text style={styles.fieldLabel}>Extra Pickup Per KM (INR)</Text>
-                <VoiceTextInput value={driverFareConfig.driver_pickup_surcharge_per_km} onChangeText={(v) => updateDriverFareField('driver_pickup_surcharge_per_km', v)} style={styles.otpInput} keyboardType="decimal-pad" placeholder="Extra pickup per KM" placeholderTextColor={COLORS.textMuted} />
-                <Text style={styles.fieldLabel}>Peak Hours (comma-separated)</Text>
-                <VoiceTextInput value={driverFareConfig.peak_hours} onChangeText={(v) => updateDriverFareField('peak_hours', v)} style={styles.otpInput} placeholder="Peak hours comma separated" placeholderTextColor={COLORS.textMuted} />
-                <TouchableOpacity style={styles.acceptButton} onPress={submitDriverFareCalculator} disabled={loading}>
-                  <Text style={styles.acceptText}>Submit For Admin Approval</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.refreshButton} onPress={requestResetToAdminDefault} disabled={loading}>
-                  <Text style={styles.refreshText}>Request Reset To Admin Default</Text>
-                </TouchableOpacity>
-              </ScrollView>
-            </View>
-          )}
-          {blockedPassengerIds.length > 0 && (
-            <View style={styles.earningsCard}>
-              <Text style={styles.fareTitle}>Blocked Passengers</Text>
-              {blockedPassengerIds.slice(0, 10).map((passengerId) => (
-                <View key={passengerId} style={styles.blockedRow}>
-                  <Text style={styles.earningsText}>{passengerId}</Text>
-                  <TouchableOpacity
-                    style={styles.blockButton}
-                    onPress={() => toggleBlockedPassenger(passengerId, true)}
-                    disabled={loading}>
-                    <Text style={styles.acceptText}>Unblock</Text>
+                {!!nextActionLabel && (
+                  <TouchableOpacity style={styles.acceptButton} onPress={moveRideToNextStatus} disabled={loading}>
+                    <Text style={styles.acceptText}>{nextActionLabel}</Text>
                   </TouchableOpacity>
+                )}
+                <RideCommunicationCard
+                  token={token}
+                  booking={activeRide}
+                  currentUserId={user?.id}
+                  counterpartName={activeRide.passenger_name || 'Passenger'}
+                />
+              </View>
+            ) : (
+              <View style={styles.offlineState}>
+                <Text style={styles.offlineText}>No active ride right now.</Text>
+              </View>
+            )
+          )}
+
+          {activeDriverMenu === 'requests' && (
+            <>
+              {activeRide ? (
+                <View style={styles.earningsCard}>
+                  <Text style={styles.earningsText}>You already have an active ride. Complete it to receive new requests.</Text>
                 </View>
-              ))}
-            </View>
-          )}
-          {/* Subscription details hidden from dashboard per UX request.
-              Subscription information is shown on the user's Profile screen. */}
-
-          {!!earnings && (
-            <View style={styles.earningsCard}>
-              <Text style={styles.earningsText}>
-                Today INR {earnings.today_earnings} ({earnings.today_rides} rides)
-              </Text>
-              <Text style={styles.earningsText}>
-                Lifetime INR {earnings.total_earnings} ({earnings.total_rides} rides)
-              </Text>
-            </View>
-          )}
-
-          {activeRide ? (
-            <View style={styles.requestCard}>
-              <Text style={styles.passengerName}>Active Ride: {activeRide.passenger_name || 'Passenger'}</Text>
-              <Text style={styles.requestDetails}>Status: {activeRide.status}</Text>
-              <Text style={styles.requestDetails}>
-                Fare INR {activeRide.estimated_fare} | {activeRide.distance_km} km
-              </Text>
-              {!!normalizeLocation(activeRide.pickup_location) && (
-                <Text style={styles.requestDetails}>
-                  From: {normalizeLocation(activeRide.pickup_location).address}
-                </Text>
-              )}
-              {!!normalizeLocation(activeRide.drop_location || activeRide.dropoff_location) && (
-                <Text style={styles.requestDetails}>
-                  To: {normalizeLocation(activeRide.drop_location || activeRide.dropoff_location).address}
-                </Text>
-              )}
-              {String(activeRide.status) === 'driver_arrived' && (
-                <>
-                  <Text style={styles.otpHint}>Ask passenger for OTP to start trip</Text>
-                  <VoiceTextInput
-                    value={rideStartOtp}
-                    onChangeText={setRideStartOtp}
-                    keyboardType="number-pad"
-                    placeholder="Enter passenger OTP"
-                    placeholderTextColor={COLORS.textMuted}
-                    style={styles.otpInput}
-                    maxLength={8}
-                  />
-                </>
-              )}
-              {String(activeRide.status) === 'in_progress' && (
-                <>
-                  <Text style={styles.otpHint}>Enter passenger completion OTP (optional)</Text>
-                  <VoiceTextInput
-                    value={rideEndOtp}
-                    onChangeText={setRideEndOtp}
-                    keyboardType="number-pad"
-                    placeholder="Enter completion OTP"
-                    placeholderTextColor={COLORS.textMuted}
-                    style={styles.otpInput}
-                    maxLength={8}
-                  />
-                </>
-              )}
-              {!!nextActionLabel && (
-                <TouchableOpacity style={styles.acceptButton} onPress={moveRideToNextStatus} disabled={loading}>
-                  <Text style={styles.acceptText}>{nextActionLabel}</Text>
-                </TouchableOpacity>
-              )}
-              <RideCommunicationCard
-                token={token}
-                booking={activeRide}
-                currentUserId={user?.id}
-                counterpartName={activeRide.passenger_name || 'Passenger'}
-              />
-            </View>
-          ) : isOnline ? (
-            <View>
-              {pendingRequests.length === 0 ? (
-                <Text style={styles.offlineText}>No pending requests right now.</Text>
+              ) : isOnline ? (
+                <View>
+                  {pendingRequests.length === 0 ? (
+                    <Text style={styles.offlineText}>No pending requests right now.</Text>
+                  ) : (
+                    pendingRequests.map((req) => {
+                      const pickup = normalizeLocation(
+                        req.pickup_location || req.pickup || req.pickup_location_details,
+                      );
+                      const drop = normalizeLocation(
+                        req.drop_location ||
+                        req.dropoff_location ||
+                        req.dropoff ||
+                        req.drop_location_details,
+                      );
+                      return (
+                        <View key={req.id} style={styles.requestCard}>
+                          <View style={styles.requestInfo}>
+                            <Text style={styles.passengerName}>{req.passenger_name}</Text>
+                            <Text style={styles.requestDetails}>
+                              {req.distance_km} km away | INR {req.estimated_fare}
+                            </Text>
+                            {!!pickup && (
+                              <Text style={styles.requestDetails}>From: {pickup.address}</Text>
+                            )}
+                            {!!drop && (
+                              <Text style={styles.requestDetails}>To: {drop.address}</Text>
+                            )}
+                          </View>
+                          <View style={styles.requestButtonsRow}>
+                            <TouchableOpacity
+                              style={styles.acceptButton}
+                              onPress={() => acceptRequest(req.id)}
+                              disabled={loading}>
+                              <Text style={styles.acceptText}>Accept</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={styles.blockButton}
+                              onPress={() => toggleBlockedPassenger(req.passenger_id, blockedPassengerIds.includes(req.passenger_id))}
+                              disabled={loading}>
+                              <Text style={styles.acceptText}>
+                                {blockedPassengerIds.includes(req.passenger_id) ? 'Unblock' : 'Block'}
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      );
+                    })
+                  )}
+                </View>
               ) : (
-                pendingRequests.map((req) => {
-                  const pickup = normalizeLocation(
-                    req.pickup_location || req.pickup || req.pickup_location_details,
-                  );
-                  const drop = normalizeLocation(
-                    req.drop_location ||
-                    req.dropoff_location ||
-                    req.dropoff ||
-                    req.drop_location_details,
-                  );
-                  return (
-                    <View key={req.id} style={styles.requestCard}>
-                      <View style={styles.requestInfo}>
-                        <Text style={styles.passengerName}>{req.passenger_name}</Text>
-                        <Text style={styles.requestDetails}>
-                          {req.distance_km} km away | INR {req.estimated_fare}
-                        </Text>
-                        {!!pickup && (
-                          <Text style={styles.requestDetails}>From: {pickup.address}</Text>
-                        )}
-                        {!!drop && (
-                          <Text style={styles.requestDetails}>To: {drop.address}</Text>
-                        )}
-                      </View>
-                      <View style={styles.requestButtonsRow}>
-                        <TouchableOpacity
-                          style={styles.acceptButton}
-                          onPress={() => acceptRequest(req.id)}
-                          disabled={loading}>
-                          <Text style={styles.acceptText}>Accept</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={styles.blockButton}
-                          onPress={() => toggleBlockedPassenger(req.passenger_id, blockedPassengerIds.includes(req.passenger_id))}
-                          disabled={loading}>
-                          <Text style={styles.acceptText}>
-                            {blockedPassengerIds.includes(req.passenger_id) ? 'Unblock' : 'Block'}
-                          </Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  );
-                })
+                <View style={styles.offlineState}>
+                  <Text style={styles.offlineText}>Go online to receive ride requests.</Text>
+                </View>
               )}
-            </View>
-          ) : (
-            <View style={styles.offlineState}>
-              <Text style={styles.offlineText}>Go online to receive ride requests.</Text>
-            </View>
+            </>
           )}
         </ScrollView>
       </BottomSheet>
@@ -1027,6 +1083,21 @@ const styles = StyleSheet.create({
   sheetScroll: { flex: 1 },
   sheetContent: { padding: 20, flexGrow: 1, paddingBottom: 26 },
   title: { fontSize: 22, fontWeight: '900', color: COLORS.textMain, marginBottom: 10 },
+  menuRow: { flexDirection: 'row', gap: 8, marginBottom: 10, flexWrap: 'wrap' },
+  menuChip: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.background,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+  },
+  menuChipActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: '#E3F2E8',
+  },
+  menuChipText: { color: COLORS.textMain, fontWeight: '700', fontSize: 12 },
+  menuChipTextActive: { color: COLORS.primaryDark },
   locationText: { color: COLORS.textMuted, marginBottom: 8, fontWeight: '600' },
   infoText: { color: COLORS.textMain, marginBottom: 6, fontWeight: '600' },
   warningText: { color: '#D97706', marginBottom: 8, fontWeight: '600' },

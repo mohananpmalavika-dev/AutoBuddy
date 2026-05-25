@@ -18,7 +18,7 @@ import VoiceTextInput from '../components/VoiceTextInput';
 
 const SUBSCRIPTION_PERIOD_OPTIONS = ['monthly', 'quarterly', 'annually', 'per_trip'];
 const ADMIN_MENU_OPTIONS = [
-  { key: 'analytics', label: 'Analytics' },
+  { key: 'analytics', label: 'Overview' },
   { key: 'trips', label: 'Ongoing Trips' },
   { key: 'users', label: 'Users & Live' },
   { key: 'subscriptions', label: 'Subscriptions' },
@@ -125,7 +125,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
   const [approvedDriverFareConfigs, setApprovedDriverFareConfigs] = useState([]);
   const [ongoingTrips, setOngoingTrips] = useState([]);
   const [tripCancelReasons, setTripCancelReasons] = useState({});
-  const [activeAdminMenu, setActiveAdminMenu] = useState('trips');
+  const [activeAdminMenu, setActiveAdminMenu] = useState('analytics');
   const [driverUsers, setDriverUsers] = useState([]);
   const [passengerUsers, setPassengerUsers] = useState([]);
   const [liveCounts, setLiveCounts] = useState({
@@ -676,29 +676,6 @@ export default function AdminDashboard({ token, user, onLogout }) {
         {!!message && <Text style={styles.message}>{message}</Text>}
         {loading && <ActivityIndicator color={COLORS.primary} style={styles.loader} />}
 
-        <View style={styles.statsGrid}>
-          <View style={styles.statCard}>
-            <Text style={styles.statLabel}>Total Users</Text>
-            <Text style={styles.statValue}>{stats.total_users}</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statLabel}>Active Rides</Text>
-            <Text style={styles.statValue}>{stats.active_bookings}</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statLabel}>Drivers</Text>
-            <Text style={styles.statValue}>{stats.total_drivers}</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statLabel}>Passengers</Text>
-            <Text style={styles.statValue}>{stats.total_passengers}</Text>
-          </View>
-          <View style={[styles.statCard, styles.fullWidthCard]}>
-            <Text style={styles.statLabel}>Total Revenue</Text>
-            <Text style={styles.statValue}>INR {stats.total_revenue}</Text>
-          </View>
-        </View>
-
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -717,6 +694,29 @@ export default function AdminDashboard({ token, user, onLogout }) {
         </ScrollView>
 
         <View style={[styles.section, activeAdminMenu !== 'analytics' && styles.hiddenSection]}>
+          <Text style={styles.sectionTitle}>Overview</Text>
+          <View style={styles.statsGrid}>
+            <View style={styles.statCard}>
+              <Text style={styles.statLabel}>Total Users</Text>
+              <Text style={styles.statValue}>{stats.total_users}</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statLabel}>Active Rides</Text>
+              <Text style={styles.statValue}>{stats.active_bookings}</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statLabel}>Drivers</Text>
+              <Text style={styles.statValue}>{stats.total_drivers}</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statLabel}>Passengers</Text>
+              <Text style={styles.statValue}>{stats.total_passengers}</Text>
+            </View>
+            <View style={[styles.statCard, styles.fullWidthCard]}>
+              <Text style={styles.statLabel}>Total Revenue</Text>
+              <Text style={styles.statValue}>INR {stats.total_revenue}</Text>
+            </View>
+          </View>
           <Text style={styles.sectionTitle}>Investor Analytics Visibility</Text>
           <AdminAnalyticsPanel token={token} />
         </View>
