@@ -1,0 +1,3 @@
+No APK uploaded yet.
+
+Build an APK using EAS or your preferred build pipeline and place it here named autobuddy.apk.

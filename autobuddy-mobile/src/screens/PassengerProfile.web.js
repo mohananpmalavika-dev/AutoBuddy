@@ -1,0 +1,687 @@
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Image,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+
+import { apiRequest } from '../lib/api';
+import { COLORS, SHADOWS } from '../theme';
+import WebCommandBar from '../components/WebCommandBar';
+import VoiceTextInput from '../components/VoiceTextInput';
+
+const LOGO_SOURCE = require('../../assets/images/autobuddy-logo.jpg');
+const PLAN_LABELS = {
+  monthly: 'Monthly',
+  quarterly: 'Quarterly',
+  annually: 'Annual',
+  per_trip: 'Per Trip',
+};
+
+export default function PassengerProfile({ token, user, onLogout, onBack }) {
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  // Account info
+  const [userData, setUserData] = useState(user || {});
+  const [subscriptionInfo, setSubscriptionInfo] = useState(null);
+  const [subscriptionConfig, setSubscriptionConfig] = useState(null);
+  const [pendingSubscriptionDues, setPendingSubscriptionDues] = useState([]);
+  const [subscriptionPaymentRef, setSubscriptionPaymentRef] = useState('');
+
+  // Password change
+  const [showPasswordChange, setShowPasswordChange] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
+  // Phone change
+  const [showPhoneChange, setShowPhoneChange] = useState(false);
+  const [newPhone, setNewPhone] = useState('');
+  const [phoneOtp, setPhoneOtp] = useState('');
+  const [phoneOtpSent, setPhoneOtpSent] = useState(false);
+  const [phoneOtpError, setPhoneOtpError] = useState('');
+  const [pendingPhoneVerification, setPendingPhoneVerification] = useState(null);
+  const [phoneOtpSendFailed, setPhoneOtpSendFailed] = useState(false);
+  const [adminRequesting, setAdminRequesting] = useState(false);
+
+  const callApi = async (fn, successMessage) => {
+    try {
+      setLoading(true);
+      setError('');
+      if (successMessage) {
+        setMessage('');
+      }
+      const result = await fn();
+      if (successMessage) {
+        setMessage(successMessage);
+      }
+      return result;
+    } catch (err) {
+      setError(err.message || 'Request failed.');
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const refreshProfileData = useCallback(async () => {
+    try {
+      const data = await apiRequest('/users/profile', { token });
+      if (data) {
+        setUserData(data);
+        setPendingPhoneVerification(data.pending_phone_change || null);
+      }
+    } catch {
+      setError('Failed to load profile data.');
+    }
+
+    try {
+      const [configPayload, subPayload] = await Promise.all([
+        apiRequest('/subscriptions/config', { token }).catch(() => null),
+        apiRequest('/subscriptions/me', { token }),
+      ]);
+      setSubscriptionConfig(configPayload || null);
+      if (subPayload?.subscription) {
+        setSubscriptionInfo(subPayload.subscription);
+      }
+      setPendingSubscriptionDues(Array.isArray(subPayload?.pending_dues) ? subPayload.pending_dues : []);
+    } catch {
+      // Ignore subscription fetch errors
+    }
+  }, [token]);
+
+  const selectSubscriptionPlan = async (planType) => {
+    const done = await callApi(
+      () =>
+        apiRequest('/subscriptions/select', {
+          method: 'PUT',
+          token,
+          body: { plan_type: planType },
+        }),
+      `Selected ${PLAN_LABELS[planType] || planType} plan. Waiting for admin activation.`,
+    );
+    if (done) {
+      await refreshProfileData();
+    }
+  };
+
+  const paySubscriptionDue = async () => {
+    const paid = await callApi(
+      () =>
+        apiRequest('/subscriptions/pay-due', {
+          method: 'POST',
+          token,
+          body: {
+            payment_ref: subscriptionPaymentRef.trim() || undefined,
+          },
+        }),
+      'Subscription due paid.',
+    );
+    if (paid) {
+      setSubscriptionPaymentRef('');
+      await refreshProfileData();
+    }
+  };
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      refreshProfileData().catch(() => null);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [refreshProfileData]);
+
+  const changePassword = async () => {
+    if (!currentPassword.trim() || !newPassword.trim() || !confirmPassword.trim()) {
+      setError('All password fields are required.');
+      return;
+    }
+    if (newPassword.length < 8) {
+      setError('New password must be at least 8 characters.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError('New passwords do not match.');
+      return;
+    }
+
+    const success = await callApi(
+      () =>
+        apiRequest('/users/change-password', {
+          method: 'PUT',
+          token,
+          body: {
+            current_password: currentPassword,
+            new_password: newPassword,
+          },
+        }),
+      'Password changed successfully.',
+    );
+
+    if (success) {
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setShowPasswordChange(false);
+    }
+  };
+
+  const sendPhoneOtp = async () => {
+    const normalizedPhone = String(newPhone || '').trim();
+    if (!normalizedPhone) {
+      setPhoneOtpError('Please enter a phone number.');
+      return;
+    }
+    if (!/^[0-9]{10}$/.test(normalizedPhone)) {
+      setPhoneOtpError('Phone number must be exactly 10 digits.');
+      return;
+    }
+    if (normalizedPhone === userData?.phone) {
+      setPhoneOtpError('New phone must be different from current phone.');
+      return;
+    }
+
+    const result = await callApi(
+      () =>
+        apiRequest('/users/request-phone-change', {
+          method: 'POST',
+          token,
+          body: { new_phone: normalizedPhone },
+        }),
+      'OTP sent to your new phone number.',
+    );
+
+    if (result) {
+      setPhoneOtpSent(true);
+      setPhoneOtpError('');
+      setPhoneOtpSendFailed(false);
+    } else {
+      setPhoneOtpSendFailed(true);
+    }
+  };
+
+  const requestAdminPhoneChange = async () => {
+    const normalizedPhone = String(newPhone || '').trim();
+    if (!normalizedPhone) {
+      setPhoneOtpError('Please enter a phone number.');
+      return;
+    }
+    setAdminRequesting(true);
+    setError('');
+    try {
+      await apiRequest('/users/request-phone-change-admin', {
+        method: 'POST',
+        token,
+        body: { new_phone: normalizedPhone },
+      });
+      setMessage('Requested admin verification for phone change.');
+      setPhoneOtpSendFailed(false);
+      setShowPhoneChange(false);
+      setPendingPhoneVerification(normalizedPhone);
+      setNewPhone('');
+    } catch (err) {
+      setError(err.message || 'Could not request admin verification.');
+    } finally {
+      setAdminRequesting(false);
+    }
+  };
+
+  const verifyPhoneOtp = async () => {
+    const normalizedOtp = String(phoneOtp || '').trim();
+    if (!normalizedOtp) {
+      setPhoneOtpError('Please enter the OTP.');
+      return;
+    }
+
+    const result = await callApi(
+      () =>
+        apiRequest('/users/verify-phone-change', {
+          method: 'POST',
+          token,
+          body: {
+            new_phone: newPhone,
+            otp: normalizedOtp,
+          },
+        }),
+      'Phone number change submitted for admin approval.',
+    );
+
+    if (result) {
+      setPendingPhoneVerification(newPhone);
+      setNewPhone('');
+      setPhoneOtp('');
+      setPhoneOtpSent(false);
+      setShowPhoneChange(false);
+      setPhoneOtpError('');
+    }
+  };
+
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <View style={styles.container}>
+        <WebCommandBar />
+        <View style={styles.panel}>
+          <View style={styles.headerRow}>
+            <TouchableOpacity onPress={onBack} style={styles.backButton}>
+              <Text style={styles.backButtonText}>Back</Text>
+            </TouchableOpacity>
+            <View style={styles.headerUserBlock}>
+              <Text style={styles.hello}>Profile</Text>
+              <Text style={styles.sub}>Account Settings</Text>
+            </View>
+            <Image source={LOGO_SOURCE} style={styles.headerLogo} resizeMode="contain" />
+            <TouchableOpacity onPress={onLogout} style={styles.logoutButton}>
+              <Text style={styles.logoutText}>Logout</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView showsVerticalScrollIndicator={false}>
+            {loading && <ActivityIndicator color={COLORS.primary} style={styles.loader} />}
+            {!!error && <Text style={styles.error}>{error}</Text>}
+            {!!message && <Text style={styles.message}>{message}</Text>}
+
+            {/* User Account Information */}
+            <View style={styles.infoBlock}>
+              <Text style={styles.infoTitle}>Account Information</Text>
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Name:</Text>
+                <Text style={styles.infoValue}>{userData?.name || 'N/A'}</Text>
+              </View>
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Email:</Text>
+                <Text style={styles.infoValue}>{userData?.email || 'N/A'}</Text>
+              </View>
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Phone:</Text>
+                <Text style={styles.infoValue}>{userData?.phone || 'N/A'}</Text>
+              </View>
+              {pendingPhoneVerification && (
+                <View style={styles.warningBox}>
+                  <Text style={styles.warningText}>
+                    Phone change to {pendingPhoneVerification} is pending admin approval.
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {/* Subscription Information */}
+            {subscriptionInfo && (
+              <View style={styles.infoBlock}>
+                <Text style={styles.infoTitle}>Subscription Details</Text>
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>Plan:</Text>
+                  <Text style={styles.infoValue}>
+                    {PLAN_LABELS[subscriptionInfo.plan_type] || subscriptionInfo.plan_type || 'None'}
+                  </Text>
+                </View>
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>Status:</Text>
+                  <Text style={styles.infoValue}>
+                    {subscriptionInfo.is_active && subscriptionInfo.activated_by_admin ? 'Active' : 'Inactive'}
+                  </Text>
+                </View>
+                {subscriptionInfo.period_expires_at && (
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>Expires:</Text>
+                    <Text style={styles.infoValue}>{String(subscriptionInfo.period_expires_at)}</Text>
+                  </View>
+                )}
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>Outstanding Due:</Text>
+                  <Text style={styles.infoValue}>
+                    INR {Number(subscriptionInfo.outstanding_amount || 0).toFixed(2)}
+                  </Text>
+                </View>
+                {subscriptionConfig?.plans && (
+                  <View style={styles.subscriptionPlanRow}>
+                    {Object.entries(subscriptionConfig.plans)
+                      .filter(([, planData]) => Number(planData?.amount || 0) > 0)
+                      .map(([planType, planData]) => {
+                        const active = Boolean(planData?.active);
+                        const amount = Number(planData?.amount || 0).toFixed(2);
+                        return (
+                          <TouchableOpacity
+                            key={planType}
+                            style={[
+                              styles.subscriptionPlanChip,
+                              subscriptionInfo.plan_type === planType && styles.subscriptionPlanChipSelected,
+                              !active && styles.subscriptionPlanChipDisabled,
+                            ]}
+                            disabled={!active || loading}
+                            onPress={() => selectSubscriptionPlan(planType)}>
+                            <Text
+                              style={[
+                                styles.subscriptionPlanChipText,
+                                subscriptionInfo.plan_type === planType && styles.subscriptionPlanChipTextSelected,
+                              ]}>
+                              {PLAN_LABELS[planType] || planType} (INR {amount})
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                  </View>
+                )}
+                {Number(subscriptionInfo.outstanding_amount || 0) > 0 && (
+                  <View style={styles.subscriptionDueBox}>
+                    <VoiceTextInput
+                      style={styles.input}
+                      value={subscriptionPaymentRef}
+                      onChangeText={setSubscriptionPaymentRef}
+                      placeholder="Payment reference (optional)"
+                      placeholderTextColor={COLORS.textMuted}
+                    />
+                    <TouchableOpacity
+                      style={styles.actionButton}
+                      onPress={paySubscriptionDue}
+                      disabled={loading}>
+                      <Text style={styles.actionText}>Pay Due</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+                {pendingSubscriptionDues.length > 0 && (
+                  <>
+                    <Text style={styles.infoTitle}>Pending Dues</Text>
+                    {pendingSubscriptionDues.slice(0, 3).map((due) => (
+                      <Text key={due.id} style={styles.infoText}>
+                        Cycle {due.cycle_number}: INR {Number(due.amount || 0).toFixed(2)}
+                      </Text>
+                    ))}
+                  </>
+                )}
+              </View>
+            )}
+
+            {/* Password Change */}
+            {!showPasswordChange && (
+              <TouchableOpacity
+                style={styles.actionButton}
+                onPress={() => setShowPasswordChange(true)}
+                disabled={loading}>
+                <Text style={styles.actionText}>Change Password</Text>
+              </TouchableOpacity>
+            )}
+
+            {showPasswordChange && (
+              <View style={styles.infoBlock}>
+                <Text style={styles.infoTitle}>Change Password</Text>
+                <VoiceTextInput
+                  style={styles.input}
+                  value={currentPassword}
+                  onChangeText={setCurrentPassword}
+                  placeholder="Current password"
+                  placeholderTextColor={COLORS.textMuted}
+                  secureTextEntry={true}
+                />
+                <VoiceTextInput
+                  style={styles.input}
+                  value={newPassword}
+                  onChangeText={setNewPassword}
+                  placeholder="New password (min 8 characters)"
+                  placeholderTextColor={COLORS.textMuted}
+                  secureTextEntry={true}
+                />
+                <VoiceTextInput
+                  style={styles.input}
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  placeholder="Confirm new password"
+                  placeholderTextColor={COLORS.textMuted}
+                  secureTextEntry={true}
+                />
+                <View style={styles.buttonRow}>
+                  <TouchableOpacity
+                    style={styles.actionButton}
+                    onPress={changePassword}
+                    disabled={loading}>
+                    <Text style={styles.actionText}>Update Password</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.cancelButton}
+                    onPress={() => {
+                      setShowPasswordChange(false);
+                      setCurrentPassword('');
+                      setNewPassword('');
+                      setConfirmPassword('');
+                      setError('');
+                    }}
+                    disabled={loading}>
+                    <Text style={styles.cancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {/* Phone Number Change */}
+            {!showPhoneChange && (
+              <TouchableOpacity
+                style={styles.actionButton}
+                onPress={() => setShowPhoneChange(true)}
+                disabled={loading}>
+                <Text style={styles.actionText}>Change Phone Number</Text>
+              </TouchableOpacity>
+            )}
+
+            {showPhoneChange && (
+              <View style={styles.infoBlock}>
+                <Text style={styles.infoTitle}>Change Phone Number</Text>
+                <Text style={styles.infoText}>Current: {userData?.phone}</Text>
+
+                {!phoneOtpSent ? (
+                  <>
+                    <VoiceTextInput
+                      style={styles.input}
+                      value={newPhone}
+                      onChangeText={(text) => {
+                        setNewPhone(text);
+                        setPhoneOtpError('');
+                      }}
+                      placeholder="New phone number (10 digits)"
+                      placeholderTextColor={COLORS.textMuted}
+                      keyboardType="phone-pad"
+                    />
+                    {phoneOtpError && <Text style={styles.error}>{phoneOtpError}</Text>}
+                    <TouchableOpacity
+                      style={styles.actionButton}
+                      onPress={sendPhoneOtp}
+                      disabled={loading}>
+                      <Text style={styles.actionText}>Send OTP</Text>
+                    </TouchableOpacity>
+                    {phoneOtpSendFailed && (
+                      <TouchableOpacity
+                        style={[styles.actionButton, { marginTop: 8 }]}
+                        onPress={requestAdminPhoneChange}
+                        disabled={adminRequesting || loading}>
+                        <Text style={styles.actionText}>{adminRequesting ? 'Requesting...' : 'Request admin verification'}</Text>
+                      </TouchableOpacity>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.infoText}>
+                      OTP sent to {newPhone}. Enter it below to verify:
+                    </Text>
+                    <VoiceTextInput
+                      style={styles.input}
+                      value={phoneOtp}
+                      onChangeText={(text) => {
+                        setPhoneOtp(text);
+                        setPhoneOtpError('');
+                      }}
+                      placeholder="Enter OTP"
+                      placeholderTextColor={COLORS.textMuted}
+                    />
+                    {phoneOtpError && <Text style={styles.error}>{phoneOtpError}</Text>}
+                    <View style={styles.buttonRow}>
+                      <TouchableOpacity
+                        style={styles.actionButton}
+                        onPress={verifyPhoneOtp}
+                        disabled={loading}>
+                        <Text style={styles.actionText}>Verify & Change</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.actionButton}
+                        onPress={sendPhoneOtp}
+                        disabled={loading}>
+                        <Text style={styles.actionText}>Resend OTP</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                )}
+
+                <TouchableOpacity
+                  style={styles.cancelButton}
+                  onPress={() => {
+                    setShowPhoneChange(false);
+                    setNewPhone('');
+                    setPhoneOtp('');
+                    setPhoneOtpSent(false);
+                    setPhoneOtpError('');
+                    setError('');
+                  }}
+                  disabled={loading}>
+                  <Text style={styles.cancelText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            <View style={styles.spacer} />
+          </ScrollView>
+        </View>
+      </View>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: '#F9FDFB' },
+  container: { flex: 1 },
+  panel: { flex: 1, marginHorizontal: 20, marginVertical: 16 },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  backButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#F0F0F0',
+    borderRadius: 8,
+  },
+  backButtonText: {
+    color: '#202020',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  headerUserBlock: { flex: 1, marginLeft: 12 },
+  hello: { fontSize: 22, fontWeight: '700', color: '#202020' },
+  sub: { fontSize: 13, color: '#666666', marginTop: 2 },
+  headerLogo: { width: 50, height: 50, borderRadius: 25 },
+  logoutButton: {
+    marginLeft: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#FFE3E3',
+    borderRadius: 8,
+  },
+  logoutText: { color: '#D32F2F', fontWeight: '600', fontSize: 13 },
+  loader: { marginVertical: 16 },
+  error: { color: '#D32F2F', marginVertical: 8, fontWeight: '600' },
+  message: { color: '#2E7D32', marginVertical: 8, fontWeight: '600' },
+  warningBox: {
+    borderWidth: 1,
+    borderColor: '#FFA726',
+    borderRadius: 8,
+    backgroundColor: '#FFF3E0',
+    padding: 10,
+    marginTop: 8,
+  },
+  warningText: { color: '#E65100', fontSize: 13, fontWeight: '500' },
+  infoBlock: {
+    borderWidth: 1,
+    borderColor: '#D7E2DA',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+    backgroundColor: '#FAFAFA',
+    ...SHADOWS.soft,
+  },
+  infoTitle: { fontSize: 16, fontWeight: '700', color: '#202020', marginBottom: 10 },
+  infoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+  },
+  infoLabel: { fontSize: 13, fontWeight: '600', color: '#666666' },
+  infoValue: { fontSize: 13, fontWeight: '500', color: '#202020' },
+  infoText: { fontSize: 13, color: '#555555', marginBottom: 8 },
+  input: {
+    borderWidth: 1,
+    borderColor: '#CBD9D0',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 10,
+    backgroundColor: '#FFFFFF',
+    color: '#202020',
+  },
+  subscriptionPlanRow: {
+    marginTop: 8,
+    gap: 8,
+  },
+  subscriptionPlanChip: {
+    borderWidth: 1,
+    borderColor: '#CBD9D0',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    backgroundColor: '#F6FAF7',
+  },
+  subscriptionPlanChipSelected: {
+    borderColor: COLORS.primary,
+    backgroundColor: '#E3F2E8',
+  },
+  subscriptionPlanChipDisabled: {
+    opacity: 0.5,
+  },
+  subscriptionPlanChipText: {
+    color: '#355243',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  subscriptionPlanChipTextSelected: {
+    color: COLORS.primaryDark,
+  },
+  subscriptionDueBox: {
+    marginTop: 8,
+    gap: 8,
+  },
+  buttonRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
+  actionButton: {
+    backgroundColor: '#2E7D32',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    flex: 1,
+    ...SHADOWS.soft,
+  },
+  actionText: { color: '#fff', fontWeight: '700', textAlign: 'center' },
+  cancelButton: {
+    backgroundColor: '#E0E0E0',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    flex: 1,
+  },
+  cancelText: { color: '#202020', fontWeight: '700', textAlign: 'center' },
+  spacer: { height: 20 },
+});

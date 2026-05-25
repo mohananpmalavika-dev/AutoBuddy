@@ -1,0 +1,100 @@
+{
+  "expo": {
+    "name": "autobuddy-mobile",
+    "slug": "autobuddy-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "autobuddymobile",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "icon": "./assets/expo.icon",
+      "bundleIdentifier": "com.autobuddy.mobile",
+      "associatedDomains": [
+        "applinks:auto-buddy.in",
+        "applinks:www.auto-buddy.in"
+      ]
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "package": "com.autobuddy.mobile",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "auto-buddy.in",
+              "pathPrefix": "/"
+            },
+            {
+              "scheme": "https",
+              "host": "www.auto-buddy.in",
+              "pathPrefix": "/"
+            },
+            {
+              "scheme": "autobuddymobile",
+              "pathPrefix": "/"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ],
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#208AEF",
+          "android": {
+            "image": "./assets/images/splash-icon.png",
+            "imageWidth": 76
+          }
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow AutoBuddy to access your location while using the app.",
+          "locationAlwaysAndWhenInUsePermission": "Allow AutoBuddy to access your location for live ride tracking in background.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isIosBackgroundLocationEnabled": true
+        }
+      ],
+      "expo-maps",
+      [
+        "@react-native-voice/voice",
+        {
+          "microphonePermission": "Allow AutoBuddy to access your microphone for voice input.",
+          "speechRecognitionPermission": "Allow AutoBuddy to convert your speech to text for form input."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "f75fe77b-e77a-4666-91e5-312a2fc793fd"
+      }
+    },
+    "owner": "dhanyamohan"
+  }
+}

@@ -1,0 +1,34 @@
+# Fly.io config for AutoBuddy backend
+# Replace `app` value or set via `flyctl launch`.
+app = "autobuddy-backend"
+
+# Build from the backend Dockerfile
+[build]
+  dockerfile = "backend/Dockerfile"
+
+[env]
+# Do NOT store secrets here; set them via `flyctl secrets set` instead.
+# Example environment variables (set these as secrets):
+# MONGO_URL, DB_NAME, JWT_SECRET, STRIPE_SECRET_KEY, FCM_SERVER_KEY
+
+[[services]]
+  internal_port = 8001
+  protocol = "tcp"
+
+  [services.concurrency]
+    type = "connections"
+    soft_limit = 20
+    hard_limit = 25
+
+  [[services.ports]]
+    handlers = ["http"]
+    port = 80
+
+  [[services.ports]]
+    port = 443
+
+  [services.tcp_checks]
+    interval = "15s"
+    timeout = "2s"
+    grace_period = "1m"
+    restart_limit = 0

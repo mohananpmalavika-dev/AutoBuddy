@@ -1,0 +1,1228 @@
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from dotenv import load_dotenv
+from starlette.middleware.cors import CORSMiddleware
+from motor.motor_asyncio import AsyncIOMotorClient
+import os
+import logging
+from pathlib import Path
+from pydantic import BaseModel, Field, EmailStr
+from typing import List, Optional, Dict, Any
+import uuid
+from datetime import datetime, timedelta
+import bcrypt
+import jwt
+from enum import Enum
+import math
+import socketio
+import asyncio
+
+ROOT_DIR = Path(__file__).parent
+load_dotenv(ROOT_DIR / '.env')
+
+# MongoDB connection
+mongo_url = os.environ['MONGO_URL']
+client = AsyncIOMotorClient(mongo_url)
+db = client[os.environ.get('DB_NAME', 'autorickshaw_db')]
+
+# JWT Configuration
+JWT_SECRET = os.environ.get('JWT_SECRET', 'autorickshaw-secret-key-change-in-production')
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRATION_HOURS = 24 * 7  # 7 days
+
+# Create the main app
+app = FastAPI(title="AutoRickshaw Booking API")
+
+# Socket.IO setup
+sio = socketio.AsyncServer(
+    async_mode='asgi',
+    cors_allowed_origins='*',
+    logger=True,
+    engineio_logger=False
+)
+socket_app = socketio.ASGIApp(sio, app)
+
+# Connected users mapping (user_id -> sid)
+connected_users: Dict[str, str] = {}
+
+# Create a router with the /api prefix
+api_router = APIRouter(prefix="/api")
+
+security = HTTPBearer()
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# ==================== STARTUP SEED ====================
+async def seed_admin():
+    """Create default demo accounts and indexes if they don't exist"""
+    try:
+        demo_users = [
+            {
+                "email": "admin@test.com",
+                "name": "Admin",
+                "phone": "9999999999",
+                "role": UserRole.ADMIN,
+                "password": "test123",
+            },
+            {
+                "email": "passenger@test.com",
+                "name": "Test Passenger",
+                "phone": "9876543210",
+                "role": UserRole.PASSENGER,
+                "password": "test123",
+            },
+            {
+                "email": "driver@test.com",
+                "name": "Test Driver",
+                "phone": "9123456780",
+                "role": UserRole.DRIVER,
+                "password": "test123",
+            },
+        ]
+
+        for entry in demo_users:
+            existing = await db.users.find_one({"email": entry["email"]})
+            if existing:
+                continue
+
+            user_id = str(uuid.uuid4())
+            user_doc = {
+                "id": user_id,
+                "email": entry["email"],
+                "password_hash": hash_password(entry["password"]),
+                "name": entry["name"],
+                "phone": entry["phone"],
+                "role": entry["role"],
+                "created_at": datetime.utcnow(),
+                "is_verified": True,
+            }
+            await db.users.insert_one(user_doc)
+            logger.info(f"Default account created: {entry['email']} / {entry['password']}")
+
+            if entry["role"] == UserRole.DRIVER:
+                await db.drivers.update_one(
+                    {"user_id": user_id},
+                    {
+                        "$setOnInsert": {
+                            "user_id": user_id,
+                            "vehicle_info": {
+                                "vehicle_number": "KA 01 AB 1234",
+                                "vehicle_model": "Bajaj RE",
+                                "vehicle_color": "Green & Yellow",
+                            },
+                            "is_available": True,
+                            "current_location": {
+                                "latitude": 12.9718,
+                                "longitude": 77.5938,
+                                "address": "Richmond Circle, Bengaluru",
+                            },
+                            "rating": 5.0,
+                            "total_rides": 0,
+                            "fare_multiplier": 1.0,
+                        }
+                    },
+                    upsert=True,
+                )
+
+        # Create essential indexes
+        await db.users.create_index("email", unique=True)
+        await db.users.create_index("id", unique=True)
+        await db.bookings.create_index("id")
+        await db.bookings.create_index("passenger_id")
+        await db.bookings.create_index("driver_id")
+        await db.drivers.create_index("user_id", unique=True)
+        await db.push_tokens.create_index("user_id", unique=True)
+    except Exception as e:
+        logger.error(f"Seed error: {e}")
+        import traceback
+        traceback.print_exc()
+
+@app.on_event("startup")
+async def on_startup():
+    await seed_admin()
+
+# ==================== ENUMS ====================
+class UserRole(str, Enum):
+    PASSENGER = "passenger"
+    DRIVER = "driver"
+    ADMIN = "admin"
+
+class BookingStatus(str, Enum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    DRIVER_ARRIVED = "driver_arrived"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+
+class PaymentMethod(str, Enum):
+    CASH = "cash"
+    ONLINE = "online"
+
+# ==================== MODELS ====================
+class Location(BaseModel):
+    latitude: float
+    longitude: float
+    address: Optional[str] = None
+
+class UserBase(BaseModel):
+    email: EmailStr
+    name: str
+    phone: str
+    role: UserRole = UserRole.PASSENGER
+
+class UserCreate(UserBase):
+    password: str
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+class UserResponse(BaseModel):
+    id: str
+    email: str
+    name: str
+    phone: str
+    role: UserRole
+    created_at: datetime
+
+class AuthResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserResponse
+
+class VehicleInfo(BaseModel):
+    vehicle_number: str
+    vehicle_model: str
+    vehicle_color: str
+
+class DriverProfile(BaseModel):
+    user_id: str
+    vehicle_info: VehicleInfo
+    is_available: bool = False
+    current_location: Optional[Location] = None
+    rating: float = 5.0
+    total_rides: int = 0
+    fare_multiplier: float = 1.0  # Driver can set their own multiplier
+
+class DriverProfileCreate(BaseModel):
+    vehicle_info: VehicleInfo
+
+class DriverLocationUpdate(BaseModel):
+    location: Location
+
+class DriverAvailabilityUpdate(BaseModel):
+    is_available: bool
+
+class DriverFareUpdate(BaseModel):
+    fare_multiplier: float = Field(ge=0.8, le=2.0)  # 0.8x to 2x
+
+class BookingCreate(BaseModel):
+    pickup_location: Location
+    drop_location: Location
+    payment_method: PaymentMethod = PaymentMethod.CASH
+
+class BookingResponse(BaseModel):
+    id: str
+    passenger_id: str
+    passenger_name: Optional[str] = None
+    driver_id: Optional[str] = None
+    driver_name: Optional[str] = None
+    driver_phone: Optional[str] = None
+    vehicle_info: Optional[VehicleInfo] = None
+    pickup_location: Location
+    drop_location: Location
+    status: BookingStatus
+    estimated_fare: float
+    final_fare: Optional[float] = None
+    distance_km: float
+    payment_method: PaymentMethod
+    created_at: datetime
+    updated_at: datetime
+
+class BookingStatusUpdate(BaseModel):
+    status: BookingStatus
+
+class FareEstimateRequest(BaseModel):
+    pickup_location: Location
+    drop_location: Location
+
+class FareEstimateResponse(BaseModel):
+    base_fare: float
+    distance_km: float
+    distance_fare: float
+    surge_multiplier: float
+    total_fare: float
+    breakdown: Dict[str, Any]
+
+class TripTipsRequest(BaseModel):
+    pickup_address: str
+    drop_address: str
+    payment_method: PaymentMethod = PaymentMethod.CASH
+    estimated_fare: Optional[float] = None
+
+class TripTipsResponse(BaseModel):
+    tips: str
+    source: str = "fallback"
+class SupportChatRequest(BaseModel):
+    message: str = Field(min_length=3, max_length=600)
+    context: Optional[Dict[str, Any]] = None
+
+class SupportChatResponse(BaseModel):
+    reply: str
+    source: str = "fallback"
+
+class DriverAdviceRequest(BaseModel):
+    city: Optional[str] = "Bengaluru"
+    available_hours: Optional[int] = 8
+    notes: Optional[str] = None
+
+class DriverAdviceResponse(BaseModel):
+    advice: str
+    source: str = "fallback"
+
+class AdminInsightsResponse(BaseModel):
+    insights: str
+    source: str = "fallback"
+
+class PricingRule(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    base_fare: float = 25.0  # Base fare in rupees
+    per_km_rate: float = 12.0  # Per km rate
+    peak_hours: List[int] = [8, 9, 17, 18, 19]  # Peak hours (24h format)
+    surge_multiplier: float = 1.5  # During peak hours
+    night_multiplier: float = 1.3  # 11 PM - 5 AM
+    minimum_fare: float = 30.0
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+class RatingCreate(BaseModel):
+    booking_id: str
+    rating: int = Field(ge=1, le=5)
+    comment: Optional[str] = None
+
+class NearbyDriverResponse(BaseModel):
+    driver_id: str
+    name: str
+    phone: str
+    vehicle_info: VehicleInfo
+    rating: float
+    distance_km: float
+    fare_multiplier: float
+    location: Location
+
+# ==================== HELPER FUNCTIONS ====================
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+def verify_password(password: str, hashed: str) -> bool:
+    return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+
+def create_token(user_id: str, role: str) -> str:
+    payload = {
+        "sub": user_id,
+        "role": role,
+        "exp": datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS)
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+def decode_token(token: str) -> dict:
+    try:
+        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    payload = decode_token(credentials.credentials)
+    user = await db.users.find_one({"id": payload["sub"]})
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    return user
+
+def calculate_distance(loc1: Location, loc2: Location) -> float:
+    """Calculate distance between two points using Haversine formula"""
+    R = 6371  # Earth's radius in kilometers
+    lat1, lon1 = math.radians(loc1.latitude), math.radians(loc1.longitude)
+    lat2, lon2 = math.radians(loc2.latitude), math.radians(loc2.longitude)
+    
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    
+    a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
+    c = 2 * math.asin(math.sqrt(a))
+    
+    return round(R * c, 2)
+
+async def get_pricing_rules() -> PricingRule:
+    """Get current pricing rules from DB or return defaults"""
+    rules = await db.pricing_rules.find_one({})
+    if rules:
+        return PricingRule(**rules)
+    # Return default pricing
+    return PricingRule()
+
+def get_time_multiplier() -> float:
+    """Get surge multiplier based on current time"""
+    current_hour = datetime.now().hour
+    # Night hours (11 PM - 5 AM)
+    if current_hour >= 23 or current_hour < 5:
+        return 1.3
+    # Peak hours
+    if current_hour in [8, 9, 17, 18, 19]:
+        return 1.5
+    return 1.0
+
+def generate_fallback_trip_tips(request: TripTipsRequest) -> str:
+    """Return deterministic tips using free local logic."""
+    tips = [
+        f"Trip: {request.pickup_address} to {request.drop_address}.",
+        "Share exact pickup landmark in chat/call to reduce waiting time.",
+    ]
+
+    if request.payment_method == PaymentMethod.CASH:
+        tips.append("Keep small cash change ready for smoother drop-off.")
+    else:
+        tips.append("Confirm online payment in-app before ride completion.")
+
+    if request.estimated_fare:
+        tips.append(f"Estimated fare is about Rs. {round(request.estimated_fare, 2)}.")
+    tips.append("During peak traffic, allow 5-10 extra minutes pickup buffer.")
+    return " ".join(tips)
+
+# ==================== AUTH ENDPOINTS ====================
+@api_router.post("/auth/register", response_model=AuthResponse)
+async def register(user_data: UserCreate):
+    # Check if email exists
+    existing = await db.users.find_one({"email": user_data.email})
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    user_id = str(uuid.uuid4())
+    user_dict = {
+        "id": user_id,
+        "email": user_data.email,
+        "name": user_data.name,
+        "phone": user_data.phone,
+        "role": user_data.role,
+        "password_hash": hash_password(user_data.password),
+        "created_at": datetime.utcnow()
+    }
+    
+    await db.users.insert_one(user_dict)
+    
+    # If driver, create driver profile placeholder
+    if user_data.role == UserRole.DRIVER:
+        driver_profile = {
+            "user_id": user_id,
+            "vehicle_info": None,
+            "is_available": False,
+            "current_location": None,
+            "rating": 5.0,
+            "total_rides": 0,
+            "fare_multiplier": 1.0
+        }
+        await db.drivers.insert_one(driver_profile)
+    
+    token = create_token(user_id, user_data.role)
+    
+    return AuthResponse(
+        access_token=token,
+        user=UserResponse(
+            id=user_id,
+            email=user_data.email,
+            name=user_data.name,
+            phone=user_data.phone,
+            role=user_data.role,
+            created_at=user_dict["created_at"]
+        )
+    )
+
+@api_router.post("/auth/login", response_model=AuthResponse)
+async def login(credentials: UserLogin):
+    user = await db.users.find_one({"email": credentials.email})
+    if not user or not verify_password(credentials.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    token = create_token(user["id"], user["role"])
+    
+    return AuthResponse(
+        access_token=token,
+        user=UserResponse(
+            id=user["id"],
+            email=user["email"],
+            name=user["name"],
+            phone=user["phone"],
+            role=user["role"],
+            created_at=user["created_at"]
+        )
+    )
+
+@api_router.get("/auth/me", response_model=UserResponse)
+async def get_me(current_user: dict = Depends(get_current_user)):
+    return UserResponse(
+        id=current_user["id"],
+        email=current_user["email"],
+        name=current_user["name"],
+        phone=current_user["phone"],
+        role=current_user["role"],
+        created_at=current_user["created_at"]
+    )
+
+# ==================== DRIVER ENDPOINTS ====================
+@api_router.post("/drivers/profile")
+async def create_driver_profile(profile: DriverProfileCreate, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] != UserRole.DRIVER:
+        raise HTTPException(status_code=403, detail="Only drivers can create driver profile")
+    
+    # Update driver profile
+    await db.drivers.update_one(
+        {"user_id": current_user["id"]},
+        {"$set": {"vehicle_info": profile.vehicle_info.dict()}},
+        upsert=True
+    )
+    
+    return {"message": "Driver profile updated"}
+
+@api_router.get("/drivers/profile")
+async def get_driver_profile(current_user: dict = Depends(get_current_user)):
+    if current_user["role"] != UserRole.DRIVER:
+        raise HTTPException(status_code=403, detail="Only drivers can access this")
+    
+    profile = await db.drivers.find_one({"user_id": current_user["id"]})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Driver profile not found")
+    
+    # Remove MongoDB ObjectId for JSON serialization
+    if "_id" in profile:
+        profile["_id"] = str(profile["_id"])
+    
+    return profile
+
+@api_router.put("/drivers/location")
+async def update_driver_location(location_update: DriverLocationUpdate, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] != UserRole.DRIVER:
+        raise HTTPException(status_code=403, detail="Only drivers can update location")
+    
+    await db.drivers.update_one(
+        {"user_id": current_user["id"]},
+        {"$set": {"current_location": location_update.location.dict()}}
+    )
+    
+    return {"message": "Location updated"}
+
+@api_router.put("/drivers/availability")
+async def update_driver_availability(availability: DriverAvailabilityUpdate, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] != UserRole.DRIVER:
+        raise HTTPException(status_code=403, detail="Only drivers can update availability")
+    
+    await db.drivers.update_one(
+        {"user_id": current_user["id"]},
+        {"$set": {"is_available": availability.is_available}}
+    )
+    
+    return {"message": "Availability updated", "is_available": availability.is_available}
+
+@api_router.put("/drivers/fare")
+async def update_driver_fare(fare_update: DriverFareUpdate, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] != UserRole.DRIVER:
+        raise HTTPException(status_code=403, detail="Only drivers can update fare")
+    
+    await db.drivers.update_one(
+        {"user_id": current_user["id"]},
+        {"$set": {"fare_multiplier": fare_update.fare_multiplier}}
+    )
+    
+    return {"message": "Fare multiplier updated", "fare_multiplier": fare_update.fare_multiplier}
+
+@api_router.get("/drivers/nearby", response_model=List[NearbyDriverResponse])
+async def get_nearby_drivers(latitude: float, longitude: float, radius_km: float = 5.0):
+    """Get available drivers within radius"""
+    user_location = Location(latitude=latitude, longitude=longitude)
+    
+    # Get all available drivers
+    available_drivers = await db.drivers.find({
+        "is_available": True,
+        "current_location": {"$ne": None},
+        "vehicle_info": {"$ne": None}
+    }).to_list(100)
+    
+    # Filter by distance first
+    nearby_drivers = []
+    for driver in available_drivers:
+        if driver.get("current_location"):
+            driver_loc = Location(**driver["current_location"])
+            distance = calculate_distance(user_location, driver_loc)
+            if distance <= radius_km:
+                nearby_drivers.append({**driver, "distance": distance, "driver_loc": driver_loc})
+    
+    # Batch fetch all user info for nearby drivers
+    driver_ids = [d["user_id"] for d in nearby_drivers]
+    users = {u["id"]: u for u in await db.users.find({"id": {"$in": driver_ids}}).to_list(None)} if driver_ids else {}
+    
+    nearby = []
+    for driver in nearby_drivers:
+        user = users.get(driver["user_id"])
+        if user:
+            nearby.append(NearbyDriverResponse(
+                driver_id=driver["user_id"],
+                name=user["name"],
+                phone=user["phone"],
+                vehicle_info=VehicleInfo(**driver["vehicle_info"]),
+                rating=driver.get("rating", 5.0),
+                distance_km=driver["distance"],
+                fare_multiplier=driver.get("fare_multiplier", 1.0),
+                location=driver["driver_loc"]
+            ))
+    
+    # Sort by distance
+    nearby.sort(key=lambda x: x.distance_km)
+    return nearby
+
+@api_router.get("/drivers/pending-requests")
+async def get_pending_requests(current_user: dict = Depends(get_current_user)):
+    """Get pending booking requests for driver"""
+    if current_user["role"] != UserRole.DRIVER:
+        raise HTTPException(status_code=403, detail="Only drivers can access this")
+    
+    # Get pending bookings that haven't been assigned
+    pending = await db.bookings.find({
+        "status": BookingStatus.PENDING,
+        "driver_id": None
+    }).sort("created_at", -1).to_list(20)
+    
+    # Batch fetch all passengers
+    passenger_ids = list(set([b["passenger_id"] for b in pending]))
+    passengers = {u["id"]: u for u in await db.users.find({"id": {"$in": passenger_ids}}).to_list(None)} if passenger_ids else {}
+    
+    results = []
+    for booking in pending:
+        passenger = passengers.get(booking["passenger_id"])
+        results.append({
+            **booking,
+            "passenger_name": passenger["name"] if passenger else "Unknown",
+            "_id": str(booking["_id"])
+        })
+    
+    return results
+
+@api_router.get("/drivers/active-ride")
+async def get_driver_active_ride(current_user: dict = Depends(get_current_user)):
+    """Get driver's active ride"""
+    if current_user["role"] != UserRole.DRIVER:
+        raise HTTPException(status_code=403, detail="Only drivers can access this")
+    
+    active_statuses = [BookingStatus.ACCEPTED, BookingStatus.DRIVER_ARRIVED, BookingStatus.IN_PROGRESS]
+    active_ride = await db.bookings.find_one({
+        "driver_id": current_user["id"],
+        "status": {"$in": active_statuses}
+    })
+    
+    if active_ride:
+        passenger = await db.users.find_one({"id": active_ride["passenger_id"]})
+        active_ride["passenger_name"] = passenger["name"] if passenger else "Unknown"
+        active_ride["passenger_phone"] = passenger["phone"] if passenger else ""
+        active_ride["_id"] = str(active_ride["_id"])
+    
+    return active_ride
+
+@api_router.get("/drivers/earnings")
+async def get_driver_earnings(current_user: dict = Depends(get_current_user)):
+    """Get driver's earnings summary"""
+    if current_user["role"] != UserRole.DRIVER:
+        raise HTTPException(status_code=403, detail="Only drivers can access this")
+    
+    completed_rides = await db.bookings.find({
+        "driver_id": current_user["id"],
+        "status": BookingStatus.COMPLETED
+    }).to_list(1000)
+    
+    total_earnings = sum(ride.get("final_fare", ride.get("estimated_fare", 0)) for ride in completed_rides)
+    total_rides = len(completed_rides)
+    
+    # Today's earnings
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_rides = [r for r in completed_rides if r.get("updated_at", r["created_at"]) >= today_start]
+    today_earnings = sum(ride.get("final_fare", ride.get("estimated_fare", 0)) for ride in today_rides)
+    
+    return {
+        "total_earnings": total_earnings,
+        "total_rides": total_rides,
+        "today_earnings": today_earnings,
+        "today_rides": len(today_rides)
+    }
+
+# ==================== BOOKING ENDPOINTS ====================
+@api_router.post("/bookings", response_model=BookingResponse)
+async def create_booking(booking: BookingCreate, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] != UserRole.PASSENGER:
+        raise HTTPException(status_code=403, detail="Only passengers can create bookings")
+    
+    # Calculate fare
+    pricing = await get_pricing_rules()
+    distance = calculate_distance(booking.pickup_location, booking.drop_location)
+    time_multiplier = get_time_multiplier()
+    
+    distance_fare = distance * pricing.per_km_rate
+    total_fare = (pricing.base_fare + distance_fare) * time_multiplier
+    total_fare = max(total_fare, pricing.minimum_fare)
+    
+    booking_id = str(uuid.uuid4())
+    booking_dict = {
+        "id": booking_id,
+        "passenger_id": current_user["id"],
+        "driver_id": None,
+        "pickup_location": booking.pickup_location.dict(),
+        "drop_location": booking.drop_location.dict(),
+        "status": BookingStatus.PENDING,
+        "estimated_fare": round(total_fare, 2),
+        "final_fare": None,
+        "distance_km": distance,
+        "payment_method": booking.payment_method,
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow()
+    }
+    
+    await db.bookings.insert_one(booking_dict)
+    
+    return BookingResponse(
+        **booking_dict,
+        passenger_name=current_user["name"]
+    )
+
+@api_router.get("/bookings", response_model=List[BookingResponse])
+async def get_bookings(current_user: dict = Depends(get_current_user)):
+    """Get user's bookings"""
+    query = {}
+    if current_user["role"] == UserRole.PASSENGER:
+        query["passenger_id"] = current_user["id"]
+    elif current_user["role"] == UserRole.DRIVER:
+        query["driver_id"] = current_user["id"]
+    
+    bookings = await db.bookings.find(query).sort("created_at", -1).to_list(100)
+    
+    # Batch fetch all unique user IDs and driver IDs
+    passenger_ids = list(set([b["passenger_id"] for b in bookings]))
+    driver_ids = list(set([b["driver_id"] for b in bookings if b.get("driver_id")]))
+    all_user_ids = list(set(passenger_ids + driver_ids))
+    
+    # Fetch all users and drivers in batch
+    users = {u["id"]: u for u in await db.users.find({"id": {"$in": all_user_ids}}).to_list(None)} if all_user_ids else {}
+    driver_profiles = {d["user_id"]: d for d in await db.drivers.find({"user_id": {"$in": driver_ids}}).to_list(None)} if driver_ids else {}
+    
+    results = []
+    for b in bookings:
+        passenger = users.get(b["passenger_id"])
+        driver = users.get(b.get("driver_id")) if b.get("driver_id") else None
+        driver_profile = driver_profiles.get(b.get("driver_id")) if b.get("driver_id") else None
+        
+        results.append(BookingResponse(
+            id=b["id"],
+            passenger_id=b["passenger_id"],
+            passenger_name=passenger["name"] if passenger else None,
+            driver_id=b.get("driver_id"),
+            driver_name=driver["name"] if driver else None,
+            driver_phone=driver["phone"] if driver else None,
+            vehicle_info=VehicleInfo(**driver_profile["vehicle_info"]) if driver_profile and driver_profile.get("vehicle_info") else None,
+            pickup_location=Location(**b["pickup_location"]),
+            drop_location=Location(**b["drop_location"]),
+            status=b["status"],
+            estimated_fare=b["estimated_fare"],
+            final_fare=b.get("final_fare"),
+            distance_km=b["distance_km"],
+            payment_method=b["payment_method"],
+            created_at=b["created_at"],
+            updated_at=b["updated_at"]
+        ))
+    
+    return results
+
+@api_router.get("/bookings/active")
+async def get_active_booking(current_user: dict = Depends(get_current_user)):
+    """Get user's active booking"""
+    active_statuses = [BookingStatus.PENDING, BookingStatus.ACCEPTED, BookingStatus.DRIVER_ARRIVED, BookingStatus.IN_PROGRESS]
+    
+    query = {"status": {"$in": active_statuses}}
+    if current_user["role"] == UserRole.PASSENGER:
+        query["passenger_id"] = current_user["id"]
+    elif current_user["role"] == UserRole.DRIVER:
+        query["driver_id"] = current_user["id"]
+    
+    booking = await db.bookings.find_one(query)
+    
+    if booking:
+        passenger = await db.users.find_one({"id": booking["passenger_id"]})
+        driver = await db.users.find_one({"id": booking.get("driver_id")}) if booking.get("driver_id") else None
+        driver_profile = await db.drivers.find_one({"user_id": booking.get("driver_id")}) if booking.get("driver_id") else None
+        
+        return {
+            **booking,
+            "_id": str(booking["_id"]),
+            "passenger_name": passenger["name"] if passenger else None,
+            "passenger_phone": passenger["phone"] if passenger else None,
+            "driver_name": driver["name"] if driver else None,
+            "driver_phone": driver["phone"] if driver else None,
+            "vehicle_info": driver_profile["vehicle_info"] if driver_profile and driver_profile.get("vehicle_info") else None,
+            "driver_location": driver_profile["current_location"] if driver_profile else None
+        }
+    
+    return None
+
+@api_router.get("/bookings/{booking_id}")
+async def get_booking(booking_id: str, current_user: dict = Depends(get_current_user)):
+    booking = await db.bookings.find_one({"id": booking_id})
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    
+    # Check authorization
+    if current_user["role"] == UserRole.PASSENGER and booking["passenger_id"] != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if current_user["role"] == UserRole.DRIVER and booking.get("driver_id") != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    return booking
+
+@api_router.put("/bookings/{booking_id}/accept")
+async def accept_booking(booking_id: str, current_user: dict = Depends(get_current_user)):
+    """Driver accepts a booking"""
+    if current_user["role"] != UserRole.DRIVER:
+        raise HTTPException(status_code=403, detail="Only drivers can accept bookings")
+    
+    booking = await db.bookings.find_one({"id": booking_id})
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    
+    if booking["status"] != BookingStatus.PENDING:
+        raise HTTPException(status_code=400, detail="Booking is no longer available")
+    
+    # Get driver's fare multiplier
+    driver_profile = await db.drivers.find_one({"user_id": current_user["id"]})
+    fare_multiplier = driver_profile.get("fare_multiplier", 1.0) if driver_profile else 1.0
+    
+    # Update fare with driver's multiplier
+    final_estimated_fare = round(booking["estimated_fare"] * fare_multiplier, 2)
+    
+    await db.bookings.update_one(
+        {"id": booking_id},
+        {
+            "$set": {
+                "driver_id": current_user["id"],
+                "status": BookingStatus.ACCEPTED,
+                "estimated_fare": final_estimated_fare,
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+    
+    # Set driver as unavailable
+    await db.drivers.update_one(
+        {"user_id": current_user["id"]},
+        {"$set": {"is_available": False}}
+    )
+    
+    return {"message": "Booking accepted", "estimated_fare": final_estimated_fare}
+
+@api_router.put("/bookings/{booking_id}/status")
+async def update_booking_status(booking_id: str, status_update: BookingStatusUpdate, current_user: dict = Depends(get_current_user)):
+    """Update booking status"""
+    booking = await db.bookings.find_one({"id": booking_id})
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    
+    update_data = {
+        "status": status_update.status,
+        "updated_at": datetime.utcnow()
+    }
+    
+    # If completing ride, set final fare
+    if status_update.status == BookingStatus.COMPLETED:
+        update_data["final_fare"] = booking["estimated_fare"]
+        
+        # Update driver stats
+        if booking.get("driver_id"):
+            await db.drivers.update_one(
+                {"user_id": booking["driver_id"]},
+                {
+                    "$set": {"is_available": True},
+                    "$inc": {"total_rides": 1}
+                }
+            )
+    
+    # If cancelled, make driver available again
+    if status_update.status == BookingStatus.CANCELLED:
+        if booking.get("driver_id"):
+            await db.drivers.update_one(
+                {"user_id": booking["driver_id"]},
+                {"$set": {"is_available": True}}
+            )
+    
+    await db.bookings.update_one(
+        {"id": booking_id},
+        {"$set": update_data}
+    )
+    
+    return {"message": "Status updated", "status": status_update.status}
+
+@api_router.put("/bookings/{booking_id}/cancel")
+async def cancel_booking(booking_id: str, current_user: dict = Depends(get_current_user)):
+    """Cancel a booking"""
+    booking = await db.bookings.find_one({"id": booking_id})
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    
+    if booking["status"] in [BookingStatus.COMPLETED, BookingStatus.CANCELLED]:
+        raise HTTPException(status_code=400, detail="Cannot cancel this booking")
+    
+    # Only passenger or assigned driver can cancel
+    if current_user["id"] != booking["passenger_id"] and current_user["id"] != booking.get("driver_id"):
+        raise HTTPException(status_code=403, detail="Not authorized to cancel")
+    
+    await db.bookings.update_one(
+        {"id": booking_id},
+        {
+            "$set": {
+                "status": BookingStatus.CANCELLED,
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+    
+    # Make driver available again
+    if booking.get("driver_id"):
+        await db.drivers.update_one(
+            {"user_id": booking["driver_id"]},
+            {"$set": {"is_available": True}}
+        )
+    
+    return {"message": "Booking cancelled"}
+
+# ==================== FARE ENDPOINTS ====================
+@api_router.post("/fare/estimate", response_model=FareEstimateResponse)
+async def estimate_fare(request: FareEstimateRequest):
+    """Estimate fare for a ride"""
+    pricing = await get_pricing_rules()
+    distance = calculate_distance(request.pickup_location, request.drop_location)
+    time_multiplier = get_time_multiplier()
+    
+    distance_fare = distance * pricing.per_km_rate
+    subtotal = pricing.base_fare + distance_fare
+    total_fare = subtotal * time_multiplier
+    total_fare = max(total_fare, pricing.minimum_fare)
+    
+    return FareEstimateResponse(
+        base_fare=pricing.base_fare,
+        distance_km=distance,
+        distance_fare=round(distance_fare, 2),
+        surge_multiplier=time_multiplier,
+        total_fare=round(total_fare, 2),
+        breakdown={
+            "base_fare": pricing.base_fare,
+            "distance_km": distance,
+            "per_km_rate": pricing.per_km_rate,
+            "distance_fare": round(distance_fare, 2),
+            "surge_multiplier": time_multiplier,
+            "minimum_fare": pricing.minimum_fare
+        }
+    )
+
+@api_router.get("/pricing/rules")
+async def get_pricing():
+    """Get current pricing rules"""
+    pricing = await get_pricing_rules()
+    return pricing
+
+@api_router.post("/assistant/trip-tips", response_model=TripTipsResponse)
+async def trip_tips(request: TripTipsRequest):
+    """Free local trip tips (no paid AI)."""
+    return TripTipsResponse(
+        tips=generate_fallback_trip_tips(request),
+        source="free_local"
+    )
+
+
+@api_router.post("/assistant/support-chat", response_model=SupportChatResponse)
+async def support_chat(request: SupportChatRequest, current_user: dict = Depends(get_current_user)):
+    role = str(current_user.get("role", "passenger"))
+    message = request.message.lower()
+
+    if "login" in message or "password" in message:
+        reply = "Please verify your email/password, then try login again. If needed, use demo users shown on the login screen."
+    elif "cancel" in message:
+        reply = "Open Active Ride and tap Cancel Ride. If cancellation fails, refresh data and retry once."
+    elif "fare" in message:
+        reply = "Use Estimate Fare first, then check nearby drivers before creating booking for better acceptance."
+    elif "driver" in message and role == "passenger":
+        reply = "Tap Find Nearby Drivers and confirm pickup landmark clearly to reduce waiting time."
+    else:
+        reply = "Refresh app data, verify pickup/drop coordinates, then retry the action. For stuck bookings, cancel and recreate once."
+
+    return SupportChatResponse(reply=reply, source="free_local")
+
+@api_router.post("/assistant/driver-advice", response_model=DriverAdviceResponse)
+async def driver_advice(request: DriverAdviceRequest, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] != UserRole.DRIVER:
+        raise HTTPException(status_code=403, detail="Only drivers can access this")
+
+    earnings = await get_driver_earnings(current_user)
+    profile = await db.drivers.find_one({"user_id": current_user["id"]}) or {}
+    fare_multiplier = float(profile.get("fare_multiplier", 1.0))
+    today_rides = int(earnings.get("today_rides", 0))
+    today_earnings = float(earnings.get("today_earnings", 0))
+
+    tips = [
+        "1) Stay online during 8-10 AM and 5-8 PM for higher demand.",
+        "2) Keep fare multiplier around 1.0-1.2 for better booking acceptance.",
+        "3) Update location every 5-10 minutes in busy pickup zones.",
+    ]
+
+    if today_rides < 3:
+        tips.append("4) Reposition near office hubs, metro exits, and hospital zones to increase ride frequency.")
+    if today_earnings < 500:
+        tips.append("5) Prioritize short-to-medium rides to increase trip count before late evening.")
+    if fare_multiplier > 1.3:
+        tips.append("6) Consider reducing fare multiplier slightly to improve request conversion.")
+
+    advice = " ".join(tips)
+    return DriverAdviceResponse(advice=advice, source="free_local")
+
+@api_router.get("/assistant/admin-insights", response_model=AdminInsightsResponse)
+async def admin_insights(current_user: dict = Depends(get_current_user)):
+    if current_user["role"] != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    stats = await get_admin_dashboard(current_user)
+    pricing = await get_pricing_rules()
+
+    active = int(stats.get("active_bookings", 0))
+    completed = int(stats.get("completed_bookings", 0))
+    drivers = int(stats.get("total_drivers", 0))
+    passengers = int(stats.get("total_passengers", 0))
+
+    insight_lines = [
+        f"Supply-demand snapshot: {drivers} drivers vs {passengers} passengers with {active} active bookings.",
+        f"Completion trend: {completed} completed rides so far; monitor cancellations in peak windows.",
+        f"Pricing baseline: base fare Rs {pricing.base_fare}, per-km Rs {pricing.per_km_rate}, minimum fare Rs {pricing.minimum_fare}.",
+        "Action: run a 7-day experiment on peak-hour driver availability and compare conversion + completion rates.",
+    ]
+
+    return AdminInsightsResponse(insights=" ".join(insight_lines), source="free_local")
+# ==================== RATING ENDPOINTS ====================
+@api_router.post("/ratings")
+async def create_rating(rating_data: RatingCreate, current_user: dict = Depends(get_current_user)):
+    """Rate a completed ride"""
+    booking = await db.bookings.find_one({"id": rating_data.booking_id})
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    
+    if booking["status"] != BookingStatus.COMPLETED:
+        raise HTTPException(status_code=400, detail="Can only rate completed rides")
+    
+    # Determine who is being rated
+    if current_user["role"] == UserRole.PASSENGER:
+        rated_user_id = booking.get("driver_id")
+    else:
+        rated_user_id = booking["passenger_id"]
+    
+    if not rated_user_id:
+        raise HTTPException(status_code=400, detail="No one to rate")
+    
+    rating_doc = {
+        "id": str(uuid.uuid4()),
+        "booking_id": rating_data.booking_id,
+        "from_user_id": current_user["id"],
+        "to_user_id": rated_user_id,
+        "rating": rating_data.rating,
+        "comment": rating_data.comment,
+        "created_at": datetime.utcnow()
+    }
+    
+    await db.ratings.insert_one(rating_doc)
+    
+    # Update driver's average rating using aggregation pipeline
+    if current_user["role"] == UserRole.PASSENGER and rated_user_id:
+        result = await db.ratings.aggregate([
+            {"$match": {"to_user_id": rated_user_id}},
+            {"$group": {"_id": None, "avg_rating": {"$avg": "$rating"}}}
+        ]).to_list(1)
+        avg_rating = result[0]["avg_rating"] if result else 5.0
+        await db.drivers.update_one(
+            {"user_id": rated_user_id},
+            {"$set": {"rating": round(avg_rating, 1)}}
+        )
+    
+    return {"message": "Rating submitted"}
+
+# ==================== ADMIN ENDPOINTS ====================
+@api_router.get("/admin/dashboard")
+async def get_admin_dashboard(current_user: dict = Depends(get_current_user)):
+    """Get admin dashboard stats"""
+    if current_user["role"] != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    total_users = await db.users.count_documents({})
+    total_drivers = await db.users.count_documents({"role": UserRole.DRIVER})
+    total_passengers = await db.users.count_documents({"role": UserRole.PASSENGER})
+    total_bookings = await db.bookings.count_documents({})
+    completed_bookings = await db.bookings.count_documents({"status": BookingStatus.COMPLETED})
+    active_bookings = await db.bookings.count_documents({
+        "status": {"$in": [BookingStatus.PENDING, BookingStatus.ACCEPTED, BookingStatus.IN_PROGRESS]}
+    })
+    
+    # Revenue - use aggregation pipeline for efficiency
+    revenue_result = await db.bookings.aggregate([
+        {"$match": {"status": BookingStatus.COMPLETED}},
+        {"$project": {"fare": {"$ifNull": ["$final_fare", "$estimated_fare"]}}},
+        {"$group": {"_id": None, "total": {"$sum": "$fare"}}}
+    ]).to_list(1)
+    total_revenue = revenue_result[0]["total"] if revenue_result else 0
+    
+    return {
+        "total_users": total_users,
+        "total_drivers": total_drivers,
+        "total_passengers": total_passengers,
+        "total_bookings": total_bookings,
+        "completed_bookings": completed_bookings,
+        "active_bookings": active_bookings,
+        "total_revenue": round(total_revenue, 2)
+    }
+
+@api_router.get("/admin/users")
+async def get_all_users(current_user: dict = Depends(get_current_user)):
+    """Get all users"""
+    if current_user["role"] != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    users = await db.users.find({}).to_list(1000)
+    return [{**u, "_id": str(u["_id"]), "password_hash": None} for u in users]
+
+@api_router.put("/admin/pricing")
+async def update_pricing(pricing: PricingRule, current_user: dict = Depends(get_current_user)):
+    """Update pricing rules"""
+    if current_user["role"] != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    pricing_dict = pricing.dict()
+    pricing_dict["updated_at"] = datetime.utcnow()
+    
+    await db.pricing_rules.update_one({}, {"$set": pricing_dict}, upsert=True)
+    
+    return {"message": "Pricing updated"}
+
+# Health check
+@api_router.get("/health")
+async def health_check():
+    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
+
+# ==================== SOCKET.IO EVENTS ====================
+@sio.event
+async def connect(sid, environ):
+    logger.info(f"Client connected: {sid}")
+
+@sio.event
+async def disconnect(sid):
+    logger.info(f"Client disconnected: {sid}")
+    # Remove from connected users
+    user_to_remove = None
+    for user_id, user_sid in connected_users.items():
+        if user_sid == sid:
+            user_to_remove = user_id
+            break
+    if user_to_remove:
+        del connected_users[user_to_remove]
+
+@sio.event
+async def join(sid, data):
+    """User joins with their user_id"""
+    user_id = data.get('user_id')
+    if user_id:
+        connected_users[user_id] = sid
+        logger.info(f"User {user_id} joined with sid {sid}")
+        await sio.emit('joined', {'status': 'connected', 'user_id': user_id}, to=sid)
+
+@sio.event
+async def driver_location_update(sid, data):
+    """Driver sends location update"""
+    driver_id = data.get('driver_id')
+    location = data.get('location')
+    booking_id = data.get('booking_id')
+    
+    if driver_id and location:
+        # Update driver location in DB
+        await db.drivers.update_one(
+            {"user_id": driver_id},
+            {"$set": {"current_location": location}}
+        )
+        
+        # If there's an active booking, notify the passenger
+        if booking_id:
+            booking = await db.bookings.find_one({"id": booking_id})
+            if booking and booking.get("passenger_id") in connected_users:
+                passenger_sid = connected_users[booking["passenger_id"]]
+                await sio.emit('driver_location', {
+                    'booking_id': booking_id,
+                    'driver_id': driver_id,
+                    'location': location,
+                    'timestamp': datetime.utcnow().isoformat()
+                }, to=passenger_sid)
+
+@sio.event
+async def booking_status_update(sid, data):
+    """Notify users about booking status changes"""
+    booking_id = data.get('booking_id')
+    status = data.get('status')
+    
+    if booking_id:
+        booking = await db.bookings.find_one({"id": booking_id})
+        if booking:
+            # Notify passenger
+            if booking.get("passenger_id") in connected_users:
+                await sio.emit('booking_status_changed', {
+                    'booking_id': booking_id,
+                    'status': status,
+                    'timestamp': datetime.utcnow().isoformat()
+                }, to=connected_users[booking["passenger_id"]])
+            
+            # Notify driver
+            if booking.get("driver_id") and booking["driver_id"] in connected_users:
+                await sio.emit('booking_status_changed', {
+                    'booking_id': booking_id,
+                    'status': status,
+                    'timestamp': datetime.utcnow().isoformat()
+                }, to=connected_users[booking["driver_id"]])
+
+# Helper function to emit events from API endpoints
+async def emit_to_user(user_id: str, event: str, data: dict):
+    """Emit event to a specific user if they're connected"""
+    if user_id in connected_users:
+        await sio.emit(event, data, to=connected_users[user_id])
+
+async def emit_new_booking_to_drivers():
+    """Notify all available drivers about new booking"""
+    available_drivers = await db.drivers.find({"is_available": True}).to_list(100)
+    for driver in available_drivers:
+        if driver["user_id"] in connected_users:
+            await sio.emit('new_booking_available', {
+                'message': 'New ride request available',
+                'timestamp': datetime.utcnow().isoformat()
+            }, to=connected_users[driver["user_id"]])
+
+# Include the router in the main app
+app.include_router(api_router)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_credentials=True,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.on_event("shutdown")
+async def shutdown_db_client():
+    client.close()
+

@@ -1,0 +1,6 @@
+**/.env
+**/.env.*
+memory/run-logs/
+*.log
+
+.vercel
