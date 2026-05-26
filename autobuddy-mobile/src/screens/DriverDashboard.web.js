@@ -323,10 +323,6 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   }, []);
 
   const mapUrl = useMemo(() => {
-    if (!googleMapsWebKey) {
-      return null;
-    }
-
     const resolveCoords = (location) => {
       if (!location) {
         return null;
@@ -348,6 +344,17 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     const drop = resolveCoords(activeRide?.dropoff_location || activeRide?.dropoff || activeRide?.dropoff_location_details);
     const driverPlace = resolveCoords(driverLocation || activeRide?.driver_location);
     const place = driverPlace || pickup || drop;
+    const usingBasicEmbed = !googleMapsWebKey;
+
+    if (usingBasicEmbed) {
+      if (pickup && drop) {
+        return `https://www.google.com/maps?output=embed&saddr=${pickup.latitude},${pickup.longitude}&daddr=${drop.latitude},${drop.longitude}`;
+      }
+      if (place) {
+        return `https://www.google.com/maps?output=embed&q=${place.latitude},${place.longitude}&z=14`;
+      }
+      return `https://www.google.com/maps?output=embed&q=${DEFAULT_CITY_LOCATION.latitude},${DEFAULT_CITY_LOCATION.longitude}&z=11`;
+    }
 
     if (pickup && drop) {
       return `https://www.google.com/maps/embed/v1/directions?key=${encodeURIComponent(googleMapsWebKey)}&origin=${pickup.latitude},${pickup.longitude}&destination=${drop.latitude},${drop.longitude}&avoid=tolls|highways`;

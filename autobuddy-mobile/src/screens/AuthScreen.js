@@ -523,7 +523,11 @@ export default function AuthScreen({ onAuthenticated }) {
         <PremiumCard style={styles.card}>
           <WebCommandBar />
           <View style={styles.brandHeader}>
-            <Image source={LAUNCH_BANNER_SOURCE} style={styles.launchBanner} resizeMode="cover" />
+            <Image
+              source={LAUNCH_BANNER_SOURCE}
+              style={[styles.launchBanner, Platform.OS === 'web' && styles.launchBannerWeb]}
+              resizeMode="cover"
+            />
             <View style={styles.brandCopy}>
               <Text style={styles.title}>{isLogin ? 'Welcome' : 'Create Account'}</Text>
               <Text style={styles.tagline}>Book your auto quickly, safely and easily</Text>
@@ -780,8 +784,11 @@ const styles = StyleSheet.create({
   },
   launchBanner: {
     width: '100%',
-    height: 220,
+    height: 260,
     borderRadius: 18,
+  },
+  launchBannerWeb: {
+    objectPosition: 'center top',
   },
   brandCopy: {
     alignItems: 'center',

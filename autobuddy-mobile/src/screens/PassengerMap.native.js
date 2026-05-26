@@ -27,13 +27,12 @@ import { usePassengerRideRealtime } from '../hooks/usePassengerRideRealtime';
 
 const PASSENGER_MENU_OPTIONS = [
   { key: 'ride', label: 'Ride Booking' },
-  { key: 'trip', label: 'Active Trip' },
   { key: 'drivers', label: 'Drivers' },
   { key: 'wallet', label: 'Wallet' },
   { key: 'history', label: 'Ride History' },
 ];
 const PRIMARY_PASSENGER_MENU_KEY = 'ride';
-const DASHBOARD_PASSENGER_MENU_KEYS = new Set([PRIMARY_PASSENGER_MENU_KEY, 'trip']);
+const DASHBOARD_PASSENGER_MENU_KEYS = new Set([PRIMARY_PASSENGER_MENU_KEY]);
 const SECONDARY_PASSENGER_MENU_OPTIONS = PASSENGER_MENU_OPTIONS.filter(
   (menu) => !DASHBOARD_PASSENGER_MENU_KEYS.has(menu.key),
 );
@@ -988,17 +987,6 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
               <Text style={styles.primaryMenuButtonText}>Ride Booking</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[
-                styles.primaryMenuButton,
-                activePassengerMenu === 'trip' && styles.primaryMenuButtonActive,
-              ]}
-              onPress={() => {
-                setActivePassengerMenu('trip');
-                setShowPassengerMenus(false);
-              }}>
-              <Text style={styles.primaryMenuButtonText}>Active Ride</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
               style={styles.menuToggleButton}
               onPress={() => setShowPassengerMenus((prev) => !prev)}>
               <Text style={styles.menuToggleButtonText}>{showPassengerMenus ? 'Hide Menus' : 'Other Menus'}</Text>
@@ -1265,7 +1253,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
             </>
           )}
 
-          {activePassengerMenu === 'trip' && (
+          {activePassengerMenu === 'ride' && (
             <>
               {activeBooking ? (
                 <View style={styles.infoBlock}>
