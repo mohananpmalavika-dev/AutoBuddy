@@ -40,6 +40,7 @@ const STATUS_FLOW = ['accepted', 'driver_arrived', 'in_progress', 'completed'];
 const DRIVER_MENU_OPTIONS = [
   { key: 'requests', label: 'Ride Flow' },
   { key: 'earnings', label: 'Earnings' },
+  { key: 'spin', label: 'Spin & Win' },
   { key: 'fare', label: 'Fare Tools' },
   { key: 'blocked', label: 'Blocked' },
   { key: 'trust', label: 'Trust' },
@@ -97,6 +98,9 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   const [rideEndOtp, setRideEndOtp] = useState('');
   const [activeDriverMenu, setActiveDriverMenu] = useState(PRIMARY_DRIVER_MENU_KEY);
   const [showDriverMenus, setShowDriverMenus] = useState(false);
+  const [spinWinStatus, setSpinWinStatus] = useState(null);
+  const [spinWinLoading, setSpinWinLoading] = useState(false);
+  const [spinningNow, setSpinningNow] = useState(false);
   const liveLocationRideStatuses = useMemo(() => new Set(['accepted', 'driver_arrived', 'in_progress']), []);
   const activeRideStatus = String(activeRide?.status || '').toLowerCase();
   const activeRideId = String(activeRide?.id || '').trim() || null;
@@ -357,13 +361,14 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       }
     }
 
-    const [requests, ride, earningsSummary, pricing, fareCalc, blockedPassengers] = await Promise.all([
+    const [requests, ride, earningsSummary, pricing, fareCalc, blockedPassengers, spinStatus] = await Promise.all([
       apiRequest('/drivers/pending-requests', { token }).catch(() => []),
       apiRequest('/drivers/active-ride', { token }).catch(() => null),
       apiRequest('/drivers/earnings', { token }).catch(() => null),
       apiRequest('/pricing/rules', { token }).catch(() => null),
       apiRequest('/drivers/fare-calculator', { token }).catch(() => null),
       apiRequest('/drivers/blocked-passengers', { token }).catch(() => ({ passenger_ids: [] })),
+      apiRequest('/spin-win/config', { token }).catch(() => null),
     ]);
     await Promise.all([
       apiRequest('/subscriptions/config', { token }).catch(() => null),
@@ -378,6 +383,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     setDriverFareStatus(String(fareCalc?.status || 'default'));
     setDriverFareRequestInfo(fareCalc?.request || null);
     hydrateDriverFareConfig(fareCalc?.request?.payload || fareCalc?.effective_pricing || fareCalc?.default_pricing || null);
+    setSpinWinStatus(spinStatus || null);
     setMessage('Driver dashboard refreshed.');
   }, [hydrateDriverFareConfig, normalizeLocation, runAction, token]);
 
@@ -387,11 +393,12 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     }
     refreshInFlightRef.current = true;
     try {
-      const [profile, requests, ride, blockedPassengers] = await Promise.all([
+      const [profile, requests, ride, blockedPassengers, spinStatus] = await Promise.all([
         includeProfile ? apiRequest('/drivers/profile', { token }).catch(() => null) : Promise.resolve(null),
         apiRequest('/drivers/pending-requests', { token }).catch(() => []),
         apiRequest('/drivers/active-ride', { token }).catch(() => null),
         apiRequest('/drivers/blocked-passengers', { token }).catch(() => ({ passenger_ids: [] })),
+        apiRequest('/spin-win/config', { token }).catch(() => null),
       ]);
       const [earningsSummary, pricing, fareCalc] = includeMeta
         ? await Promise.all([
@@ -418,6 +425,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       setPendingRequests(Array.isArray(requests) ? requests : []);
       setBlockedPassengerIds(Array.isArray(blockedPassengers?.passenger_ids) ? blockedPassengers.passenger_ids : []);
       setActiveRide(ride || null);
+      setSpinWinStatus(spinStatus || null);
       if (includeMeta) {
         setEarnings(earningsSummary || null);
         setPricingRules(pricing || fareCalc?.default_pricing || null);
@@ -431,6 +439,48 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       refreshInFlightRef.current = false;
     }
   }, [hydrateDriverFareConfig, normalizeLocation, token]);
+
+  const refreshSpinWinStatus = useCallback(
+    async ({ silent = false } = {}) => {
+      try {
+        if (!silent) {
+          setSpinWinLoading(true);
+        }
+        const status = await apiRequest('/spin-win/config', { token });
+        setSpinWinStatus(status || null);
+        return status;
+      } catch (err) {
+        if (!silent) {
+          setError(err.message || 'Could not load Spin & Win status.');
+        }
+        return null;
+      } finally {
+        if (!silent) {
+          setSpinWinLoading(false);
+        }
+      }
+    },
+    [token],
+  );
+
+  const spinNow = async () => {
+    if (spinningNow) {
+      return;
+    }
+    try {
+      setSpinningNow(true);
+      setError('');
+      const result = await apiRequest('/spin-win/spin', { method: 'POST', token });
+      const rewardLabel = String(result?.reward?.label || 'reward');
+      const remaining = Number(result?.spins_left_today ?? 0);
+      setMessage(`Spin complete: ${rewardLabel}. Spins left today: ${remaining}.`);
+      await refreshSpinWinStatus({ silent: true });
+    } catch (err) {
+      setError(err.message || 'Spin failed. Please try again.');
+    } finally {
+      setSpinningNow(false);
+    }
+  };
 
   const updateDriverFareField = (field, value) => {
     setDriverFareConfig((prev) => ({ ...prev, [field]: value }));
@@ -949,6 +999,59 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
                 </View>
               )}
             </>
+          )}
+
+          {activeDriverMenu === 'spin' && (
+            <View style={styles.earningsCard}>
+              <Text style={styles.fareTitle}>Daily Spin & Win</Text>
+              {!spinWinStatus ? (
+                <Text style={styles.earningsText}>Spin status is unavailable. Tap refresh.</Text>
+              ) : (
+                <>
+                  <Text style={styles.earningsText}>
+                    Status: {spinWinStatus.enabled ? 'Enabled' : 'Disabled'}
+                  </Text>
+                  <Text style={styles.earningsText}>
+                    Daily limit: {Number(spinWinStatus.daily_spin_limit || 0)} | Used: {Number(spinWinStatus.spins_used_today || 0)} | Left: {Number(spinWinStatus.spins_left_today || 0)}
+                  </Text>
+                  {!!spinWinStatus.starts_at && (
+                    <Text style={styles.earningsText}>Campaign Start: {new Date(spinWinStatus.starts_at).toLocaleString()}</Text>
+                  )}
+                  {!!spinWinStatus.ends_at && (
+                    <Text style={styles.earningsText}>Campaign End: {new Date(spinWinStatus.ends_at).toLocaleString()}</Text>
+                  )}
+                  {!spinWinStatus.eligible && (
+                    <Text style={styles.warningText}>
+                      {spinWinStatus.eligibility_reason || 'Not eligible for Spin & Win.'}
+                    </Text>
+                  )}
+                  {!!spinWinStatus.latest_reward && (
+                    <Text style={styles.earningsText}>
+                      Last reward: {spinWinStatus.latest_reward.prize_label || 'Reward'} ({spinWinStatus.latest_reward.reward_type || '-'})
+                    </Text>
+                  )}
+                </>
+              )}
+              <View style={styles.requestButtonsRow}>
+                <TouchableOpacity
+                  style={styles.acceptButton}
+                  onPress={spinNow}
+                  disabled={
+                    spinningNow
+                    || spinWinLoading
+                    || !spinWinStatus?.eligible
+                    || Number(spinWinStatus?.spins_left_today || 0) <= 0
+                  }>
+                  <Text style={styles.acceptText}>{spinningNow ? 'Spinning...' : 'Spin Now'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.refreshButton}
+                  onPress={() => refreshSpinWinStatus({ silent: false })}
+                  disabled={spinWinLoading}>
+                  <Text style={styles.refreshText}>{spinWinLoading ? 'Refreshing...' : 'Refresh'}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
           )}
 
           {activeDriverMenu === 'fare' && (

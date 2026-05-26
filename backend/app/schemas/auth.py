@@ -11,6 +11,11 @@ class UserRole(str, Enum):
     DRIVER = "driver"
     ADMIN = "admin"
 
+class Gender(str, Enum):
+    MALE = "male"
+    FEMALE = "female"
+    OTHER = "other"
+
 
 PHONE_PATTERN = r"^\d{10}$"
 OTP_PATTERN = r"^\d{4,8}$"
@@ -24,6 +29,7 @@ class UserBase(BaseModel):
     name: str = Field(min_length=2, max_length=80)
     phone: str = Field(pattern=PHONE_PATTERN)
     role: UserRole = UserRole.PASSENGER
+    gender: Gender
 
     @field_validator("name")
     @classmethod
@@ -77,6 +83,7 @@ class GoogleAuthRequestModel(BaseModel):
     name: Optional[str] = Field(default=None, min_length=2, max_length=80)
     phone: Optional[str] = Field(default=None, pattern=PHONE_PATTERN)
     role: UserRole = UserRole.PASSENGER
+    gender: Optional[Gender] = None
     mode: Literal["login", "register"] = "login"
     referral_code: Optional[str] = Field(default=None, min_length=4, max_length=20)
     registration_fee_ack: bool = False
@@ -115,6 +122,7 @@ class UserResponse(BaseModel):
     name: str
     phone: str
     role: UserRole
+    gender: Optional[Gender] = None
     referral_code: Optional[str] = None
     created_at: datetime
 

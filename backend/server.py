@@ -167,6 +167,10 @@ REALTIME_HEALTH_MONITOR_INTERVAL_SECONDS = max(
     5,
     int(os.environ.get("REALTIME_HEALTH_MONITOR_INTERVAL_SECONDS", "15")),
 )
+IST_TZ = timezone(timedelta(hours=5, minutes=30))
+SPIN_WIN_CONFIG_ID = "default"
+SPIN_WIN_MAX_PRIZES = 24
+SPIN_WIN_MAX_DAILY_LIMIT = 20
 REQUIRE_REDIS_IN_PRODUCTION = os.environ.get("REQUIRE_REDIS_IN_PRODUCTION", "false").strip().lower() in {"1", "true", "yes", "on"}
 REQUIRE_REFRESH_SECRET_IN_PRODUCTION = os.environ.get("REQUIRE_REFRESH_SECRET_IN_PRODUCTION", "false").strip().lower() in {"1", "true", "yes", "on"}
 REQUIRE_FERNET_SECRET_IN_PRODUCTION = os.environ.get("REQUIRE_FERNET_SECRET_IN_PRODUCTION", "false").strip().lower() in {"1", "true", "yes", "on"}
@@ -542,6 +546,11 @@ async def seed_admin():
         await db.referrals.create_index("code", unique=True)
         await db.referral_rewards.create_index("new_user_id", unique=True)
         await db.referral_rewards.create_index("referrer_user_id")
+        await db.spin_win_user_daily.create_index([("user_id", 1), ("date_key", 1)], unique=True)
+        await db.spin_win_user_daily.create_index("date_key")
+        await db.spin_win_rewards.create_index([("created_at", -1)])
+        await db.spin_win_rewards.create_index([("user_id", 1), ("created_at", -1)])
+        await db.spin_win_rewards.create_index([("date_key", 1), ("prize_id", 1)])
         await db.ride_revenues.create_index("booking_id", unique=True)
         await ensure_default_revenue_plans(db)
         await db.analytics_events.create_index([("created_at", -1)])
@@ -832,6 +841,11 @@ class UserRole(str, Enum):
     DRIVER = "driver"
     ADMIN = "admin"
 
+class Gender(str, Enum):
+    MALE = "male"
+    FEMALE = "female"
+    OTHER = "other"
+
 class BookingStatus(str, Enum):
     PENDING = "pending"
     ACCEPTED = "accepted"
@@ -884,6 +898,7 @@ class UserBase(BaseModel):
     name: str = Field(min_length=2, max_length=80)
     phone: str = Field(pattern=PHONE_PATTERN)
     role: UserRole = UserRole.PASSENGER
+    gender: Gender
 
     @field_validator("name")
     @classmethod
@@ -934,6 +949,7 @@ class GoogleAuthRequestModel(BaseModel):
     name: Optional[str] = Field(default=None, min_length=2, max_length=80)
     phone: Optional[str] = Field(default=None, pattern=PHONE_PATTERN)
     role: UserRole = UserRole.PASSENGER
+    gender: Optional[Gender] = None
     mode: Literal["login", "register"] = "login"
     referral_code: Optional[str] = Field(default=None, min_length=4, max_length=20)
     registration_fee_ack: bool = False
@@ -982,6 +998,7 @@ class UserResponse(BaseModel):
     name: str
     phone: str
     role: UserRole
+    gender: Optional[Gender] = None
     referral_code: Optional[str] = None
     created_at: datetime
 
@@ -1492,6 +1509,7 @@ def auth_response_for_user(user: Dict[str, Any], refresh_token: Optional[str] = 
             name=user["name"],
             phone=user["phone"],
             role=user["role"],
+            gender=user.get("gender"),
             referral_code=str(user.get("referral_code") or "").strip().upper() or None,
             created_at=user["created_at"],
         ),
@@ -1559,6 +1577,7 @@ async def create_user_for_social_or_otp(
     name: str,
     phone: str,
     role: UserRole,
+    gender: Optional[Gender] = None,
     email: Optional[str] = None,
 ) -> Dict[str, Any]:
     user_id = str(uuid.uuid4())
@@ -1573,6 +1592,7 @@ async def create_user_for_social_or_otp(
         "name": name.strip() if name else "AutoBuddy User",
         "phone": phone,
         "role": role,
+        "gender": gender.value if isinstance(gender, Gender) else (str(gender).strip().lower() if gender else None),
         "password_hash": hash_password(str(uuid.uuid4())),
         "created_at": datetime.utcnow(),
         "is_verified": True,
@@ -3530,6 +3550,7 @@ async def register(user_data: UserCreate, request: Request):
         "name": user_data.name,
         "phone": normalized_phone,
         "role": user_data.role,
+        "gender": user_data.gender.value if isinstance(user_data.gender, Gender) else str(user_data.gender),
         "password_hash": hash_password(user_data.password),
         "created_at": datetime.utcnow(),
         "registration_fee_amount": float(required_registration_fee),
@@ -3569,6 +3590,7 @@ async def register(user_data: UserCreate, request: Request):
             name=user_data.name,
             phone=user_data.phone,
             role=user_data.role,
+            gender=user_data.gender,
             referral_code=user_dict.get("referral_code"),
             created_at=user_dict["created_at"],
         ),
@@ -3657,6 +3679,8 @@ async def google_login(payload: GoogleAuthRequestModel, request: Request):
             raise HTTPException(status_code=400, detail="Name is required for Google registration")
         if not str(payload.phone or "").strip():
             raise HTTPException(status_code=400, detail="Phone number is required for Google registration")
+        if not payload.gender:
+            raise HTTPException(status_code=400, detail="Gender is required for Google registration")
         registration_fee_settings = await get_registration_fee_settings()
         required_registration_fee = get_registration_fee_for_role(registration_fee_settings, payload.role)
         validate_registration_payment_details(
@@ -3671,6 +3695,7 @@ async def google_login(payload: GoogleAuthRequestModel, request: Request):
             name=str(payload.name or profile_name or "").strip(),
             phone=phone,
             role=payload.role,
+            gender=payload.gender,
             email=profile_email,
         )
         created_new_user = True
@@ -3803,6 +3828,7 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         name=current_user["name"],
         phone=current_user["phone"],
         role=current_user["role"],
+        gender=current_user.get("gender"),
         referral_code=str(current_user.get("referral_code") or "").strip().upper() or None,
         created_at=current_user["created_at"]
     )
@@ -3824,6 +3850,7 @@ async def get_user_profile(current_user: dict = Depends(get_current_user)):
         "name": user.get("name"),
         "phone": user.get("phone"),
         "role": user.get("role"),
+        "gender": user.get("gender"),
         "referral_code": referral.get("code"),
         "created_at": user.get("created_at"),
         "pending_phone_change": pending_change.get("new_phone") if pending_change else None,
@@ -4814,6 +4841,12 @@ async def get_pending_requests(current_user: dict = Depends(get_current_user)):
         if booking.get("passenger_id") not in blocked_passenger_ids
         and booking.get("passenger_id") not in passengers_blocked_driver_ids
     ]
+    driver_gender = str(current_user.get("gender") or "").strip().lower()
+    pending = [
+        booking
+        for booking in pending
+        if (not bool(booking.get("women_only_required"))) or driver_gender == "female"
+    ]
     
     # Batch fetch all passengers
     passenger_ids = list(set([b["passenger_id"] for b in pending]))
@@ -5387,6 +5420,8 @@ async def accept_booking(booking_id: str, current_user: dict = Depends(get_curre
     candidate_driver_ids = booking.get("candidate_driver_ids") or []
     if candidate_driver_ids and current_user["id"] not in candidate_driver_ids:
         raise HTTPException(status_code=403, detail="This booking request is not assigned to you")
+    if bool(booking.get("women_only_required")) and str(current_user.get("gender") or "").strip().lower() != "female":
+        raise HTTPException(status_code=403, detail="Women-only rides can be accepted only by women drivers")
     if await is_driver_passenger_pair_blocked(booking.get("passenger_id"), current_user["id"]):
         raise HTTPException(status_code=403, detail="You cannot accept this ride because this passenger is blocked")
     
@@ -6321,6 +6356,203 @@ class WalletResponse(BaseModel):
 class WalletTopupRequest(BaseModel):
     amount: float = Field(gt=0)
 
+
+class SpinWinPrizeConfig(BaseModel):
+    id: Optional[str] = Field(default=None, min_length=2, max_length=80)
+    label: str = Field(min_length=2, max_length=80)
+    reward_type: Literal["cash", "coupon", "points", "gift", "none"] = "cash"
+    reward_value: float = Field(default=0.0, ge=0.0)
+    currency: str = Field(default="INR", min_length=3, max_length=8)
+    weight: float = Field(default=1.0, gt=0.0)
+    daily_stock: Optional[int] = Field(default=None, ge=0)
+    description: Optional[str] = Field(default=None, max_length=160)
+    active: bool = True
+
+
+class SpinWinConfigPayload(BaseModel):
+    enabled: bool = False
+    daily_spin_limit: int = Field(default=1, ge=0, le=SPIN_WIN_MAX_DAILY_LIMIT)
+    eligible_roles: List[UserRole] = Field(default_factory=lambda: [UserRole.PASSENGER])
+    included_user_ids: List[str] = Field(default_factory=list, max_length=2000)
+    excluded_user_ids: List[str] = Field(default_factory=list, max_length=2000)
+    starts_at: Optional[datetime] = None
+    ends_at: Optional[datetime] = None
+    prizes: List[SpinWinPrizeConfig] = Field(default_factory=list, max_length=SPIN_WIN_MAX_PRIZES)
+
+
+def default_spin_win_config() -> Dict[str, Any]:
+    now = datetime.utcnow()
+    return {
+        "id": SPIN_WIN_CONFIG_ID,
+        "enabled": False,
+        "daily_spin_limit": 1,
+        "eligible_roles": [UserRole.PASSENGER.value],
+        "included_user_ids": [],
+        "excluded_user_ids": [],
+        "starts_at": None,
+        "ends_at": None,
+        "prizes": [
+            {
+                "id": "better_luck",
+                "label": "Better luck next time",
+                "reward_type": "none",
+                "reward_value": 0.0,
+                "currency": "INR",
+                "weight": 70.0,
+                "daily_stock": None,
+                "description": "No reward this time.",
+                "active": True,
+            },
+            {
+                "id": "wallet_10",
+                "label": "INR 10 Wallet Cash",
+                "reward_type": "cash",
+                "reward_value": 10.0,
+                "currency": "INR",
+                "weight": 30.0,
+                "daily_stock": 500,
+                "description": "Wallet top-up credit.",
+                "active": True,
+            },
+        ],
+        "updated_at": now,
+        "created_at": now,
+    }
+
+
+def normalize_spin_user_ids(values: Any) -> List[str]:
+    out: List[str] = []
+    seen: set[str] = set()
+    for raw in values or []:
+        value = str(raw or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        out.append(value)
+    return out
+
+
+def normalize_spin_roles(values: Any) -> List[str]:
+    out: List[str] = []
+    seen: set[str] = set()
+    for raw in values or []:
+        text = str(raw or "").strip().lower()
+        if not text:
+            continue
+        try:
+            role = UserRole(text).value
+        except ValueError:
+            continue
+        if role in seen:
+            continue
+        seen.add(role)
+        out.append(role)
+    if not out:
+        out = [UserRole.PASSENGER.value]
+    return out
+
+
+def normalize_spin_prizes(values: Any) -> List[Dict[str, Any]]:
+    prizes: List[Dict[str, Any]] = []
+    for index, raw_prize in enumerate(values or []):
+        try:
+            prize = SpinWinPrizeConfig(**(raw_prize or {}))
+        except Exception:
+            continue
+        prize_id = str(prize.id or f"prize_{index + 1}_{uuid.uuid4().hex[:6]}").strip()
+        prizes.append(
+            {
+                "id": prize_id,
+                "label": str(prize.label).strip(),
+                "reward_type": str(prize.reward_type),
+                "reward_value": round(float(prize.reward_value or 0.0), 2),
+                "currency": str(prize.currency or "INR").upper(),
+                "weight": max(0.01, round(float(prize.weight or 0.0), 4)),
+                "daily_stock": None if prize.daily_stock is None else int(prize.daily_stock),
+                "description": str(prize.description or "").strip() or None,
+                "active": bool(prize.active),
+            }
+        )
+        if len(prizes) >= SPIN_WIN_MAX_PRIZES:
+            break
+    if not prizes:
+        prizes = default_spin_win_config()["prizes"]
+    return prizes
+
+
+def normalize_spin_win_config_document(config_doc: Dict[str, Any]) -> Dict[str, Any]:
+    doc = config_doc or default_spin_win_config()
+    starts_at = as_utc_naive(doc.get("starts_at")) if isinstance(doc.get("starts_at"), datetime) else None
+    ends_at = as_utc_naive(doc.get("ends_at")) if isinstance(doc.get("ends_at"), datetime) else None
+    return {
+        "id": SPIN_WIN_CONFIG_ID,
+        "enabled": bool(doc.get("enabled", False)),
+        "daily_spin_limit": max(0, min(SPIN_WIN_MAX_DAILY_LIMIT, int(doc.get("daily_spin_limit", 1) or 0))),
+        "eligible_roles": normalize_spin_roles(doc.get("eligible_roles") or [UserRole.PASSENGER.value]),
+        "included_user_ids": normalize_spin_user_ids(doc.get("included_user_ids")),
+        "excluded_user_ids": normalize_spin_user_ids(doc.get("excluded_user_ids")),
+        "starts_at": starts_at,
+        "ends_at": ends_at,
+        "prizes": normalize_spin_prizes(doc.get("prizes")),
+        "updated_at": doc.get("updated_at") if isinstance(doc.get("updated_at"), datetime) else datetime.utcnow(),
+        "created_at": doc.get("created_at") if isinstance(doc.get("created_at"), datetime) else datetime.utcnow(),
+    }
+
+
+async def get_spin_win_config_document() -> Dict[str, Any]:
+    config_doc = await db.spin_win_config.find_one({"id": SPIN_WIN_CONFIG_ID})
+    if not config_doc:
+        config_doc = default_spin_win_config()
+        await db.spin_win_config.update_one(
+            {"id": SPIN_WIN_CONFIG_ID},
+            {"$setOnInsert": config_doc},
+            upsert=True,
+        )
+    normalized = normalize_spin_win_config_document(config_doc)
+    if (
+        config_doc.get("daily_spin_limit") != normalized["daily_spin_limit"]
+        or config_doc.get("eligible_roles") != normalized["eligible_roles"]
+        or config_doc.get("included_user_ids") != normalized["included_user_ids"]
+        or config_doc.get("excluded_user_ids") != normalized["excluded_user_ids"]
+    ):
+        await db.spin_win_config.update_one(
+            {"id": SPIN_WIN_CONFIG_ID},
+            {"$set": {**normalized, "updated_at": datetime.utcnow()}},
+            upsert=True,
+        )
+    return normalized
+
+
+def get_spin_win_date_key(now_utc: Optional[datetime] = None) -> str:
+    base = now_utc or datetime.utcnow()
+    aware = base.replace(tzinfo=timezone.utc) if base.tzinfo is None else base.astimezone(timezone.utc)
+    return aware.astimezone(IST_TZ).strftime("%Y-%m-%d")
+
+
+def evaluate_spin_win_eligibility(config: Dict[str, Any], current_user: Dict[str, Any], now_utc: datetime) -> tuple[bool, str]:
+    if not bool(config.get("enabled")):
+        return False, "Spin & Win is disabled by admin."
+    starts_at = config.get("starts_at")
+    ends_at = config.get("ends_at")
+    if starts_at and now_utc < starts_at:
+        return False, "Spin & Win campaign has not started yet."
+    if ends_at and now_utc > ends_at:
+        return False, "Spin & Win campaign has ended."
+
+    user_role = str(current_user.get("role") or "")
+    allowed_roles = set(config.get("eligible_roles") or [])
+    if allowed_roles and user_role not in allowed_roles:
+        return False, "Spin & Win is not enabled for your account role."
+
+    user_id = str(current_user.get("id") or "")
+    included_ids = set(config.get("included_user_ids") or [])
+    excluded_ids = set(config.get("excluded_user_ids") or [])
+    if included_ids and user_id not in included_ids:
+        return False, "Spin & Win is available only for selected customers."
+    if user_id in excluded_ids:
+        return False, "Spin & Win is not available for this account."
+    return True, ""
+
 @api_router.get("/wallet", response_model=WalletResponse)
 async def get_wallet(current_user: dict = Depends(get_current_user)):
     wallet = await db.user_wallets.find_one({"user_id": current_user["id"]})
@@ -6361,6 +6593,179 @@ async def topup_wallet(payload: WalletTopupRequest, current_user: dict = Depends
         "balance": round(wallet.get("balance", 0.0), 2),
         "currency": wallet.get("currency", "INR"),
         "updated_at": wallet.get("updated_at"),
+    }
+
+
+@api_router.get("/spin-win/config")
+async def get_spin_win_config(current_user: dict = Depends(get_current_user)):
+    now = datetime.utcnow()
+    date_key = get_spin_win_date_key(now)
+    config = await get_spin_win_config_document()
+    eligible, eligibility_reason = evaluate_spin_win_eligibility(config, current_user, now)
+    daily_limit = int(config.get("daily_spin_limit", 0) or 0)
+    daily_doc = await db.spin_win_user_daily.find_one({"user_id": current_user["id"], "date_key": date_key}) or {}
+    spins_used = int(daily_doc.get("spins_used", 0) or 0)
+    spins_left = max(0, daily_limit - spins_used)
+    latest_reward = await db.spin_win_rewards.find_one(
+        {"user_id": current_user["id"]},
+        sort=[("created_at", -1)],
+    )
+    if latest_reward:
+        latest_reward.pop("_id", None)
+
+    return {
+        "enabled": bool(config.get("enabled", False)),
+        "daily_spin_limit": daily_limit,
+        "spins_used_today": spins_used,
+        "spins_left_today": spins_left,
+        "date_key": date_key,
+        "eligible": bool(eligible),
+        "eligibility_reason": eligibility_reason,
+        "starts_at": config.get("starts_at"),
+        "ends_at": config.get("ends_at"),
+        "prizes": config.get("prizes", []),
+        "latest_reward": latest_reward,
+        "updated_at": config.get("updated_at"),
+    }
+
+
+@api_router.post("/spin-win/spin")
+async def perform_spin_win(current_user: dict = Depends(get_current_user)):
+    now = datetime.utcnow()
+    date_key = get_spin_win_date_key(now)
+    config = await get_spin_win_config_document()
+    eligible, eligibility_reason = evaluate_spin_win_eligibility(config, current_user, now)
+    if not eligible:
+        raise HTTPException(status_code=403, detail=eligibility_reason or "Spin & Win not available")
+
+    daily_limit = int(config.get("daily_spin_limit", 0) or 0)
+    if daily_limit <= 0:
+        raise HTTPException(status_code=400, detail="No daily spins are configured by admin")
+
+    update_result = await db.spin_win_user_daily.update_one(
+        {
+            "user_id": current_user["id"],
+            "date_key": date_key,
+            "spins_used": {"$lt": daily_limit},
+        },
+        {
+            "$inc": {"spins_used": 1},
+            "$set": {"updated_at": now},
+            "$setOnInsert": {
+                "id": str(uuid.uuid4()),
+                "user_id": current_user["id"],
+                "date_key": date_key,
+                "created_at": now,
+            },
+        },
+        upsert=True,
+    )
+    if update_result.matched_count == 0 and update_result.upserted_id is None:
+        raise HTTPException(status_code=400, detail="Daily spin limit reached")
+
+    daily_doc = await db.spin_win_user_daily.find_one({"user_id": current_user["id"], "date_key": date_key}) or {}
+    spins_used = int(daily_doc.get("spins_used", 0) or 0)
+    spins_left = max(0, daily_limit - spins_used)
+
+    active_prizes = [prize for prize in (config.get("prizes") or []) if bool(prize.get("active", True))]
+    if not active_prizes:
+        await db.spin_win_user_daily.update_one(
+            {"user_id": current_user["id"], "date_key": date_key, "spins_used": {"$gt": 0}},
+            {"$inc": {"spins_used": -1}, "$set": {"updated_at": datetime.utcnow()}},
+        )
+        raise HTTPException(status_code=503, detail="No active prizes configured")
+
+    prize_ids = [str(prize.get("id") or "") for prize in active_prizes if prize.get("id")]
+    stock_counts = await db.spin_win_rewards.aggregate(
+        [
+            {"$match": {"date_key": date_key, "prize_id": {"$in": prize_ids}}},
+            {"$group": {"_id": "$prize_id", "count": {"$sum": 1}}},
+        ]
+    ).to_list(None)
+    used_count_by_prize = {str(row.get("_id")): int(row.get("count", 0) or 0) for row in stock_counts}
+
+    weighted_pool: List[tuple[Dict[str, Any], float]] = []
+    for prize in active_prizes:
+        prize_id = str(prize.get("id") or "")
+        if not prize_id:
+            continue
+        daily_stock = prize.get("daily_stock")
+        if daily_stock is not None and int(daily_stock) >= 0:
+            if used_count_by_prize.get(prize_id, 0) >= int(daily_stock):
+                continue
+        weight = float(prize.get("weight", 0.0) or 0.0)
+        if weight <= 0:
+            continue
+        weighted_pool.append((prize, weight))
+
+    if not weighted_pool:
+        await db.spin_win_user_daily.update_one(
+            {"user_id": current_user["id"], "date_key": date_key, "spins_used": {"$gt": 0}},
+            {"$inc": {"spins_used": -1}, "$set": {"updated_at": datetime.utcnow()}},
+        )
+        raise HTTPException(status_code=503, detail="All daily prizes are exhausted. Try tomorrow.")
+
+    total_weight = sum(weight for _, weight in weighted_pool)
+    random_threshold = random.uniform(0.0, total_weight)
+    running_weight = 0.0
+    selected_prize = weighted_pool[-1][0]
+    for prize, weight in weighted_pool:
+        running_weight += weight
+        if random_threshold <= running_weight:
+            selected_prize = prize
+            break
+
+    wallet_credit_amount = 0.0
+    reward_type = str(selected_prize.get("reward_type") or "none")
+    reward_value = round(float(selected_prize.get("reward_value", 0.0) or 0.0), 2)
+    if reward_type == "cash" and reward_value > 0:
+        wallet_credit_amount = reward_value
+        await db.user_wallets.update_one(
+            {"user_id": current_user["id"]},
+            {
+                "$inc": {"balance": wallet_credit_amount},
+                "$set": {"updated_at": now},
+                "$setOnInsert": {
+                    "id": str(uuid.uuid4()),
+                    "currency": str(selected_prize.get("currency") or "INR"),
+                    "created_at": now,
+                },
+            },
+            upsert=True,
+        )
+
+    reward_doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": current_user["id"],
+        "user_name": current_user.get("name"),
+        "user_role": current_user.get("role"),
+        "date_key": date_key,
+        "spin_number": spins_used,
+        "prize_id": str(selected_prize.get("id") or ""),
+        "prize_label": str(selected_prize.get("label") or ""),
+        "reward_type": reward_type,
+        "reward_value": reward_value,
+        "currency": str(selected_prize.get("currency") or "INR"),
+        "wallet_credit_amount": wallet_credit_amount,
+        "description": selected_prize.get("description"),
+        "created_at": now,
+    }
+    await db.spin_win_rewards.insert_one(reward_doc)
+
+    return {
+        "message": "Spin completed",
+        "date_key": date_key,
+        "spins_used_today": spins_used,
+        "spins_left_today": spins_left,
+        "reward": {
+            "prize_id": reward_doc["prize_id"],
+            "label": reward_doc["prize_label"],
+            "reward_type": reward_doc["reward_type"],
+            "reward_value": reward_doc["reward_value"],
+            "currency": reward_doc["currency"],
+            "wallet_credit_amount": reward_doc["wallet_credit_amount"],
+            "description": reward_doc["description"],
+        },
     }
 
 @api_router.post("/fare/estimate", response_model=FareEstimateResponse)
@@ -7568,6 +7973,65 @@ async def update_registration_fees(
     await cache_delete("pricing_rules:active")
     return settings
 
+
+@api_router.get("/admin/spin-win/config")
+async def get_admin_spin_win_config(current_user: dict = Depends(get_current_user)):
+    if current_user["role"] != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return await get_spin_win_config_document()
+
+
+@api_router.put("/admin/spin-win/config")
+async def update_admin_spin_win_config(
+    payload: SpinWinConfigPayload,
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user["role"] != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    starts_at = as_utc_naive(payload.starts_at) if payload.starts_at else None
+    ends_at = as_utc_naive(payload.ends_at) if payload.ends_at else None
+    if starts_at and ends_at and ends_at <= starts_at:
+        raise HTTPException(status_code=400, detail="Spin & Win end date must be after start date")
+    if payload.enabled and int(payload.daily_spin_limit or 0) <= 0:
+        raise HTTPException(status_code=400, detail="Daily spin limit must be greater than zero when enabled")
+    if payload.enabled and not payload.prizes:
+        raise HTTPException(status_code=400, detail="At least one prize is required when Spin & Win is enabled")
+
+    now = datetime.utcnow()
+    config_doc = {
+        "id": SPIN_WIN_CONFIG_ID,
+        "enabled": bool(payload.enabled),
+        "daily_spin_limit": max(0, min(SPIN_WIN_MAX_DAILY_LIMIT, int(payload.daily_spin_limit or 0))),
+        "eligible_roles": normalize_spin_roles([str(role.value if isinstance(role, UserRole) else role) for role in payload.eligible_roles]),
+        "included_user_ids": normalize_spin_user_ids(payload.included_user_ids),
+        "excluded_user_ids": normalize_spin_user_ids(payload.excluded_user_ids),
+        "starts_at": starts_at,
+        "ends_at": ends_at,
+        "prizes": normalize_spin_prizes([item.dict() for item in payload.prizes]),
+        "updated_at": now,
+    }
+    await db.spin_win_config.update_one(
+        {"id": SPIN_WIN_CONFIG_ID},
+        {"$set": config_doc, "$setOnInsert": {"created_at": now}},
+        upsert=True,
+    )
+    return await get_spin_win_config_document()
+
+
+@api_router.get("/admin/spin-win/winners")
+async def get_admin_spin_win_winners(
+    limit: int = 100,
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user["role"] != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    safe_limit = max(1, min(500, int(limit or 100)))
+    winners = await db.spin_win_rewards.find({}).sort("created_at", -1).to_list(safe_limit)
+    for winner in winners:
+        winner.pop("_id", None)
+    return winners
+
 # API root (useful quick-check endpoint)
 @api_router.get("")
 @api_router.get("/")
@@ -8302,16 +8766,28 @@ async def emit_new_booking_to_drivers(
     available_drivers = await db.drivers.find(query).to_list(150)
     passenger_id = None
     blocked_driver_ids: set = set()
+    women_only_required = False
     if booking_id:
         booking = await db.bookings.find_one({"id": booking_id})
         passenger_id = booking.get("passenger_id") if booking else None
+        women_only_required = bool((booking or {}).get("women_only_required"))
         if passenger_id:
             blocked_driver_ids = set(await get_excluded_driver_ids_for_passenger(passenger_id))
+    female_driver_ids: set = set()
+    if women_only_required and available_drivers:
+        driver_ids = [str(item.get("user_id") or "").strip() for item in available_drivers if item.get("user_id")]
+        female_rows = await db.users.find(
+            {"id": {"$in": driver_ids}, "role": UserRole.DRIVER, "gender": "female"},
+            {"_id": 0, "id": 1},
+        ).to_list(None)
+        female_driver_ids = {str(item.get("id") or "").strip() for item in female_rows if item.get("id")}
     for driver in available_drivers:
         if blocked_driver_ids and driver.get("user_id") in blocked_driver_ids:
             continue
         driver_id = str(driver.get("user_id") or "").strip()
         if not driver_id:
+            continue
+        if women_only_required and driver_id not in female_driver_ids:
             continue
         await sio.emit(
             'new_booking_available',
@@ -8353,6 +8829,13 @@ async def ride_dispatch_worker():
                 max_distance_km=8,
             )
             candidate_driver_ids = [str(item.get("user_id") or "").strip() for item in drivers if item.get("user_id")]
+            if bool(booking.get("women_only_required")) and candidate_driver_ids:
+                female_rows = await db.users.find(
+                    {"id": {"$in": candidate_driver_ids}, "role": UserRole.DRIVER, "gender": "female"},
+                    {"_id": 0, "id": 1},
+                ).to_list(None)
+                female_ids = {str(item.get("id") or "").strip() for item in female_rows if item.get("id")}
+                candidate_driver_ids = [driver_id for driver_id in candidate_driver_ids if driver_id in female_ids]
             if not candidate_driver_ids:
                 if attempts < RIDE_QUEUE_MAX_ATTEMPTS:
                     retry_delay = min(60, RIDE_QUEUE_RETRY_BASE_SECONDS * max(1, attempts))

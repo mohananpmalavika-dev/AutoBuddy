@@ -41,6 +41,7 @@ const PASSENGER_MENU_OPTIONS = [
   { key: 'drivers', label: 'Drivers' },
   { key: 'safety', label: 'Safety' },
   { key: 'wallet', label: 'Wallet' },
+  { key: 'spin', label: 'Spin & Win' },
   { key: 'history', label: 'Ride History' },
 ];
 const PRIMARY_PASSENGER_MENU_KEY = 'ride';
@@ -96,6 +97,14 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
   const [showPassengerMenus, setShowPassengerMenus] = useState(false);
   const [driverLiveAddress, setDriverLiveAddress] = useState('');
   const [activePassengerMenu, setActivePassengerMenu] = useState(PRIMARY_PASSENGER_MENU_KEY);
+  const [rideProductAvailability, setRideProductAvailability] = useState({
+    enabled_products: ['normal'],
+    pickup_district: null,
+  });
+  const [rideProductsLoading, setRideProductsLoading] = useState(false);
+  const [spinWinStatus, setSpinWinStatus] = useState(null);
+  const [spinWinLoading, setSpinWinLoading] = useState(false);
+  const [spinningNow, setSpinningNow] = useState(false);
   const placesConfigured = isPlacesConfigured();
   const googleMapsWebKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
   const liveTrackStatuses = useMemo(() => new Set(['accepted', 'driver_arrived', 'in_progress']), []);
@@ -560,19 +569,108 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
     }
   };
 
+  const refreshRideProductAvailability = useCallback(
+    async ({ silent = false, addressOverride = null } = {}) => {
+      const pickupAddress = String(addressOverride || pickupLocation?.address || '').trim() || undefined;
+      try {
+        if (!silent) {
+          setRideProductsLoading(true);
+        }
+        const availability = await apiRequest('/ride-products/availability', {
+          query: {
+            pickup_address: pickupAddress,
+          },
+        });
+        if (availability && Array.isArray(availability.enabled_products)) {
+          const enabledProducts = availability.enabled_products.length > 0 ? availability.enabled_products : ['normal'];
+          setRideProductAvailability({
+            enabled_products: enabledProducts,
+            pickup_district: availability.pickup_district || null,
+          });
+          if (!enabledProducts.includes(effectiveRideProduct)) {
+            setRideProduct('normal');
+            if (!silent) {
+              setMessage('Selected ride product is not active in this district. Switched to Normal.');
+            }
+          }
+        }
+      } catch (err) {
+        if (!silent) {
+          setError(err.message || 'Could not load district ride product settings.');
+        }
+      } finally {
+        if (!silent) {
+          setRideProductsLoading(false);
+        }
+      }
+    },
+    [effectiveRideProduct, pickupLocation?.address],
+  );
+
+  const refreshSpinWinStatus = useCallback(
+    async ({ silent = false } = {}) => {
+      try {
+        if (!silent) {
+          setSpinWinLoading(true);
+        }
+        const status = await apiRequest('/spin-win/config', { token });
+        setSpinWinStatus(status || null);
+        return status;
+      } catch (err) {
+        if (!silent) {
+          setError(err.message || 'Could not load Spin & Win status.');
+        }
+        return null;
+      } finally {
+        if (!silent) {
+          setSpinWinLoading(false);
+        }
+      }
+    },
+    [token],
+  );
+
+  const spinNow = async () => {
+    if (spinningNow) {
+      return;
+    }
+    try {
+      setSpinningNow(true);
+      setError('');
+      const result = await apiRequest('/spin-win/spin', { method: 'POST', token });
+      const rewardLabel = String(result?.reward?.label || 'reward');
+      const remaining = Number(result?.spins_left_today ?? 0);
+      setMessage(`Spin complete: ${rewardLabel}. Spins left today: ${remaining}.`);
+      await refreshSpinWinStatus({ silent: true });
+    } catch (err) {
+      setError(err.message || 'Spin failed. Please try again.');
+    } finally {
+      setSpinningNow(false);
+    }
+  };
+
   useEffect(() => {
     let unmounted = false;
     const refreshSilently = async () => {
       try {
-        const [active, bookings] = await Promise.all([
+        const [active, bookings, spinStatus, availability] = await Promise.all([
           apiRequest('/bookings/active', { token }).catch(() => null),
           apiRequest('/bookings', { token }).catch(() => []),
+          apiRequest('/spin-win/config', { token }).catch(() => null),
+          apiRequest('/ride-products/availability', { query: { pickup_address: String(pickupLocation?.address || '').trim() || undefined } }).catch(() => null),
         ]);
         if (unmounted) {
           return;
         }
         setActiveBooking(active || null);
         setPassengerBookings(Array.isArray(bookings) ? bookings : []);
+        setSpinWinStatus(spinStatus || null);
+        if (availability && Array.isArray(availability.enabled_products)) {
+          setRideProductAvailability({
+            enabled_products: availability.enabled_products.length > 0 ? availability.enabled_products : ['normal'],
+            pickup_district: availability.pickup_district || null,
+          });
+        }
       } catch {
         // Keep last known state on silent refresh failures.
       }
@@ -584,7 +682,11 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
       unmounted = true;
       clearInterval(timer);
     };
-  }, [token]);
+  }, [pickupLocation?.address, token]);
+
+  useEffect(() => {
+    refreshRideProductAvailability({ silent: true }).catch(() => null);
+  }, [pickupLocation?.address, refreshRideProductAvailability]);
 
   useEffect(() => {
     if (autoPickupInitializedRef.current || pickupLocation) {
@@ -877,6 +979,16 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
     }
 
     const passengerCount = Math.max(1, Math.min(6, Number(passengerCountInput || 1) || 1));
+    const enabledRideProducts = new Set(
+      Array.isArray(rideProductAvailability?.enabled_products) && rideProductAvailability.enabled_products.length > 0
+        ? rideProductAvailability.enabled_products
+        : ['normal'],
+    );
+    if (!enabledRideProducts.has(effectiveRideProduct)) {
+      const districtLabel = rideProductAvailability?.pickup_district || 'this district';
+      setError(`Selected ride product is not active in ${districtLabel}.`);
+      return;
+    }
     if (effectiveRideProduct === 'corporate' && !corporateCode.trim()) {
       setError('Corporate code is required for corporate rides.');
       return;
@@ -948,6 +1060,8 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
   const refreshPassengerDashboard = async () => {
     await refreshActiveBooking();
     await refreshPassengerBookings({ silent: true });
+    await refreshRideProductAvailability({ silent: true });
+    await refreshSpinWinStatus({ silent: true });
   };
 
   const handleProfilePress = useCallback(() => {
@@ -1078,6 +1192,64 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
               </View>
             )}
 
+            {activePassengerMenu === 'spin' && (
+              <View style={styles.infoBlock}>
+                <Text style={styles.infoTitle}>Daily Spin & Win</Text>
+                {!spinWinStatus ? (
+                  <Text style={styles.infoText}>Spin status is unavailable. Tap refresh.</Text>
+                ) : (
+                  <>
+                    <Text style={styles.infoText}>
+                      Status: {spinWinStatus.enabled ? 'Enabled' : 'Disabled'}
+                    </Text>
+                    <Text style={styles.infoText}>
+                      Daily limit: {Number(spinWinStatus.daily_spin_limit || 0)} | Used: {Number(spinWinStatus.spins_used_today || 0)} | Left: {Number(spinWinStatus.spins_left_today || 0)}
+                    </Text>
+                    {spinWinStatus.starts_at && (
+                      <Text style={styles.infoText}>Campaign Start: {new Date(spinWinStatus.starts_at).toLocaleString()}</Text>
+                    )}
+                    {spinWinStatus.ends_at && (
+                      <Text style={styles.infoText}>Campaign End: {new Date(spinWinStatus.ends_at).toLocaleString()}</Text>
+                    )}
+                    {!spinWinStatus.eligible && (
+                      <Text style={styles.validationText}>
+                        {spinWinStatus.eligibility_reason || 'Not eligible for Spin & Win.'}
+                      </Text>
+                    )}
+                    {!!spinWinStatus.latest_reward && (
+                      <Text style={styles.hint}>
+                        Last reward: {spinWinStatus.latest_reward.prize_label || 'Reward'} ({spinWinStatus.latest_reward.reward_type || '-'})
+                      </Text>
+                    )}
+                  </>
+                )}
+
+                <View style={styles.actionsRow}>
+                  <TouchableOpacity
+                    style={styles.actionButton}
+                    onPress={spinNow}
+                    disabled={
+                      spinningNow
+                      || spinWinLoading
+                      || !spinWinStatus?.eligible
+                      || Number(spinWinStatus?.spins_left_today || 0) <= 0
+                    }>
+                    <Text style={styles.actionText}>
+                      {spinningNow ? 'Spinning...' : 'Spin Now'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.actionButtonMuted}
+                    onPress={() => refreshSpinWinStatus({ silent: false })}
+                    disabled={spinWinLoading}>
+                    <Text style={styles.actionText}>
+                      {spinWinLoading ? 'Refreshing...' : 'Refresh'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
             {activePassengerMenu === 'ride' && (
               <>
                 <View style={styles.selectedBlock}>
@@ -1137,8 +1309,17 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                 </View>
                 <View style={styles.infoBlock}>
                   <Text style={styles.infoTitle}>Ride Type</Text>
+                  {!!rideProductAvailability?.pickup_district && (
+                    <Text style={styles.hint}>
+                      District: {rideProductAvailability.pickup_district}
+                    </Text>
+                  )}
+                  {rideProductsLoading && (
+                    <Text style={styles.hint}>Updating district ride products...</Text>
+                  )}
                   <RideProductsGrid
                     selected={effectiveRideProduct}
+                    enabledKeys={rideProductAvailability?.enabled_products}
                     onSelect={(value) => {
                       setRideProduct(value);
                       if (value === 'scheduled') {

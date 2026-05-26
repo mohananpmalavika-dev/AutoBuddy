@@ -24,6 +24,7 @@ import VoiceTextInput from '../components/VoiceTextInput';
 
 const LAUNCH_BANNER_SOURCE = require('../../assets/images/autobuddy-login-hero.jpg');
 const ROLE_OPTIONS = ['passenger', 'driver'];
+const GENDER_OPTIONS = ['male', 'female', 'other'];
 const AUTH_METHODS = [
   { key: 'password', label: 'Password' },
   { key: 'google', label: 'Google' },
@@ -102,6 +103,7 @@ export default function AuthScreen({ onAuthenticated }) {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState('');
+  const [gender, setGender] = useState('');
   const [registrationFees, setRegistrationFees] = useState({
     passenger_registration_fee: 0,
     driver_registration_fee: 0,
@@ -265,6 +267,10 @@ export default function AuthScreen({ onAuthenticated }) {
         setError('Select a role to continue registration.');
         return;
       }
+      if (!gender) {
+        setError('Select gender to continue registration.');
+        return;
+      }
       if (normalizedPassword.length < 8) {
         setError('Password must be at least 8 characters.');
         return;
@@ -320,6 +326,7 @@ export default function AuthScreen({ onAuthenticated }) {
             name: name.trim(),
             phone: normalizedPhone,
             role,
+            gender,
             email_otp: normalizedEmailOtp,
             referral_code: normalizedReferralCode || undefined,
             registration_fee_ack: selectedRegistrationFee <= 0 || registrationFeeAccepted,
@@ -396,6 +403,10 @@ export default function AuthScreen({ onAuthenticated }) {
         setError('Select a role to continue registration.');
         return;
       }
+      if (!gender) {
+        setError('Select gender to continue registration.');
+        return;
+      }
       if (selectedRegistrationFee > 0 && !registrationPaymentMethod) {
         setError('Select a registration payment method.');
         return;
@@ -440,6 +451,7 @@ export default function AuthScreen({ onAuthenticated }) {
           name: normalizedName,
           phone: normalizedPhone,
           role,
+          gender,
           referral_code: normalizedReferralCode || undefined,
           registration_fee_ack: selectedRegistrationFee <= 0 || registrationFeeAccepted,
           registration_payment_method: selectedRegistrationFee > 0 ? registrationPaymentMethod : undefined,
@@ -632,6 +644,7 @@ export default function AuthScreen({ onAuthenticated }) {
                 setRegisterEmailOtp('');
                 setRegisterReferralCode('');
                 setRegisterEmailOtpSent(false);
+                setGender('');
                 setRegistrationFeeAccepted(false);
                 setRegistrationPaymentMethod('');
                 setRegistrationPaymentUtr('');
@@ -648,6 +661,7 @@ export default function AuthScreen({ onAuthenticated }) {
                 setRegisterEmailOtp('');
                 setRegisterReferralCode('');
                 setRegisterEmailOtpSent(false);
+                setGender('');
                 setRegistrationFeeAccepted(false);
                 setRegistrationPaymentMethod('');
                 setRegistrationPaymentUtr('');
@@ -705,6 +719,19 @@ export default function AuthScreen({ onAuthenticated }) {
                           setRegistrationPaymentUtr('');
                         }}>
                         <Text style={[styles.roleChipText, role === candidate && styles.roleChipTextActive]}>
+                          {toTitleCase(candidate)}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  <Text style={styles.inputLabel}>Gender</Text>
+                  <View style={styles.roleRow}>
+                    {GENDER_OPTIONS.map((candidate) => (
+                      <TouchableOpacity
+                        key={candidate}
+                        style={[styles.roleChip, gender === candidate && styles.roleChipActive]}
+                        onPress={() => setGender(candidate)}>
+                        <Text style={[styles.roleChipText, gender === candidate && styles.roleChipTextActive]}>
                           {toTitleCase(candidate)}
                         </Text>
                       </TouchableOpacity>
@@ -805,6 +832,19 @@ export default function AuthScreen({ onAuthenticated }) {
                           setRegistrationPaymentUtr('');
                         }}>
                         <Text style={[styles.roleChipText, role === candidate && styles.roleChipTextActive]}>
+                          {toTitleCase(candidate)}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  <Text style={styles.inputLabel}>Gender</Text>
+                  <View style={styles.roleRow}>
+                    {GENDER_OPTIONS.map((candidate) => (
+                      <TouchableOpacity
+                        key={candidate}
+                        style={[styles.roleChip, gender === candidate && styles.roleChipActive]}
+                        onPress={() => setGender(candidate)}>
+                        <Text style={[styles.roleChipText, gender === candidate && styles.roleChipTextActive]}>
                           {toTitleCase(candidate)}
                         </Text>
                       </TouchableOpacity>

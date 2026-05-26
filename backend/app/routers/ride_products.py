@@ -1,9 +1,9 @@
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Set
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -47,6 +47,19 @@ class AdvancedBookingRequest(BaseModel):
     allow_parallel: bool = False
     selected_driver_id: Optional[str] = Field(default=None, max_length=120)
     payment_method: str = Field(default="cash", max_length=20)
+
+
+class DistrictRideProductRule(BaseModel):
+    district: str = Field(min_length=2, max_length=80)
+    enabled_products: List[RideProduct] = Field(default_factory=list)
+
+
+class RideProductDistrictConfigUpdate(BaseModel):
+    default_enabled_products: List[RideProduct] = Field(default_factory=list)
+    district_rules: List[DistrictRideProductRule] = Field(default_factory=list, max_length=300)
+
+
+ALL_RIDE_PRODUCT_KEYS: List[str] = [item.value for item in RideProduct]
 
 
 def _to_float(value: Any, default: float = 0.0) -> float:
@@ -93,6 +106,135 @@ def _normalize_role(value: Any) -> str:
     if "." in role:
         role = role.split(".")[-1]
     return role
+
+
+def _normalize_gender(value: Any) -> str:
+    gender = str(value or "").strip().lower()
+    if "." in gender:
+        gender = gender.split(".")[-1]
+    return gender
+
+
+def _normalize_district_name(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return ""
+    text = text.replace(" district", "").replace("district ", "")
+    text = " ".join(text.replace("-", " ").replace("/", " ").split())
+    return text
+
+
+def _extract_district_from_address(address: Any) -> Optional[str]:
+    raw = str(address or "").strip()
+    if not raw:
+        return None
+    tokens = [part.strip() for part in raw.replace("|", ",").split(",") if part.strip()]
+    if not tokens:
+        return None
+    lowered_tokens = [item.lower() for item in tokens]
+    for item in lowered_tokens:
+        if "district" in item:
+            normalized = _normalize_district_name(item)
+            return normalized or None
+    if len(tokens) >= 2:
+        guess = _normalize_district_name(tokens[-2])
+        if guess:
+            return guess
+    guess = _normalize_district_name(tokens[-1])
+    return guess or None
+
+
+def _default_ride_product_config() -> Dict[str, Any]:
+    now = datetime.utcnow()
+    return {
+        "id": "district_ride_products",
+        "default_enabled_products": ALL_RIDE_PRODUCT_KEYS,
+        "district_rules": [],
+        "updated_at": now,
+        "created_at": now,
+    }
+
+
+def _normalize_enabled_products(values: Any) -> List[str]:
+    result: List[str] = []
+    seen: Set[str] = set()
+    for raw in values or []:
+        key = str(raw.value if isinstance(raw, RideProduct) else raw).strip().lower()
+        if key not in ALL_RIDE_PRODUCT_KEYS or key in seen:
+            continue
+        seen.add(key)
+        result.append(key)
+    if "normal" not in seen:
+        result.insert(0, "normal")
+    return result
+
+
+def _normalize_district_rules(values: Any) -> List[Dict[str, Any]]:
+    rules: List[Dict[str, Any]] = []
+    seen: Set[str] = set()
+    for row in values or []:
+        district_raw = row.get("district") if isinstance(row, dict) else getattr(row, "district", None)
+        district_norm = _normalize_district_name(district_raw)
+        if not district_norm or district_norm in seen:
+            continue
+        enabled_raw = row.get("enabled_products") if isinstance(row, dict) else getattr(row, "enabled_products", [])
+        enabled = _normalize_enabled_products(enabled_raw)
+        seen.add(district_norm)
+        rules.append(
+            {
+                "district": str(district_raw or "").strip(),
+                "district_key": district_norm,
+                "enabled_products": enabled,
+            }
+        )
+    return rules
+
+
+def _normalize_ride_product_config(doc: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    payload = doc or _default_ride_product_config()
+    return {
+        "id": "district_ride_products",
+        "default_enabled_products": _normalize_enabled_products(payload.get("default_enabled_products")),
+        "district_rules": _normalize_district_rules(payload.get("district_rules")),
+        "updated_at": payload.get("updated_at") if isinstance(payload.get("updated_at"), datetime) else datetime.utcnow(),
+        "created_at": payload.get("created_at") if isinstance(payload.get("created_at"), datetime) else datetime.utcnow(),
+    }
+
+
+async def _get_ride_product_config(db: AsyncIOMotorDatabase) -> Dict[str, Any]:
+    doc = await db.ride_product_config.find_one({"id": "district_ride_products"})
+    if not doc:
+        doc = _default_ride_product_config()
+        await db.ride_product_config.update_one(
+            {"id": "district_ride_products"},
+            {"$setOnInsert": doc},
+            upsert=True,
+        )
+    return _normalize_ride_product_config(doc)
+
+
+def _resolve_available_products_for_location(
+    config: Dict[str, Any],
+    *,
+    pickup_address: Optional[str] = None,
+    pickup_district: Optional[str] = None,
+) -> Dict[str, Any]:
+    district_key = _normalize_district_name(pickup_district) or _extract_district_from_address(pickup_address)
+    resolved_district = None
+    enabled_products = list(config.get("default_enabled_products") or ALL_RIDE_PRODUCT_KEYS)
+
+    if district_key:
+        for rule in config.get("district_rules") or []:
+            if _normalize_district_name(rule.get("district_key") or rule.get("district")) == district_key:
+                enabled_products = _normalize_enabled_products(rule.get("enabled_products"))
+                resolved_district = rule.get("district") or district_key.title()
+                break
+
+    return {
+        "pickup_district": resolved_district or (district_key.title() if district_key else None),
+        "district_key": district_key,
+        "enabled_products": _normalize_enabled_products(enabled_products),
+    }
 
 
 def _as_utc_naive(value: Any) -> Optional[datetime]:
@@ -166,8 +308,19 @@ async def _ensure_subscription_allows_advanced_booking(db: AsyncIOMotorDatabase,
 
 
 @router.get("/ride-products")
-async def list_ride_products():
-    return [
+async def list_ride_products(
+    pickup_address: Optional[str] = Query(default=None),
+    pickup_district: Optional[str] = Query(default=None),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    config = await _get_ride_product_config(db)
+    availability = _resolve_available_products_for_location(
+        config,
+        pickup_address=pickup_address,
+        pickup_district=pickup_district,
+    )
+    enabled = set(availability.get("enabled_products") or [])
+    products = [
         {
             "key": "pool",
             "title": "Ride Sharing / Pooling",
@@ -239,6 +392,72 @@ async def list_ride_products():
             "investor_value": "Trust-led segment with strong retention potential.",
         },
     ]
+    return {
+        "pickup_district": availability.get("pickup_district"),
+        "enabled_products": sorted(enabled),
+        "products": [{**item, "active": item["key"] in enabled} for item in products],
+    }
+
+
+@router.get("/ride-products/availability")
+async def get_ride_product_availability(
+    pickup_address: Optional[str] = Query(default=None),
+    pickup_district: Optional[str] = Query(default=None),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    config = await _get_ride_product_config(db)
+    availability = _resolve_available_products_for_location(
+        config,
+        pickup_address=pickup_address,
+        pickup_district=pickup_district,
+    )
+    return {
+        "pickup_district": availability.get("pickup_district"),
+        "enabled_products": availability.get("enabled_products"),
+        "updated_at": config.get("updated_at"),
+    }
+
+
+@router.get("/admin/ride-products/district-config")
+async def get_admin_ride_product_district_config(
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    current_user: dict = Depends(get_current_user_secure),
+):
+    if _normalize_role(current_user.get("role")) != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return await _get_ride_product_config(db)
+
+
+@router.put("/admin/ride-products/district-config")
+async def update_admin_ride_product_district_config(
+    payload: RideProductDistrictConfigUpdate,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    current_user: dict = Depends(get_current_user_secure),
+):
+    if _normalize_role(current_user.get("role")) != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    now = datetime.utcnow()
+    config_doc = {
+        "id": "district_ride_products",
+        "default_enabled_products": _normalize_enabled_products([item.value for item in payload.default_enabled_products]),
+        "district_rules": _normalize_district_rules(
+            [
+                {
+                    "district": row.district,
+                    "enabled_products": [item.value for item in row.enabled_products],
+                }
+                for row in payload.district_rules
+            ]
+        ),
+        "updated_at": now,
+    }
+    await db.ride_product_config.update_one(
+        {"id": "district_ride_products"},
+        {"$set": config_doc, "$setOnInsert": {"created_at": now}},
+        upsert=True,
+    )
+    return await _get_ride_product_config(db)
 
 
 @router.post("/bookings/advanced")
@@ -250,6 +469,21 @@ async def create_advanced_booking(
     if _normalize_role(current_user.get("role")) != "passenger":
         raise HTTPException(status_code=403, detail="Passenger only")
     await _ensure_subscription_allows_advanced_booking(db, current_user)
+    config = await _get_ride_product_config(db)
+    pickup_address = str((payload.pickup_location or {}).get("address") or "").strip() or None
+    pickup_district = str((payload.pickup_location or {}).get("district") or "").strip() or None
+    availability = _resolve_available_products_for_location(
+        config,
+        pickup_address=pickup_address,
+        pickup_district=pickup_district,
+    )
+    enabled_keys = set(availability.get("enabled_products") or [])
+    if payload.ride_product.value not in enabled_keys:
+        district_label = availability.get("pickup_district") or "this district"
+        raise HTTPException(
+            status_code=400,
+            detail=f"{_product_label(payload.ride_product)} is not active in {district_label}.",
+        )
 
     if payload.ride_product == RideProduct.CORPORATE and not payload.corporate_code:
         raise HTTPException(status_code=400, detail="Corporate code required")
@@ -302,6 +536,7 @@ async def create_advanced_booking(
         "women_only_required": bool(
             payload.women_only_required or payload.ride_product == RideProduct.WOMEN_ONLY
         ),
+        "pickup_district": availability.get("pickup_district"),
         "rental_hours": payload.rental_hours,
         "safe_ride_priority": payload.safe_ride_priority,
         "notes": payload.notes,

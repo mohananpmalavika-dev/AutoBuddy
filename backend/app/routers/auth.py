@@ -241,6 +241,7 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         name=current_user["name"],
         phone=current_user["phone"],
         role=current_user["role"],
+        gender=current_user.get("gender"),
         referral_code=str(current_user.get("referral_code") or "").strip().upper() or None,
         created_at=current_user["created_at"],
     )

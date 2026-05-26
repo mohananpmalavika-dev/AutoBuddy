@@ -17,10 +17,24 @@ import WebCommandBar from '../components/WebCommandBar';
 import VoiceTextInput from '../components/VoiceTextInput';
 
 const SUBSCRIPTION_PERIOD_OPTIONS = ['monthly', 'quarterly', 'annually', 'per_trip'];
+const RIDE_PRODUCT_KEYS = [
+  'normal',
+  'pool',
+  'scheduled',
+  'corporate',
+  'airport',
+  'intercity',
+  'ev_auto',
+  'tourism',
+  'women_only',
+  'rental_hourly',
+  'school_elderly_safe',
+];
 const ADMIN_MENU_OPTIONS = [
   { key: 'analytics', label: 'Overview' },
   { key: 'trips', label: 'Ongoing Trips' },
   { key: 'users', label: 'Users & Live' },
+  { key: 'spin', label: 'Spin & Win' },
   { key: 'subscriptions', label: 'Subscriptions' },
   { key: 'phone', label: 'Phone Requests' },
   { key: 'pricing', label: 'Pricing & Fare' },
@@ -83,6 +97,85 @@ function normalizeRoleSubscriptionConfig(roleConfig = {}) {
   };
 }
 
+function defaultSpinWinPrizeState() {
+  return {
+    id: '',
+    label: '',
+    reward_type: 'cash',
+    reward_value: '0',
+    currency: 'INR',
+    weight: '1',
+    daily_stock: '',
+    description: '',
+    active: true,
+  };
+}
+
+function defaultSpinWinConfigState() {
+  return {
+    enabled: false,
+    daily_spin_limit: '1',
+    eligible_roles: ['passenger'],
+    included_user_ids: '',
+    excluded_user_ids: '',
+    starts_at: '',
+    ends_at: '',
+    prizes: [defaultSpinWinPrizeState()],
+  };
+}
+
+function normalizeSpinWinConfig(config = null) {
+  if (!config || typeof config !== 'object') {
+    return defaultSpinWinConfigState();
+  }
+  const normalizedPrizes = Array.isArray(config.prizes) && config.prizes.length > 0
+    ? config.prizes.map((prize) => ({
+      id: String(prize?.id || ''),
+      label: String(prize?.label || ''),
+      reward_type: String(prize?.reward_type || 'cash'),
+      reward_value: String(prize?.reward_value ?? 0),
+      currency: String(prize?.currency || 'INR'),
+      weight: String(prize?.weight ?? 1),
+      daily_stock: prize?.daily_stock === null || prize?.daily_stock === undefined ? '' : String(prize.daily_stock),
+      description: String(prize?.description || ''),
+      active: Boolean(prize?.active ?? true),
+    }))
+    : [defaultSpinWinPrizeState()];
+  return {
+    enabled: Boolean(config.enabled),
+    daily_spin_limit: String(config.daily_spin_limit ?? 1),
+    eligible_roles: Array.isArray(config.eligible_roles) && config.eligible_roles.length > 0
+      ? config.eligible_roles.map((role) => String(role).toLowerCase())
+      : ['passenger'],
+    included_user_ids: Array.isArray(config.included_user_ids) ? config.included_user_ids.join(', ') : '',
+    excluded_user_ids: Array.isArray(config.excluded_user_ids) ? config.excluded_user_ids.join(', ') : '',
+    starts_at: normalizeDateTimeText(config.starts_at),
+    ends_at: normalizeDateTimeText(config.ends_at),
+    prizes: normalizedPrizes,
+  };
+}
+
+function normalizeRideProductDistrictConfig(config = null) {
+  const defaultEnabledProducts = Array.isArray(config?.default_enabled_products)
+    ? config.default_enabled_products
+    : RIDE_PRODUCT_KEYS;
+  const districtRules = Array.isArray(config?.district_rules) ? config.district_rules : [];
+  return {
+    default_enabled_products_text: defaultEnabledProducts.join(', '),
+    district_rules_text: districtRules
+      .map((rule) => {
+        const district = String(rule?.district || '').trim();
+        const products = Array.isArray(rule?.enabled_products) ? rule.enabled_products.join(',') : '';
+        if (!district || !products) {
+          return '';
+        }
+        return `${district}: ${products}`;
+      })
+      .filter(Boolean)
+      .join('\n'),
+  };
+}
+
 export default function AdminDashboard({ token, user, onLogout }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -139,6 +232,11 @@ export default function AdminDashboard({ token, user, onLogout }) {
     passengers_live: 0,
     total_live: 0,
   });
+  const [spinWinConfig, setSpinWinConfig] = useState(defaultSpinWinConfigState());
+  const [spinWinWinners, setSpinWinWinners] = useState([]);
+  const [rideProductDistrictConfig, setRideProductDistrictConfig] = useState(
+    normalizeRideProductDistrictConfig(null),
+  );
 
   const runAction = async (fn, successText) => {
     try {
@@ -174,6 +272,9 @@ export default function AdminDashboard({ token, user, onLogout }) {
     const approvedDriverFare = await apiRequest('/admin/driver-fare-calculator/approved', { token }).catch(() => []);
     const activeTrips = await apiRequest('/admin/bookings/ongoing', { token }).catch(() => []);
     const usersLiveStatus = await apiRequest('/admin/users/live-status', { token }).catch(() => null);
+    const spinWinSettings = await apiRequest('/admin/spin-win/config', { token }).catch(() => null);
+    const spinWinWinnerRows = await apiRequest('/admin/spin-win/winners', { token, query: { limit: 50 } }).catch(() => []);
+    const rideProductsDistrictSettings = await apiRequest('/admin/ride-products/district-config', { token }).catch(() => null);
 
     if (dashboard) {
       setStats(dashboard);
@@ -226,6 +327,13 @@ export default function AdminDashboard({ token, user, onLogout }) {
       passengers_live: Number(usersLiveStatus?.live_counts?.passengers_live || 0),
       total_live: Number(usersLiveStatus?.live_counts?.total_live || 0),
     });
+    if (spinWinSettings) {
+      setSpinWinConfig(normalizeSpinWinConfig(spinWinSettings));
+    }
+    setSpinWinWinners(Array.isArray(spinWinWinnerRows) ? spinWinWinnerRows : []);
+    if (rideProductsDistrictSettings) {
+      setRideProductDistrictConfig(normalizeRideProductDistrictConfig(rideProductsDistrictSettings));
+    }
     setMessage('Admin dashboard refreshed.');
   };
 
@@ -594,6 +702,193 @@ export default function AdminDashboard({ token, user, onLogout }) {
     }
   };
 
+  const updateSpinWinField = (field, value) => {
+    setSpinWinConfig((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const updateSpinWinPrizeField = (index, field, value) => {
+    setSpinWinConfig((prev) => ({
+      ...prev,
+      prizes: prev.prizes.map((prize, prizeIndex) =>
+        prizeIndex === index ? { ...prize, [field]: value } : prize,
+      ),
+    }));
+  };
+
+  const addSpinWinPrize = () => {
+    setSpinWinConfig((prev) => ({
+      ...prev,
+      prizes: [...prev.prizes, defaultSpinWinPrizeState()],
+    }));
+  };
+
+  const removeSpinWinPrize = (index) => {
+    setSpinWinConfig((prev) => {
+      const nextPrizes = prev.prizes.filter((_, prizeIndex) => prizeIndex !== index);
+      return {
+        ...prev,
+        prizes: nextPrizes.length > 0 ? nextPrizes : [defaultSpinWinPrizeState()],
+      };
+    });
+  };
+
+  const saveSpinWinConfig = async () => {
+    const normalizeDatePayload = (value) => {
+      const trimmed = String(value || '').trim();
+      if (!trimmed) {
+        return null;
+      }
+      return trimmed.includes('T') ? trimmed : trimmed.replace(' ', 'T');
+    };
+    const parseUserIdCsv = (value) =>
+      String(value || '')
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean);
+
+    const allowedRoles = ['passenger', 'driver'];
+    const selectedRoles = Array.isArray(spinWinConfig.eligible_roles)
+      ? spinWinConfig.eligible_roles.filter((role) => allowedRoles.includes(String(role).toLowerCase()))
+      : [];
+    const dailyLimit = Number(spinWinConfig.daily_spin_limit || 0);
+    if (Number.isNaN(dailyLimit) || dailyLimit < 0) {
+      setError('Daily spin limit must be a valid non-negative number.');
+      return;
+    }
+    if (spinWinConfig.enabled && dailyLimit < 1) {
+      setError('Daily spin limit must be at least 1 when Spin & Win is enabled.');
+      return;
+    }
+
+    const startsAt = normalizeDatePayload(spinWinConfig.starts_at);
+    const endsAt = normalizeDatePayload(spinWinConfig.ends_at);
+    if (startsAt && endsAt) {
+      const startDate = new Date(startsAt);
+      const endDate = new Date(endsAt);
+      if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || endDate <= startDate) {
+        setError('Spin & Win end date must be after start date.');
+        return;
+      }
+    }
+
+    const allowedRewardTypes = ['cash', 'coupon', 'points', 'gift', 'none'];
+    const parsedPrizes = spinWinConfig.prizes
+      .map((prize) => {
+        const label = String(prize.label || '').trim();
+        const rewardValue = Number(prize.reward_value || 0);
+        const weight = Number(prize.weight || 0);
+        const dailyStockRaw = String(prize.daily_stock || '').trim();
+        const parsedDailyStock = dailyStockRaw ? Number(dailyStockRaw) : null;
+        return {
+          id: String(prize.id || '').trim() || undefined,
+          label,
+          reward_type: allowedRewardTypes.includes(String(prize.reward_type || '').toLowerCase())
+            ? String(prize.reward_type || '').toLowerCase()
+            : 'cash',
+          reward_value: Number.isNaN(rewardValue) ? NaN : rewardValue,
+          currency: String(prize.currency || 'INR').trim().toUpperCase() || 'INR',
+          weight: Number.isNaN(weight) ? NaN : weight,
+          daily_stock: parsedDailyStock === null ? null : (Number.isNaN(parsedDailyStock) ? NaN : parsedDailyStock),
+          description: String(prize.description || '').trim() || null,
+          active: Boolean(prize.active),
+        };
+      })
+      .filter((prize) => prize.label.length > 0);
+
+    if (parsedPrizes.length === 0) {
+      setError('Add at least one prize with a label.');
+      return;
+    }
+    const hasInvalidPrize = parsedPrizes.some((prize) =>
+      Number.isNaN(prize.reward_value)
+      || prize.reward_value < 0
+      || Number.isNaN(prize.weight)
+      || prize.weight <= 0
+      || (prize.daily_stock !== null && (Number.isNaN(prize.daily_stock) || prize.daily_stock < 0)),
+    );
+    if (hasInvalidPrize) {
+      setError('Prize values must be valid. Weight must be > 0 and stock cannot be negative.');
+      return;
+    }
+
+    const saved = await runAction(
+      () =>
+        apiRequest('/admin/spin-win/config', {
+          method: 'PUT',
+          token,
+          body: {
+            enabled: Boolean(spinWinConfig.enabled),
+            daily_spin_limit: Math.floor(dailyLimit),
+            eligible_roles: selectedRoles.length > 0 ? selectedRoles : ['passenger'],
+            included_user_ids: parseUserIdCsv(spinWinConfig.included_user_ids),
+            excluded_user_ids: parseUserIdCsv(spinWinConfig.excluded_user_ids),
+            starts_at: startsAt,
+            ends_at: endsAt,
+            prizes: parsedPrizes,
+          },
+        }),
+      'Spin & Win settings updated.',
+    );
+    if (saved) {
+      setSpinWinConfig(normalizeSpinWinConfig(saved));
+      const winners = await apiRequest('/admin/spin-win/winners', { token, query: { limit: 50 } }).catch(() => []);
+      setSpinWinWinners(Array.isArray(winners) ? winners : []);
+    }
+  };
+
+  const updateRideProductDistrictField = (field, value) => {
+    setRideProductDistrictConfig((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const saveRideProductDistrictConfig = async () => {
+    const parseProductList = (value) =>
+      String(value || '')
+        .split(',')
+        .map((item) => item.trim().toLowerCase())
+        .filter((item) => item && RIDE_PRODUCT_KEYS.includes(item));
+
+    const defaultEnabledProducts = parseProductList(rideProductDistrictConfig.default_enabled_products_text);
+    if (defaultEnabledProducts.length === 0) {
+      setError('Default enabled products cannot be empty.');
+      return;
+    }
+
+    const districtRules = String(rideProductDistrictConfig.district_rules_text || '')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const separatorIndex = line.indexOf(':');
+        if (separatorIndex < 1) {
+          return null;
+        }
+        const district = line.slice(0, separatorIndex).trim();
+        const productsText = line.slice(separatorIndex + 1).trim();
+        const enabledProducts = parseProductList(productsText);
+        if (!district || enabledProducts.length === 0) {
+          return null;
+        }
+        return { district, enabled_products: enabledProducts };
+      })
+      .filter(Boolean);
+
+    const saved = await runAction(
+      () =>
+        apiRequest('/admin/ride-products/district-config', {
+          method: 'PUT',
+          token,
+          body: {
+            default_enabled_products: defaultEnabledProducts,
+            district_rules: districtRules,
+          },
+        }),
+      'District-wise ride products updated.',
+    );
+    if (saved) {
+      setRideProductDistrictConfig(normalizeRideProductDistrictConfig(saved));
+    }
+  };
+
   const farePreview = getFareLogicPreview();
 
   const reviewKyc = async (driverId, status) => {
@@ -900,6 +1195,209 @@ export default function AdminDashboard({ token, user, onLogout }) {
                 {!!passenger.active_booking_id && (
                   <Text style={styles.kycDate}>Active Trip: {passenger.active_booking_id}</Text>
                 )}
+              </View>
+            ))
+          )}
+        </View>
+
+        <View style={[styles.section, activeAdminMenu !== 'spin' && styles.hiddenSection]}>
+          <Text style={styles.sectionTitle}>Spin & Win Configuration</Text>
+          <View style={styles.kycCard}>
+            <Text style={styles.inputLabel}>Campaign Status</Text>
+            <View style={styles.optionRow}>
+              <TouchableOpacity
+                style={[styles.optionChip, spinWinConfig.enabled && styles.optionChipActive]}
+                onPress={() => updateSpinWinField('enabled', true)}>
+                <Text style={[styles.optionChipText, spinWinConfig.enabled && styles.optionChipTextActive]}>
+                  Enabled
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.optionChip, !spinWinConfig.enabled && styles.optionChipActive]}
+                onPress={() => updateSpinWinField('enabled', false)}>
+                <Text style={[styles.optionChipText, !spinWinConfig.enabled && styles.optionChipTextActive]}>
+                  Disabled
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.inputLabel}>Daily Spin Limit</Text>
+            <VoiceTextInput
+              style={styles.input}
+              value={spinWinConfig.daily_spin_limit}
+              onChangeText={(value) => updateSpinWinField('daily_spin_limit', value)}
+              keyboardType="number-pad"
+              placeholder="1"
+              placeholderTextColor="#9AA7A0"
+            />
+
+            <Text style={styles.inputLabel}>Eligible Roles</Text>
+            <View style={styles.optionRow}>
+              {['passenger', 'driver'].map((role) => {
+                const enabled = spinWinConfig.eligible_roles.includes(role);
+                return (
+                  <TouchableOpacity
+                    key={role}
+                    style={[styles.optionChip, enabled && styles.optionChipActive]}
+                    onPress={() => {
+                      updateSpinWinField(
+                        'eligible_roles',
+                        enabled
+                          ? spinWinConfig.eligible_roles.filter((item) => item !== role)
+                          : [...spinWinConfig.eligible_roles, role],
+                      );
+                    }}>
+                    <Text style={[styles.optionChipText, enabled && styles.optionChipTextActive]}>
+                      {role === 'passenger' ? 'Passengers' : 'Drivers'}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <Text style={styles.inputLabel}>Only These Customer IDs (comma separated, optional)</Text>
+            <VoiceTextInput
+              style={styles.input}
+              value={spinWinConfig.included_user_ids}
+              onChangeText={(value) => updateSpinWinField('included_user_ids', value)}
+              placeholder="user-id-1, user-id-2"
+              placeholderTextColor="#9AA7A0"
+            />
+            <Text style={styles.inputLabel}>Exclude Customer IDs (comma separated, optional)</Text>
+            <VoiceTextInput
+              style={styles.input}
+              value={spinWinConfig.excluded_user_ids}
+              onChangeText={(value) => updateSpinWinField('excluded_user_ids', value)}
+              placeholder="user-id-3"
+              placeholderTextColor="#9AA7A0"
+            />
+
+            <Text style={styles.inputLabel}>Campaign Start (YYYY-MM-DD HH:mm)</Text>
+            <VoiceTextInput
+              style={styles.input}
+              value={spinWinConfig.starts_at}
+              onChangeText={(value) => updateSpinWinField('starts_at', value)}
+              placeholder="2026-06-01 00:00"
+              placeholderTextColor="#9AA7A0"
+            />
+            <Text style={styles.inputLabel}>Campaign End (YYYY-MM-DD HH:mm)</Text>
+            <VoiceTextInput
+              style={styles.input}
+              value={spinWinConfig.ends_at}
+              onChangeText={(value) => updateSpinWinField('ends_at', value)}
+              placeholder="2026-06-30 23:59"
+              placeholderTextColor="#9AA7A0"
+            />
+
+            <Text style={styles.sectionSubtitle}>Prize Rules</Text>
+            {spinWinConfig.prizes.map((prize, index) => (
+              <View key={`spin-prize-${index}`} style={styles.subscriptionPlanCard}>
+                <Text style={styles.inputLabel}>Prize Label</Text>
+                <VoiceTextInput
+                  style={styles.input}
+                  value={prize.label}
+                  onChangeText={(value) => updateSpinWinPrizeField(index, 'label', value)}
+                  placeholder="INR 10 Wallet Cash"
+                  placeholderTextColor="#9AA7A0"
+                />
+                <Text style={styles.inputLabel}>Prize Type (cash/coupon/points/gift/none)</Text>
+                <VoiceTextInput
+                  style={styles.input}
+                  value={prize.reward_type}
+                  onChangeText={(value) => updateSpinWinPrizeField(index, 'reward_type', value)}
+                  placeholder="cash"
+                  placeholderTextColor="#9AA7A0"
+                />
+                <Text style={styles.inputLabel}>Prize Value</Text>
+                <VoiceTextInput
+                  style={styles.input}
+                  value={prize.reward_value}
+                  onChangeText={(value) => updateSpinWinPrizeField(index, 'reward_value', value)}
+                  keyboardType="decimal-pad"
+                  placeholder="10"
+                  placeholderTextColor="#9AA7A0"
+                />
+                <Text style={styles.inputLabel}>Currency</Text>
+                <VoiceTextInput
+                  style={styles.input}
+                  value={prize.currency}
+                  onChangeText={(value) => updateSpinWinPrizeField(index, 'currency', value)}
+                  placeholder="INR"
+                  placeholderTextColor="#9AA7A0"
+                />
+                <Text style={styles.inputLabel}>Weight (chance)</Text>
+                <VoiceTextInput
+                  style={styles.input}
+                  value={prize.weight}
+                  onChangeText={(value) => updateSpinWinPrizeField(index, 'weight', value)}
+                  keyboardType="decimal-pad"
+                  placeholder="1"
+                  placeholderTextColor="#9AA7A0"
+                />
+                <Text style={styles.inputLabel}>Daily Stock (optional)</Text>
+                <VoiceTextInput
+                  style={styles.input}
+                  value={prize.daily_stock}
+                  onChangeText={(value) => updateSpinWinPrizeField(index, 'daily_stock', value)}
+                  keyboardType="number-pad"
+                  placeholder="100"
+                  placeholderTextColor="#9AA7A0"
+                />
+                <Text style={styles.inputLabel}>Description</Text>
+                <VoiceTextInput
+                  style={styles.input}
+                  value={prize.description}
+                  onChangeText={(value) => updateSpinWinPrizeField(index, 'description', value)}
+                  placeholder="Wallet top-up credit."
+                  placeholderTextColor="#9AA7A0"
+                />
+                <View style={styles.optionRow}>
+                  <TouchableOpacity
+                    style={[styles.optionChip, prize.active && styles.optionChipActive]}
+                    onPress={() => updateSpinWinPrizeField(index, 'active', !prize.active)}>
+                    <Text style={[styles.optionChipText, prize.active && styles.optionChipTextActive]}>
+                      {prize.active ? 'Prize Active' : 'Prize Inactive'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.optionChip]}
+                    onPress={() => removeSpinWinPrize(index)}>
+                    <Text style={styles.optionChipText}>Remove Prize</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))}
+            <View style={styles.actionButtons}>
+              <TouchableOpacity style={[styles.btn, styles.btnApprove]} onPress={addSpinWinPrize}>
+                <Text style={styles.btnText}>Add Prize</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.btn, styles.btnApprove]} onPress={saveSpinWinConfig} disabled={loading}>
+                <Text style={styles.btnText}>Save Spin & Win</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+
+        <View style={[styles.section, activeAdminMenu !== 'spin' && styles.hiddenSection]}>
+          <Text style={styles.sectionTitle}>Recent Winners</Text>
+          {spinWinWinners.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyText}>No spins recorded yet.</Text>
+            </View>
+          ) : (
+            spinWinWinners.map((winner) => (
+              <View key={winner.id || `${winner.user_id}-${winner.created_at}`} style={styles.kycCard}>
+                <Text style={styles.driverName}>{winner.user_name || winner.user_id || 'Customer'}</Text>
+                <Text style={styles.kycDate}>Role: {winner.user_role || '-'}</Text>
+                <Text style={styles.kycDate}>Prize: {winner.prize_label || 'Unknown'}</Text>
+                <Text style={styles.kycDate}>
+                  Reward: {winner.reward_type || '-'} {Number(winner.reward_value || 0).toFixed(2)} {winner.currency || 'INR'}
+                </Text>
+                {!!winner.wallet_credit_amount && (
+                  <Text style={styles.kycDate}>Wallet Credit: INR {Number(winner.wallet_credit_amount || 0).toFixed(2)}</Text>
+                )}
+                <Text style={styles.kycDate}>Date: {winner.date_key || '-'}</Text>
+                <Text style={styles.kycDate}>Time: {formatDateTime(winner.created_at)}</Text>
               </View>
             ))
           )}
@@ -1260,6 +1758,40 @@ export default function AdminDashboard({ token, user, onLogout }) {
         </View>
 
         <View style={[styles.section, activeAdminMenu !== 'pricing' && styles.hiddenSection]}>
+          <Text style={styles.sectionTitle}>District Ride Product Activation</Text>
+          <View style={styles.kycCard}>
+            <Text style={styles.inputLabel}>Default Enabled Products (comma separated)</Text>
+            <VoiceTextInput
+              style={styles.input}
+              value={rideProductDistrictConfig.default_enabled_products_text}
+              onChangeText={(value) => updateRideProductDistrictField('default_enabled_products_text', value)}
+              placeholder="normal,pool,scheduled,women_only"
+              placeholderTextColor="#9AA7A0"
+            />
+            <Text style={styles.inputLabel}>
+              District Rules (one per line)
+            </Text>
+            <Text style={styles.kycDate}>
+              Format: `District Name: product1,product2` (example: `Kollam: normal,women_only,airport`)
+            </Text>
+            <VoiceTextInput
+              style={[styles.input, styles.multilineInput]}
+              value={rideProductDistrictConfig.district_rules_text}
+              onChangeText={(value) => updateRideProductDistrictField('district_rules_text', value)}
+              placeholder={`Kollam: normal,women_only,airport\nErnakulam: normal,pool,ev_auto`}
+              placeholderTextColor="#9AA7A0"
+              multiline
+            />
+            <TouchableOpacity
+              style={[styles.btn, styles.btnApprove]}
+              onPress={saveRideProductDistrictConfig}
+              disabled={loading}>
+              <Text style={styles.btnText}>Save District Product Rules</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={[styles.section, activeAdminMenu !== 'pricing' && styles.hiddenSection]}>
           <Text style={styles.sectionTitle}>Approved Driver Fare Calculators</Text>
           {approvedDriverFareConfigs.length === 0 ? (
             <View style={styles.emptyCard}>
@@ -1574,6 +2106,10 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     color: '#1E3126',
     backgroundColor: '#FBFDFC',
+  },
+  multilineInput: {
+    minHeight: 110,
+    textAlignVertical: 'top',
   },
   optionRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
   optionChip: {

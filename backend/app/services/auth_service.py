@@ -16,6 +16,7 @@ from app.schemas.auth import (
     AuthResponse,
     EmailOtpSendRequest,
     GoogleAuthRequestModel,
+    Gender,
     OtpSendRequest,
     OtpSendResponse,
     OtpVerifyRequest,
@@ -142,6 +143,7 @@ def _build_user_response(user: Dict[str, Any]) -> UserResponse:
                 "name": str(user.get("name") or "User"),
                 "phone": str(user.get("phone") or ""),
                 "role": role,
+                "gender": str(user.get("gender") or "").strip().lower() or None,
                 "referral_code": str(user.get("referral_code") or "").strip().upper() or None,
                 "created_at": created_at,
             }
@@ -238,6 +240,7 @@ async def register(
         "name": user_data.name,
         "phone": normalized_phone,
         "role": user_data.role,
+        "gender": user_data.gender.value if isinstance(user_data.gender, Gender) else str(user_data.gender),
         "password_hash": hash_password(user_data.password),
         "created_at": datetime.utcnow(),
         "registration_fee_amount": float(required_registration_fee),
@@ -349,6 +352,7 @@ def _to_auth_response_from_any(payload: Any) -> AuthResponse:
             "name": getattr(source_user, "name", ""),
             "phone": getattr(source_user, "phone", ""),
             "role": getattr(source_user, "role", "passenger"),
+            "gender": getattr(source_user, "gender", None),
             "referral_code": getattr(source_user, "referral_code", None),
             "created_at": getattr(source_user, "created_at", datetime.utcnow()),
         }
@@ -363,6 +367,7 @@ def _to_auth_response_from_any(payload: Any) -> AuthResponse:
         name=str(source_user.get("name") or "User"),
         phone=str(source_user.get("phone") or ""),
         role=_normalize_role_for_response(source_user.get("role")),
+        gender=str(source_user.get("gender") or "").strip().lower() or None,
         referral_code=str(source_user.get("referral_code") or "").strip().upper() or None,
         created_at=created_at,
     )
@@ -720,6 +725,8 @@ async def google_login(
             raise HTTPException(status_code=400, detail="Name is required for Google registration")
         if not str(payload.phone or "").strip():
             raise HTTPException(status_code=400, detail="Phone number is required for Google registration")
+        if not payload.gender:
+            raise HTTPException(status_code=400, detail="Gender is required for Google registration")
 
         registration_fee_settings = await legacy.get_registration_fee_settings()
         required_registration_fee = legacy.get_registration_fee_for_role(registration_fee_settings, payload.role)
@@ -736,6 +743,7 @@ async def google_login(
             name=str(payload.name or profile_name or "").strip(),
             phone=phone,
             role=payload.role,
+            gender=payload.gender,
             email=profile_email,
         )
         created_new_user = True

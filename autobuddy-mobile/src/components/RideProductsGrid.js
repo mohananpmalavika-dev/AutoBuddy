@@ -17,7 +17,8 @@ const PRODUCTS = [
   { key: 'school_elderly_safe', icon: '🛡️', title: 'School/Elderly', ml: 'Safe Ride', sub: 'Care-first safe rides' },
 ];
 
-export default function RideProductsGrid({ selected = 'normal', onSelect }) {
+export default function RideProductsGrid({ selected = 'normal', onSelect, enabledKeys = null }) {
+  const enabledSet = new Set(Array.isArray(enabledKeys) && enabledKeys.length > 0 ? enabledKeys : PRODUCTS.map((item) => item.key));
   return (
     <View style={styles.wrap}>
       <Text style={styles.heading}>Choose Ride Product</Text>
@@ -26,15 +27,23 @@ export default function RideProductsGrid({ selected = 'normal', onSelect }) {
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         {PRODUCTS.map((item) => {
           const active = selected === item.key;
+          const enabled = enabledSet.has(item.key);
           return (
             <Pressable
               key={item.key}
-              onPress={() => onSelect?.(item.key)}
-              style={[styles.card, active && styles.activeCard]}>
+              onPress={() => {
+                if (!enabled) {
+                  return;
+                }
+                onSelect?.(item.key);
+              }}
+              style={[styles.card, active && styles.activeCard, !enabled && styles.disabledCard]}>
               <Text style={styles.icon}>{item.icon}</Text>
-              <Text style={[styles.title, active && styles.activeText]}>{item.title}</Text>
+              <Text style={[styles.title, active && styles.activeText, !enabled && styles.disabledText]}>{item.title}</Text>
               <Text style={styles.ml}>{item.ml}</Text>
-              <Text style={styles.sub}>{item.sub}</Text>
+              <Text style={[styles.sub, !enabled && styles.disabledText]}>
+                {enabled ? item.sub : 'Not active in this district'}
+              </Text>
             </Pressable>
           );
         })}
@@ -85,6 +94,12 @@ const styles = StyleSheet.create({
   },
   activeText: {
     color: COLORS.primaryDark,
+  },
+  disabledCard: {
+    opacity: 0.45,
+  },
+  disabledText: {
+    color: '#8A968F',
   },
   ml: {
     marginTop: 3,
