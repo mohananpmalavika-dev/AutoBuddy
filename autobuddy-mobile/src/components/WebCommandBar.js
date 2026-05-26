@@ -115,14 +115,6 @@ const RUNTIME_TRANSLATIONS = {
 const ORIGINAL_TEXT = new WeakMap();
 const ORIGINAL_PLACEHOLDER = new WeakMap();
 
-function normalize(text) {
-  return String(text || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9\u0900-\u0d7f\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 function t(key, lang) {
   if (!key || !lang || lang === 'en') return key;
   if (TEXT_TRANSLATIONS[key]?.[lang]) return TEXT_TRANSLATIONS[key][lang];
@@ -194,78 +186,9 @@ function applyDomLanguage(lang) {
   });
 }
 
-function languageFromCommand(command) {
-  if (command.includes('hindi')) return 'hi';
-  if (command.includes('tamil')) return 'ta';
-  if (command.includes('telugu')) return 'te';
-  if (command.includes('kannada')) return 'kn';
-  if (command.includes('malayalam')) return 'ml';
-  if (command.includes('english')) return 'en';
-  return null;
-}
-
-function clickButtonByLabels(labels) {
-  if (Platform.OS !== 'web' || typeof document === 'undefined') return false;
-  const wanted = labels.map(normalize);
-  const nodes = Array.from(document.querySelectorAll('[role="button"],button'));
-  for (const node of nodes) {
-    const text = normalize(node.textContent || '');
-    if (!text) continue;
-    if (wanted.some((label) => text.includes(label))) {
-      node.click();
-      return true;
-    }
-  }
-  return false;
-}
-
-function runVoiceAction(command, setLanguageCode) {
-  if (!command) return false;
-  if (command.includes('stop voice') || command.includes('stop listening')) return 'stop';
-
-  const langCode = languageFromCommand(command);
-  if (langCode && command.includes('language')) {
-    setLanguageCode(langCode);
-    return true;
-  }
-
-  const intents = [
-    { keys: ['login'], labels: ['login'] },
-    { keys: ['register', 'sign up'], labels: ['register'] },
-    { keys: ['password'], labels: ['password'] },
-    { keys: ['otp'], labels: ['otp'] },
-    { keys: ['google'], labels: ['google'] },
-    { keys: ['send otp'], labels: ['send otp'] },
-    { keys: ['verify otp'], labels: ['verify otp'] },
-    { keys: ['resend otp'], labels: ['resend otp'] },
-    { keys: ['refresh'], labels: ['refresh'] },
-    { keys: ['logout', 'log out'], labels: ['logout'] },
-    { keys: ['book ride', 'book now', 'create booking'], labels: ['book'] },
-    { keys: ['estimate fare', 'estimate'], labels: ['estimate'] },
-    { keys: ['nearby drivers', 'nearby'], labels: ['nearby'] },
-    { keys: ['cancel ride'], labels: ['cancel ride', 'cancel'] },
-    { keys: ['accept request', 'accept'], labels: ['accept'] },
-    { keys: ['mark arrived'], labels: ['mark arrived'] },
-    { keys: ['start ride'], labels: ['start trip', 'start ride'] },
-    { keys: ['complete ride', 'end ride'], labels: ['complete trip', 'complete ride'] },
-    { keys: ['approve'], labels: ['approve'] },
-    { keys: ['reject'], labels: ['reject'] },
-  ];
-
-  for (const intent of intents) {
-    if (intent.keys.some((key) => command.includes(key))) {
-      return clickButtonByLabels(intent.labels);
-    }
-  }
-
-  return false;
-}
-
-export default function WebCommandBar() {
+export default function WebCommandBar({ showLanguageSelector = false }) {
   const isWeb = Platform.OS === 'web';
-  const recognitionRef = useRef(null);
   const observerRef = useRef(null);
-  const [listening, setListening] = useState(false);
   const [status, setStatus] = useState('');
   const [languageCode, setLanguageCode] = useState(() => {
     if (!isWeb || typeof window === 'undefined') return 'en';
@@ -280,6 +203,11 @@ export default function WebCommandBar() {
   useEffect(() => {
     if (!isWeb || typeof window === 'undefined') return;
     window.localStorage.setItem('autobuddy_lang', languageCode);
+    window.dispatchEvent(
+      new CustomEvent('autobuddy-language-change', {
+        detail: { language: languageCode },
+      }),
+    );
     if (typeof document !== 'undefined') {
       document.documentElement.setAttribute('lang', languageCode);
     }
@@ -304,73 +232,7 @@ export default function WebCommandBar() {
     };
   }, [isWeb, languageCode]);
 
-  useEffect(() => {
-    if (!isWeb || listening || typeof window === 'undefined') return;
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-    recognition.lang = currentLanguage.speech;
-    recognition.onresult = (event) => {
-      const result = event.results[event.results.length - 1];
-      const transcript = String(result?.[0]?.transcript || '');
-      const command = normalize(transcript);
-      const actionResult = runVoiceAction(command, setLanguageCode);
-      if (actionResult === 'stop') {
-        setListening(false);
-        recognition.stop();
-        setStatus('Voice stopped.');
-        return;
-      }
-      if (actionResult) {
-        setStatus(`Heard: "${transcript}"`);
-      } else {
-        setStatus(`No action for: "${transcript}"`);
-      }
-    };
-    recognition.onerror = () => {
-      setStatus('Voice error. Try again.');
-    };
-    recognition.onend = () => {
-      if (!listening) return;
-      try {
-        recognition.lang = currentLanguage.speech;
-        recognition.start();
-      } catch {
-        setListening(false);
-      }
-    };
-    recognitionRef.current = recognition;
-  }, [currentLanguage.speech, isWeb, listening]);
 
-  useEffect(() => {
-    if (!isWeb) return () => {};
-    const recognition = recognitionRef.current;
-    if (!recognition) return () => {};
-    if (listening) {
-      try {
-        recognition.lang = currentLanguage.speech;
-        recognition.start();
-      } catch {
-        // handled by toggle + onerror
-      }
-    } else {
-      try {
-        recognition.stop();
-      } catch {
-        // no-op
-      }
-    }
-    return () => {
-      try {
-        recognition.stop();
-      } catch {
-        // no-op
-      }
-    };
-  }, [currentLanguage.speech, isWeb, listening]);
 
   if (!isWeb) return null;
 
@@ -381,32 +243,17 @@ export default function WebCommandBar() {
     setStatus(`Language: ${next.label}`);
   };
 
-  const toggleListening = () => {
-    if (typeof window === 'undefined') return;
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setStatus('Voice is not supported in this browser.');
-      return;
-    }
-    if (listening) {
-      setListening(false);
-      setStatus('Voice stopped.');
-      return;
-    }
-    setListening(true);
-    setStatus('Voice listening...');
-  };
-
   return (
-    <View style={styles.wrap} dataSet={{ noTranslate: 'true' }}>
-      <TouchableOpacity style={styles.btn} onPress={cycleLanguage}>
-        <Text style={styles.btnText}>Language: {currentLanguage.label}</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={styles.btn} onPress={toggleListening}>
-        <Text style={styles.btnText}>{listening ? 'Stop Voice' : 'Start Voice'}</Text>
-      </TouchableOpacity>
-      {!!status && <Text style={styles.status}>{status}</Text>}
-    </View>
+    <>
+      {showLanguageSelector && (
+        <View style={styles.wrap} dataSet={{ noTranslate: 'true' }}>
+          <TouchableOpacity style={styles.btn} onPress={cycleLanguage}>
+            <Text style={styles.btnText}>Language: {currentLanguage.label}</Text>
+          </TouchableOpacity>
+          {!!status && <Text style={styles.status}>{status}</Text>}
+        </View>
+      )}
+    </>
   );
 }
 

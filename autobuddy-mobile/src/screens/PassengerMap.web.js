@@ -34,15 +34,19 @@ import {
 } from '../components/PremiumUI';
 import { useKeralaSafety } from '../hooks/useKeralaSafety';
 import PassengerProfile from './PassengerProfile';
+import {
+  getPassengerRideProductLabels,
+  resolvePassengerLocale,
+} from '../locales/passengerDashboard';
 
 const LOGO_SOURCE = require('../../assets/images/autobuddy-logo.jpg');
 const PASSENGER_MENU_OPTIONS = [
-  { key: 'ride', label: 'Ride Booking' },
-  { key: 'drivers', label: 'Drivers' },
-  { key: 'safety', label: 'Safety' },
-  { key: 'wallet', label: 'Wallet' },
-  { key: 'spin', label: 'Spin & Win' },
-  { key: 'history', label: 'Ride History' },
+  { key: 'ride' },
+  { key: 'drivers' },
+  { key: 'safety' },
+  { key: 'wallet' },
+  { key: 'spin' },
+  { key: 'history' },
 ];
 const PRIMARY_PASSENGER_MENU_KEY = 'ride';
 const DASHBOARD_PASSENGER_MENU_KEYS = new Set([PRIMARY_PASSENGER_MENU_KEY]);
@@ -82,7 +86,6 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
   const [fareExpectationInput, setFareExpectationInput] = useState('');
   const [optedOutDriverIds, setOptedOutDriverIds] = useState([]);
   const [autoFetchingTripData, setAutoFetchingTripData] = useState(false);
-  const [bookingMode, setBookingMode] = useState('instant');
   const [scheduledAtInput, setScheduledAtInput] = useState('');
   const [rideProduct, setRideProduct] = useState('normal');
   const [corporateCode, setCorporateCode] = useState('');
@@ -105,9 +108,28 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
   const [spinWinStatus, setSpinWinStatus] = useState(null);
   const [spinWinLoading, setSpinWinLoading] = useState(false);
   const [spinningNow, setSpinningNow] = useState(false);
+  const [languageCode, setLanguageCode] = useState(() => {
+    if (typeof window === 'undefined') {
+      return 'en';
+    }
+    return String(window.localStorage.getItem('autobuddy_lang') || 'en').trim().toLowerCase();
+  });
   const placesConfigured = isPlacesConfigured();
   const googleMapsWebKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
   const liveTrackStatuses = useMemo(() => new Set(['accepted', 'driver_arrived', 'in_progress']), []);
+  const t = useMemo(() => resolvePassengerLocale(languageCode), [languageCode]);
+  const rideProductLabels = useMemo(() => getPassengerRideProductLabels(t), [t]);
+  const menuLabels = useMemo(
+    () => ({
+      ride: t.rideBooking,
+      drivers: t.drivers,
+      safety: t.safety,
+      wallet: t.wallet,
+      spin: t.spin,
+      history: t.history,
+    }),
+    [t],
+  );
 
   const normalizeLocation = (location) => {
     if (!location) {
@@ -249,13 +271,8 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
     return filtered.length > 0 ? filtered : ['normal'];
   }, [rideProductAvailability]);
   const canScheduleBooking = enabledRideProducts.includes('scheduled');
-  const isScheduledBookingMode = bookingMode === 'scheduled' && canScheduleBooking;
-  const effectiveRideProduct = useMemo(() => {
-    if (isScheduledBookingMode) {
-      return 'scheduled';
-    }
-    return rideProduct || 'normal';
-  }, [isScheduledBookingMode, rideProduct]);
+  const effectiveRideProduct = rideProduct || 'normal';
+  const isScheduledBookingMode = effectiveRideProduct === 'scheduled' && canScheduleBooking;
 
   const estimateDriverFare = useCallback(
     (driver) => {
@@ -312,6 +329,26 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
         // Ignore browser notification errors.
       }
     }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+    const syncLanguage = () => {
+      const next = String(window.localStorage.getItem('autobuddy_lang') || 'en').trim().toLowerCase();
+      setLanguageCode(next || 'en');
+    };
+    const onLanguageEvent = () => {
+      syncLanguage();
+    };
+    syncLanguage();
+    window.addEventListener('storage', syncLanguage);
+    window.addEventListener('autobuddy-language-change', onLanguageEvent);
+    return () => {
+      window.removeEventListener('storage', syncLanguage);
+      window.removeEventListener('autobuddy-language-change', onLanguageEvent);
+    };
   }, []);
 
   useEffect(() => {
@@ -389,7 +426,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
       }
       return result;
     } catch (err) {
-      setError(err.message || 'Request failed.');
+      setError(err.message || t.requestFailed);
       return null;
     } finally {
       setLoading(false);
@@ -401,7 +438,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
     const missingDropoff = !dropoffLocation;
     setLocationValidation({ pickup: missingPickup, dropoff: missingDropoff });
     if (missingPickup || missingDropoff) {
-      setError('Select both pickup and drop addresses.');
+      setError(t.selectPickupDropBoth);
       return null;
     }
     return { pickup: pickupLocation, dropoff: dropoffLocation };
@@ -444,7 +481,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
     }
 
     if (!placesConfigured) {
-      setError('Google Places key missing. Set EXPO_PUBLIC_GOOGLE_MAPS_API_KEY.');
+      setError(t.googlePlacesMissing);
       return;
     }
 
@@ -468,7 +505,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
     } catch (err) {
       if (requestRef.current === requestId) {
         setSuggestions([]);
-        setError(err.message || 'Could not search locations.');
+        setError(err.message || t.couldNotSearchLocations);
       }
     } finally {
       if (requestRef.current === requestId) {
@@ -481,7 +518,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
     try {
       setError('');
       if (!placesConfigured) {
-        setError('Google Places key missing. Set EXPO_PUBLIC_GOOGLE_MAPS_API_KEY.');
+        setError(t.googlePlacesMissing);
         return;
       }
       if (point === 'pickup') {
@@ -492,9 +529,9 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
 
       const location = await getPlaceLocation(suggestion.placeId);
       setLocationForPoint(point, location);
-      setMessage(point === 'pickup' ? 'Pickup selected. Choose drop location.' : 'Drop location selected.');
+      setMessage(point === 'pickup' ? t.pickupSelectedChooseDrop : t.dropSelected);
     } catch (err) {
-      setError(err.message || 'Could not select place.');
+      setError(err.message || t.couldNotSelectPlace);
     } finally {
       if (point === 'pickup') {
         setSearchingPickup(false);
@@ -507,7 +544,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
   const autofillPickupFromCurrentLocation = useCallback(async ({ silent = false } = {}) => {
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
       if (!silent) {
-        setError('Current location is not supported in this browser.');
+        setError(t.currentLocationNotSupported);
       }
       return;
     }
@@ -542,22 +579,22 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
       const location = { latitude, longitude, address };
       setLocationForPoint('pickup', location);
       if (!silent) {
-        setMessage('Pickup autofilled from current location. You can edit it.');
+        setMessage(t.pickupAutofilled);
       }
     } catch (err) {
       if (!silent) {
-        const messageFromBrowser = err?.message || 'Could not fetch current location.';
+        const messageFromBrowser = err?.message || t.couldNotFetchCurrentLocation;
         setError(messageFromBrowser);
       }
     } finally {
       setLocatingPickup(false);
     }
-  }, [placesConfigured]);
+  }, [placesConfigured, t]);
 
   const refreshActiveBooking = async () => {
     const booking = await callApi(
       () => apiRequest('/bookings/active', { token }),
-      'Active ride status refreshed.',
+      t.activeRideStatusRefreshed,
     );
     setActiveBooking(booking || null);
   };
@@ -567,12 +604,12 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
       const bookings = await apiRequest('/bookings', { token });
       setPassengerBookings(Array.isArray(bookings) ? bookings : []);
       if (!silent) {
-        setMessage('Booking list refreshed.');
+        setMessage(t.bookingListRefreshed);
       }
       return bookings;
     } catch (err) {
       if (!silent) {
-        setError(err.message || 'Could not load booking list.');
+        setError(err.message || t.couldNotLoadBookingList);
       }
       return [];
     }
@@ -599,13 +636,13 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
           if (!enabledProducts.includes(effectiveRideProduct)) {
             setRideProduct('normal');
             if (!silent) {
-              setMessage('Selected ride product is not active in this district. Switched to Normal.');
+              setMessage(t.selectedRideProductSwitched);
             }
           }
         }
       } catch (err) {
         if (!silent) {
-          setError(err.message || 'Could not load district ride product settings.');
+          setError(err.message || t.couldNotLoadRideProductSettings);
         }
       } finally {
         if (!silent) {
@@ -613,7 +650,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
         }
       }
     },
-    [effectiveRideProduct, pickupLocation?.address],
+    [effectiveRideProduct, pickupLocation?.address, t],
   );
 
   const refreshSpinWinStatus = useCallback(
@@ -627,7 +664,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
         return status;
       } catch (err) {
         if (!silent) {
-          setError(err.message || 'Could not load Spin & Win status.');
+          setError(err.message || t.couldNotLoadSpinStatus);
         }
         return null;
       } finally {
@@ -636,7 +673,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
         }
       }
     },
-    [token],
+    [t, token],
   );
 
   const spinNow = async () => {
@@ -647,12 +684,12 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
       setSpinningNow(true);
       setError('');
       const result = await apiRequest('/spin-win/spin', { method: 'POST', token });
-      const rewardLabel = String(result?.reward?.label || 'reward');
+      const rewardLabel = String(result?.reward?.label || t.rewardFallback);
       const remaining = Number(result?.spins_left_today ?? 0);
-      setMessage(`Spin complete: ${rewardLabel}. Spins left today: ${remaining}.`);
+      setMessage(`${t.spinComplete}: ${rewardLabel}. ${t.spinsLeftToday}: ${remaining}.`);
       await refreshSpinWinStatus({ silent: true });
     } catch (err) {
-      setError(err.message || 'Spin failed. Please try again.');
+      setError(err.message || t.spinFailedRetry);
     } finally {
       setSpinningNow(false);
     }
@@ -793,23 +830,23 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
     bookingStatusRef.current = { bookingId, status };
 
     if (status === 'driver_arrived') {
-      notifyWithVoice('Driver Arrived', 'Your driver has arrived at the pickup point.');
+      notifyWithVoice(t.driverArrivedTitle, t.driverArrivedBody);
       return;
     }
     if (status === 'in_progress') {
-      notifyWithVoice('Trip Started', 'Your trip has started.');
+      notifyWithVoice(t.tripStartedTitle, t.tripStartedBody);
       return;
     }
     if (status === 'completed') {
-      notifyWithVoice('Trip Completed', 'Your trip has ended.');
+      notifyWithVoice(t.tripCompletedTitle, t.tripCompletedBody);
     }
-  }, [activeBooking?.id, activeBooking?.status, notifyWithVoice]);
+  }, [activeBooking?.id, activeBooking?.status, notifyWithVoice, t.driverArrivedBody, t.driverArrivedTitle, t.tripCompletedBody, t.tripCompletedTitle, t.tripStartedBody, t.tripStartedTitle]);
 
   const confirmCreateParallelBooking = () => {
     if (typeof window === 'undefined' || typeof window.confirm !== 'function') {
       return true;
     }
-    return window.confirm('One booking is already in progress. Do you want to add another?');
+    return window.confirm(t.confirmParallelBooking);
   };
 
   useEffect(() => {
@@ -880,7 +917,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err.message || 'Could not auto-calculate fare or drivers.');
+          setError(err.message || t.couldNotAutoCalculate);
         }
       } finally {
         if (!cancelled) {
@@ -892,7 +929,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [pickupLocation, dropoffLocation, token, selectedDriverId]);
+  }, [pickupLocation, dropoffLocation, token, selectedDriverId, t]);
 
   useEffect(() => {
     if (selectedDriverId && !visibleDrivers.some((item) => item.driver_id === selectedDriverId)) {
@@ -925,7 +962,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
           token,
           body: { is_favorite: !isFavorite },
         }),
-      isFavorite ? 'Removed favorite driver.' : 'Driver marked as favorite.',
+      isFavorite ? t.removedFavoriteDriver : t.driverMarkedFavorite,
     );
     if (done && pickupLocation && dropoffLocation) {
       // Re-trigger auto fetch on existing locations.
@@ -941,7 +978,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
           token,
           body: { is_blocked: !isBlocked },
         }),
-      isBlocked ? 'Driver unblocked.' : 'Driver blocked.',
+      isBlocked ? t.driverUnblocked : t.driverBlocked,
     );
     if (done && pickupLocation && dropoffLocation) {
       setPickupLocation((prev) => (prev ? { ...prev } : prev));
@@ -957,16 +994,16 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
     let scheduledForIso = undefined;
     if (isScheduledMode) {
       if (!scheduledAtInput) {
-        setError('Select pickup time for scheduled ride.');
+        setError(t.selectPickupTimeScheduled);
         return;
       }
       const parsed = new Date(scheduledAtInput);
       if (Number.isNaN(parsed.getTime())) {
-        setError('Enter a valid pickup date and time.');
+        setError(t.enterValidPickupDateTime);
         return;
       }
       if (parsed.getTime() <= Date.now() + (2 * 60 * 1000)) {
-        setError('Scheduled pickup time must be at least 2 minutes in the future.');
+        setError(t.scheduledPickupFuture);
         return;
       }
       scheduledForIso = parsed.toISOString();
@@ -977,7 +1014,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
     if (existingActive) {
       const shouldCreateAnother = confirmCreateParallelBooking();
       if (!shouldCreateAnother) {
-        setMessage('Keeping existing booking in progress.');
+        setMessage(t.keepingExistingBooking);
         return;
       }
       allowParallel = true;
@@ -986,21 +1023,21 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
     const passengerCount = Math.max(1, Math.min(6, Number(passengerCountInput || 1) || 1));
     const enabledRideProductSet = new Set(enabledRideProducts);
     if (!enabledRideProductSet.has(effectiveRideProduct)) {
-      const districtLabel = rideProductAvailability?.pickup_district || 'this district';
-      setError(`Selected ride product is not active in ${districtLabel}.`);
+      const districtLabel = rideProductAvailability?.pickup_district || t.thisDistrict;
+      setError(`${t.selectedProductNotActiveIn} ${districtLabel}.`);
       return;
     }
     if (effectiveRideProduct === 'corporate' && !corporateCode.trim()) {
-      setError('Corporate code is required for corporate rides.');
+      setError(t.corporateCodeRequired);
       return;
     }
     if (effectiveRideProduct === 'airport' && (!flightNumber.trim() || !airportTerminal.trim())) {
-      setError('Flight number and terminal are required for airport rides.');
+      setError(t.airportFieldsRequired);
       return;
     }
     const rentalHours = Math.max(1, Math.min(24, Number(rentalHoursInput || 0) || 0));
     if (effectiveRideProduct === 'rental_hourly' && rentalHours <= 0) {
-      setError('Rental hours are required (1 to 24).');
+      setError(t.rentalHoursRequired);
       return;
     }
 
@@ -1035,7 +1072,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
     );
     if (booking) {
       setActiveBooking(booking);
-      setMessage(isScheduledMode ? 'Scheduled ride request created.' : 'Ride request created.');
+      setMessage(isScheduledMode ? t.scheduledRideRequestCreated : t.rideRequestCreated);
       refreshPassengerBookings({ silent: true });
     }
   };
@@ -1045,14 +1082,14 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
       return;
     }
     if (!canCancelActiveBooking) {
-      setError('Ride cannot be cancelled after the driver has accepted.');
+      setError(t.rideCannotBeCancelledAfterAccept);
       return;
     }
     const cancelled = await callApi(() =>
       apiRequest(`/bookings/${activeBooking.id}/cancel`, { method: 'PUT', token }),
     );
     if (cancelled) {
-      setMessage('Booking cancelled.');
+      setMessage(t.bookingCancelled);
       await refreshActiveBooking();
       await refreshPassengerBookings({ silent: true });
     }
@@ -1090,7 +1127,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
         <WebCommandBar />
         <View style={styles.mapContainer}>
           <iframe
-            title="Passenger map"
+            title={t.passengerMapTitle}
             src={mapUrl}
             style={styles.mapIframe}
             allowFullScreen
@@ -1098,8 +1135,8 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
           />
           <View style={styles.mapOverlayWrap}>
             <GlassCard style={styles.mapOverlayCard}>
-              <Text style={styles.mapOverlayTitle}>Driver Map</Text>
-              <Text style={styles.mapOverlayMalayalam}>ലൈവ് മാപ്പ് ട്രാക്കിംഗ് പ്രവർത്തിക്കുന്നു</Text>
+              <Text style={styles.mapOverlayTitle}>{t.mapTitle}</Text>
+              <Text style={styles.mapOverlayMalayalam}>{t.mapSubtitle}</Text>
             </GlassCard>
           </View>
         </View>
@@ -1107,15 +1144,15 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
         <View style={styles.panel}>
           <View style={styles.headerRow}>
             <View style={styles.headerUserBlock}>
-              <Text style={styles.hello}>Hi, {user?.name || 'Passenger'}</Text>
-              <Text style={styles.sub}>Passenger Command Center</Text>
+              <Text style={styles.hello}>{t.hi}, {user?.name || t.passengerFallbackName}</Text>
+              <Text style={styles.sub}>{t.passengerCenter}</Text>
             </View>
             <Image source={LOGO_SOURCE} style={styles.headerLogo} resizeMode="contain" />
             <TouchableOpacity onPress={handleProfilePress} style={styles.profileButton}>
-              <Text style={styles.profileText}>Profile</Text>
+              <Text style={styles.profileText}>{t.profile}</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={onLogout} style={styles.logoutButton}>
-              <Text style={styles.logoutText}>Logout</Text>
+              <Text style={styles.logoutText}>{t.logout}</Text>
             </TouchableOpacity>
           </View>
 
@@ -1139,13 +1176,13 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                   setActivePassengerMenu(PRIMARY_PASSENGER_MENU_KEY);
                   setShowPassengerMenus(false);
                 }}>
-                <Text style={styles.primaryMenuButtonText}>Ride Booking</Text>
+                <Text style={styles.primaryMenuButtonText}>{t.rideBooking}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.menuToggleButton}
                 onPress={() => setShowPassengerMenus((prev) => !prev)}>
                 <Text style={styles.menuToggleButtonText}>
-                  {showPassengerMenus ? 'Hide Menus' : 'Other Menus'}
+                  {showPassengerMenus ? t.hideMenus : t.otherMenus}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1161,7 +1198,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                       setShowPassengerMenus(false);
                     }}>
                     <Text style={[styles.menuChipText, activePassengerMenu === menu.key && styles.menuChipTextActive]}>
-                      {menu.label}
+                      {menuLabels[menu.key] || menu.key}
                     </Text>
                   </TouchableOpacity>
                 ))}
@@ -1171,7 +1208,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
             {activePassengerMenu !== PRIMARY_PASSENGER_MENU_KEY && (
               <View style={styles.activeMenuInfoRow}>
                 <Text style={styles.activeMenuInfoText}>
-                  {PASSENGER_MENU_OPTIONS.find((menu) => menu.key === activePassengerMenu)?.label || 'Menu'}
+                  {menuLabels[activePassengerMenu] || t.menu}
                 </Text>
                 <TouchableOpacity
                   style={styles.menuToggleButton}
@@ -1179,7 +1216,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                     setActivePassengerMenu(PRIMARY_PASSENGER_MENU_KEY);
                     setShowPassengerMenus(false);
                   }}>
-                  <Text style={styles.menuToggleButtonText}>Back to Ride</Text>
+                  <Text style={styles.menuToggleButtonText}>{t.backToRide}</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -1188,38 +1225,38 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
 
             {activePassengerMenu === 'wallet' && (
               <View style={styles.infoBlock}>
-                <Text style={styles.infoTitle}>Wallet & Revenue</Text>
+                <Text style={styles.infoTitle}>{t.walletRevenue}</Text>
                 <RevenueCard token={token} role={user?.role} />
               </View>
             )}
 
             {activePassengerMenu === 'spin' && (
               <View style={styles.infoBlock}>
-                <Text style={styles.infoTitle}>Daily Spin & Win</Text>
+                <Text style={styles.infoTitle}>{t.dailySpinWin}</Text>
                 {!spinWinStatus ? (
-                  <Text style={styles.infoText}>Spin status is unavailable. Tap refresh.</Text>
+                  <Text style={styles.infoText}>{t.spinStatusUnavailable}</Text>
                 ) : (
                   <>
                     <Text style={styles.infoText}>
-                      Status: {spinWinStatus.enabled ? 'Enabled' : 'Disabled'}
+                      {t.statusLabel}: {spinWinStatus.enabled ? t.enabled : t.disabled}
                     </Text>
                     <Text style={styles.infoText}>
-                      Daily limit: {Number(spinWinStatus.daily_spin_limit || 0)} | Used: {Number(spinWinStatus.spins_used_today || 0)} | Left: {Number(spinWinStatus.spins_left_today || 0)}
+                      {t.dailyLimit}: {Number(spinWinStatus.daily_spin_limit || 0)} | {t.used}: {Number(spinWinStatus.spins_used_today || 0)} | {t.left}: {Number(spinWinStatus.spins_left_today || 0)}
                     </Text>
                     {spinWinStatus.starts_at && (
-                      <Text style={styles.infoText}>Campaign Start: {new Date(spinWinStatus.starts_at).toLocaleString()}</Text>
+                      <Text style={styles.infoText}>{t.campaignStart}: {new Date(spinWinStatus.starts_at).toLocaleString()}</Text>
                     )}
                     {spinWinStatus.ends_at && (
-                      <Text style={styles.infoText}>Campaign End: {new Date(spinWinStatus.ends_at).toLocaleString()}</Text>
+                      <Text style={styles.infoText}>{t.campaignEnd}: {new Date(spinWinStatus.ends_at).toLocaleString()}</Text>
                     )}
                     {!spinWinStatus.eligible && (
                       <Text style={styles.validationText}>
-                        {spinWinStatus.eligibility_reason || 'Not eligible for Spin & Win.'}
+                        {spinWinStatus.eligibility_reason || t.notEligibleForSpin}
                       </Text>
                     )}
                     {!!spinWinStatus.latest_reward && (
                       <Text style={styles.hint}>
-                        Last reward: {spinWinStatus.latest_reward.prize_label || 'Reward'} ({spinWinStatus.latest_reward.reward_type || '-'})
+                        {t.lastReward}: {spinWinStatus.latest_reward.prize_label || t.rewardFallback} ({spinWinStatus.latest_reward.reward_type || '-'})
                       </Text>
                     )}
                   </>
@@ -1236,7 +1273,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                       || Number(spinWinStatus?.spins_left_today || 0) <= 0
                     }>
                     <Text style={styles.actionText}>
-                      {spinningNow ? 'Spinning...' : 'Spin Now'}
+                      {spinningNow ? t.spinning : t.spinNow}
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
@@ -1244,7 +1281,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                     onPress={() => refreshSpinWinStatus({ silent: false })}
                     disabled={spinWinLoading}>
                     <Text style={styles.actionText}>
-                      {spinWinLoading ? 'Refreshing...' : 'Refresh'}
+                      {spinWinLoading ? t.refreshing : t.refresh}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -1255,13 +1292,13 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
               <>
                 <View style={styles.selectedBlock}>
                   <View style={styles.pickupLabelRow}>
-                    <Text style={styles.infoTitle}>Pickup Search</Text>
+                    <Text style={styles.infoTitle}>{t.pickupSearch}</Text>
                     <TouchableOpacity
                       style={styles.currentLocationInlineButton}
                       onPress={() => autofillPickupFromCurrentLocation({ silent: false })}
                       disabled={loading || locatingPickup}>
                       <Text style={styles.currentLocationInlineText}>
-                        {locatingPickup ? 'Fetching...' : 'Use Current'}
+                        {locatingPickup ? t.fetching : t.useCurrent}
                       </Text>
                     </TouchableOpacity>
                   </View>
@@ -1269,10 +1306,10 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                     style={styles.input}
                     value={pickupQuery}
                     onChangeText={(text) => handleSearchTextChange('pickup', text)}
-                    placeholder="Enter pickup area, landmark, or address"
+                    placeholder={t.pickupPlaceholder}
                     placeholderTextColor={COLORS.textMuted}
                   />
-                  {searchingPickup && <Text style={styles.hint}>Searching pickup...</Text>}
+                  {searchingPickup && <Text style={styles.hint}>{t.searchingPickup}</Text>}
                   {pickupSuggestions.map((item) => (
                     <TouchableOpacity
                       key={`pickup-${item.placeId}`}
@@ -1282,20 +1319,20 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                     </TouchableOpacity>
                   ))}
                   {locationValidation.pickup && (
-                    <Text style={styles.validationText}>Pickup location is required before booking.</Text>
+                    <Text style={styles.validationText}>{t.pickupRequired}</Text>
                   )}
                 </View>
 
                 <View style={styles.selectedBlock}>
-                  <Text style={styles.infoTitle}>Drop Search</Text>
+                  <Text style={styles.infoTitle}>{t.dropSearch}</Text>
                   <VoiceTextInput
                     style={styles.input}
                     value={dropoffQuery}
                     onChangeText={(text) => handleSearchTextChange('dropoff', text)}
-                    placeholder="Enter drop area, landmark, or address"
+                    placeholder={t.dropPlaceholder}
                     placeholderTextColor={COLORS.textMuted}
                   />
-                  {searchingDropoff && <Text style={styles.hint}>Searching drop...</Text>}
+                  {searchingDropoff && <Text style={styles.hint}>{t.searchingDrop}</Text>}
                   {dropoffSuggestions.map((item) => (
                     <TouchableOpacity
                       key={`drop-${item.placeId}`}
@@ -1305,35 +1342,40 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                     </TouchableOpacity>
                   ))}
                   {locationValidation.dropoff && (
-                    <Text style={styles.validationText}>Drop location is required before booking.</Text>
+                    <Text style={styles.validationText}>{t.dropRequired}</Text>
                   )}
                 </View>
+                <View style={styles.tripSummaryCard}>
+                  <Text style={styles.infoTitle}>{t.summaryTitle}</Text>
+                  <Text style={styles.infoText}>
+                    {t.summaryPickup}: {pickupLocation?.address || t.notSpecified}
+                  </Text>
+                  <Text style={styles.infoText}>
+                    {t.summaryDrop}: {dropoffLocation?.address || t.notSpecified}
+                  </Text>
+                </View>
                 <View style={styles.infoBlock}>
-                  <Text style={styles.infoTitle}>Ride Type</Text>
+                  <Text style={styles.infoTitle}>{t.rideType}</Text>
                   {!!rideProductAvailability?.pickup_district && (
                     <Text style={styles.hint}>
-                      District: {rideProductAvailability.pickup_district}
+                      {t.districtLabel}: {rideProductAvailability.pickup_district}
                     </Text>
                   )}
                   {rideProductsLoading && (
-                    <Text style={styles.hint}>Updating district ride products...</Text>
+                    <Text style={styles.hint}>{t.updateRideProducts}</Text>
                   )}
                   <RideProductsGrid
                     selected={effectiveRideProduct}
                     enabledKeys={enabledRideProducts}
                     hideInactive
-                    onSelect={(value) => {
-                      setRideProduct(value);
-                      if (value === 'scheduled') {
-                        setBookingMode('scheduled');
-                      } else if (bookingMode === 'scheduled') {
-                        setBookingMode('instant');
-                      }
-                    }}
+                    heading={t.chooseRideProduct}
+                    subheading={t.chooseRideProductMl}
+                    labels={rideProductLabels}
+                    onSelect={setRideProduct}
                   />
                   {isScheduledBookingMode && (
                     <>
-                      <Text style={styles.infoText}>Set pickup time</Text>
+                      <Text style={styles.infoText}>{t.setPickupTime}</Text>
                       <input
                         type="datetime-local"
                         value={scheduledAtInput}
@@ -1352,12 +1394,13 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                     </>
                   )}
 
+                  <Text style={styles.infoText}>{t.passengerCount}</Text>
                   <VoiceTextInput
                     style={styles.input}
                     value={passengerCountInput}
                     onChangeText={setPassengerCountInput}
                     keyboardType="number-pad"
-                    placeholder="Passenger count (1 to 6)"
+                    placeholder={t.passengerCountPlaceholder}
                     placeholderTextColor={COLORS.textMuted}
                   />
 
@@ -1366,7 +1409,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                       style={styles.input}
                       value={corporateCode}
                       onChangeText={setCorporateCode}
-                      placeholder="Corporate code"
+                      placeholder={t.corporateCodePlaceholder}
                       placeholderTextColor={COLORS.textMuted}
                     />
                   )}
@@ -1377,14 +1420,14 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                         style={styles.input}
                         value={flightNumber}
                         onChangeText={setFlightNumber}
-                        placeholder="Flight number"
+                        placeholder={t.flightNumberPlaceholder}
                         placeholderTextColor={COLORS.textMuted}
                       />
                       <VoiceTextInput
                         style={styles.input}
                         value={airportTerminal}
                         onChangeText={setAirportTerminal}
-                        placeholder="Airport terminal"
+                        placeholder={t.airportTerminalPlaceholder}
                         placeholderTextColor={COLORS.textMuted}
                       />
                     </>
@@ -1396,7 +1439,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                       onPress={() => setIntercityReturnTrip((prev) => !prev)}
                       disabled={loading}>
                       <Text style={[styles.modeChipText, intercityReturnTrip && styles.modeChipTextActive]}>
-                        {intercityReturnTrip ? 'Return Trip: Yes' : 'Return Trip: No'}
+                        {intercityReturnTrip ? t.returnTripYes : t.returnTripNo}
                       </Text>
                     </TouchableOpacity>
                   )}
@@ -1406,7 +1449,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                       style={styles.input}
                       value={tourismPackage}
                       onChangeText={setTourismPackage}
-                      placeholder="Tourism package"
+                      placeholder={t.tourismPackagePlaceholder}
                       placeholderTextColor={COLORS.textMuted}
                     />
                   )}
@@ -1417,7 +1460,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                       value={rentalHoursInput}
                       onChangeText={setRentalHoursInput}
                       keyboardType="number-pad"
-                      placeholder="Rental hours (1 to 24)"
+                      placeholder={t.rentalHoursPlaceholder}
                       placeholderTextColor={COLORS.textMuted}
                     />
                   )}
@@ -1429,7 +1472,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                         onPress={() => setSafeRidePriority('school')}
                         disabled={loading}>
                         <Text style={[styles.modeChipText, safeRidePriority === 'school' && styles.modeChipTextActive]}>
-                          School
+                          {t.school}
                         </Text>
                       </TouchableOpacity>
                       <TouchableOpacity
@@ -1437,7 +1480,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                         onPress={() => setSafeRidePriority('elderly')}
                         disabled={loading}>
                         <Text style={[styles.modeChipText, safeRidePriority === 'elderly' && styles.modeChipTextActive]}>
-                          Elderly
+                          {t.elderly}
                         </Text>
                       </TouchableOpacity>
                     </View>
@@ -1447,17 +1490,17 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                   <TouchableOpacity style={styles.actionButton} onPress={createBooking} disabled={loading}>
                     <Text style={styles.actionText}>
                       {effectiveRideProduct === 'scheduled'
-                        ? 'Schedule Ride'
+                        ? t.scheduleRide
                         : selectedDriverId
-                          ? 'Book Selected Driver'
-                          : 'Book Auto'}
+                          ? t.bookSelectedDriver
+                          : t.bookAuto}
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.actionButtonMuted}
                     onPress={refreshPassengerDashboard}
                     disabled={loading}>
-                    <Text style={styles.actionText}>Refresh</Text>
+                    <Text style={styles.actionText}>{t.refresh}</Text>
                   </TouchableOpacity>
                 </View>
               </>
@@ -1467,7 +1510,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
               <>
                 {fare && (
                   <View style={styles.infoBlock}>
-                    <Text style={styles.infoTitle}>Fare Estimate</Text>
+                    <Text style={styles.infoTitle}>{t.fareEstimate}</Text>
                     <Text style={styles.infoText}>
                       INR {fare.total_fare} | {fare.distance_km} km | surge {fare.surge_multiplier}x
                     </Text>
@@ -1476,11 +1519,11 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                       value={fareExpectationInput}
                       onChangeText={setFareExpectationInput}
                       keyboardType="decimal-pad"
-                      placeholder="Your max fare expectation (optional)"
+                      placeholder={t.maxFareExpectationPlaceholder}
                       placeholderTextColor={COLORS.textMuted}
                     />
                     {!!fareExpectation && (
-                      <Text style={styles.hint}>Showing drivers with projected fare up to INR {fareExpectation.toFixed(2)}</Text>
+                      <Text style={styles.hint}>{t.showingDriversUpToFare} {fareExpectation.toFixed(2)}</Text>
                     )}
                   </View>
                 )}
@@ -1488,10 +1531,10 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                 {nearbyDrivers.length > 0 ? (
                   <View style={styles.infoBlock}>
                     <View style={styles.driverHeaderRow}>
-                      <Text style={styles.infoTitle}>Nearest Drivers (Top 5)</Text>
+                      <Text style={styles.infoTitle}>{t.nearestDriversTop}</Text>
                       {optedOutDriverIds.length > 0 && (
                         <TouchableOpacity style={styles.driverChip} onPress={resetDriverOptOuts}>
-                          <Text style={styles.driverChipText}>Reset Opt-outs</Text>
+                          <Text style={styles.driverChipText}>{t.resetOptOuts}</Text>
                         </TouchableOpacity>
                       )}
                     </View>
@@ -1500,17 +1543,17 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                         <View style={styles.driverInfoBlock}>
                           <Text style={styles.driverNameText}>
                             {driver.name}
-                            {driver.source === 'favorite_fallback' ? ' (Favorite - outside nearby)' : ''}
+                            {driver.source === 'favorite_fallback' ? ` (${t.favoriteOutsideNearby})` : ''}
                           </Text>
                           <Text style={styles.infoText}>
-                            {Number(driver.distance_km || 0).toFixed(2)} km | rating {driver.rating}
+                            {Number(driver.distance_km || 0).toFixed(2)} km | {t.rating} {driver.rating}
                           </Text>
                           <Text style={styles.infoText}>
-                            Projected fare: INR {estimateDriverFare(driver).toFixed(2)}
+                            {t.projectedFare}: INR {estimateDriverFare(driver).toFixed(2)}
                           </Text>
                           {Number(driver.pickup_surcharge || 0) > 0 && (
                             <Text style={styles.infoText}>
-                              Extra pickup charge: INR {Number(driver.pickup_surcharge || 0).toFixed(2)}
+                              {t.extraPickupCharge}: INR {Number(driver.pickup_surcharge || 0).toFixed(2)}
                             </Text>
                           )}
                         </View>
@@ -1528,49 +1571,49 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                                 styles.driverChipText,
                                 selectedDriverId === driver.driver_id && styles.driverChipTextSelected,
                               ]}>
-                              {selectedDriverId === driver.driver_id ? 'Selected' : 'Select'}
+                              {selectedDriverId === driver.driver_id ? t.selected : t.select}
                             </Text>
                           </TouchableOpacity>
                           <TouchableOpacity
                             style={styles.driverChip}
                             onPress={() => toggleFavoriteDriver(driver.driver_id, favoriteDriverIds.includes(driver.driver_id))}>
                             <Text style={styles.driverChipText}>
-                              {favoriteDriverIds.includes(driver.driver_id) ? 'Unfavorite' : 'Favorite'}
+                              {favoriteDriverIds.includes(driver.driver_id) ? t.unfavorite : t.favorite}
                             </Text>
                           </TouchableOpacity>
                           <TouchableOpacity
                             style={styles.driverChip}
                             onPress={() => toggleBlockedDriver(driver.driver_id, blockedDriverIds.includes(driver.driver_id))}>
                             <Text style={styles.driverChipText}>
-                              {blockedDriverIds.includes(driver.driver_id) ? 'Unblock' : 'Block'}
+                              {blockedDriverIds.includes(driver.driver_id) ? t.unblock : t.block}
                             </Text>
                           </TouchableOpacity>
                           <TouchableOpacity style={styles.driverChip} onPress={() => optOutDriver(driver.driver_id)}>
-                            <Text style={styles.driverChipText}>Opt Out</Text>
+                            <Text style={styles.driverChipText}>{t.optOut}</Text>
                           </TouchableOpacity>
                         </View>
                       </View>
                     ))}
                     {visibleDrivers.length === 0 && (
                       <Text style={styles.hint}>
-                        No drivers match your fare expectation. Increase expectation or reset opt-outs.
+                        {t.noDriversMatchFare}
                       </Text>
                     )}
                   </View>
                 ) : (
                   <View style={styles.infoBlock}>
-                    <Text style={styles.infoText}>No nearby drivers yet. Create a booking first.</Text>
+                    <Text style={styles.infoText}>{t.noNearbyDrivers}</Text>
                   </View>
                 )}
 
                 {blockedDriverIds.length > 0 && (
                   <View style={styles.infoBlock}>
-                    <Text style={styles.infoTitle}>Blocked Drivers</Text>
+                    <Text style={styles.infoTitle}>{t.blockedDrivers}</Text>
                     {blockedDriverIds.slice(0, 8).map((driverId) => (
                       <View key={driverId} style={styles.blockedRow}>
                         <Text style={styles.infoText}>{driverId}</Text>
                         <TouchableOpacity style={styles.driverChip} onPress={() => toggleBlockedDriver(driverId, true)}>
-                          <Text style={styles.driverChipText}>Unblock</Text>
+                          <Text style={styles.driverChipText}>{t.unblock}</Text>
                         </TouchableOpacity>
                       </View>
                     ))}
@@ -1585,15 +1628,15 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                   <FadeSlideView>
                     <GlassCard style={styles.premiumCallout}>
                       <LiveEtaPulse eta={liveEtaLabel} />
-                      <Text style={styles.premiumTitle}>Your AutoBuddy is on the way</Text>
-                      <Text style={styles.premiumMalayalam}>Live trip updates are shown here.</Text>
+                      <Text style={styles.premiumTitle}>{t.yourAutoBuddyOnTheWay}</Text>
+                      <Text style={styles.premiumMalayalam}>{t.liveTripUpdates}</Text>
                     </GlassCard>
                   </FadeSlideView>
                 ) : (
                   <PremiumEmptyState
-                    title="No active ride"
-                    subtitle="Book a ride to start tracking live trip details."
-                    malayalam="No active ride now."
+                    title={t.noActiveRide}
+                    subtitle={t.noActiveRideSubtitle}
+                    malayalam={t.noActiveRideMl}
                   />
                 )}
 
@@ -1602,7 +1645,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                     style={styles.actionButtonMuted}
                     onPress={refreshPassengerDashboard}
                     disabled={loading}>
-                    <Text style={styles.actionText}>Refresh</Text>
+                    <Text style={styles.actionText}>{t.refresh}</Text>
                   </TouchableOpacity>
                 </View>
 
@@ -1610,55 +1653,55 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                   <>
                     <RideProgressTimeline status={activeBookingStatus || 'searching'} />
                     <View style={styles.infoBlock}>
-                      <Text style={styles.infoTitle}>Active Booking</Text>
-                      <Text style={styles.infoText}>ID: {activeBooking.id}</Text>
-                      <Text style={styles.infoText}>Status: {activeBookingStatus || activeBooking.status}</Text>
+                      <Text style={styles.infoTitle}>{t.activeBooking}</Text>
+                      <Text style={styles.infoText}>{t.id}: {activeBooking.id}</Text>
+                      <Text style={styles.infoText}>{t.status}: {activeBookingStatus || activeBooking.status}</Text>
                       {!!activeBooking.driver_name && (
-                        <Text style={styles.infoText}>Driver: {activeBooking.driver_name}</Text>
+                        <Text style={styles.infoText}>{t.driver}: {activeBooking.driver_name}</Text>
                       )}
                       {!!normalizeLocation(activeBooking.pickup_location) && (
                         <Text style={styles.infoText}>
-                          From: {normalizeLocation(activeBooking.pickup_location).address}
+                          {t.from}: {normalizeLocation(activeBooking.pickup_location).address}
                         </Text>
                       )}
                       {!!normalizeLocation(activeBooking.drop_location || activeBooking.dropoff_location) && (
                         <Text style={styles.infoText}>
-                          To: {normalizeLocation(activeBooking.drop_location || activeBooking.dropoff_location).address}
+                          {t.to}: {normalizeLocation(activeBooking.drop_location || activeBooking.dropoff_location).address}
                         </Text>
                       )}
                       {!!liveDriverLocation && (
                         <Text style={styles.infoText}>
-                          Driver live location: {driverLiveLocationLabel}
+                          {t.driverLiveLocation}: {driverLiveLocationLabel}
                         </Text>
                       )}
                       {activeBookingStatus === 'driver_arrived' && !!activeRideStartOtp && (
                         <Text style={styles.otpShareText}>
-                          Share OTP with driver: {activeRideStartOtp}
+                          {t.shareOtpWithDriver}: {activeRideStartOtp}
                         </Text>
                       )}
                       {activeBookingStatus === 'in_progress' && !!activeRideEndOtp && (
                         <Text style={styles.otpShareText}>
-                          Share completion OTP with driver: {activeRideEndOtp}
+                          {t.shareCompletionOtpWithDriver}: {activeRideEndOtp}
                         </Text>
                       )}
-                      <Text style={styles.infoText}>Fare: INR {activeBooking.estimated_fare}</Text>
+                      <Text style={styles.infoText}>{t.fareLabel}: INR {activeBooking.estimated_fare}</Text>
                       {Number(activeBooking.pickup_surcharge || 0) > 0 && (
                         <Text style={styles.infoText}>
-                          Includes pickup surcharge: INR {Number(activeBooking.pickup_surcharge || 0).toFixed(2)}
+                          {t.includesPickupSurcharge}: INR {Number(activeBooking.pickup_surcharge || 0).toFixed(2)}
                         </Text>
                       )}
                       {canCancelActiveBooking ? (
                         <TouchableOpacity onPress={cancelBooking} style={styles.cancelButton} disabled={loading}>
-                          <Text style={styles.cancelText}>Cancel Booking</Text>
+                          <Text style={styles.cancelText}>{t.cancelBooking}</Text>
                         </TouchableOpacity>
                       ) : (
-                        <Text style={styles.infoText}>Cancellation disabled after driver accepts.</Text>
+                        <Text style={styles.infoText}>{t.cancellationDisabledAfterAccept}</Text>
                       )}
                       <RideCommunicationCard
                         token={token}
                         booking={activeBooking}
                         currentUserId={user?.id}
-                        counterpartName={activeBooking.driver_name || 'Driver'}
+                        counterpartName={activeBooking.driver_name || t.driver}
                       />
                     </View>
                   </>
@@ -1668,24 +1711,24 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
             {activePassengerMenu === 'history' && (
               <View style={styles.infoBlock}>
                 <View style={styles.driverHeaderRow}>
-                  <Text style={styles.infoTitle}>Ride History</Text>
+                  <Text style={styles.infoTitle}>{t.rideHistory}</Text>
                   <TouchableOpacity
                     style={styles.driverChip}
                     onPress={() => refreshPassengerBookings({ silent: false })}
                     disabled={loading}>
-                    <Text style={styles.driverChipText}>Refresh</Text>
+                    <Text style={styles.driverChipText}>{t.refresh}</Text>
                   </TouchableOpacity>
                 </View>
                 {passengerBookings.length === 0 ? (
                   <PremiumEmptyState
-                    title="No rides yet"
-                    subtitle="Your completed and cancelled rides will appear here."
-                    malayalam="പൂർത്തിയായതും റദ്ദാക്കിയതുമായ യാത്രകൾ ഇവിടെ കാണിക്കും."
+                    title={t.noRidesYet}
+                    subtitle={t.ridesHistorySubtitle}
+                    malayalam={t.ridesHistorySubtitle}
                   />
                 ) : (
                   passengerBookings.slice(0, 20).map((booking) => (
                     <Text key={booking.id} style={styles.infoText}>
-                      {booking.status} | {booking.driver_name || 'Driver not assigned'} | INR {booking.estimated_fare}
+                      {booking.status} | {booking.driver_name || t.driverNotAssigned} | INR {booking.estimated_fare}
                     </Text>
                   ))
                 )}
@@ -1883,6 +1926,15 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 10,
     backgroundColor: '#FAFAFA',
+    ...SHADOWS.soft,
+  },
+  tripSummaryCard: {
+    borderWidth: 1,
+    borderColor: '#D7E2DA',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+    backgroundColor: '#FFFFFF',
     ...SHADOWS.soft,
   },
   locationValueBox: {

@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Platform,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -310,6 +311,8 @@ export default function AdminDashboard({ token, user, onLogout }) {
     registration_upi_id: '',
     razorpay_payment_link: '',
   });
+  const [uploadedQrFilename, setUploadedQrFilename] = useState('');
+  const qrUploadInputRef = useRef(null);
   const [pendingRegistrationPayments, setPendingRegistrationPayments] = useState([]);
   const [subscriptionConfig, setSubscriptionConfig] = useState({
     passenger: emptyRoleSubscriptionConfig(),
@@ -782,6 +785,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
         registration_upi_id: String(result.registration_upi_id || ''),
         razorpay_payment_link: String(result.razorpay_payment_link || ''),
       });
+      setUploadedQrFilename('');
     }
   };
 
@@ -2132,6 +2136,43 @@ export default function AdminDashboard({ token, user, onLogout }) {
               placeholder="https://.../registration-qr.png"
               placeholderTextColor="#9AA7A0"
             />
+            {Platform.OS === 'web' && (
+              <>
+                <Text style={styles.inputLabel}>Upload QR Image</Text>
+                <View style={styles.uploadRow}>
+                  <input
+                    ref={qrUploadInputRef}
+                    type="file"
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    onChange={async (event) => {
+                      const file = event.target?.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = () => {
+                        const result = reader.result;
+                        if (typeof result === 'string') {
+                          setRegistrationFees((prev) => ({
+                            ...prev,
+                            registration_qr_code_url: result,
+                          }));
+                          setUploadedQrFilename(file.name);
+                        }
+                      };
+                      reader.readAsDataURL(file);
+                    }}
+                  />
+                  <TouchableOpacity
+                    style={[styles.secondaryButton, styles.uploadButton]}
+                    onPress={() => qrUploadInputRef.current?.click()}>
+                    <Text style={styles.secondaryText}>Upload QR Image</Text>
+                  </TouchableOpacity>
+                  {!!uploadedQrFilename && (
+                    <Text style={styles.uploadHint}>{uploadedQrFilename}</Text>
+                  )}
+                </View>
+              </>
+            )}
             <Text style={styles.inputLabel}>UPI ID (for QR)</Text>
             <VoiceTextInput
               style={styles.input}
@@ -2378,6 +2419,8 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   optionRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  uploadRow: { flexDirection: 'row', gap: 8, alignItems: 'center', marginBottom: 12 },
+  uploadHint: { color: COLORS.textMuted, fontSize: 12, flexShrink: 1 },
   optionChip: {
     flex: 1,
     borderWidth: 1,

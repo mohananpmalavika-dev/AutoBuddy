@@ -260,7 +260,7 @@ export default function VoiceTextInput({
           style={[styles.micButton, listening && styles.micButtonActive]}
           accessibilityRole="button"
           accessibilityLabel={listening ? 'Stop voice input' : 'Start voice input'}>
-          <Text style={[styles.micText, listening && styles.micTextActive]}>{listening ? 'Stop' : 'Mic'}</Text>
+          <Text style={[styles.micText, listening && styles.micTextActive]}>{listening ? '⏹' : '🎙'}</Text>
         </TouchableOpacity>
       ) : null}
       {!!voiceError && <Text style={styles.errorText}>{voiceError}</Text>}
@@ -294,7 +294,7 @@ const styles = StyleSheet.create({
   },
   micText: {
     color: '#2B4E3A',
-    fontSize: 12,
+    fontSize: 16,
     fontWeight: '700',
   },
   micTextActive: {

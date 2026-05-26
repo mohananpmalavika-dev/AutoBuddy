@@ -4,38 +4,47 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { COLORS, SHADOWS } from '../theme';
 
 const PRODUCTS = [
-  { key: 'normal', icon: '🛺', title: 'Normal', ml: 'സാധാരണ', sub: 'Standard auto ride' },
-  { key: 'pool', icon: '👥', title: 'Pool Ride', ml: 'ഷെയർ യാത്ര', sub: 'Lower fare by sharing' },
-  { key: 'scheduled', icon: '⏰', title: 'Scheduled', ml: 'മുൻകൂട്ടി ബുക്ക്', sub: 'Ride for later' },
-  { key: 'corporate', icon: '🏢', title: 'Corporate', ml: 'കോർപ്പറേറ്റ്', sub: 'Office travel' },
-  { key: 'airport', icon: '✈️', title: 'Airport', ml: 'എയർപോർട്ട്', sub: 'Terminal pickup/drop' },
-  { key: 'intercity', icon: '🛣️', title: 'Intercity', ml: 'സിറ്റി പുറത്ത്', sub: 'Long distance rides' },
-  { key: 'ev_auto', icon: '🔋', title: 'EV Auto', ml: 'ഇവി ഓട്ടോ', sub: 'Eco-friendly option' },
-  { key: 'tourism', icon: '🌴', title: 'Tourism', ml: 'ടൂറിസം', sub: 'Sightseeing packages' },
-  { key: 'women_only', icon: '🛡️', title: 'Women Only', ml: 'സ്ത്രീകൾക്ക്', sub: 'Safety-first rides' },
-  { key: 'rental_hourly', icon: '🕒', title: 'Rental', ml: 'Hourly', sub: 'Hourly package rides' },
-  { key: 'school_elderly_safe', icon: '🛡️', title: 'School/Elderly', ml: 'Safe Ride', sub: 'Care-first safe rides' },
+  { key: 'normal', icon: '🛺', title: 'Normal', sub: 'Standard auto ride' },
+  { key: 'pool', icon: '👥', title: 'Pool Ride', sub: 'Lower fare by sharing' },
+  { key: 'scheduled', icon: '⏰', title: 'Scheduled', sub: 'Ride for later' },
+  { key: 'corporate', icon: '🏢', title: 'Corporate', sub: 'Office travel' },
+  { key: 'airport', icon: '✈️', title: 'Airport', sub: 'Terminal pickup/drop' },
+  { key: 'intercity', icon: '🛣️', title: 'Intercity', sub: 'Long distance rides' },
+  { key: 'ev_auto', icon: '🔋', title: 'EV Auto', sub: 'Eco-friendly option' },
+  { key: 'tourism', icon: '🌴', title: 'Tourism', sub: 'Sightseeing packages' },
+  { key: 'women_only', icon: '🛡️', title: 'Women Only', sub: 'Safety-first rides' },
+  { key: 'rental_hourly', icon: '🕒', title: 'Rental', sub: 'Hourly package rides' },
+  { key: 'school_elderly_safe', icon: '🛡️', title: 'School/Elderly', sub: 'Care-first safe rides' },
 ];
 
-export default function RideProductsGrid({ selected = 'normal', onSelect, enabledKeys = null, hideInactive = false }) {
+export default function RideProductsGrid({
+  selected = 'normal',
+  onSelect,
+  enabledKeys = null,
+  hideInactive = false,
+  heading = 'Choose Ride Product',
+  subheading = '',
+  labels = {},
+}) {
   const enabledSet = new Set(
     Array.isArray(enabledKeys) && enabledKeys.length > 0 ? enabledKeys : PRODUCTS.map((item) => item.key),
   );
-  const visibleProducts = hideInactive
-    ? PRODUCTS.filter((item) => enabledSet.has(item.key))
-    : PRODUCTS;
-  const safeProducts = visibleProducts.length > 0
-    ? visibleProducts
-    : PRODUCTS.filter((item) => item.key === 'normal');
+  const visibleProducts = hideInactive ? PRODUCTS.filter((item) => enabledSet.has(item.key)) : PRODUCTS;
+  const safeProducts = visibleProducts.length > 0 ? visibleProducts : PRODUCTS.filter((item) => item.key === 'normal');
+
   return (
     <View style={styles.wrap}>
-      <Text style={styles.heading}>Choose Ride Product</Text>
-      <Text style={styles.mlHeading}>യാത്രാ വിഭാഗം തിരഞ്ഞെടുക്കുക</Text>
+      <Text style={styles.heading}>{heading}</Text>
+      {!!subheading && <Text style={styles.subheading}>{subheading}</Text>}
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         {safeProducts.map((item) => {
           const active = selected === item.key;
           const enabled = enabledSet.has(item.key);
+          const localized = labels[item.key] || {};
+          const title = localized.title || item.title;
+          const description = localized.description || item.sub;
+
           return (
             <Pressable
               key={item.key}
@@ -47,10 +56,9 @@ export default function RideProductsGrid({ selected = 'normal', onSelect, enable
               }}
               style={[styles.card, active && styles.activeCard, !enabled && styles.disabledCard]}>
               <Text style={styles.icon}>{item.icon}</Text>
-              <Text style={[styles.title, active && styles.activeText, !enabled && styles.disabledText]}>{item.title}</Text>
-              <Text style={styles.ml}>{item.ml}</Text>
+              <Text style={[styles.title, active && styles.activeText, !enabled && styles.disabledText]}>{title}</Text>
               <Text style={[styles.sub, !enabled && styles.disabledText]}>
-                {enabled ? item.sub : 'Not active in this district'}
+                {enabled ? description : 'Not active in this district'}
               </Text>
             </Pressable>
           );
@@ -70,7 +78,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     marginBottom: 2,
   },
-  mlHeading: {
+  subheading: {
     color: COLORS.primary,
     fontSize: 12,
     fontWeight: '700',
@@ -78,7 +86,7 @@ const styles = StyleSheet.create({
   },
   card: {
     width: 138,
-    minHeight: 136,
+    minHeight: 132,
     marginRight: 10,
     borderRadius: 16,
     borderWidth: 1,
@@ -108,12 +116,6 @@ const styles = StyleSheet.create({
   },
   disabledText: {
     color: '#8A968F',
-  },
-  ml: {
-    marginTop: 3,
-    color: COLORS.primary,
-    fontSize: 11,
-    fontWeight: '700',
   },
   sub: {
     marginTop: 6,

@@ -73,6 +73,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [isOnline, setIsOnline] = useState(false);
+  const [serverIsOnline, setServerIsOnline] = useState(false);
   const [availabilitySyncPending, setAvailabilitySyncPending] = useState(false);
   const [driverLocation, setDriverLocation] = useState(null);
   const [pendingRequests, setPendingRequests] = useState([]);
@@ -477,12 +478,13 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   const refreshDriverData = useCallback(async () => {
     const profile = await runAction(() => apiRequest('/drivers/profile', { token }));
     if (profile) {
-      if (
-        typeof profile.is_available === 'boolean' &&
-        !pendingAvailabilitySyncRef.current &&
-        Date.now() >= availabilityUiOverrideUntilRef.current
-      ) {
-        setIsOnline(profile.is_available);
+      // Always update from server when we fetch profile
+      if (typeof profile.is_available === 'boolean') {
+        setServerIsOnline(profile.is_available);
+        // Only update local state if not in the middle of a toggle or if pending sync failed
+        if (!availabilitySyncPending && !pendingAvailabilitySyncRef.current) {
+          setIsOnline(profile.is_available);
+        }
       }
       const resolvedLocation = normalizeLocation(profile.current_location);
       if (resolvedLocation) {
@@ -515,7 +517,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     hydrateDriverFareConfig(fareCalc?.request?.payload || fareCalc?.effective_pricing || fareCalc?.default_pricing || null);
     setSpinWinStatus(spinStatus || null);
     setMessage('Driver dashboard refreshed.');
-  }, [attachReadableAddress, hydrateDriverFareConfig, normalizeLocation, requestDriverData, runAction, token]);
+  }, [attachReadableAddress, hydrateDriverFareConfig, normalizeLocation, requestDriverData, runAction, token, availabilitySyncPending]);
 
   const refreshDriverDataSilently = useCallback(async ({ includeProfile = false, includeMeta = false } = {}) => {
     if (refreshInFlightRef.current) {
@@ -538,14 +540,12 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
         ])
         : [null, null, null];
 
-      if (
-        includeProfile &&
-        profile &&
-        typeof profile.is_available === 'boolean' &&
-        !pendingAvailabilitySyncRef.current &&
-        Date.now() >= availabilityUiOverrideUntilRef.current
-      ) {
-        setIsOnline(profile.is_available);
+      if (includeProfile && profile && typeof profile.is_available === 'boolean') {
+        // Always sync server state, then update local state if no pending changes
+        setServerIsOnline(profile.is_available);
+        if (!pendingAvailabilitySyncRef.current) {
+          setIsOnline(profile.is_available);
+        }
       }
       if (includeProfile) {
         const resolvedLocation = normalizeLocation(profile?.current_location);
@@ -858,53 +858,81 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   }, [normalizeLocation, pushDriverLocation, shouldSyncDriverLocation]);
 
   const toggleOnlineStatus = async (nextValue) => {
-    if (loading) {
+    if (loading || availabilitySyncPending) {
       return;
     }
     const next = typeof nextValue === 'boolean' ? nextValue : !isOnline;
     const requestId = availabilityToggleRequestIdRef.current + 1;
     availabilityToggleRequestIdRef.current = requestId;
-    pendingAvailabilitySyncRef.current = null;
-    setAvailabilitySyncPending(false);
-    availabilityUiOverrideUntilRef.current = Date.now() + 90000;
+    
+    // Immediately show optimistic UI
     setIsOnline(next);
+    setAvailabilitySyncPending(true);
     setError('');
-    setMessage(next ? 'Switching online...' : 'Switching offline...');
-    const updated = await runAction(() =>
-      apiRequest('/drivers/availability', {
+    setMessage(next ? 'Going online...' : 'Going offline...');
+
+    try {
+      const updated = await apiRequest('/drivers/availability', {
         method: 'PUT',
         token,
         body: { is_available: next },
-      }),
-    );
-    if (requestId !== availabilityToggleRequestIdRef.current) {
-      return;
-    }
-    if (updated) {
-      const savedStatus = typeof updated?.is_available === 'boolean' ? updated.is_available : next;
-      pendingAvailabilitySyncRef.current = null;
-      setAvailabilitySyncPending(false);
-      availabilityUiOverrideUntilRef.current = Date.now() + 15000;
-      setIsOnline(savedStatus);
-      if (savedStatus) {
-        await pushDriverLocation({
-          fallbackLocation: updated?.current_location || driverLocation,
-          silent: true,
-        });
+      });
+
+      // Only process response if this is still the latest request
+      if (requestId !== availabilityToggleRequestIdRef.current) {
+        return;
       }
-      setMessage(savedStatus ? 'You are online and discoverable.' : 'You are offline.');
-      await refreshDriverDataSilently({ includeProfile: true });
-      return;
+
+      if (updated && typeof updated.is_available === 'boolean') {
+        const savedStatus = updated.is_available;
+        setServerIsOnline(savedStatus);
+        setIsOnline(savedStatus);
+        setAvailabilitySyncPending(false);
+        pendingAvailabilitySyncRef.current = null;
+        setMessage(savedStatus ? 'You are online and discoverable.' : 'You are offline.');
+        
+        // If going online, push location
+        if (savedStatus) {
+          await pushDriverLocation({
+            fallbackLocation: updated?.current_location || driverLocation,
+            silent: true,
+          });
+        }
+        await refreshDriverDataSilently({ includeProfile: true });
+      } else {
+        // Fallback: assume success if no error thrown
+        setServerIsOnline(next);
+        setIsOnline(next);
+        setAvailabilitySyncPending(false);
+        pendingAvailabilitySyncRef.current = null;
+        setMessage(next ? 'You are online and discoverable.' : 'You are offline.');
+        await refreshDriverDataSilently({ includeProfile: true });
+      }
+    } catch (err) {
+      // On error, revert to server state
+      if (requestId !== availabilityToggleRequestIdRef.current) {
+        return;
+      }
+      
+      setError(`Failed to update status: ${err?.message || 'Unknown error'}`);
+      setMessage('');
+      
+      // Try to fetch current state from server
+      try {
+        const profile = await apiRequest('/drivers/profile', { token });
+        if (profile && typeof profile.is_available === 'boolean') {
+          setServerIsOnline(profile.is_available);
+          setIsOnline(profile.is_available);
+        }
+      } catch (_profileErr) {
+        // If we can't fetch profile, revert to opposite of what we tried to set
+        setIsOnline(!next);
+        setServerIsOnline(!next);
+      }
+      
+      setAvailabilitySyncPending(false);
+      pendingAvailabilitySyncRef.current = null;
     }
-    pendingAvailabilitySyncRef.current = {
-      desired: next,
-      attempts: 0,
-      lastAttemptAt: Date.now(),
-    };
-    setAvailabilitySyncPending(true);
-    availabilityUiOverrideUntilRef.current = Date.now() + 300000;
-    setMessage(next ? 'Showing online locally. Sync pending while backend reconnects.' : 'Showing offline locally. Sync pending while backend reconnects.');
-    retryPendingAvailabilitySync().catch(() => null);
   };
 
   const acceptRequest = async (bookingId) => {
@@ -1051,10 +1079,10 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
           <View style={styles.topBar}>
             <View style={styles.statusBadge}>
               <View
-                style={[styles.statusDot, { backgroundColor: isOnline ? '#2E7D32' : '#8A8A8A' }]}
+                style={[styles.statusDot, { backgroundColor: serverIsOnline ? '#2E7D32' : '#8A8A8A' }]}
               />
               <View>
-                <Text style={styles.statusText}>{isOnline ? 'Online & Ready' : 'Offline'}</Text>
+                <Text style={styles.statusText}>{serverIsOnline ? 'Online & Ready' : 'Offline'}</Text>
                 <Text style={styles.statusSub}>{user?.name || 'Driver'}</Text>
               </View>
             </View>
@@ -1073,7 +1101,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
                 thumbColor={isOnline ? '#2E7D32' : '#F3F3F3'}
                 onValueChange={toggleOnlineStatus}
                 value={isOnline}
-                disabled={loading}
+                disabled={loading || availabilitySyncPending}
               />
             </View>
           </View>

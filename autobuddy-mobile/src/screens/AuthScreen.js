@@ -621,7 +621,7 @@ export default function AuthScreen({ onAuthenticated }) {
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <PremiumCard style={styles.card}>
-          <WebCommandBar />
+          <WebCommandBar showLanguageSelector />
           <View style={styles.brandHeader}>
             <Image
               source={LAUNCH_BANNER_SOURCE}
