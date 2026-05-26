@@ -21,7 +21,7 @@ import PremiumCard from '../components/PremiumCard';
 import WebCommandBar from '../components/WebCommandBar';
 import VoiceTextInput from '../components/VoiceTextInput';
 
-const LAUNCH_BANNER_SOURCE = require('../../assets/images/launch-banner.jpg');
+const LAUNCH_BANNER_SOURCE = require('../../assets/images/autobuddy-login-hero.jpg');
 const ROLE_OPTIONS = ['passenger', 'driver'];
 const AUTH_METHODS = [
   { key: 'password', label: 'Password' },
