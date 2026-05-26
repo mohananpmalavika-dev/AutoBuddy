@@ -40,8 +40,9 @@ const DRIVER_MENU_OPTIONS = [
   { key: 'safety', label: 'Safety' },
 ];
 const PRIMARY_DRIVER_MENU_KEY = 'requests';
+const DASHBOARD_DRIVER_MENU_KEYS = new Set([PRIMARY_DRIVER_MENU_KEY, 'trip']);
 const SECONDARY_DRIVER_MENU_OPTIONS = DRIVER_MENU_OPTIONS.filter(
-  (menu) => menu.key !== PRIMARY_DRIVER_MENU_KEY,
+  (menu) => !DASHBOARD_DRIVER_MENU_KEYS.has(menu.key),
 );
 const DEFAULT_CITY_LOCATION = {
   latitude: 13.0827,
@@ -899,6 +900,17 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
                 setShowDriverMenus(false);
               }}>
               <Text style={styles.primaryMenuButtonText}>Ride Requests</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.primaryMenuButton,
+                activeDriverMenu === 'trip' && styles.primaryMenuButtonActive,
+              ]}
+              onPress={() => {
+                setActiveDriverMenu('trip');
+                setShowDriverMenus(false);
+              }}>
+              <Text style={styles.primaryMenuButtonText}>Active Ride</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.menuToggleButton}

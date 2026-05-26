@@ -45,8 +45,9 @@ const PASSENGER_MENU_OPTIONS = [
   { key: 'history', label: 'Ride History' },
 ];
 const PRIMARY_PASSENGER_MENU_KEY = 'ride';
+const DASHBOARD_PASSENGER_MENU_KEYS = new Set([PRIMARY_PASSENGER_MENU_KEY, 'trip']);
 const SECONDARY_PASSENGER_MENU_OPTIONS = PASSENGER_MENU_OPTIONS.filter(
-  (menu) => menu.key !== PRIMARY_PASSENGER_MENU_KEY,
+  (menu) => !DASHBOARD_PASSENGER_MENU_KEYS.has(menu.key),
 );
 
 export default function PassengerMap({ token, user, onLogout, onProfilePress = undefined }) {
@@ -1025,6 +1026,17 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                   setShowPassengerMenus(false);
                 }}>
                 <Text style={styles.primaryMenuButtonText}>Ride Booking</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.primaryMenuButton,
+                  activePassengerMenu === 'trip' && styles.primaryMenuButtonActive,
+                ]}
+                onPress={() => {
+                  setActivePassengerMenu('trip');
+                  setShowPassengerMenus(false);
+                }}>
+                <Text style={styles.primaryMenuButtonText}>Active Ride</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.menuToggleButton}
