@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Image,
   SafeAreaView,
+  Share,
   ScrollView,
   StyleSheet,
   Text,
@@ -34,6 +35,7 @@ export default function PassengerProfile({ token, user, onLogout, onBack }) {
   const [subscriptionConfig, setSubscriptionConfig] = useState(null);
   const [pendingSubscriptionDues, setPendingSubscriptionDues] = useState([]);
   const [subscriptionPaymentRef, setSubscriptionPaymentRef] = useState('');
+  const [referralInfo, setReferralInfo] = useState(null);
 
   // Password change
   const [showPasswordChange, setShowPasswordChange] = useState(false);
@@ -80,6 +82,13 @@ export default function PassengerProfile({ token, user, onLogout, onBack }) {
       }
     } catch {
       setError('Failed to load profile data.');
+    }
+
+    try {
+      const referralPayload = await apiRequest('/revenue/referral/me', { token });
+      setReferralInfo(referralPayload?.referral || null);
+    } catch {
+      // Ignore referral fetch errors
     }
 
     try {
@@ -262,6 +271,29 @@ export default function PassengerProfile({ token, user, onLogout, onBack }) {
     }
   };
 
+  const shareReferralCode = async () => {
+    const code = String(referralInfo?.code || userData?.referral_code || '').trim();
+    if (!code) {
+      setError('Referral code is not available yet.');
+      return;
+    }
+    const shareMessage = `Join AutoBuddy with my referral code ${code} and get started faster.`;
+    try {
+      await Share.share({ message: shareMessage });
+    } catch {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        try {
+          await navigator.clipboard.writeText(shareMessage);
+          setMessage('Referral message copied. Share it on WhatsApp, SMS, or social media.');
+          return;
+        } catch {
+          // Ignore clipboard failures.
+        }
+      }
+      setError('Could not open share dialog.');
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
@@ -301,6 +333,13 @@ export default function PassengerProfile({ token, user, onLogout, onBack }) {
                 <Text style={styles.infoLabel}>Phone:</Text>
                 <Text style={styles.infoValue}>{userData?.phone || 'N/A'}</Text>
               </View>
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Referral Code:</Text>
+                <Text style={styles.infoValue}>{referralInfo?.code || userData?.referral_code || 'Generating...'}</Text>
+              </View>
+              <TouchableOpacity style={styles.shareButton} onPress={shareReferralCode} disabled={loading}>
+                <Text style={styles.shareButtonText}>Share Referral Code</Text>
+              </TouchableOpacity>
               {pendingPhoneVerification && (
                 <View style={styles.warningBox}>
                   <Text style={styles.warningText}>
@@ -673,6 +712,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     flex: 1,
     ...SHADOWS.soft,
+  },
+  shareButton: {
+    marginTop: 8,
+    backgroundColor: '#1D4ED8',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  shareButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 13,
   },
   actionText: { color: '#fff', fontWeight: '700', textAlign: 'center' },
   cancelButton: {

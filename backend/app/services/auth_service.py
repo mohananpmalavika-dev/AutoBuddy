@@ -24,7 +24,7 @@ from app.schemas.auth import (
     UserResponse,
 )
 from app.services.audit_service import write_audit_log
-from app.services import driver_trust_service
+from app.services import driver_trust_service, revenue_service
 from app.state.runtime_state import RuntimeStateStore
 from app.utils.security import (
     REFRESH_TOKEN_EXPIRE_DAYS,
@@ -142,6 +142,7 @@ def _build_user_response(user: Dict[str, Any]) -> UserResponse:
                 "name": str(user.get("name") or "User"),
                 "phone": str(user.get("phone") or ""),
                 "role": role,
+                "referral_code": str(user.get("referral_code") or "").strip().upper() or None,
                 "created_at": created_at,
             }
         )
@@ -252,6 +253,20 @@ async def register(
         driver_profile = legacy.build_default_driver_profile(user_id)
         await db.drivers.update_one({"user_id": user_id}, {"$setOnInsert": driver_profile}, upsert=True)
 
+    try:
+        referral = await revenue_service.create_referral_if_missing(db, user_dict)
+        user_dict["referral_code"] = referral.get("code")
+        incoming_referral_code = str(user_data.referral_code or "").strip().upper()
+        if incoming_referral_code:
+            applied = await revenue_service.apply_referral_signup(db, user_dict, incoming_referral_code)
+            if not applied:
+                raise HTTPException(status_code=400, detail="Invalid or already used referral code")
+    except Exception:
+        await db.users.delete_one({"id": user_id})
+        await db.drivers.delete_one({"user_id": user_id})
+        await db.referrals.delete_one({"user_id": user_id})
+        raise
+
     refresh_token = create_refresh_token(user_dict["id"], str(user_dict["role"]), str(uuid.uuid4()), settings)
     await _store_refresh_token(
         db=db,
@@ -334,6 +349,7 @@ def _to_auth_response_from_any(payload: Any) -> AuthResponse:
             "name": getattr(source_user, "name", ""),
             "phone": getattr(source_user, "phone", ""),
             "role": getattr(source_user, "role", "passenger"),
+            "referral_code": getattr(source_user, "referral_code", None),
             "created_at": getattr(source_user, "created_at", datetime.utcnow()),
         }
 
@@ -347,6 +363,7 @@ def _to_auth_response_from_any(payload: Any) -> AuthResponse:
         name=str(source_user.get("name") or "User"),
         phone=str(source_user.get("phone") or ""),
         role=_normalize_role_for_response(source_user.get("role")),
+        referral_code=str(source_user.get("referral_code") or "").strip().upper() or None,
         created_at=created_at,
     )
     return AuthResponse(
@@ -682,6 +699,7 @@ async def google_login(
         profile_name = str(payload.name).strip()
 
     user = await db.users.find_one({"email": profile_email})
+    created_new_user = False
     if user and payload.mode == "register":
         raise HTTPException(status_code=400, detail="Email already registered. Please login with Google.")
 
@@ -710,6 +728,7 @@ async def google_login(
             role=payload.role,
             email=profile_email,
         )
+        created_new_user = True
 
         if required_registration_fee > 0:
             await db.users.update_one(
@@ -726,6 +745,21 @@ async def google_login(
                 },
             )
             user = await db.users.find_one({"id": user["id"]})
+
+    try:
+        referral = await revenue_service.create_referral_if_missing(db, user)
+        user["referral_code"] = referral.get("code")
+        incoming_referral_code = str(payload.referral_code or "").strip().upper()
+        if payload.mode == "register" and incoming_referral_code:
+            applied = await revenue_service.apply_referral_signup(db, user, incoming_referral_code)
+            if not applied:
+                raise HTTPException(status_code=400, detail="Invalid or already used referral code")
+    except Exception:
+        if created_new_user:
+            await db.users.delete_one({"id": str(user.get("id") or "")})
+            await db.drivers.delete_one({"user_id": str(user.get("id") or "")})
+            await db.referrals.delete_one({"user_id": str(user.get("id") or "")})
+        raise
 
     if user.get("registration_payment_required") and user.get("registration_payment_status") != "verified":
         raise HTTPException(status_code=403, detail="Registration payment verification is in progress")
@@ -802,6 +836,8 @@ async def verify_otp(
             role=payload.role,
             email=generated_email,
         )
+    referral = await revenue_service.create_referral_if_missing(db, user)
+    user["referral_code"] = referral.get("code")
     user_id = _normalize_user_id(user.get("id"))
     refresh_token = create_refresh_token(user_id, _normalize_user_role(user.get("role")), str(uuid.uuid4()), settings)
     await _store_refresh_token(

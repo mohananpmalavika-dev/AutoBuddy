@@ -41,7 +41,13 @@ from app.routers.revenue import router as modular_revenue_router
 from app.routers.security import router as modular_security_router
 from app.routers.safety import router as modular_safety_router
 from app.services.ai_dispatch import build_demand_heatmap, heat_cell as dispatch_heat_cell
-from app.services.revenue_service import calculate_ride_revenue, ensure_default_revenue_plans
+from app.services.revenue_service import (
+    apply_referral_signup,
+    backfill_referrals_for_existing_users,
+    calculate_ride_revenue,
+    create_referral_if_missing,
+    ensure_default_revenue_plans,
+)
 from app.state import RuntimeStateConfig, RuntimeStateStore
 
 try:
@@ -653,6 +659,12 @@ async def on_startup():
             redis_client = None
             app.state.redis_client = None
     await seed_admin()
+    try:
+        referral_backfill = await backfill_referrals_for_existing_users(db)
+        if referral_backfill.get("ran"):
+            logger.info("Referral code backfill completed for %s users.", referral_backfill.get("processed", 0))
+    except Exception:
+        logger.exception("Referral code backfill failed during startup")
     if driver_health_monitor_task is None or driver_health_monitor_task.done():
         driver_health_monitor_task = asyncio.create_task(driver_health_monitor())
     if ride_dispatch_worker_task is None or ride_dispatch_worker_task.done():
@@ -893,6 +905,7 @@ class UserCreate(UserBase):
     password: str = Field(min_length=8, max_length=128)
     phone_otp: Optional[str] = Field(default=None, pattern=OTP_PATTERN)
     email_otp: Optional[str] = Field(default=None, pattern=OTP_PATTERN)
+    referral_code: Optional[str] = Field(default=None, min_length=4, max_length=20)
     registration_fee_ack: bool = False
     registration_payment_method: Optional[Literal["qr", "razorpay"]] = None
     registration_payment_utr: Optional[str] = Field(default=None, min_length=6, max_length=80)
@@ -922,6 +935,7 @@ class GoogleAuthRequestModel(BaseModel):
     phone: Optional[str] = Field(default=None, pattern=PHONE_PATTERN)
     role: UserRole = UserRole.PASSENGER
     mode: Literal["login", "register"] = "login"
+    referral_code: Optional[str] = Field(default=None, min_length=4, max_length=20)
     registration_fee_ack: bool = False
     registration_payment_method: Optional[Literal["qr", "razorpay"]] = None
     registration_payment_utr: Optional[str] = Field(default=None, min_length=6, max_length=80)
@@ -968,6 +982,7 @@ class UserResponse(BaseModel):
     name: str
     phone: str
     role: UserRole
+    referral_code: Optional[str] = None
     created_at: datetime
 
 class AuthResponse(BaseModel):
@@ -1469,6 +1484,7 @@ def auth_response_for_user(user: Dict[str, Any], refresh_token: Optional[str] = 
             name=user["name"],
             phone=user["phone"],
             role=user["role"],
+            referral_code=str(user.get("referral_code") or "").strip().upper() or None,
             created_at=user["created_at"],
         ),
     )
@@ -1557,6 +1573,8 @@ async def create_user_for_social_or_otp(
     if role == UserRole.DRIVER:
         driver_profile = build_default_driver_profile(user_id)
         await db.drivers.update_one({"user_id": user_id}, {"$setOnInsert": driver_profile}, upsert=True)
+    referral = await create_referral_if_missing(db, user_dict)
+    user_dict["referral_code"] = referral.get("code")
     return user_dict
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
@@ -3447,6 +3465,16 @@ async def register(user_data: UserCreate, request: Request):
     if user_data.role == UserRole.DRIVER:
         driver_profile = build_default_driver_profile(user_id)
         await db.drivers.update_one({"user_id": user_id}, {"$setOnInsert": driver_profile}, upsert=True)
+    referral = await create_referral_if_missing(db, user_dict)
+    user_dict["referral_code"] = referral.get("code")
+    incoming_referral_code = str(user_data.referral_code or "").strip().upper()
+    if incoming_referral_code:
+        applied = await apply_referral_signup(db, user_dict, incoming_referral_code)
+        if not applied:
+            await db.users.delete_one({"id": user_id})
+            await db.drivers.delete_one({"user_id": user_id})
+            await db.referrals.delete_one({"user_id": user_id})
+            raise HTTPException(status_code=400, detail="Invalid or already used referral code")
     
     access_token = create_access_token_for_user(user_id, user_data.role)
     refresh_token = create_refresh_token_for_user(user_id, user_data.role)
@@ -3460,6 +3488,7 @@ async def register(user_data: UserCreate, request: Request):
             name=user_data.name,
             phone=user_data.phone,
             role=user_data.role,
+            referral_code=user_dict.get("referral_code"),
             created_at=user_dict["created_at"],
         ),
     )
@@ -3536,6 +3565,7 @@ async def google_login(payload: GoogleAuthRequestModel, request: Request):
         profile_name = str(payload.name).strip()
 
     user = await db.users.find_one({"email": profile_email})
+    created_new_user = False
     if user and payload.mode == "register":
         raise HTTPException(status_code=400, detail="Email already registered. Please login with Google.")
 
@@ -3562,6 +3592,7 @@ async def google_login(payload: GoogleAuthRequestModel, request: Request):
             role=payload.role,
             email=profile_email,
         )
+        created_new_user = True
         if required_registration_fee > 0:
             await db.users.update_one(
                 {"id": user["id"]},
@@ -3577,6 +3608,17 @@ async def google_login(payload: GoogleAuthRequestModel, request: Request):
                 },
             )
             user = await db.users.find_one({"id": user["id"]})
+    referral = await create_referral_if_missing(db, user)
+    user["referral_code"] = referral.get("code")
+    incoming_referral_code = str(payload.referral_code or "").strip().upper()
+    if payload.mode == "register" and incoming_referral_code:
+        applied = await apply_referral_signup(db, user, incoming_referral_code)
+        if not applied:
+            if created_new_user:
+                await db.users.delete_one({"id": user["id"]})
+                await db.drivers.delete_one({"user_id": user["id"]})
+                await db.referrals.delete_one({"user_id": user["id"]})
+            raise HTTPException(status_code=400, detail="Invalid or already used referral code")
 
     if user.get("registration_payment_required") and user.get("registration_payment_status") != "verified":
         raise HTTPException(status_code=403, detail="Registration payment verification is in progress")
@@ -3623,6 +3665,8 @@ async def verify_otp(payload: OtpVerifyRequest, request: Request):
             role=payload.role,
             email=generated_email,
         )
+    referral = await create_referral_if_missing(db, user)
+    user["referral_code"] = referral.get("code")
 
     refresh_token = create_refresh_token_for_user(user["id"], user["role"])
     await store_refresh_token(user["id"], refresh_token, request)
@@ -3678,6 +3722,7 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         name=current_user["name"],
         phone=current_user["phone"],
         role=current_user["role"],
+        referral_code=str(current_user.get("referral_code") or "").strip().upper() or None,
         created_at=current_user["created_at"]
     )
 
@@ -3686,6 +3731,7 @@ async def get_user_profile(current_user: dict = Depends(get_current_user)):
     user = await db.users.find_one({"id": current_user["id"]})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    referral = await create_referral_if_missing(db, user)
 
     pending_change = await db.phone_change_requests.find_one(
         {"user_id": current_user["id"], "status": "pending_admin_approval"},
@@ -3697,6 +3743,7 @@ async def get_user_profile(current_user: dict = Depends(get_current_user)):
         "name": user.get("name"),
         "phone": user.get("phone"),
         "role": user.get("role"),
+        "referral_code": referral.get("code"),
         "created_at": user.get("created_at"),
         "pending_phone_change": pending_change.get("new_phone") if pending_change else None,
     }

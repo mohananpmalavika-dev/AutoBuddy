@@ -58,6 +58,7 @@ export default function AuthScreen({ onAuthenticated }) {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [registerEmailOtp, setRegisterEmailOtp] = useState('');
+  const [registerReferralCode, setRegisterReferralCode] = useState('');
   const [registerEmailOtpSent, setRegisterEmailOtpSent] = useState(false);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -183,6 +184,7 @@ export default function AuthScreen({ onAuthenticated }) {
     const normalizedPassword = String(password || '').trim();
     const normalizedConfirmPassword = String(confirmPassword || '').trim();
     const normalizedEmailOtp = String(registerEmailOtp || '').trim();
+    const normalizedReferralCode = String(registerReferralCode || '').trim().toUpperCase();
     if (!normalizedEmail || !normalizedPassword) {
       setError('Email and password are required.');
       return;
@@ -248,6 +250,7 @@ export default function AuthScreen({ onAuthenticated }) {
             phone: normalizedPhone,
             role,
             email_otp: normalizedEmailOtp,
+            referral_code: normalizedReferralCode || undefined,
             registration_fee_ack: selectedRegistrationFee <= 0 || registrationFeeAccepted,
             registration_payment_method: selectedRegistrationFee > 0 ? registrationPaymentMethod : undefined,
             registration_payment_utr:
@@ -308,6 +311,7 @@ export default function AuthScreen({ onAuthenticated }) {
     }
     const normalizedName = String(name || '').trim();
     const normalizedPhone = String(phone || '').trim();
+    const normalizedReferralCode = String(registerReferralCode || '').trim().toUpperCase();
     if (!isLogin) {
       if (!normalizedName || !normalizedPhone) {
         setError('Name and phone number are required for Google registration.');
@@ -356,6 +360,7 @@ export default function AuthScreen({ onAuthenticated }) {
           name: !isLogin ? normalizedName : undefined,
           phone: !isLogin ? normalizedPhone : undefined,
           role: !isLogin ? role : undefined,
+          referral_code: !isLogin ? normalizedReferralCode || undefined : undefined,
           registration_fee_ack: !isLogin ? selectedRegistrationFee <= 0 || registrationFeeAccepted : undefined,
           registration_payment_method:
             !isLogin && selectedRegistrationFee > 0 ? registrationPaymentMethod : undefined,
@@ -533,6 +538,7 @@ export default function AuthScreen({ onAuthenticated }) {
                 setAuthMethod('password');
                 setConfirmPassword('');
                 setRegisterEmailOtp('');
+                setRegisterReferralCode('');
                 setRegisterEmailOtpSent(false);
                 setRegistrationFeeAccepted(false);
                 setRegistrationPaymentMethod('');
@@ -548,6 +554,7 @@ export default function AuthScreen({ onAuthenticated }) {
                 setAuthMethod('google');
                 setConfirmPassword('');
                 setRegisterEmailOtp('');
+                setRegisterReferralCode('');
                 setRegisterEmailOtpSent(false);
                 setRegistrationFeeAccepted(false);
                 setRegistrationPaymentMethod('');
@@ -606,6 +613,15 @@ export default function AuthScreen({ onAuthenticated }) {
                       </TouchableOpacity>
                     ))}
                   </View>
+                  <Text style={styles.inputLabel}>Referral Code (Optional)</Text>
+                  <VoiceTextInput
+                    style={styles.input}
+                    value={registerReferralCode}
+                    onChangeText={setRegisterReferralCode}
+                    placeholder="Enter referral code"
+                    autoCapitalize="characters"
+                    placeholderTextColor={COLORS.textMuted}
+                  />
                   {renderRegistrationFeeControls()}
                 </>
               )}
@@ -694,6 +710,15 @@ export default function AuthScreen({ onAuthenticated }) {
                       </TouchableOpacity>
                     ))}
                   </View>
+                  <Text style={styles.inputLabel}>Referral Code (Optional)</Text>
+                  <VoiceTextInput
+                    style={styles.input}
+                    value={registerReferralCode}
+                    onChangeText={setRegisterReferralCode}
+                    placeholder="Enter referral code"
+                    autoCapitalize="characters"
+                    placeholderTextColor={COLORS.textMuted}
+                  />
                   {renderRegistrationFeeControls()}
                 </>
               )}

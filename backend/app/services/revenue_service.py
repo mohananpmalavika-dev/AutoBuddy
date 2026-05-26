@@ -1,8 +1,10 @@
 import uuid
+import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from pymongo import ReturnDocument
 
 DEFAULT_PASSENGER_PLANS = [
     {
@@ -76,10 +78,125 @@ def _normalize_role(role: Any) -> str:
     return raw
 
 
-def referral_code_from_user(user: Dict[str, Any]) -> str:
-    base = (str(user.get("name") or "AUTO").upper().replace(" ", "")[:4]) or "AUTO"
-    user_tail = str(user.get("id") or "")[-5:].upper() or str(uuid.uuid4())[:5].upper()
-    return f"{base}{user_tail}"
+REFERRAL_COUNTER_ID = "referral_sequence"
+REFERRAL_BACKFILL_FLAG_ID = "referral_backfill_v2_done"
+REFERRAL_CODE_PATTERN = re.compile(r"^[A-Z]{3}\d{4,}$")
+
+
+def _referral_prefix_from_name(name: Any) -> str:
+    cleaned = re.sub(r"[^A-Z]", "", str(name or "").upper())
+    prefix = (cleaned[:3] or "AUT")
+    if len(prefix) < 3:
+        prefix = prefix.ljust(3, "X")
+    return prefix
+
+
+def _format_referral_code(prefix: str, sequence: int) -> str:
+    numeric = f"{int(sequence):04d}"
+    return f"{prefix}{numeric}"
+
+
+async def _next_referral_sequence(db: AsyncIOMotorDatabase) -> int:
+    now = _utc_now()
+    counter = await db.counters.find_one_and_update(
+        {"_id": REFERRAL_COUNTER_ID},
+        {
+            "$inc": {"value": 1},
+            "$set": {"updated_at": now},
+            "$setOnInsert": {"created_at": now, "value": 0},
+        },
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+    )
+    return int((counter or {}).get("value") or 1)
+
+
+async def _generate_unique_referral_code(db: AsyncIOMotorDatabase, name: Any) -> str:
+    prefix = _referral_prefix_from_name(name)
+    for _ in range(200):
+        sequence = await _next_referral_sequence(db)
+        candidate = _format_referral_code(prefix, sequence)
+        existing = await db.referrals.find_one({"code": candidate}, {"_id": 1})
+        if not existing:
+            return candidate
+    raise RuntimeError("Could not generate unique referral code")
+
+
+async def ensure_referral_for_user(
+    db: AsyncIOMotorDatabase,
+    user: Dict[str, Any],
+    *,
+    force_regenerate: bool = False,
+) -> Dict[str, Any]:
+    user_id = str(user.get("id") or "").strip()
+    if not user_id:
+        raise ValueError("user.id is required to create referral code")
+
+    now = _utc_now()
+    existing = await db.referrals.find_one({"user_id": user_id}, {"_id": 0})
+    existing_code = str((existing or {}).get("code") or "").strip().upper()
+    existing_is_new_format = bool(REFERRAL_CODE_PATTERN.match(existing_code))
+
+    if existing and existing_is_new_format and not force_regenerate:
+        user_code = str(user.get("referral_code") or "").strip().upper()
+        if user_code != existing_code:
+            await db.users.update_one(
+                {"id": user_id},
+                {"$set": {"referral_code": existing_code, "updated_at": _utc_now()}},
+            )
+        return existing
+
+    if force_regenerate or not existing_is_new_format:
+        code = await _generate_unique_referral_code(db, user.get("name"))
+    else:
+        code = existing_code
+
+    referral = {
+        "id": str((existing or {}).get("id") or uuid.uuid4()),
+        "user_id": user_id,
+        "code": code,
+        "total_invites": int((existing or {}).get("total_invites") or 0),
+        "successful_invites": int((existing or {}).get("successful_invites") or 0),
+        "total_earned": float((existing or {}).get("total_earned") or 0.0),
+        "active": True,
+        "created_at": (existing or {}).get("created_at") or now,
+        "updated_at": now,
+    }
+    await db.referrals.update_one({"user_id": user_id}, {"$set": referral}, upsert=True)
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"referral_code": code, "updated_at": now}},
+    )
+    return referral
+
+
+async def backfill_referrals_for_existing_users(db: AsyncIOMotorDatabase) -> Dict[str, Any]:
+    marker = await db.system_flags.find_one({"_id": REFERRAL_BACKFILL_FLAG_ID}, {"_id": 0, "done": 1})
+    if marker and bool(marker.get("done")):
+        return {"ran": False, "processed": 0}
+
+    now = _utc_now()
+    await db.counters.update_one(
+        {"_id": REFERRAL_COUNTER_ID},
+        {"$set": {"value": 0, "updated_at": now}, "$setOnInsert": {"created_at": now}},
+        upsert=True,
+    )
+
+    processed = 0
+    cursor = db.users.find(
+        {"id": {"$exists": True, "$ne": None}},
+        {"_id": 0, "id": 1, "name": 1, "created_at": 1},
+    ).sort([("created_at", 1), ("id", 1)])
+    async for user in cursor:
+        await ensure_referral_for_user(db, user, force_regenerate=True)
+        processed += 1
+
+    await db.system_flags.update_one(
+        {"_id": REFERRAL_BACKFILL_FLAG_ID},
+        {"$set": {"done": True, "processed": processed, "completed_at": _utc_now()}},
+        upsert=True,
+    )
+    return {"ran": True, "processed": processed}
 
 
 async def ensure_default_revenue_plans(db: AsyncIOMotorDatabase) -> None:
@@ -171,21 +288,7 @@ async def add_wallet_credit(
 
 
 async def create_referral_if_missing(db: AsyncIOMotorDatabase, user: Dict[str, Any]) -> Dict[str, Any]:
-    existing = await db.referrals.find_one({"user_id": user["id"]}, {"_id": 0})
-    if existing:
-        return existing
-    referral = {
-        "id": str(uuid.uuid4()),
-        "user_id": user["id"],
-        "code": referral_code_from_user(user),
-        "total_invites": 0,
-        "successful_invites": 0,
-        "total_earned": 0.0,
-        "active": True,
-        "created_at": _utc_now(),
-    }
-    await db.referrals.insert_one(referral)
-    return referral
+    return await ensure_referral_for_user(db, user, force_regenerate=False)
 
 
 async def apply_referral_signup(
