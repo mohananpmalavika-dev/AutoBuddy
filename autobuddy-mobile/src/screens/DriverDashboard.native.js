@@ -38,15 +38,14 @@ const DEFAULT_DRIVER_LOCATION = {
 
 const STATUS_FLOW = ['accepted', 'driver_arrived', 'in_progress', 'completed'];
 const DRIVER_MENU_OPTIONS = [
-  { key: 'requests', label: 'Ride Requests' },
-  { key: 'trip', label: 'Active Trip' },
+  { key: 'requests', label: 'Ride Flow' },
   { key: 'earnings', label: 'Earnings' },
   { key: 'fare', label: 'Fare Tools' },
   { key: 'blocked', label: 'Blocked' },
   { key: 'trust', label: 'Trust' },
 ];
 const PRIMARY_DRIVER_MENU_KEY = 'requests';
-const DASHBOARD_DRIVER_MENU_KEYS = new Set([PRIMARY_DRIVER_MENU_KEY, 'trip']);
+const DASHBOARD_DRIVER_MENU_KEYS = new Set([PRIMARY_DRIVER_MENU_KEY]);
 const SECONDARY_DRIVER_MENU_OPTIONS = DRIVER_MENU_OPTIONS.filter(
   (menu) => !DASHBOARD_DRIVER_MENU_KEYS.has(menu.key),
 );
@@ -784,18 +783,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
                 setActiveDriverMenu(PRIMARY_DRIVER_MENU_KEY);
                 setShowDriverMenus(false);
               }}>
-              <Text style={styles.primaryMenuButtonText}>Ride Requests</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.primaryMenuButton,
-                activeDriverMenu === 'trip' && styles.primaryMenuButtonActive,
-              ]}
-              onPress={() => {
-                setActiveDriverMenu('trip');
-                setShowDriverMenus(false);
-              }}>
-              <Text style={styles.primaryMenuButtonText}>Active Ride</Text>
+              <Text style={styles.primaryMenuButtonText}>Ride Flow</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.menuToggleButton}
@@ -960,7 +948,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
             )
           )}
 
-          {activeDriverMenu === 'trip' && (
+          {activeDriverMenu === 'requests' && (
             activeRide ? (
               <View style={styles.requestCard}>
                 <Text style={styles.passengerName}>Active Ride: {activeRide.passenger_name || 'Passenger'}</Text>
@@ -1027,65 +1015,63 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
 
           {activeDriverMenu === 'requests' && (
             <>
-              {activeRide ? (
-                <View style={styles.earningsCard}>
-                  <Text style={styles.earningsText}>You already have an active ride. Complete it to receive new requests.</Text>
-                </View>
-              ) : isOnline ? (
-                <View>
-                  {pendingRequests.length === 0 ? (
-                    <Text style={styles.offlineText}>No pending requests right now.</Text>
-                  ) : (
-                    pendingRequests.map((req) => {
-                      const pickup = normalizeLocation(
-                        req.pickup_location || req.pickup || req.pickup_location_details,
-                      );
-                      const drop = normalizeLocation(
-                        req.drop_location ||
-                        req.dropoff_location ||
-                        req.dropoff ||
-                        req.drop_location_details,
-                      );
-                      return (
-                        <View key={req.id} style={styles.requestCard}>
-                          <View style={styles.requestInfo}>
-                            <Text style={styles.passengerName}>{req.passenger_name}</Text>
-                            <Text style={styles.requestDetails}>
-                              {req.distance_km} km away | INR {req.estimated_fare}
-                            </Text>
-                            {!!pickup && (
-                              <Text style={styles.requestDetails}>From: {pickup.address}</Text>
-                            )}
-                            {!!drop && (
-                              <Text style={styles.requestDetails}>To: {drop.address}</Text>
-                            )}
-                          </View>
-                          <View style={styles.requestButtonsRow}>
-                            <TouchableOpacity
-                              style={styles.acceptButton}
-                              onPress={() => acceptRequest(req.id)}
-                              disabled={loading}>
-                              <Text style={styles.acceptText}>Accept</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              style={styles.blockButton}
-                              onPress={() => toggleBlockedPassenger(req.passenger_id, blockedPassengerIds.includes(req.passenger_id))}
-                              disabled={loading}>
-                              <Text style={styles.acceptText}>
-                                {blockedPassengerIds.includes(req.passenger_id) ? 'Unblock' : 'Block'}
+              {!activeRide ? (
+                isOnline ? (
+                  <View>
+                    {pendingRequests.length === 0 ? (
+                      <Text style={styles.offlineText}>No pending requests right now.</Text>
+                    ) : (
+                      pendingRequests.map((req) => {
+                        const pickup = normalizeLocation(
+                          req.pickup_location || req.pickup || req.pickup_location_details,
+                        );
+                        const drop = normalizeLocation(
+                          req.drop_location ||
+                          req.dropoff_location ||
+                          req.dropoff ||
+                          req.drop_location_details,
+                        );
+                        return (
+                          <View key={req.id} style={styles.requestCard}>
+                            <View style={styles.requestInfo}>
+                              <Text style={styles.passengerName}>{req.passenger_name}</Text>
+                              <Text style={styles.requestDetails}>
+                                {req.distance_km} km away | INR {req.estimated_fare}
                               </Text>
-                            </TouchableOpacity>
+                              {!!pickup && (
+                                <Text style={styles.requestDetails}>From: {pickup.address}</Text>
+                              )}
+                              {!!drop && (
+                                <Text style={styles.requestDetails}>To: {drop.address}</Text>
+                              )}
+                            </View>
+                            <View style={styles.requestButtonsRow}>
+                              <TouchableOpacity
+                                style={styles.acceptButton}
+                                onPress={() => acceptRequest(req.id)}
+                                disabled={loading}>
+                                <Text style={styles.acceptText}>Accept</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                style={styles.blockButton}
+                                onPress={() => toggleBlockedPassenger(req.passenger_id, blockedPassengerIds.includes(req.passenger_id))}
+                                disabled={loading}>
+                                <Text style={styles.acceptText}>
+                                  {blockedPassengerIds.includes(req.passenger_id) ? 'Unblock' : 'Block'}
+                                </Text>
+                              </TouchableOpacity>
+                            </View>
                           </View>
-                        </View>
-                      );
-                    })
-                  )}
-                </View>
-              ) : (
-                <View style={styles.offlineState}>
-                  <Text style={styles.offlineText}>Go online to receive ride requests.</Text>
-                </View>
-              )}
+                        );
+                      })
+                    )}
+                  </View>
+                ) : (
+                  <View style={styles.offlineState}>
+                    <Text style={styles.offlineText}>Go online to receive ride requests.</Text>
+                  </View>
+                )
+              ) : null}
             </>
           )}
         </ScrollView>
