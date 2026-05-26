@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 
 import { apiRequest } from '../lib/api';
+import { normalizeAdminPaymentOptions, requiresUtrForPaymentMethod } from '../lib/paymentOptions';
 import { COLORS, SHADOWS } from '../theme';
 import WebCommandBar from '../components/WebCommandBar';
 import VoiceTextInput from '../components/VoiceTextInput';
@@ -56,6 +57,7 @@ export default function PassengerProfile({ token, user, onLogout, onBack }) {
   const [pendingPhoneVerification, setPendingPhoneVerification] = useState(null);
   const [phoneOtpSendFailed, setPhoneOtpSendFailed] = useState(false);
   const [adminRequesting, setAdminRequesting] = useState(false);
+  const subscriptionPaymentConfig = normalizeAdminPaymentOptions(subscriptionPaymentOptions || {});
 
   const callApi = async (fn, successMessage) => {
     try {
@@ -131,7 +133,7 @@ export default function PassengerProfile({ token, user, onLogout, onBack }) {
       setError('Select a payment method.');
       return;
     }
-    if (subscriptionPaymentMethod === 'qr' && !subscriptionPaymentUtr.trim()) {
+    if (requiresUtrForPaymentMethod(subscriptionPaymentMethod) && !subscriptionPaymentUtr.trim()) {
       setError('Enter UTR number for QR/UPI payment.');
       return;
     }
@@ -142,7 +144,7 @@ export default function PassengerProfile({ token, user, onLogout, onBack }) {
           token,
           body: {
             payment_method: subscriptionPaymentMethod,
-            payment_utr: subscriptionPaymentMethod === 'qr' ? subscriptionPaymentUtr.trim() : undefined,
+            payment_utr: requiresUtrForPaymentMethod(subscriptionPaymentMethod) ? subscriptionPaymentUtr.trim() : undefined,
             payment_ref: subscriptionPaymentRef.trim() || undefined,
           },
         }),
@@ -466,58 +468,46 @@ export default function PassengerProfile({ token, user, onLogout, onBack }) {
                     )}
                     <Text style={styles.inputLabel}>Payment Method</Text>
                     <View style={styles.optionRow}>
-                      {Boolean(subscriptionPaymentOptions?.enable_qr) && (
+                      {subscriptionPaymentConfig.methods.map((method) => (
                         <TouchableOpacity
+                          key={method.key}
                           style={[
                             styles.optionChip,
-                            subscriptionPaymentMethod === 'qr' && styles.optionChipActive,
+                            subscriptionPaymentMethod === method.key && styles.optionChipActive,
                           ]}
-                          onPress={() => setSubscriptionPaymentMethod('qr')}
+                          onPress={() => setSubscriptionPaymentMethod(method.key)}
                           disabled={loading || !canSubmitDuePayment}>
                           <Text
                             style={[
                               styles.optionChipText,
-                              subscriptionPaymentMethod === 'qr' && styles.optionChipTextActive,
+                              subscriptionPaymentMethod === method.key && styles.optionChipTextActive,
                             ]}>
-                            QR / UPI
+                            {method.label}
                           </Text>
                         </TouchableOpacity>
-                      )}
-                      {Boolean(subscriptionPaymentOptions?.enable_razorpay) && (
-                        <TouchableOpacity
-                          style={[
-                            styles.optionChip,
-                            subscriptionPaymentMethod === 'razorpay' && styles.optionChipActive,
-                          ]}
-                          onPress={() => setSubscriptionPaymentMethod('razorpay')}
-                          disabled={loading || !canSubmitDuePayment}>
-                          <Text
-                            style={[
-                              styles.optionChipText,
-                              subscriptionPaymentMethod === 'razorpay' && styles.optionChipTextActive,
-                            ]}>
-                            Razorpay
-                          </Text>
-                        </TouchableOpacity>
-                      )}
+                      ))}
                     </View>
                     {subscriptionPaymentMethod === 'qr' && (
                       <>
-                        {!!subscriptionPaymentOptions?.qr_code_url && (
+                        {!!subscriptionPaymentConfig.qrCodeUrl && (
                           <Image
-                            source={{ uri: subscriptionPaymentOptions.qr_code_url }}
+                            source={{ uri: subscriptionPaymentConfig.qrCodeUrl }}
                             style={styles.subscriptionQrImage}
                             resizeMode="contain"
                           />
                         )}
-                        {!!subscriptionPaymentOptions?.upi_id && (
-                          <Text style={styles.infoText}>UPI ID: {subscriptionPaymentOptions.upi_id}</Text>
+                        {!!subscriptionPaymentConfig.upiId && (
+                          <Text style={styles.infoText}>UPI ID: {subscriptionPaymentConfig.upiId}</Text>
                         )}
+                      </>
+                    )}
+                    {requiresUtrForPaymentMethod(subscriptionPaymentMethod) && (
+                      <>
                         <VoiceTextInput
                           style={styles.input}
                           value={subscriptionPaymentUtr}
                           onChangeText={setSubscriptionPaymentUtr}
-                          placeholder="Enter UTR number"
+                          placeholder="Enter UTR number (required)"
                           placeholderTextColor={COLORS.textMuted}
                           editable={!loading && canSubmitDuePayment}
                         />

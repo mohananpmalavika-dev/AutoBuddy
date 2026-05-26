@@ -16,6 +16,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
 
 import { apiRequest, API_BASE_URL } from '../lib/api';
+import { normalizeAdminPaymentOptions, requiresUtrForPaymentMethod } from '../lib/paymentOptions';
 import { COLORS } from '../theme';
 import PremiumCard from '../components/PremiumCard';
 import WebCommandBar from '../components/WebCommandBar';
@@ -44,6 +45,27 @@ function isTemporaryLoginFailure(error) {
     status === 503 ||
     message.includes('temporarily unavailable') ||
     message.includes('service unavailable')
+  );
+}
+
+function shouldRetryGoogleAsLogin(error) {
+  const status = Number(error?.status || 0);
+  const message = String(error?.message || '').toLowerCase();
+  return (
+    message.includes('already registered') ||
+    message.includes('database temporarily unavailable') ||
+    message.includes('temporarily unavailable') ||
+    status === 503
+  );
+}
+
+function isRegistrationPendingVerification(error) {
+  const status = Number(error?.status || 0);
+  const message = String(error?.message || '').toLowerCase();
+  return (
+    status === 403 &&
+    (message.includes('registration payment verification is in progress') ||
+      message.includes('pending admin'))
   );
 }
 
@@ -122,6 +144,10 @@ export default function AuthScreen({ onAuthenticated }) {
       ? Number(registrationFees.driver_registration_fee || 0)
       : Number(registrationFees.passenger_registration_fee || 0);
   }, [registrationFees.driver_registration_fee, registrationFees.passenger_registration_fee, role]);
+  const registrationPaymentConfig = useMemo(
+    () => normalizeAdminPaymentOptions(registrationFees),
+    [registrationFees],
+  );
 
   const resetFeedback = () => {
     setError('');
@@ -162,17 +188,24 @@ export default function AuthScreen({ onAuthenticated }) {
     });
   };
 
-  const submitGoogleIdToken = async (googleIdToken, extraPayload = {}) => {
+  const submitGoogleIdToken = async (googleIdToken, extraPayload = {}, options = {}) => {
+    const { preserveFeedback = false } = options;
     try {
       setLoading(true);
-      resetFeedback();
+      if (!preserveFeedback) {
+        resetFeedback();
+      }
       const data = await apiRequest('/auth/google', {
         method: 'POST',
         body: { google_id_token: googleIdToken, ...extraPayload },
       });
       authenticateAndEnter(data);
+      return data;
     } catch (err) {
-      setError(err.message || 'Google login failed.');
+      if (!preserveFeedback) {
+        setError(err.message || 'Google login failed.');
+      }
+      throw err;
     } finally {
       setLoading(false);
     }
@@ -226,8 +259,12 @@ export default function AuthScreen({ onAuthenticated }) {
         setError('Select a registration payment method.');
         return;
       }
-      if (selectedRegistrationFee > 0 && registrationPaymentMethod === 'qr' && !registrationPaymentUtr.trim()) {
-        setError('Enter UTR for QR payment.');
+      if (
+        selectedRegistrationFee > 0 &&
+        requiresUtrForPaymentMethod(registrationPaymentMethod) &&
+        !registrationPaymentUtr.trim()
+      ) {
+        setError('Enter UTR for QR/UPI payment.');
         return;
       }
       if (selectedRegistrationFee > 0 && !registrationFeeAccepted) {
@@ -254,7 +291,7 @@ export default function AuthScreen({ onAuthenticated }) {
             registration_fee_ack: selectedRegistrationFee <= 0 || registrationFeeAccepted,
             registration_payment_method: selectedRegistrationFee > 0 ? registrationPaymentMethod : undefined,
             registration_payment_utr:
-              selectedRegistrationFee > 0 && registrationPaymentMethod === 'qr'
+              selectedRegistrationFee > 0 && requiresUtrForPaymentMethod(registrationPaymentMethod)
                 ? registrationPaymentUtr.trim()
                 : undefined,
           };
@@ -329,8 +366,12 @@ export default function AuthScreen({ onAuthenticated }) {
         setError('Select a registration payment method.');
         return;
       }
-      if (selectedRegistrationFee > 0 && registrationPaymentMethod === 'qr' && !registrationPaymentUtr.trim()) {
-        setError('Enter UTR for QR payment.');
+      if (
+        selectedRegistrationFee > 0 &&
+        requiresUtrForPaymentMethod(registrationPaymentMethod) &&
+        !registrationPaymentUtr.trim()
+      ) {
+        setError('Enter UTR for QR/UPI payment.');
         return;
       }
       if (selectedRegistrationFee > 0 && !registrationFeeAccepted) {
@@ -355,20 +396,49 @@ export default function AuthScreen({ onAuthenticated }) {
           setError('Google login did not return an ID token.');
           return;
         }
-        await submitGoogleIdToken(idToken, {
-          mode: isLogin ? 'login' : 'register',
-          name: !isLogin ? normalizedName : undefined,
-          phone: !isLogin ? normalizedPhone : undefined,
-          role: !isLogin ? role : undefined,
-          referral_code: !isLogin ? normalizedReferralCode || undefined : undefined,
-          registration_fee_ack: !isLogin ? selectedRegistrationFee <= 0 || registrationFeeAccepted : undefined,
-          registration_payment_method:
-            !isLogin && selectedRegistrationFee > 0 ? registrationPaymentMethod : undefined,
+        if (isLogin) {
+          await submitGoogleIdToken(idToken, { mode: 'login' });
+          return;
+        }
+
+        const registerPayload = {
+          mode: 'register',
+          name: normalizedName,
+          phone: normalizedPhone,
+          role,
+          referral_code: normalizedReferralCode || undefined,
+          registration_fee_ack: selectedRegistrationFee <= 0 || registrationFeeAccepted,
+          registration_payment_method: selectedRegistrationFee > 0 ? registrationPaymentMethod : undefined,
           registration_payment_utr:
-            !isLogin && selectedRegistrationFee > 0 && registrationPaymentMethod === 'qr'
+            selectedRegistrationFee > 0 && requiresUtrForPaymentMethod(registrationPaymentMethod)
               ? registrationPaymentUtr.trim()
               : undefined,
-        });
+        };
+
+        try {
+          await submitGoogleIdToken(idToken, registerPayload);
+        } catch (registerError) {
+          if (isRegistrationPendingVerification(registerError)) {
+            resetFeedback();
+            setMode('login');
+            setAuthMethod('google');
+            setSuccess('Registration submitted successfully. Await admin verification, then login with Google.');
+            return;
+          }
+
+          if (shouldRetryGoogleAsLogin(registerError)) {
+            resetFeedback();
+            setSuccess('Account seems created already. Trying Google login...');
+            try {
+              await submitGoogleIdToken(idToken, { mode: 'login' }, { preserveFeedback: true });
+              return;
+            } catch (loginRetryError) {
+              setError(loginRetryError.message || 'Google login failed after registration retry.');
+              return;
+            }
+          }
+          throw registerError;
+        }
         return;
       }
 
@@ -415,9 +485,7 @@ export default function AuthScreen({ onAuthenticated }) {
       return null;
     }
 
-    const qrEnabled = Boolean(registrationFees.enable_qr);
-    const razorpayEnabled = Boolean(registrationFees.enable_razorpay);
-    const noMethodEnabled = !qrEnabled && !razorpayEnabled;
+    const noMethodEnabled = registrationPaymentConfig.methods.length === 0;
 
     return (
       <View style={styles.feeCard}>
@@ -429,66 +497,52 @@ export default function AuthScreen({ onAuthenticated }) {
           <>
             <Text style={styles.inputLabel}>Payment Method</Text>
             <View style={styles.paymentMethodRow}>
-              {qrEnabled && (
+              {registrationPaymentConfig.methods.map((method) => (
                 <TouchableOpacity
+                  key={method.key}
                   style={[
                     styles.paymentMethodChip,
-                    registrationPaymentMethod === 'qr' && styles.paymentMethodChipActive,
+                    registrationPaymentMethod === method.key && styles.paymentMethodChipActive,
                   ]}
                   onPress={() => {
-                    setRegistrationPaymentMethod('qr');
+                    setRegistrationPaymentMethod(method.key);
                     setRegistrationPaymentUtr('');
                     setRegistrationFeeAccepted(false);
                   }}>
                   <Text
                     style={[
                       styles.paymentMethodChipText,
-                      registrationPaymentMethod === 'qr' && styles.paymentMethodChipTextActive,
+                      registrationPaymentMethod === method.key && styles.paymentMethodChipTextActive,
                     ]}>
-                    QR
+                    {method.label}
                   </Text>
                 </TouchableOpacity>
-              )}
-              {razorpayEnabled && (
-                <TouchableOpacity
-                  style={[
-                    styles.paymentMethodChip,
-                    registrationPaymentMethod === 'razorpay' && styles.paymentMethodChipActive,
-                  ]}
-                  onPress={() => {
-                    setRegistrationPaymentMethod('razorpay');
-                    setRegistrationPaymentUtr('');
-                    setRegistrationFeeAccepted(false);
-                  }}>
-                  <Text
-                    style={[
-                      styles.paymentMethodChipText,
-                      registrationPaymentMethod === 'razorpay' && styles.paymentMethodChipTextActive,
-                    ]}>
-                    Razorpay
-                  </Text>
-                </TouchableOpacity>
-              )}
+              ))}
             </View>
 
             {registrationPaymentMethod === 'qr' && (
               <>
-                {!!registrationFees.registration_qr_code_url && (
+                {!!registrationPaymentConfig.qrCodeUrl && (
                   <Image
-                    source={{ uri: registrationFees.registration_qr_code_url }}
+                    source={{ uri: registrationPaymentConfig.qrCodeUrl }}
                     style={styles.registrationQrImage}
                     resizeMode="contain"
                   />
                 )}
-                {!!registrationFees.registration_upi_id && (
-                  <Text style={styles.hintText}>UPI: {registrationFees.registration_upi_id}</Text>
+                {!!registrationPaymentConfig.upiId && (
+                  <Text style={styles.hintText}>UPI: {registrationPaymentConfig.upiId}</Text>
                 )}
+              </>
+            )}
+
+            {requiresUtrForPaymentMethod(registrationPaymentMethod) && (
+              <>
                 <Text style={styles.inputLabel}>UTR Number</Text>
                 <VoiceTextInput
                   style={styles.input}
                   value={registrationPaymentUtr}
                   onChangeText={setRegistrationPaymentUtr}
-                  placeholder="Enter UTR after QR payment"
+                  placeholder="Enter UTR after QR/UPI payment"
                   placeholderTextColor={COLORS.textMuted}
                 />
               </>

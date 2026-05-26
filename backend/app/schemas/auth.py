@@ -48,7 +48,7 @@ class UserCreate(UserBase):
     email_otp: Optional[str] = Field(default=None, pattern=OTP_PATTERN)
     referral_code: Optional[str] = Field(default=None, min_length=4, max_length=20)
     registration_fee_ack: bool = False
-    registration_payment_method: Optional[Literal["qr", "razorpay"]] = None
+    registration_payment_method: Optional[Literal["qr", "upi", "razorpay"]] = None
     registration_payment_utr: Optional[str] = Field(default=None, min_length=6, max_length=80)
 
     @field_validator("password")
@@ -80,7 +80,7 @@ class GoogleAuthRequestModel(BaseModel):
     mode: Literal["login", "register"] = "login"
     referral_code: Optional[str] = Field(default=None, min_length=4, max_length=20)
     registration_fee_ack: bool = False
-    registration_payment_method: Optional[Literal["qr", "razorpay"]] = None
+    registration_payment_method: Optional[Literal["qr", "upi", "razorpay"]] = None
     registration_payment_utr: Optional[str] = Field(default=None, min_length=6, max_length=80)
 
 

@@ -907,7 +907,7 @@ class UserCreate(UserBase):
     email_otp: Optional[str] = Field(default=None, pattern=OTP_PATTERN)
     referral_code: Optional[str] = Field(default=None, min_length=4, max_length=20)
     registration_fee_ack: bool = False
-    registration_payment_method: Optional[Literal["qr", "razorpay"]] = None
+    registration_payment_method: Optional[Literal["qr", "upi", "razorpay"]] = None
     registration_payment_utr: Optional[str] = Field(default=None, min_length=6, max_length=80)
 
     @field_validator("password")
@@ -937,7 +937,7 @@ class GoogleAuthRequestModel(BaseModel):
     mode: Literal["login", "register"] = "login"
     referral_code: Optional[str] = Field(default=None, min_length=4, max_length=20)
     registration_fee_ack: bool = False
-    registration_payment_method: Optional[Literal["qr", "razorpay"]] = None
+    registration_payment_method: Optional[Literal["qr", "upi", "razorpay"]] = None
     registration_payment_utr: Optional[str] = Field(default=None, min_length=6, max_length=80)
 
 class OtpSendRequest(BaseModel):
@@ -1143,6 +1143,7 @@ class PricingRule(BaseModel):
     passenger_registration_fee: float = 0.0
     driver_registration_fee: float = 0.0
     enable_qr: bool = False
+    enable_upi: bool = False
     enable_razorpay: bool = False
     registration_qr_code_url: Optional[str] = None
     registration_upi_id: Optional[str] = None
@@ -1155,6 +1156,7 @@ class RegistrationFeeSettings(BaseModel):
     scheme_start_at: Optional[datetime] = None
     scheme_end_at: Optional[datetime] = None
     enable_qr: bool = False
+    enable_upi: bool = False
     enable_razorpay: bool = False
     registration_qr_code_url: Optional[str] = None
     registration_upi_id: Optional[str] = None
@@ -1188,7 +1190,7 @@ class SubscriptionSelectionRequest(BaseModel):
     plan_type: SubscriptionPlanType
 
 class SubscriptionDuePaymentRequest(BaseModel):
-    payment_method: Literal["qr", "razorpay"]
+    payment_method: Literal["qr", "upi", "razorpay"]
     payment_utr: Optional[str] = Field(default=None, min_length=6, max_length=120)
     payment_ref: Optional[str] = Field(default=None, max_length=120)
 
@@ -2193,6 +2195,7 @@ async def get_registration_fee_settings(*, apply_current_window: bool = True) ->
             "scheme_start_at": _to_datetime(rules.get("registration_fee_scheme_start_at")),
             "scheme_end_at": _to_datetime(rules.get("registration_fee_scheme_end_at")),
             "enable_qr": bool(rules.get("enable_qr", False)),
+            "enable_upi": bool(rules.get("enable_upi", False) or rules.get("registration_upi_id")),
             "enable_razorpay": bool(rules.get("enable_razorpay", False)),
             "registration_qr_code_url": rules.get("registration_qr_code_url"),
             "registration_upi_id": rules.get("registration_upi_id"),
@@ -2204,6 +2207,7 @@ async def get_registration_fee_settings(*, apply_current_window: bool = True) ->
             logger.warning("Invalid registration fee settings in DB; using defaults: %s", exc)
             settings = RegistrationFeeSettings(
                 enable_qr=payload["enable_qr"],
+                enable_upi=payload["enable_upi"],
                 enable_razorpay=payload["enable_razorpay"],
                 registration_qr_code_url=payload["registration_qr_code_url"],
                 registration_upi_id=payload["registration_upi_id"],
@@ -2219,6 +2223,7 @@ async def get_registration_fee_settings(*, apply_current_window: bool = True) ->
             scheme_start_at=settings.scheme_start_at,
             scheme_end_at=settings.scheme_end_at,
             enable_qr=settings.enable_qr,
+            enable_upi=settings.enable_upi or bool(settings.registration_upi_id),
             enable_razorpay=settings.enable_razorpay,
             registration_qr_code_url=settings.registration_qr_code_url,
             registration_upi_id=settings.registration_upi_id,
@@ -2245,6 +2250,8 @@ def validate_registration_payment_details(
     enabled_methods: List[str] = []
     if settings.enable_qr:
         enabled_methods.append("qr")
+    if settings.enable_upi or bool(settings.registration_upi_id):
+        enabled_methods.append("upi")
     if settings.enable_razorpay:
         enabled_methods.append("razorpay")
 
@@ -2254,8 +2261,8 @@ def validate_registration_payment_details(
         raise HTTPException(status_code=400, detail="Select a registration payment method")
     if payment_method not in enabled_methods:
         raise HTTPException(status_code=400, detail="Selected registration payment method is unavailable")
-    if payment_method == "qr" and not str(payment_utr or "").strip():
-        raise HTTPException(status_code=400, detail="Enter UTR for QR registration payment")
+    if payment_method in {"qr", "upi"} and not str(payment_utr or "").strip():
+        raise HTTPException(status_code=400, detail="Enter UTR for QR/UPI registration payment")
     if not registration_fee_ack:
         raise HTTPException(status_code=400, detail=f"Registration fee of Rs {required_fee:.2f} is required")
 
@@ -3996,6 +4003,7 @@ async def get_my_subscription(current_user: dict = Depends(get_current_user)):
     fee_settings = await get_registration_fee_settings()
     payment_options = {
         "enable_qr": bool(fee_settings.enable_qr),
+        "enable_upi": bool(fee_settings.enable_upi or fee_settings.registration_upi_id),
         "enable_razorpay": bool(fee_settings.enable_razorpay),
         "qr_code_url": fee_settings.registration_qr_code_url,
         "upi_id": fee_settings.registration_upi_id,
@@ -4065,13 +4073,15 @@ async def pay_subscription_due(
     enabled_methods: List[str] = []
     if fee_settings.enable_qr:
         enabled_methods.append("qr")
+    if fee_settings.enable_upi or bool(fee_settings.registration_upi_id):
+        enabled_methods.append("upi")
     if fee_settings.enable_razorpay:
         enabled_methods.append("razorpay")
     if not enabled_methods:
         raise HTTPException(status_code=400, detail="Subscription payment methods are not configured by admin.")
     if payload.payment_method not in enabled_methods:
         raise HTTPException(status_code=400, detail="Selected payment method is not enabled by admin.")
-    if payload.payment_method == "qr" and not str(payload.payment_utr or "").strip():
+    if payload.payment_method in {"qr", "upi"} and not str(payload.payment_utr or "").strip():
         raise HTTPException(status_code=400, detail="UTR number is required for QR/UPI payment.")
 
     pending_verification = await db.subscription_dues.find_one(
@@ -7537,6 +7547,7 @@ async def update_registration_fees(
                 "registration_fee_scheme_start_at": settings.scheme_start_at,
                 "registration_fee_scheme_end_at": settings.scheme_end_at,
                 "enable_qr": bool(settings.enable_qr),
+                "enable_upi": bool(settings.enable_upi or settings.registration_upi_id),
                 "enable_razorpay": bool(settings.enable_razorpay),
                 "registration_qr_code_url": settings.registration_qr_code_url,
                 "registration_upi_id": settings.registration_upi_id,
