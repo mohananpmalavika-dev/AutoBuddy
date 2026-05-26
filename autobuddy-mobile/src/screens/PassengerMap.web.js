@@ -685,10 +685,6 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
   }, [pickupLocation?.address, token]);
 
   useEffect(() => {
-    refreshRideProductAvailability({ silent: true }).catch(() => null);
-  }, [pickupLocation?.address, refreshRideProductAvailability]);
-
-  useEffect(() => {
     if (autoPickupInitializedRef.current || pickupLocation) {
       return;
     }

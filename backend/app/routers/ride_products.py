@@ -60,6 +60,27 @@ class RideProductDistrictConfigUpdate(BaseModel):
 
 
 ALL_RIDE_PRODUCT_KEYS: List[str] = [item.value for item in RideProduct]
+DISTRICT_ALIASES: Dict[str, str] = {
+    "trivandrum": "thiruvananthapuram",
+    "thiruvananthapuram": "thiruvananthapuram",
+    "tvm": "thiruvananthapuram",
+    "kochi": "ernakulam",
+    "cochin": "ernakulam",
+    "ernakulam": "ernakulam",
+    "calicut": "kozhikode",
+    "kozhikode": "kozhikode",
+    "kannur": "kannur",
+    "kasaragod": "kasaragod",
+    "wayanad": "wayanad",
+    "malappuram": "malappuram",
+    "palakkad": "palakkad",
+    "thrissur": "thrissur",
+    "idukki": "idukki",
+    "kottayam": "kottayam",
+    "alappuzha": "alappuzha",
+    "pathanamthitta": "pathanamthitta",
+    "kollam": "kollam",
+}
 
 
 def _to_float(value: Any, default: float = 0.0) -> float:
@@ -121,6 +142,11 @@ def _normalize_district_name(value: Any) -> str:
         return ""
     text = text.replace(" district", "").replace("district ", "")
     text = " ".join(text.replace("-", " ").replace("/", " ").split())
+    if text in DISTRICT_ALIASES:
+        return DISTRICT_ALIASES[text]
+    compact = text.replace(" ", "")
+    if compact in DISTRICT_ALIASES:
+        return DISTRICT_ALIASES[compact]
     return text
 
 

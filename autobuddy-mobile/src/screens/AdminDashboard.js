@@ -30,6 +30,36 @@ const RIDE_PRODUCT_KEYS = [
   'rental_hourly',
   'school_elderly_safe',
 ];
+const RIDE_PRODUCT_LABELS = {
+  normal: 'Normal',
+  pool: 'Pool',
+  scheduled: 'Scheduled',
+  corporate: 'Corporate',
+  airport: 'Airport',
+  intercity: 'Intercity',
+  ev_auto: 'EV Auto',
+  tourism: 'Tourism',
+  women_only: 'Women Only',
+  rental_hourly: 'Rental Hourly',
+  school_elderly_safe: 'School/Elderly Safe',
+};
+const KERALA_DISTRICTS = [
+  'Thiruvananthapuram',
+  'Kollam',
+  'Pathanamthitta',
+  'Alappuzha',
+  'Kottayam',
+  'Idukki',
+  'Ernakulam',
+  'Thrissur',
+  'Palakkad',
+  'Malappuram',
+  'Kozhikode',
+  'Wayanad',
+  'Kannur',
+  'Kasaragod',
+];
+const AIRPORT_ALLOWED_DISTRICTS = ['Thiruvananthapuram', 'Ernakulam', 'Kozhikode'];
 const ADMIN_MENU_OPTIONS = [
   { key: 'analytics', label: 'Overview' },
   { key: 'trips', label: 'Ongoing Trips' },
@@ -37,6 +67,7 @@ const ADMIN_MENU_OPTIONS = [
   { key: 'spin', label: 'Spin & Win' },
   { key: 'subscriptions', label: 'Subscriptions' },
   { key: 'phone', label: 'Phone Requests' },
+  { key: 'ride_products', label: 'Ride Products' },
   { key: 'pricing', label: 'Pricing & Fare' },
   { key: 'registration', label: 'Registration' },
   { key: 'kyc', label: 'KYC' },
@@ -176,6 +207,74 @@ function normalizeRideProductDistrictConfig(config = null) {
   };
 }
 
+function normalizeDistrictKey(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/ district/gi, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function parseRideProductList(rawValue) {
+  const parsed = String(rawValue || '')
+    .split(',')
+    .map((item) => item.trim().toLowerCase())
+    .filter((item) => item && RIDE_PRODUCT_KEYS.includes(item));
+  return Array.from(new Set(parsed));
+}
+
+function parseDistrictRulesText(rawText) {
+  const map = {};
+  String(rawText || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .forEach((line) => {
+      const separatorIndex = line.indexOf(':');
+      if (separatorIndex < 1) {
+        return;
+      }
+      const district = line.slice(0, separatorIndex).trim();
+      const districtKey = normalizeDistrictKey(district);
+      const productsText = line.slice(separatorIndex + 1).trim();
+      const products = parseRideProductList(productsText);
+      if (!districtKey || products.length === 0) {
+        return;
+      }
+      map[districtKey] = { district, products };
+    });
+  return map;
+}
+
+function serializeDistrictRulesText(ruleMap) {
+  const districtOrder = KERALA_DISTRICTS.map((name) => normalizeDistrictKey(name));
+  const keys = Object.keys(ruleMap || {}).sort((a, b) => {
+    const indexA = districtOrder.indexOf(a);
+    const indexB = districtOrder.indexOf(b);
+    if (indexA >= 0 && indexB >= 0) {
+      return indexA - indexB;
+    }
+    if (indexA >= 0) {
+      return -1;
+    }
+    if (indexB >= 0) {
+      return 1;
+    }
+    return a.localeCompare(b);
+  });
+  return keys
+    .map((key) => {
+      const row = ruleMap[key];
+      if (!row?.district || !Array.isArray(row?.products) || row.products.length === 0) {
+        return '';
+      }
+      return `${row.district}: ${row.products.join(',')}`;
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
 export default function AdminDashboard({ token, user, onLogout }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -237,6 +336,8 @@ export default function AdminDashboard({ token, user, onLogout }) {
   const [rideProductDistrictConfig, setRideProductDistrictConfig] = useState(
     normalizeRideProductDistrictConfig(null),
   );
+  const [selectedDistrictForProducts, setSelectedDistrictForProducts] = useState(KERALA_DISTRICTS[0]);
+  const [copySourceDistrictForProducts, setCopySourceDistrictForProducts] = useState(KERALA_DISTRICTS[1] || KERALA_DISTRICTS[0]);
 
   const runAction = async (fn, successText) => {
     try {
@@ -840,37 +941,88 @@ export default function AdminDashboard({ token, user, onLogout }) {
     setRideProductDistrictConfig((prev) => ({ ...prev, [field]: value }));
   };
 
-  const saveRideProductDistrictConfig = async () => {
-    const parseProductList = (value) =>
-      String(value || '')
-        .split(',')
-        .map((item) => item.trim().toLowerCase())
-        .filter((item) => item && RIDE_PRODUCT_KEYS.includes(item));
+  const updateSelectedDistrictProducts = (district, updater) => {
+    const districtKey = normalizeDistrictKey(district);
+    if (!districtKey) {
+      return;
+    }
+    const currentRulesMap = parseDistrictRulesText(rideProductDistrictConfig.district_rules_text);
+    const current = currentRulesMap[districtKey] || { district, products: [] };
+    const nextProducts = Array.from(new Set((updater(current.products) || []).filter((key) => RIDE_PRODUCT_KEYS.includes(key))));
+    if (nextProducts.length === 0) {
+      delete currentRulesMap[districtKey];
+    } else {
+      currentRulesMap[districtKey] = { district: current.district || district, products: nextProducts };
+    }
+    updateRideProductDistrictField('district_rules_text', serializeDistrictRulesText(currentRulesMap));
+  };
 
-    const defaultEnabledProducts = parseProductList(rideProductDistrictConfig.default_enabled_products_text);
+  const getSelectedDistrictProducts = () => {
+    const districtKey = normalizeDistrictKey(selectedDistrictForProducts);
+    const rulesMap = parseDistrictRulesText(rideProductDistrictConfig.district_rules_text);
+    return rulesMap[districtKey]?.products || [];
+  };
+
+  const toggleDistrictProduct = (district, productKey) => {
+    updateSelectedDistrictProducts(district, (currentProducts) => (
+      currentProducts.includes(productKey)
+        ? currentProducts.filter((key) => key !== productKey)
+        : [...currentProducts, productKey]
+    ));
+  };
+
+  const applyAirportDistrictPreset = () => {
+    const rulesMap = parseDistrictRulesText(rideProductDistrictConfig.district_rules_text);
+    KERALA_DISTRICTS.forEach((district) => {
+      const districtKey = normalizeDistrictKey(district);
+      const current = rulesMap[districtKey] || { district, products: ['normal'] };
+      const next = new Set(current.products);
+      if (AIRPORT_ALLOWED_DISTRICTS.includes(district)) {
+        next.add('airport');
+      } else {
+        next.delete('airport');
+      }
+      next.add('normal');
+      rulesMap[districtKey] = { district, products: Array.from(next) };
+    });
+    updateRideProductDistrictField('district_rules_text', serializeDistrictRulesText(rulesMap));
+    setMessage('Airport product preset applied for Trivandrum, Kochi (Ernakulam), and Kozhikode.');
+  };
+
+  const copyDistrictProductRules = () => {
+    const sourceDistrict = String(copySourceDistrictForProducts || '').trim();
+    const targetDistrict = String(selectedDistrictForProducts || '').trim();
+    if (!sourceDistrict || !targetDistrict) {
+      setError('Choose source and target districts.');
+      return;
+    }
+    if (normalizeDistrictKey(sourceDistrict) === normalizeDistrictKey(targetDistrict)) {
+      setError('Source and target districts must be different.');
+      return;
+    }
+    const rulesMap = parseDistrictRulesText(rideProductDistrictConfig.district_rules_text);
+    const sourceProducts = rulesMap[normalizeDistrictKey(sourceDistrict)]?.products || [];
+    if (sourceProducts.length === 0) {
+      setError(`No product rules found in ${sourceDistrict} to copy.`);
+      return;
+    }
+    updateSelectedDistrictProducts(targetDistrict, () => [...sourceProducts]);
+    setMessage(`Copied ride products from ${sourceDistrict} to ${targetDistrict}.`);
+  };
+
+  const saveRideProductDistrictConfig = async () => {
+    const defaultEnabledProducts = parseRideProductList(rideProductDistrictConfig.default_enabled_products_text);
     if (defaultEnabledProducts.length === 0) {
       setError('Default enabled products cannot be empty.');
       return;
     }
 
-    const districtRules = String(rideProductDistrictConfig.district_rules_text || '')
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => {
-        const separatorIndex = line.indexOf(':');
-        if (separatorIndex < 1) {
-          return null;
-        }
-        const district = line.slice(0, separatorIndex).trim();
-        const productsText = line.slice(separatorIndex + 1).trim();
-        const enabledProducts = parseProductList(productsText);
-        if (!district || enabledProducts.length === 0) {
-          return null;
-        }
-        return { district, enabled_products: enabledProducts };
-      })
-      .filter(Boolean);
+    const districtRules = Object.values(parseDistrictRulesText(rideProductDistrictConfig.district_rules_text))
+      .map((row) => ({
+        district: row.district,
+        enabled_products: row.products,
+      }))
+      .filter((row) => row.district && row.enabled_products.length > 0);
 
     const saved = await runAction(
       () =>
@@ -890,6 +1042,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
   };
 
   const farePreview = getFareLogicPreview();
+  const selectedDistrictProducts = getSelectedDistrictProducts();
 
   const reviewKyc = async (driverId, status) => {
     const payload = { status, reject_reason: status === 'rejected' ? 'Rejected by admin review.' : null };
@@ -1757,9 +1910,87 @@ export default function AdminDashboard({ token, user, onLogout }) {
           )}
         </View>
 
-        <View style={[styles.section, activeAdminMenu !== 'pricing' && styles.hiddenSection]}>
-          <Text style={styles.sectionTitle}>District Ride Product Activation</Text>
+        <View style={[styles.section, activeAdminMenu !== 'ride_products' && styles.hiddenSection]}>
+          <Text style={styles.sectionTitle}>District Ride Product Assignment</Text>
           <View style={styles.kycCard}>
+            <Text style={styles.sectionSubtitle}>Quick District Editor</Text>
+            <Text style={styles.kycDate}>
+              Select a district and enable only the ride products you want to allow there.
+            </Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.districtChipRow}>
+              {KERALA_DISTRICTS.map((district) => (
+                <TouchableOpacity
+                  key={district}
+                  style={[
+                    styles.districtChip,
+                    selectedDistrictForProducts === district && styles.districtChipActive,
+                  ]}
+                  onPress={() => setSelectedDistrictForProducts(district)}>
+                  <Text
+                    style={[
+                      styles.districtChipText,
+                      selectedDistrictForProducts === district && styles.districtChipTextActive,
+                    ]}>
+                    {district}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <Text style={styles.inputLabel}>
+              Enabled In {selectedDistrictForProducts}
+            </Text>
+            <Text style={styles.inputLabel}>Copy From District</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.districtChipRow}>
+              {KERALA_DISTRICTS.map((district) => (
+                <TouchableOpacity
+                  key={`copy-${district}`}
+                  style={[
+                    styles.districtChip,
+                    copySourceDistrictForProducts === district && styles.districtChipActive,
+                  ]}
+                  onPress={() => setCopySourceDistrictForProducts(district)}>
+                  <Text
+                    style={[
+                      styles.districtChipText,
+                      copySourceDistrictForProducts === district && styles.districtChipTextActive,
+                    ]}>
+                    {district}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <View style={styles.productChipGrid}>
+              {RIDE_PRODUCT_KEYS.map((productKey) => {
+                const enabled = selectedDistrictProducts.includes(productKey);
+                return (
+                  <TouchableOpacity
+                    key={productKey}
+                    style={[styles.productChip, enabled && styles.productChipActive]}
+                    onPress={() => toggleDistrictProduct(selectedDistrictForProducts, productKey)}>
+                    <Text style={[styles.productChipText, enabled && styles.productChipTextActive]}>
+                      {RIDE_PRODUCT_LABELS[productKey] || productKey}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <View style={styles.actionButtons}>
+              <TouchableOpacity
+                style={[styles.btn, styles.btnApprove]}
+                onPress={copyDistrictProductRules}
+                disabled={loading}>
+                <Text style={styles.btnText}>Copy To {selectedDistrictForProducts}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.btn, styles.btnApprove]}
+                onPress={applyAirportDistrictPreset}
+                disabled={loading}>
+                <Text style={styles.btnText}>Apply Airport Preset</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.sectionSubtitle}>Advanced Rule Text (Optional)</Text>
             <Text style={styles.inputLabel}>Default Enabled Products (comma separated)</Text>
             <VoiceTextInput
               style={styles.input}
@@ -2080,6 +2311,41 @@ const styles = StyleSheet.create({
   },
   menuChipText: { color: '#355243', fontWeight: '700' },
   menuChipTextActive: { color: '#2E7D32' },
+  districtChipRow: { gap: 8, paddingRight: 8, marginBottom: 12 },
+  districtChip: {
+    borderWidth: 1,
+    borderColor: '#CBD9D0',
+    borderRadius: 20,
+    backgroundColor: '#F6FAF7',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  districtChipActive: {
+    borderColor: '#2E7D32',
+    backgroundColor: '#E7F3EC',
+  },
+  districtChipText: { color: '#355243', fontWeight: '700' },
+  districtChipTextActive: { color: '#2E7D32' },
+  productChipGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 10,
+  },
+  productChip: {
+    borderWidth: 1,
+    borderColor: '#CBD9D0',
+    borderRadius: 10,
+    backgroundColor: '#F6FAF7',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  productChipActive: {
+    borderColor: '#2E7D32',
+    backgroundColor: '#E7F3EC',
+  },
+  productChipText: { color: '#355243', fontWeight: '700', fontSize: 12 },
+  productChipTextActive: { color: '#2E7D32' },
   statCard: {
     width: '48%',
     backgroundColor: '#FFFFFF',

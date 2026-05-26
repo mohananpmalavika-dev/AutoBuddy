@@ -152,7 +152,7 @@ export default function HomeScreen() {
 
         try {
           const user = await apiRequest<AppSession['user']>('/auth/me', { token: stored.token });
-          const nextSession = { token: stored.token, user };
+          const nextSession = { ...stored, token: stored.token, user };
           setSession(nextSession);
           await saveSession(nextSession);
         } catch (err: unknown) {

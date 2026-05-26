@@ -158,6 +158,20 @@ export async function apiRequest(path, options = {}) {
     });
   }
 
+  let effectiveToken = token ? String(token).trim() : '';
+  if (effectiveToken) {
+    try {
+      // Prefer the latest persisted access token to avoid stale in-memory token loops.
+      const latestSession = await loadSession();
+      const latestToken = String(latestSession?.token || '').trim();
+      if (latestToken) {
+        effectiveToken = latestToken;
+      }
+    } catch {
+      // Ignore session read errors and continue with provided token.
+    }
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -168,7 +182,7 @@ export async function apiRequest(path, options = {}) {
       headers: {
         Accept: 'application/json',
         ...(body ? { 'Content-Type': 'application/json' } : {}),
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(effectiveToken ? { Authorization: `Bearer ${effectiveToken}` } : {}),
       },
       body: body ? JSON.stringify(body) : undefined,
     });
