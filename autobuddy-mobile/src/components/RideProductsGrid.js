@@ -17,15 +17,23 @@ const PRODUCTS = [
   { key: 'school_elderly_safe', icon: '🛡️', title: 'School/Elderly', ml: 'Safe Ride', sub: 'Care-first safe rides' },
 ];
 
-export default function RideProductsGrid({ selected = 'normal', onSelect, enabledKeys = null }) {
-  const enabledSet = new Set(Array.isArray(enabledKeys) && enabledKeys.length > 0 ? enabledKeys : PRODUCTS.map((item) => item.key));
+export default function RideProductsGrid({ selected = 'normal', onSelect, enabledKeys = null, hideInactive = false }) {
+  const enabledSet = new Set(
+    Array.isArray(enabledKeys) && enabledKeys.length > 0 ? enabledKeys : PRODUCTS.map((item) => item.key),
+  );
+  const visibleProducts = hideInactive
+    ? PRODUCTS.filter((item) => enabledSet.has(item.key))
+    : PRODUCTS;
+  const safeProducts = visibleProducts.length > 0
+    ? visibleProducts
+    : PRODUCTS.filter((item) => item.key === 'normal');
   return (
     <View style={styles.wrap}>
       <Text style={styles.heading}>Choose Ride Product</Text>
       <Text style={styles.mlHeading}>യാത്രാ വിഭാഗം തിരഞ്ഞെടുക്കുക</Text>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-        {PRODUCTS.map((item) => {
+        {safeProducts.map((item) => {
           const active = selected === item.key;
           const enabled = enabledSet.has(item.key);
           return (

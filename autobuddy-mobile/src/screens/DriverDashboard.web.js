@@ -67,6 +67,8 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   const pendingAvailabilitySyncRef = useRef(null);
   const availabilityRetryInFlightRef = useRef(false);
   const socketRef = useRef(null);
+  const driverPollCooldownUntilRef = useRef(0);
+  const lastRateLimitNoticeAtRef = useRef(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -450,6 +452,28 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     }
   }, [driverLocation, pushDriverLocation, token]);
 
+  const requestDriverData = useCallback(
+    async (path, fallbackValue) => {
+      try {
+        return await apiRequest(path, { token });
+      } catch (err) {
+        const status = Number(err?.status || 0);
+        if (status === 429) {
+          const now = Date.now();
+          driverPollCooldownUntilRef.current = Math.max(driverPollCooldownUntilRef.current, now + 30000);
+          if (now - lastRateLimitNoticeAtRef.current > 15000) {
+            setMessage('Server is busy. Slowing dashboard sync for 30 seconds.');
+            lastRateLimitNoticeAtRef.current = now;
+          }
+        } else if (status === 503) {
+          driverPollCooldownUntilRef.current = Math.max(driverPollCooldownUntilRef.current, Date.now() + 20000);
+        }
+        return fallbackValue;
+      }
+    },
+    [token],
+  );
+
   const refreshDriverData = useCallback(async () => {
     const profile = await runAction(() => apiRequest('/drivers/profile', { token }));
     if (profile) {
@@ -472,17 +496,13 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     }
 
     const [requests, ride, earningsSummary, pricing, fareCalc, blockedPassengers, spinStatus] = await Promise.all([
-      apiRequest('/drivers/pending-requests', { token }).catch(() => []),
-      apiRequest('/drivers/active-ride', { token }).catch(() => null),
-      apiRequest('/drivers/earnings', { token }).catch(() => null),
-      apiRequest('/pricing/rules', { token }).catch(() => null),
-      apiRequest('/drivers/fare-calculator', { token }).catch(() => null),
-      apiRequest('/drivers/blocked-passengers', { token }).catch(() => ({ passenger_ids: [] })),
-      apiRequest('/spin-win/config', { token }).catch(() => null),
-    ]);
-    await Promise.all([
-      apiRequest('/subscriptions/config', { token }).catch(() => null),
-      apiRequest('/subscriptions/me', { token }).catch(() => null),
+      requestDriverData('/drivers/pending-requests', []),
+      requestDriverData('/drivers/active-ride', null),
+      requestDriverData('/drivers/earnings', null),
+      requestDriverData('/pricing/rules', null),
+      requestDriverData('/drivers/fare-calculator', null),
+      requestDriverData('/drivers/blocked-passengers', { passenger_ids: [] }),
+      requestDriverData('/spin-win/config', null),
     ]);
 
     setPendingRequests(requests || []);
@@ -495,30 +515,31 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     hydrateDriverFareConfig(fareCalc?.request?.payload || fareCalc?.effective_pricing || fareCalc?.default_pricing || null);
     setSpinWinStatus(spinStatus || null);
     setMessage('Driver dashboard refreshed.');
-  }, [attachReadableAddress, hydrateDriverFareConfig, normalizeLocation, runAction, token]);
+  }, [attachReadableAddress, hydrateDriverFareConfig, normalizeLocation, requestDriverData, runAction, token]);
 
-  const refreshDriverDataSilently = useCallback(async () => {
+  const refreshDriverDataSilently = useCallback(async ({ includeProfile = false, includeMeta = false } = {}) => {
     if (refreshInFlightRef.current) {
       return;
     }
     refreshInFlightRef.current = true;
     try {
-      const [profile, requests, ride, earningsSummary, pricing, fareCalc, blockedPassengers, spinStatus] = await Promise.all([
-        apiRequest('/drivers/profile', { token }).catch(() => null),
-        apiRequest('/drivers/pending-requests', { token }).catch(() => []),
-        apiRequest('/drivers/active-ride', { token }).catch(() => null),
-        apiRequest('/drivers/earnings', { token }).catch(() => null),
-        apiRequest('/pricing/rules', { token }).catch(() => null),
-        apiRequest('/drivers/fare-calculator', { token }).catch(() => null),
-        apiRequest('/drivers/blocked-passengers', { token }).catch(() => ({ passenger_ids: [] })),
-        apiRequest('/spin-win/config', { token }).catch(() => null),
+      const [profile, requests, ride, blockedPassengers, spinStatus] = await Promise.all([
+        includeProfile ? requestDriverData('/drivers/profile', null) : Promise.resolve(null),
+        requestDriverData('/drivers/pending-requests', []),
+        requestDriverData('/drivers/active-ride', null),
+        requestDriverData('/drivers/blocked-passengers', { passenger_ids: [] }),
+        requestDriverData('/spin-win/config', null),
       ]);
-      await Promise.all([
-        apiRequest('/subscriptions/config', { token }).catch(() => null),
-        apiRequest('/subscriptions/me', { token }).catch(() => null),
-      ]);
+      const [earningsSummary, pricing, fareCalc] = includeMeta
+        ? await Promise.all([
+          requestDriverData('/drivers/earnings', null),
+          requestDriverData('/pricing/rules', null),
+          requestDriverData('/drivers/fare-calculator', null),
+        ])
+        : [null, null, null];
 
       if (
+        includeProfile &&
         profile &&
         typeof profile.is_available === 'boolean' &&
         !pendingAvailabilitySyncRef.current &&
@@ -526,27 +547,34 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       ) {
         setIsOnline(profile.is_available);
       }
-      const resolvedLocation = normalizeLocation(profile?.current_location);
-      if (resolvedLocation) {
-        setDriverLocation(resolvedLocation);
-        attachReadableAddress(resolvedLocation).then((nextLocation) => {
-          if (nextLocation) {
-            setDriverLocation(nextLocation);
-          }
-        });
+      if (includeProfile) {
+        const resolvedLocation = normalizeLocation(profile?.current_location);
+        if (resolvedLocation) {
+          setDriverLocation(resolvedLocation);
+          attachReadableAddress(resolvedLocation).then((nextLocation) => {
+            if (nextLocation) {
+              setDriverLocation(nextLocation);
+            }
+          });
+        }
       }
       setPendingRequests(Array.isArray(requests) ? requests : []);
       setBlockedPassengerIds(Array.isArray(blockedPassengers?.passenger_ids) ? blockedPassengers.passenger_ids : []);
       setActiveRide(ride || null);
-      setEarnings(earningsSummary || null);
-      setPricingRules(pricing || fareCalc?.default_pricing || null);
-      setDriverFareStatus(String(fareCalc?.status || 'default'));
-      setDriverFareRequestInfo(fareCalc?.request || null);
       setSpinWinStatus(spinStatus || null);
+      if (includeMeta) {
+        setEarnings(earningsSummary || null);
+        setPricingRules(pricing || fareCalc?.default_pricing || null);
+        setDriverFareStatus(String(fareCalc?.status || 'default'));
+        setDriverFareRequestInfo(fareCalc?.request || null);
+        hydrateDriverFareConfig(
+          fareCalc?.request?.payload || fareCalc?.effective_pricing || fareCalc?.default_pricing || null,
+        );
+      }
     } finally {
       refreshInFlightRef.current = false;
     }
-  }, [attachReadableAddress, normalizeLocation, token]);
+  }, [attachReadableAddress, hydrateDriverFareConfig, normalizeLocation, requestDriverData]);
 
   const refreshSpinWinStatus = useCallback(
     async ({ silent = false } = {}) => {
@@ -674,7 +702,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       'Fare calculator request submitted. Waiting for admin approval.',
     );
     if (updated) {
-      await refreshDriverDataSilently();
+      await refreshDriverDataSilently({ includeMeta: true });
     }
   };
 
@@ -691,7 +719,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       'Reset request submitted. Waiting for admin approval.',
     );
     if (done) {
-      await refreshDriverDataSilently();
+      await refreshDriverDataSilently({ includeMeta: true });
     }
   };
 
@@ -725,14 +753,23 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
 
   useEffect(() => {
     let unmounted = false;
+    let cycleCount = 0;
     const tick = async () => {
       if (unmounted) {
         return;
       }
-      await refreshDriverDataSilently();
+      if (Date.now() < driverPollCooldownUntilRef.current) {
+        return;
+      }
+      cycleCount += 1;
+      await refreshDriverDataSilently({
+        includeProfile: cycleCount % 2 === 0,
+        includeMeta: cycleCount % 3 === 0,
+      });
     };
+    refreshDriverDataSilently({ includeProfile: true, includeMeta: true }).catch(() => null);
     tick();
-    const timer = setInterval(tick, 5000);
+    const timer = setInterval(tick, 12000);
     return () => {
       unmounted = true;
       clearInterval(timer);
@@ -856,7 +893,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
         });
       }
       setMessage(savedStatus ? 'You are online and discoverable.' : 'You are offline.');
-      await refreshDriverDataSilently();
+      await refreshDriverDataSilently({ includeProfile: true });
       return;
     }
     pendingAvailabilitySyncRef.current = {
@@ -894,7 +931,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       isBlocked ? 'Passenger unblocked.' : 'Passenger blocked.',
     );
     if (done) {
-      await refreshDriverDataSilently();
+      await refreshDriverDataSilently({ includeProfile: true });
     }
   };
 

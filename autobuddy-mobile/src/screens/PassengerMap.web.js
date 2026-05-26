@@ -241,12 +241,21 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
   }, [fareExpectationInput]);
 
+  const enabledRideProducts = useMemo(() => {
+    const source = Array.isArray(rideProductAvailability?.enabled_products)
+      ? rideProductAvailability.enabled_products
+      : [];
+    const filtered = source.filter((key) => typeof key === 'string' && key.trim().length > 0);
+    return filtered.length > 0 ? filtered : ['normal'];
+  }, [rideProductAvailability]);
+  const canScheduleBooking = enabledRideProducts.includes('scheduled');
+  const isScheduledBookingMode = bookingMode === 'scheduled' && canScheduleBooking;
   const effectiveRideProduct = useMemo(() => {
-    if (bookingMode === 'scheduled') {
+    if (isScheduledBookingMode) {
       return 'scheduled';
     }
     return rideProduct || 'normal';
-  }, [bookingMode, rideProduct]);
+  }, [isScheduledBookingMode, rideProduct]);
 
   const estimateDriverFare = useCallback(
     (driver) => {
@@ -975,12 +984,8 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
     }
 
     const passengerCount = Math.max(1, Math.min(6, Number(passengerCountInput || 1) || 1));
-    const enabledRideProducts = new Set(
-      Array.isArray(rideProductAvailability?.enabled_products) && rideProductAvailability.enabled_products.length > 0
-        ? rideProductAvailability.enabled_products
-        : ['normal'],
-    );
-    if (!enabledRideProducts.has(effectiveRideProduct)) {
+    const enabledRideProductSet = new Set(enabledRideProducts);
+    if (!enabledRideProductSet.has(effectiveRideProduct)) {
       const districtLabel = rideProductAvailability?.pickup_district || 'this district';
       setError(`Selected ride product is not active in ${districtLabel}.`);
       return;
@@ -1315,7 +1320,8 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                   )}
                   <RideProductsGrid
                     selected={effectiveRideProduct}
-                    enabledKeys={rideProductAvailability?.enabled_products}
+                    enabledKeys={enabledRideProducts}
+                    hideInactive
                     onSelect={(value) => {
                       setRideProduct(value);
                       if (value === 'scheduled') {
@@ -1327,23 +1333,25 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                   />
                   <View style={styles.modeRow}>
                     <TouchableOpacity
-                      style={[styles.modeChip, bookingMode === 'instant' && styles.modeChipActive]}
+                      style={[styles.modeChip, (!isScheduledBookingMode) && styles.modeChipActive]}
                       onPress={() => setBookingMode('instant')}
                       disabled={loading}>
-                      <Text style={[styles.modeChipText, bookingMode === 'instant' && styles.modeChipTextActive]}>
+                      <Text style={[styles.modeChipText, (!isScheduledBookingMode) && styles.modeChipTextActive]}>
                         Instant
                       </Text>
                     </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.modeChip, bookingMode === 'scheduled' && styles.modeChipActive]}
-                      onPress={() => setBookingMode('scheduled')}
-                      disabled={loading}>
-                      <Text style={[styles.modeChipText, bookingMode === 'scheduled' && styles.modeChipTextActive]}>
-                        Schedule
-                      </Text>
-                    </TouchableOpacity>
+                    {canScheduleBooking && (
+                      <TouchableOpacity
+                        style={[styles.modeChip, isScheduledBookingMode && styles.modeChipActive]}
+                        onPress={() => setBookingMode('scheduled')}
+                        disabled={loading}>
+                        <Text style={[styles.modeChipText, isScheduledBookingMode && styles.modeChipTextActive]}>
+                          Schedule
+                        </Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
-                  {bookingMode === 'scheduled' && (
+                  {isScheduledBookingMode && (
                     <>
                       <Text style={styles.infoText}>Set pickup time</Text>
                       <input
