@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 import * as Location from 'expo-location';
-import MapView, { Marker } from 'react-native-maps';
+import MapView, { Marker, Polyline } from 'react-native-maps';
 import BottomSheet from '@gorhom/bottom-sheet';
 
 import { apiRequest } from '../lib/api';
@@ -56,6 +56,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   const refreshInFlightRef = useRef(false);
   const initialLocationSyncAttemptedRef = useRef(false);
   const lastWatchedLocationRef = useRef(null);
+  const mapRef = useRef(null);
   const pendingRequestIdsRef = useRef(new Set());
   const pendingNotificationInitRef = useRef(false);
   const locationSyncSuspendedUntilRef = useRef(0);
@@ -105,6 +106,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   const liveLocationRideStatuses = useMemo(() => new Set(['accepted', 'driver_arrived', 'in_progress']), []);
   const activeRideStatus = String(activeRide?.status || '').toLowerCase();
   const activeRideId = String(activeRide?.id || '').trim() || null;
+  const showLiveRoute = activeRideStatus === 'in_progress';
   const shouldSyncDriverLocation = (isOnline && !availabilitySyncPending) || liveLocationRideStatuses.has(activeRideStatus);
   const {
     connected: realtimeConnected,
@@ -444,6 +446,28 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       refreshInFlightRef.current = false;
     }
   }, [hydrateDriverFareConfig, normalizeLocation, token]);
+
+  useEffect(() => {
+    if (!showLiveRoute || !mapRef.current || !activeRide) {
+      return;
+    }
+    const drop = normalizeLocation(activeRide.dropoff_location || activeRide.dropoff || activeRide.dropoff_location_details);
+    const target = drop || normalizeLocation(activeRide.pickup_location || activeRide.pickup || activeRide.pickup_location_details);
+    if (!target) return;
+    try {
+      mapRef.current.animateToRegion(
+        {
+          latitude: target.latitude,
+          longitude: target.longitude,
+          latitudeDelta: 0.02,
+          longitudeDelta: 0.02,
+        },
+        500,
+      );
+    } catch (_e) {
+      // ignore
+    }
+  }, [activeRide, normalizeLocation, showLiveRoute]);
 
   const refreshSpinWinStatus = useCallback(
     async ({ silent = false } = {}) => {
@@ -879,6 +903,14 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     if (updated) {
       setRideStartOtp('');
       setRideEndOtp('');
+      // If trip started, push a fresh driver location and enable live-route UI
+      if (requiresStartOtp) {
+        try {
+          await pushDriverLocation({ fallbackLocation: driverLocation, silent: true });
+        } catch (_e) {
+          // ignore
+        }
+      }
       await refreshDriverData();
     }
   };
@@ -899,12 +931,33 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   return (
     <View style={styles.container}>
       <MapView
+        ref={mapRef}
         style={styles.map}
         customMapStyle={driverMapStyle}
         initialRegion={{ ...driverLocation, latitudeDelta: 0.02, longitudeDelta: 0.02 }}>
         <Marker coordinate={driverLocation} title="You">
           <View style={styles.driverMarker} />
         </Marker>
+        {/* Show pickup/drop markers and a simple route line when live route is active */}
+        {showLiveRoute && activeRide && (
+          (() => {
+            const pickup = normalizeLocation(activeRide.pickup_location || activeRide.pickup || activeRide.pickup_location_details);
+            const drop = normalizeLocation(activeRide.dropoff_location || activeRide.dropoff || activeRide.dropoff_location_details);
+            const routeCoords = [];
+            if (driverLocation) routeCoords.push({ latitude: driverLocation.latitude, longitude: driverLocation.longitude });
+            if (pickup) routeCoords.push({ latitude: pickup.latitude, longitude: pickup.longitude });
+            if (drop) routeCoords.push({ latitude: drop.latitude, longitude: drop.longitude });
+            return (
+              <>
+                {pickup && <Marker coordinate={pickup} pinColor="green" />}
+                {drop && <Marker coordinate={drop} pinColor="red" />}
+                {routeCoords.length >= 2 && (
+                  <Polyline coordinates={routeCoords} strokeColor={COLORS.primary} strokeWidth={4} />
+                )}
+              </>
+            );
+          })()
+        )}
       </MapView>
 
       <View style={styles.topBar}>

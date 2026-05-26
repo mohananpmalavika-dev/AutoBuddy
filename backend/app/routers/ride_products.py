@@ -90,6 +90,10 @@ def _to_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def _as_dict(value: Any) -> Dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
 def _product_multiplier(product: RideProduct) -> float:
     return {
         RideProduct.NORMAL: 1.00,
@@ -293,28 +297,29 @@ async def _ensure_subscription_allows_advanced_booking(db: AsyncIOMotorDatabase,
         return
 
     pricing = await db.pricing_rules.find_one({}, {"_id": 0, "subscription_config": 1})
-    subscription_config = (pricing or {}).get("subscription_config") or {}
-    role_config = subscription_config.get("driver" if role == "driver" else "passenger") or {}
+    subscription_config = _as_dict((pricing or {}).get("subscription_config"))
+    role_config = _as_dict(subscription_config.get("driver" if role == "driver" else "passenger"))
 
     plans = [role_config.get("monthly"), role_config.get("quarterly"), role_config.get("annually"), role_config.get("per_trip")]
     paid_active_window_exists = any(_is_scheme_active(plan or {}) for plan in plans)
     if not paid_active_window_exists:
         return
 
-    subscription = user.get("subscription") if isinstance(user.get("subscription"), dict) else {}
+    subscription = _as_dict(user.get("subscription"))
     selected_plan = str(subscription.get("plan_type") or "").strip().lower()
     if not selected_plan:
         raise HTTPException(status_code=403, detail="Select a subscription plan and wait for admin activation before creating bookings.")
     if not subscription.get("is_active") or not subscription.get("activated_by_admin"):
         raise HTTPException(status_code=403, detail="Your subscription is pending admin activation.")
 
-    selected_plan_config = role_config.get(selected_plan) if selected_plan in {"monthly", "quarterly", "annually", "per_trip"} else None
+    selected_plan_config = _as_dict(role_config.get(selected_plan)) if selected_plan in {"monthly", "quarterly", "annually", "per_trip"} else {}
     if not _is_scheme_active(selected_plan_config or {}):
         raise HTTPException(status_code=403, detail="Your selected subscription plan is currently disabled by admin.")
 
     outstanding = _to_float(subscription.get("outstanding_amount"), 0.0)
     if selected_plan == "per_trip" and outstanding > 0:
-        ride_threshold = max(1, int(_to_float((role_config.get("per_trip") or {}).get("ride_threshold"), 10)))
+        per_trip_config = _as_dict(role_config.get("per_trip"))
+        ride_threshold = max(1, int(_to_float(per_trip_config.get("ride_threshold"), 10)))
         completed = int(_to_float(subscription.get("per_trip_completed_rides"), 0))
         charged_cycles = int(_to_float(subscription.get("per_trip_charged_cycles"), 0))
         block_after = (charged_cycles * ride_threshold) + PER_TRIP_BLOCK_GRACE_RIDES
@@ -494,6 +499,9 @@ async def create_advanced_booking(
 ):
     if _normalize_role(current_user.get("role")) != "passenger":
         raise HTTPException(status_code=403, detail="Passenger only")
+    current_user_id = str(current_user.get("id") or "").strip()
+    if not current_user_id:
+        raise HTTPException(status_code=401, detail="Invalid account data. Please login again.")
     await _ensure_subscription_allows_advanced_booking(db, current_user)
     config = await _get_ride_product_config(db)
     pickup_address = str((payload.pickup_location or {}).get("address") or "").strip() or None
@@ -526,7 +534,7 @@ async def create_advanced_booking(
     if not payload.allow_parallel:
         active_statuses = ["pending", "accepted", "driver_arrived", "in_progress"]
         existing = await db.bookings.find_one(
-            {"passenger_id": current_user["id"], "status": {"$in": active_statuses}},
+            {"passenger_id": current_user_id, "status": {"$in": active_statuses}},
             {"_id": 0, "id": 1},
         )
         if existing:
@@ -547,7 +555,7 @@ async def create_advanced_booking(
     booking_id = str(uuid.uuid4())
     booking = {
         "id": booking_id,
-        "passenger_id": current_user["id"],
+        "passenger_id": current_user_id,
         "pickup_location": pickup,
         "drop_location": drop,
         "ride_product": payload.ride_product.value,

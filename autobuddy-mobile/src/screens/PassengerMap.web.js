@@ -61,6 +61,10 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
   const dropSearchRequestRef = useRef(0);
   const driverAddressCacheRef = useRef(new Map());
   const socketRef = useRef(null);
+  const passengerPollInFlightRef = useRef(false);
+  const passengerPollCycleRef = useRef(0);
+  const passengerPollCooldownUntilRef = useRef(0);
+  const passengerPollNoticeAtRef = useRef(0);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -329,6 +333,13 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
         // Ignore browser notification errors.
       }
     }
+  }, []);
+
+  const isPageVisible = useCallback(() => {
+    if (typeof document === 'undefined') {
+      return true;
+    }
+    return document.visibilityState !== 'hidden';
   }, []);
 
   useEffect(() => {
@@ -697,38 +708,77 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
 
   useEffect(() => {
     let unmounted = false;
+
     const refreshSilently = async () => {
+      if (unmounted || passengerPollInFlightRef.current) {
+        return;
+      }
+      if (!isPageVisible()) {
+        return;
+      }
+      if (Date.now() < passengerPollCooldownUntilRef.current) {
+        return;
+      }
+
+      passengerPollInFlightRef.current = true;
+      passengerPollCycleRef.current += 1;
+      const cycle = passengerPollCycleRef.current;
+      const includeBookings = activePassengerMenu === 'history' || cycle % 3 === 0;
+      const includeSpinStatus = activePassengerMenu === 'spin' || cycle % 6 === 0;
+      const includeAvailability = activePassengerMenu === 'ride' || cycle % 4 === 0;
+
       try {
         const [active, bookings, spinStatus, availability] = await Promise.all([
           apiRequest('/bookings/active', { token }).catch(() => null),
-          apiRequest('/bookings', { token }).catch(() => []),
-          apiRequest('/spin-win/config', { token }).catch(() => null),
-          apiRequest('/ride-products/availability', { query: { pickup_address: String(pickupLocation?.address || '').trim() || undefined } }).catch(() => null),
+          includeBookings ? apiRequest('/bookings', { token }).catch(() => []) : Promise.resolve(null),
+          includeSpinStatus ? apiRequest('/spin-win/config', { token }).catch(() => null) : Promise.resolve(null),
+          includeAvailability
+            ? apiRequest('/ride-products/availability', {
+              query: { pickup_address: String(pickupLocation?.address || '').trim() || undefined },
+            }).catch(() => null)
+            : Promise.resolve(null),
         ]);
         if (unmounted) {
           return;
         }
         setActiveBooking(active || null);
-        setPassengerBookings(Array.isArray(bookings) ? bookings : []);
-        setSpinWinStatus(spinStatus || null);
+        if (includeBookings) {
+          setPassengerBookings(Array.isArray(bookings) ? bookings : []);
+        }
+        if (includeSpinStatus) {
+          setSpinWinStatus(spinStatus || null);
+        }
         if (availability && Array.isArray(availability.enabled_products)) {
           setRideProductAvailability({
             enabled_products: availability.enabled_products.length > 0 ? availability.enabled_products : ['normal'],
             pickup_district: availability.pickup_district || null,
           });
         }
-      } catch {
-        // Keep last known state on silent refresh failures.
+        passengerPollCooldownUntilRef.current = 0;
+      } catch (err) {
+        const status = Number(err?.status || 0);
+        if (status === 429) {
+          passengerPollCooldownUntilRef.current = Date.now() + 30000;
+          const now = Date.now();
+          if (now - passengerPollNoticeAtRef.current > 15000) {
+            setMessage('Server is busy. Slowing passenger sync for 30 seconds.');
+            passengerPollNoticeAtRef.current = now;
+          }
+        } else if (status === 503) {
+          passengerPollCooldownUntilRef.current = Date.now() + 20000;
+        }
+      } finally {
+        passengerPollInFlightRef.current = false;
       }
     };
 
     refreshSilently();
-    const timer = setInterval(refreshSilently, 5000);
+    const timer = setInterval(refreshSilently, 12000);
     return () => {
       unmounted = true;
       clearInterval(timer);
     };
-  }, [pickupLocation?.address, token]);
+  }, [activePassengerMenu, isPageVisible, pickupLocation?.address, token]);
 
   useEffect(() => {
     if (autoPickupInitializedRef.current || pickupLocation) {
@@ -791,25 +841,6 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
       socketRef.current = null;
     };
   }, [activeBooking?.id, token]);
-
-  useEffect(() => {
-    if (!activeBooking?.id || !isDriverLiveSharing) {
-      return undefined;
-    }
-    let cancelled = false;
-    const refreshLiveDriverLocation = async () => {
-      const active = await apiRequest('/bookings/active', { token }).catch(() => null);
-      if (!cancelled) {
-        setActiveBooking(active || null);
-      }
-    };
-    refreshLiveDriverLocation();
-    const timer = setInterval(refreshLiveDriverLocation, 2500);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [activeBooking?.id, isDriverLiveSharing, token]);
 
   useEffect(() => {
     const bookingId = activeBooking?.id || null;
@@ -1345,15 +1376,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                     <Text style={styles.validationText}>{t.dropRequired}</Text>
                   )}
                 </View>
-                <View style={styles.tripSummaryCard}>
-                  <Text style={styles.infoTitle}>{t.summaryTitle}</Text>
-                  <Text style={styles.infoText}>
-                    {t.summaryPickup}: {pickupLocation?.address || t.notSpecified}
-                  </Text>
-                  <Text style={styles.infoText}>
-                    {t.summaryDrop}: {dropoffLocation?.address || t.notSpecified}
-                  </Text>
-                </View>
+                {/* Trip summary removed per UI request */}
                 <View style={styles.infoBlock}>
                   <Text style={styles.infoTitle}>{t.rideType}</Text>
                   {!!rideProductAvailability?.pickup_district && (

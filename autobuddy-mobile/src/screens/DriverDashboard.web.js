@@ -164,6 +164,13 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     }
   }, []);
 
+  const isPageVisible = useCallback(() => {
+    if (typeof document === 'undefined') {
+      return true;
+    }
+    return document.visibilityState !== 'hidden';
+  }, []);
+
   const attachReadableAddress = useCallback(
     async (location) => {
       const normalized = normalizeLocation(location);
@@ -211,6 +218,9 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       if (Date.now() < locationSyncSuspendedUntilRef.current) {
         return null;
       }
+      if (!isPageVisible()) {
+        return null;
+      }
 
       const liveLocation = await readBrowserLocation();
       const locationToSend =
@@ -229,7 +239,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
         !previouslyPushed ||
         Math.abs(previouslyPushed.latitude - locationToSend.latitude) > 0.00003 ||
         Math.abs(previouslyPushed.longitude - locationToSend.longitude) > 0.00003;
-      const minPushIntervalMs = movedEnough ? 5000 : 12000;
+      const minPushIntervalMs = movedEnough ? 10000 : 30000;
       if (now - lastLocationPushAtRef.current < minPushIntervalMs) {
         return locationToSend;
       }
@@ -288,7 +298,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
         return null;
       }
     },
-    [activeRideId, attachReadableAddress, driverLocation, normalizeLocation, readBrowserLocation, token],
+    [activeRideId, attachReadableAddress, driverLocation, isPageVisible, normalizeLocation, readBrowserLocation, token],
   );
 
   const notifyWithVoice = useCallback((title, body) => {
@@ -632,6 +642,9 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       if (cancelled) {
         return;
       }
+      if (!isPageVisible()) {
+        return;
+      }
       const pending = pendingAvailabilitySyncRef.current;
       if (!pending) {
         return;
@@ -642,13 +655,13 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       }
       await retryPendingAvailabilitySync();
     };
-    const timer = setInterval(tick, 6000);
+    const timer = setInterval(tick, 10000);
     tick();
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [retryPendingAvailabilitySync]);
+  }, [isPageVisible, retryPendingAvailabilitySync]);
 
   const updateDriverFareField = (field, value) => {
     setDriverFareConfig((prev) => ({ ...prev, [field]: value }));
@@ -758,23 +771,26 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       if (unmounted) {
         return;
       }
+      if (!isPageVisible()) {
+        return;
+      }
       if (Date.now() < driverPollCooldownUntilRef.current) {
         return;
       }
       cycleCount += 1;
       await refreshDriverDataSilently({
-        includeProfile: cycleCount % 2 === 0,
-        includeMeta: cycleCount % 3 === 0,
+        includeProfile: cycleCount % 3 === 0,
+        includeMeta: cycleCount % 5 === 0,
       });
     };
     refreshDriverDataSilently({ includeProfile: true, includeMeta: true }).catch(() => null);
     tick();
-    const timer = setInterval(tick, 12000);
+    const timer = setInterval(tick, 20000);
     return () => {
       unmounted = true;
       clearInterval(timer);
     };
-  }, [refreshDriverDataSilently]);
+  }, [isPageVisible, refreshDriverDataSilently]);
 
   useEffect(() => {
     if (!shouldSyncDriverLocation) {
@@ -785,15 +801,18 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       if (cancelled) {
         return;
       }
+      if (!isPageVisible()) {
+        return;
+      }
       await pushDriverLocation({ silent: true });
     };
     tick();
-    const timer = setInterval(tick, 15000);
+    const timer = setInterval(tick, 30000);
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [pushDriverLocation, shouldSyncDriverLocation]);
+  }, [isPageVisible, pushDriverLocation, shouldSyncDriverLocation]);
 
   useEffect(() => {
     const nextIds = new Set(
@@ -1013,6 +1032,14 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     if (updated) {
       setRideStartOtp('');
       setRideEndOtp('');
+      // If trip started, push a fresh driver location and show live route promptly
+      if (requiresStartOtp) {
+        try {
+          await pushDriverLocation({ fallbackLocation: driverLocation, silent: true });
+        } catch (_e) {
+          // ignore
+        }
+      }
       await refreshDriverData();
     }
   };
