@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "autobuddy-mobile",
-    "slug": "autobuddy-mobile",
+    "name": "AutoBuddy",
+    "slug": "autobuddy",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "autobuddymobile",
+    "scheme": "autobuddy",
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/expo.icon",
@@ -39,7 +39,7 @@
               "pathPrefix": "/"
             },
             {
-              "scheme": "autobuddymobile",
+              "scheme": "autobuddy",
               "pathPrefix": "/"
             }
           ],
@@ -91,6 +91,9 @@
     },
     "extra": {
       "router": {},
+      "supportEmail": "support@auto-buddy.in",
+      "privacyPolicyUrl": "https://auto-buddy.in/privacy",
+      "termsUrl": "https://auto-buddy.in/terms",
       "eas": {
         "projectId": "f75fe77b-e77a-4666-91e5-312a2fc793fd"
       }

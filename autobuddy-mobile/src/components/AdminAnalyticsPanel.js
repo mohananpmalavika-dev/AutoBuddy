@@ -42,6 +42,7 @@ export default function AdminAnalyticsPanel({ token }) {
   const [payload, setPayload] = useState(null);
 
   const load = useCallback(async () => {
+    setLoading(true);
     try {
       const data = await apiRequest('/admin/analytics/live?days=30&forecast_days=7', { token });
       setPayload(data);
@@ -55,15 +56,19 @@ export default function AdminAnalyticsPanel({ token }) {
 
   useEffect(() => {
     let mounted = true;
-    setLoading(true);
-    load();
+    const kickoff = setTimeout(() => {
+      if (mounted) {
+        void load();
+      }
+    }, 0);
     const timer = setInterval(() => {
       if (mounted) {
-        load();
+        void load();
       }
     }, 15000);
     return () => {
       mounted = false;
+      clearTimeout(kickoff);
       clearInterval(timer);
     };
   }, [load]);
@@ -117,6 +122,23 @@ export default function AdminAnalyticsPanel({ token }) {
     () => (Array.isArray(payload?.revenue_forecast?.forecast) ? payload.revenue_forecast.forecast : []),
     [payload],
   );
+  const cancellationReasons = useMemo(
+    () => (Array.isArray(payload?.booking_cancellation_reasons) ? payload.booking_cancellation_reasons.slice(0, 8) : []),
+    [payload],
+  );
+  const earningsLeaders = useMemo(
+    () => (Array.isArray(payload?.driver_earnings_leaderboard) ? payload.driver_earnings_leaderboard.slice(0, 6) : []),
+    [payload],
+  );
+  const retentionSegments = useMemo(
+    () =>
+      Array.isArray(payload?.customer_retention_chart?.segments)
+        ? payload.customer_retention_chart.segments
+        : [],
+    [payload],
+  );
+  const fraudAlerts = payload?.fraud_risk_alerts || { high_risk_count: 0, alerts: [] };
+  const investorKpi = payload?.investor_kpi_dashboard || {};
 
   if (loading && !payload) {
     return (
@@ -142,6 +164,16 @@ export default function AdminAnalyticsPanel({ token }) {
         <StatCard label="Revenue (30d)" value={formatCurrency(overview.revenue)} />
         <StatCard label="Conversion" value={`${Number(overview.conversion_rate || 0).toFixed(2)}%`} />
         <StatCard label="Active Drivers" value={Number(overview.active_drivers || 0)} />
+      </View>
+
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Investor KPI Dashboard</Text>
+        <View style={styles.statsGrid}>
+          <StatCard label="GMV" value={formatCurrency(investorKpi.gmv)} />
+          <StatCard label="AOV" value={formatCurrency(investorKpi.avg_order_value)} />
+          <StatCard label="Repeat Rate" value={`${Number(investorKpi.repeat_customer_rate || 0).toFixed(2)}%`} />
+          <StatCard label="Cancel Rate" value={`${Number(investorKpi.cancel_rate || 0).toFixed(2)}%`} />
+        </View>
       </View>
 
       <View style={styles.card}>
@@ -213,6 +245,19 @@ export default function AdminAnalyticsPanel({ token }) {
       </View>
 
       <View style={styles.card}>
+        <Text style={styles.cardTitle}>Driver Earnings Leaderboard</Text>
+        {earningsLeaders.length === 0 ? (
+          <Text style={styles.emptyText}>No earnings data yet.</Text>
+        ) : (
+          earningsLeaders.map((item, idx) => (
+            <Text key={`earn-${item.driver_id}-${idx}`} style={styles.listRow}>
+              #{idx + 1} {item.driver_id} | Rides {item.rides} | Earnings {formatCurrency(item.earnings)}
+            </Text>
+          ))
+        )}
+      </View>
+
+      <View style={styles.card}>
         <Text style={styles.cardTitle}>Revenue Forecast (Next 7 Days)</Text>
         {forecastRows.length === 0 ? (
           <Text style={styles.emptyText}>Forecast unavailable.</Text>
@@ -222,6 +267,46 @@ export default function AdminAnalyticsPanel({ token }) {
               {row.date} | {formatCurrency(row.forecast_revenue)} | Confidence {row.confidence}%
             </Text>
           ))
+        )}
+      </View>
+
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Booking Cancellation Reasons</Text>
+        {cancellationReasons.length === 0 ? (
+          <Text style={styles.emptyText}>No cancellation reasons available.</Text>
+        ) : (
+          cancellationReasons.map((item) => (
+            <Text key={`cancel-${item.reason}`} style={styles.listRow}>
+              {item.reason} | {item.count}
+            </Text>
+          ))
+        )}
+      </View>
+
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Customer Retention</Text>
+        {retentionSegments.length === 0 ? (
+          <Text style={styles.emptyText}>No retention data yet.</Text>
+        ) : (
+          retentionSegments.map((row) => (
+            <Text key={`ret-${row.segment}`} style={styles.listRow}>
+              {row.segment} | Customers {row.customers}
+            </Text>
+          ))
+        )}
+      </View>
+
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Fraud / Risk Alerts</Text>
+        <Text style={styles.listRow}>High Risk Count: {Number(fraudAlerts.high_risk_count || 0)}</Text>
+        {Array.isArray(fraudAlerts.alerts) && fraudAlerts.alerts.length > 0 ? (
+          fraudAlerts.alerts.slice(0, 5).map((alert, idx) => (
+            <Text key={`fraud-${alert.booking_id || idx}`} style={styles.listRow}>
+              Booking {alert.booking_id || 'N/A'} | Score {Number(alert.risk_score || 0).toFixed(2)}
+            </Text>
+          ))
+        ) : (
+          <Text style={styles.emptyText}>No recent risk alerts.</Text>
         )}
       </View>
     </View>

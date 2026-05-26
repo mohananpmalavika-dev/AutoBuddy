@@ -23,6 +23,8 @@ class RideProduct(str, Enum):
     EV_AUTO = "ev_auto"
     TOURISM = "tourism"
     WOMEN_ONLY = "women_only"
+    RENTAL_HOURLY = "rental_hourly"
+    SCHOOL_ELDERLY_SAFE = "school_elderly_safe"
 
 
 class AdvancedBookingRequest(BaseModel):
@@ -38,6 +40,8 @@ class AdvancedBookingRequest(BaseModel):
     intercity_return_trip: bool = False
     tourism_package: Optional[str] = Field(default=None, max_length=120)
     women_only_required: bool = False
+    rental_hours: Optional[int] = Field(default=None, ge=1, le=24)
+    safe_ride_priority: Optional[str] = Field(default=None, max_length=40)
     notes: Optional[str] = Field(default=None, max_length=500)
     allow_parallel: bool = False
     selected_driver_id: Optional[str] = Field(default=None, max_length=120)
@@ -62,6 +66,8 @@ def _product_multiplier(product: RideProduct) -> float:
         RideProduct.EV_AUTO: 1.05,
         RideProduct.TOURISM: 1.85,
         RideProduct.WOMEN_ONLY: 1.15,
+        RideProduct.RENTAL_HOURLY: 2.10,
+        RideProduct.SCHOOL_ELDERLY_SAFE: 1.12,
     }.get(product, 1.00)
 
 
@@ -76,6 +82,8 @@ def _product_label(product: RideProduct) -> str:
         RideProduct.EV_AUTO: "EV Auto",
         RideProduct.TOURISM: "Tourism Ride",
         RideProduct.WOMEN_ONLY: "Women-Only Ride",
+        RideProduct.RENTAL_HOURLY: "Rental / Hourly Package",
+        RideProduct.SCHOOL_ELDERLY_SAFE: "School / Elderly Safe Ride",
     }.get(product, "Normal Ride")
 
 
@@ -145,6 +153,20 @@ async def list_ride_products():
             "description": "Female passenger safety-first ride option.",
             "investor_value": "Strong safety differentiation.",
         },
+        {
+            "key": "rental_hourly",
+            "title": "Rental / Hourly Package",
+            "ml": "Rental Package",
+            "description": "Multi-stop city rental with hourly pricing.",
+            "investor_value": "Higher order value and predictable billing windows.",
+        },
+        {
+            "key": "school_elderly_safe",
+            "title": "School / Elderly Safe Ride",
+            "ml": "Safe Ride",
+            "description": "Safety-priority category for school children and senior citizens.",
+            "investor_value": "Trust-led segment with strong retention potential.",
+        },
     ]
 
 
@@ -165,6 +187,9 @@ async def create_advanced_booking(
 
     if payload.scheduled_for and payload.scheduled_for <= datetime.utcnow():
         raise HTTPException(status_code=400, detail="Scheduled time must be in the future")
+
+    if payload.ride_product == RideProduct.RENTAL_HOURLY and not payload.rental_hours:
+        raise HTTPException(status_code=400, detail="Rental hours required for rental/hourly rides")
 
     if not payload.allow_parallel:
         active_statuses = ["pending", "accepted", "driver_arrived", "in_progress"]
@@ -205,6 +230,8 @@ async def create_advanced_booking(
         "women_only_required": bool(
             payload.women_only_required or payload.ride_product == RideProduct.WOMEN_ONLY
         ),
+        "rental_hours": payload.rental_hours,
+        "safe_ride_priority": payload.safe_ride_priority,
         "notes": payload.notes,
         "selected_driver_id": payload.selected_driver_id,
         "payment_method": str(payload.payment_method or "cash").strip().lower() or "cash",
@@ -220,6 +247,8 @@ async def create_advanced_booking(
         booking["driver_filter"] = {"gender": "female"}
     elif payload.ride_product == RideProduct.EV_AUTO:
         booking["driver_filter"] = {"vehicle_type": "ev_auto"}
+    elif payload.ride_product == RideProduct.SCHOOL_ELDERLY_SAFE:
+        booking["driver_filter"] = {"trust_priority": True}
 
     await db.bookings.insert_one(booking)
     return booking

@@ -89,6 +89,8 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
   const [flightNumber, setFlightNumber] = useState('');
   const [tourismPackage, setTourismPackage] = useState('Kerala Local Sightseeing');
   const [intercityReturnTrip, setIntercityReturnTrip] = useState(false);
+  const [rentalHoursInput, setRentalHoursInput] = useState('4');
+  const [safeRidePriority, setSafeRidePriority] = useState('elderly');
   const [passengerCountInput, setPassengerCountInput] = useState('1');
   const [showProfile, setShowProfile] = useState(false);
   const [showPassengerMenus, setShowPassengerMenus] = useState(false);
@@ -883,6 +885,11 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
       setError('Flight number and terminal are required for airport rides.');
       return;
     }
+    const rentalHours = Math.max(1, Math.min(24, Number(rentalHoursInput || 0) || 0));
+    if (effectiveRideProduct === 'rental_hourly' && rentalHours <= 0) {
+      setError('Rental hours are required (1 to 24).');
+      return;
+    }
 
     const booking = await callApi(() =>
       apiRequest('/bookings/advanced', {
@@ -903,6 +910,13 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
           intercity_return_trip: effectiveRideProduct === 'intercity' ? intercityReturnTrip : false,
           tourism_package: effectiveRideProduct === 'tourism' ? tourismPackage.trim() : undefined,
           women_only_required: effectiveRideProduct === 'women_only',
+          rental_hours: effectiveRideProduct === 'rental_hourly' ? rentalHours : undefined,
+          safe_ride_priority:
+            effectiveRideProduct === 'school_elderly_safe' ? safeRidePriority : undefined,
+          notes:
+            effectiveRideProduct === 'school_elderly_safe'
+              ? `Safe ride priority: ${safeRidePriority}`
+              : undefined,
         },
       }),
     );
@@ -1230,6 +1244,38 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                       placeholder="Tourism package"
                       placeholderTextColor={COLORS.textMuted}
                     />
+                  )}
+
+                  {effectiveRideProduct === 'rental_hourly' && (
+                    <VoiceTextInput
+                      style={styles.input}
+                      value={rentalHoursInput}
+                      onChangeText={setRentalHoursInput}
+                      keyboardType="number-pad"
+                      placeholder="Rental hours (1 to 24)"
+                      placeholderTextColor={COLORS.textMuted}
+                    />
+                  )}
+
+                  {effectiveRideProduct === 'school_elderly_safe' && (
+                    <View style={styles.modeRow}>
+                      <TouchableOpacity
+                        style={[styles.modeChip, safeRidePriority === 'school' && styles.modeChipActive]}
+                        onPress={() => setSafeRidePriority('school')}
+                        disabled={loading}>
+                        <Text style={[styles.modeChipText, safeRidePriority === 'school' && styles.modeChipTextActive]}>
+                          School
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.modeChip, safeRidePriority === 'elderly' && styles.modeChipActive]}
+                        onPress={() => setSafeRidePriority('elderly')}
+                        disabled={loading}>
+                        <Text style={[styles.modeChipText, safeRidePriority === 'elderly' && styles.modeChipTextActive]}>
+                          Elderly
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
                   )}
                 </View>
                 <View style={styles.actionsRow}>

@@ -22,6 +22,7 @@ import WebCommandBar from '../components/WebCommandBar';
 import VoiceTextInput from '../components/VoiceTextInput';
 
 const LOGO_SOURCE = require('../../assets/images/autobuddy-logo.jpg');
+const LAUNCH_BANNER_SOURCE = require('../../assets/images/launch-banner.jpg');
 const ROLE_OPTIONS = ['passenger', 'driver'];
 const AUTH_METHODS = [
   { key: 'password', label: 'Password' },
@@ -518,6 +519,7 @@ export default function AuthScreen({ onAuthenticated }) {
         <PremiumCard style={styles.card}>
           <WebCommandBar />
           <View style={styles.brandHeader}>
+            <Image source={LAUNCH_BANNER_SOURCE} style={styles.launchBanner} resizeMode="cover" />
             <Image source={LOGO_SOURCE} style={styles.brandLogo} resizeMode="contain" />
             <View style={styles.brandCopy}>
               <Text style={styles.title}>{isLogin ? 'Welcome' : 'Create Account'}</Text>
@@ -753,9 +755,14 @@ const styles = StyleSheet.create({
     gap: 10,
     marginBottom: 8,
   },
+  launchBanner: {
+    width: '100%',
+    height: 220,
+    borderRadius: 18,
+  },
   brandLogo: {
-    width: 150,
-    height: 150,
+    width: 120,
+    height: 120,
     borderRadius: 16,
   },
   brandCopy: {

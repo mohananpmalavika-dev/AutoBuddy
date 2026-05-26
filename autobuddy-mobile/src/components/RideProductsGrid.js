@@ -13,6 +13,8 @@ const PRODUCTS = [
   { key: 'ev_auto', icon: '🔋', title: 'EV Auto', ml: 'ഇവി ഓട്ടോ', sub: 'Eco-friendly option' },
   { key: 'tourism', icon: '🌴', title: 'Tourism', ml: 'ടൂറിസം', sub: 'Sightseeing packages' },
   { key: 'women_only', icon: '🛡️', title: 'Women Only', ml: 'സ്ത്രീകൾക്ക്', sub: 'Safety-first rides' },
+  { key: 'rental_hourly', icon: '🕒', title: 'Rental', ml: 'Hourly', sub: 'Hourly package rides' },
+  { key: 'school_elderly_safe', icon: '🛡️', title: 'School/Elderly', ml: 'Safe Ride', sub: 'Care-first safe rides' },
 ];
 
 export default function RideProductsGrid({ selected = 'normal', onSelect }) {
