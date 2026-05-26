@@ -1331,26 +1331,6 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                       }
                     }}
                   />
-                  <View style={styles.modeRow}>
-                    <TouchableOpacity
-                      style={[styles.modeChip, (!isScheduledBookingMode) && styles.modeChipActive]}
-                      onPress={() => setBookingMode('instant')}
-                      disabled={loading}>
-                      <Text style={[styles.modeChipText, (!isScheduledBookingMode) && styles.modeChipTextActive]}>
-                        Instant
-                      </Text>
-                    </TouchableOpacity>
-                    {canScheduleBooking && (
-                      <TouchableOpacity
-                        style={[styles.modeChip, isScheduledBookingMode && styles.modeChipActive]}
-                        onPress={() => setBookingMode('scheduled')}
-                        disabled={loading}>
-                        <Text style={[styles.modeChipText, isScheduledBookingMode && styles.modeChipTextActive]}>
-                          Schedule
-                        </Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
                   {isScheduledBookingMode && (
                     <>
                       <Text style={styles.infoText}>Set pickup time</Text>
