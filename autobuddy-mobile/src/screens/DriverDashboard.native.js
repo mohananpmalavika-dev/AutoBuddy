@@ -64,6 +64,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   const reverseGeocodeInFlightRef = useRef(false);
   const reverseGeocodeCacheRef = useRef(new Map());
   const availabilityUiOverrideUntilRef = useRef(0);
+  const availabilityToggleRequestIdRef = useRef(0);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -572,7 +573,12 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   }, [normalizeLocation, pushDriverLocation, shouldSyncDriverLocation]);
 
   const toggleOnlineStatus = async (nextValue) => {
+    if (loading) {
+      return;
+    }
     const next = typeof nextValue === 'boolean' ? nextValue : !isOnline;
+    const requestId = availabilityToggleRequestIdRef.current + 1;
+    availabilityToggleRequestIdRef.current = requestId;
     availabilityUiOverrideUntilRef.current = Date.now() + 90000;
     setIsOnline(next);
     setError('');
@@ -584,6 +590,9 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
         body: { is_available: next },
       }),
     );
+    if (requestId !== availabilityToggleRequestIdRef.current) {
+      return;
+    }
     if (updated) {
       const savedStatus = typeof updated?.is_available === 'boolean' ? updated.is_available : next;
       availabilityUiOverrideUntilRef.current = Date.now() + 15000;

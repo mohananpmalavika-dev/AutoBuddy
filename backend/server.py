@@ -4275,11 +4275,18 @@ async def update_driver_availability(availability: DriverAvailabilityUpdate, cur
         raise HTTPException(status_code=403, detail="Only drivers can update availability")
     if availability.is_available:
         await ensure_user_can_take_ride_actions(current_user, "going online")
-    
+    now_utc = datetime.utcnow()
+
     await db.drivers.update_one(
         {"user_id": current_user["id"]},
         {
-            "$set": {"is_available": availability.is_available},
+            "$set": {
+                "is_available": availability.is_available,
+                "is_online": availability.is_available,
+                "updated_at": now_utc,
+                "last_online_at": now_utc if availability.is_available else None,
+                "last_offline_at": now_utc if not availability.is_available else None,
+            },
             "$setOnInsert": build_default_driver_profile(current_user["id"]),
         },
         upsert=True,
@@ -4301,6 +4308,7 @@ async def update_driver_availability(availability: DriverAvailabilityUpdate, cur
     return {
         "message": "Availability updated",
         "is_available": bool(profile.get("is_available", availability.is_available)),
+        "is_online": bool(profile.get("is_online", availability.is_available)),
         "current_location": await get_effective_driver_location(profile),
     }
 
