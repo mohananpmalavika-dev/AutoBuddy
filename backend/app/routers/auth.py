@@ -116,13 +116,45 @@ async def google_login(
     db: AsyncIOMotorDatabase = Depends(get_db),
     settings: Settings = Depends(get_settings_from_app),
 ):
-    return await auth_service.google_login(
-        db=db,
-        settings=settings,
-        payload=payload,
-        request_ip=get_request_ip(request),
-        user_agent=str(request.headers.get("user-agent") or ""),
-    )
+    try:
+        return await auth_service.google_login(
+            db=db,
+            settings=settings,
+            payload=payload,
+            request_ip=get_request_ip(request),
+            user_agent=str(request.headers.get("user-agent") or ""),
+        )
+    except HTTPException as exc:
+        # When primary auth path is temporarily unavailable, fallback to legacy route.
+        if exc.status_code != 503:
+            raise
+        logger.warning("Primary Google auth unavailable; falling back to legacy flow for ip=%s", get_request_ip(request))
+        try:
+            return await auth_service.google_login_via_legacy_service(
+                payload=payload,
+                request=request,
+            )
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("Legacy Google auth fallback failed for ip=%s", get_request_ip(request), exc_info=True)
+            raise
+    except Exception:
+        logger.exception("Unexpected Google auth error for ip=%s", get_request_ip(request), exc_info=True)
+        try:
+            logger.warning("Attempting legacy Google auth fallback for ip=%s", get_request_ip(request))
+            return await auth_service.google_login_via_legacy_service(
+                payload=payload,
+                request=request,
+            )
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("Legacy Google auth fallback failed for ip=%s", get_request_ip(request), exc_info=True)
+            raise HTTPException(
+                status_code=503,
+                detail="Google login service temporarily unavailable. Please try again.",
+            )
 
 
 @router.post("/auth/otp/send", response_model=OtpSendResponse)

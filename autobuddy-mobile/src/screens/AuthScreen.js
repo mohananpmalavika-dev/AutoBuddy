@@ -50,6 +50,21 @@ function isTemporaryLoginFailure(error) {
   );
 }
 
+function shouldFallbackGoogleRequest(error) {
+  const status = Number(error?.status || 0);
+  const message = String(error?.message || '').toLowerCase();
+  return (
+    status === 503 ||
+    message.includes('database unavailable') ||
+    message.includes('database temporarily unavailable') ||
+    message.includes('temporarily unavailable') ||
+    message.includes('service unavailable') ||
+    message.includes('network timeout') ||
+    message.includes('network request failed') ||
+    message.includes('failed to fetch')
+  );
+}
+
 function shouldRetryGoogleAsLogin(error) {
   const status = Number(error?.status || 0);
   const message = String(error?.message || '').toLowerCase();
@@ -197,10 +212,23 @@ export default function AuthScreen({ onAuthenticated }) {
       if (!preserveFeedback) {
         resetFeedback();
       }
-      const data = await apiRequest('/auth/google', {
-        method: 'POST',
-        body: { google_id_token: googleIdToken, ...extraPayload },
-      });
+      const payload = { google_id_token: googleIdToken, ...extraPayload };
+      let data = null;
+      try {
+        data = await apiRequest('/auth/google', {
+          method: 'POST',
+          body: payload,
+        });
+      } catch (primaryError) {
+        if (shouldFallbackGoogleRequest(primaryError)) {
+          data = await apiRequest('/auth/_legacy/google', {
+            method: 'POST',
+            body: payload,
+          });
+        } else {
+          throw primaryError;
+        }
+      }
       authenticateAndEnter(data);
       return data;
     } catch (err) {

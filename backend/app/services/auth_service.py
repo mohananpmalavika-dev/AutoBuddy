@@ -383,6 +383,16 @@ async def login_via_legacy_service(
     return _to_auth_response_from_any(legacy_result)
 
 
+async def google_login_via_legacy_service(
+    *,
+    payload: GoogleAuthRequestModel,
+    request: Any,
+) -> AuthResponse:
+    legacy = _legacy_module()
+    legacy_result = await legacy.google_login(payload, request)
+    return _to_auth_response_from_any(legacy_result)
+
+
 async def login_rescue_path(
     *,
     db: AsyncIOMotorDatabase,
