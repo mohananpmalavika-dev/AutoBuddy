@@ -103,7 +103,7 @@ async def _next_referral_sequence(db: AsyncIOMotorDatabase) -> int:
         {
             "$inc": {"value": 1},
             "$set": {"updated_at": now},
-            "$setOnInsert": {"created_at": now, "value": 0},
+            "$setOnInsert": {"created_at": now},
         },
         upsert=True,
         return_document=ReturnDocument.AFTER,
