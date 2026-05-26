@@ -33,10 +33,12 @@ const REGISTER_AUTH_METHODS = [
   { key: 'password', label: 'Password' },
 ];
 const FALLBACK_GOOGLE_WEB_CLIENT_ID = '475485627719-lgd8c3sgr1d5unie68d2qjcifjoolt5f.apps.googleusercontent.com';
+const INDIAN_PHONE_REGEX = /^[6-9]\d{9}$/;
 
 WebBrowser.maybeCompleteAuthSession({ skipRedirectCheck: true });
 
 const toTitleCase = (value) => value.charAt(0).toUpperCase() + value.slice(1);
+const hasStrongPassword = (value) => /[A-Z]/.test(value) && /[a-z]/.test(value) && /\d/.test(value);
 
 function isTemporaryLoginFailure(error) {
   const status = Number(error?.status || 0);
@@ -227,8 +229,8 @@ export default function AuthScreen({ onAuthenticated }) {
         setError('Name, phone, email, and password are required for registration.');
         return;
       }
-      if (!/^[0-9]{10}$/.test(normalizedPhone)) {
-        setError('Phone number must be exactly 10 digits.');
+      if (!INDIAN_PHONE_REGEX.test(normalizedPhone)) {
+        setError('Enter a valid 10-digit Indian mobile number (starts with 6-9).');
         return;
       }
       if (!role) {
@@ -237,6 +239,10 @@ export default function AuthScreen({ onAuthenticated }) {
       }
       if (normalizedPassword.length < 8) {
         setError('Password must be at least 8 characters.');
+        return;
+      }
+      if (!hasStrongPassword(normalizedPassword)) {
+        setError('Password must include uppercase, lowercase, and a number.');
         return;
       }
       if (!normalizedConfirmPassword) {
@@ -354,8 +360,8 @@ export default function AuthScreen({ onAuthenticated }) {
         setError('Name and phone number are required for Google registration.');
         return;
       }
-      if (!/^[0-9]{10}$/.test(normalizedPhone)) {
-        setError('Phone number must be exactly 10 digits.');
+      if (!INDIAN_PHONE_REGEX.test(normalizedPhone)) {
+        setError('Enter a valid 10-digit Indian mobile number (starts with 6-9).');
         return;
       }
       if (!role) {
@@ -609,7 +615,7 @@ export default function AuthScreen({ onAuthenticated }) {
             <TouchableOpacity
               onPress={() => {
                 setMode('register');
-                setAuthMethod('google');
+                setAuthMethod(isGoogleConfiguredForPlatform ? 'google' : 'password');
                 setConfirmPassword('');
                 setRegisterEmailOtp('');
                 setRegisterReferralCode('');
@@ -624,27 +630,32 @@ export default function AuthScreen({ onAuthenticated }) {
             </TouchableOpacity>
           </View>
           <View style={styles.methodRow}>
-            {authMethodsForMode.map((method) => (
-              <TouchableOpacity
-                key={method.key}
-                onPress={() => {
-                  if (method.key === 'google' && !isGoogleConfiguredForPlatform) {
-                    setError('Google login is not configured for this platform.');
-                    return;
-                  }
-                  setAuthMethod(method.key);
-                  resetFeedback();
-                }}
-                style={[
-                  styles.methodChip,
-                  authMethod === method.key && styles.methodChipActive,
-                ]}>
-                <Text style={[styles.methodChipText, authMethod === method.key && styles.methodChipTextActive]}>
-                  {method.label}
-                </Text>
+            {authMethodsForMode.map((method) => {
+              const methodUnavailable = method.key === 'google' && !isGoogleConfiguredForPlatform;
+              return (
+                <TouchableOpacity
+                  key={method.key}
+                  onPress={() => {
+                    if (methodUnavailable) {
+                      setError('Google login is not configured for this platform.');
+                      return;
+                    }
+                    setAuthMethod(method.key);
+                    resetFeedback();
+                  }}
+                  disabled={methodUnavailable}
+                  style={[
+                    styles.methodChip,
+                    methodUnavailable && styles.methodChipDisabled,
+                    authMethod === method.key && styles.methodChipActive,
+                  ]}>
+                  <Text style={[styles.methodChipText, authMethod === method.key && styles.methodChipTextActive]}>
+                    {method.label}
+                  </Text>
                 </TouchableOpacity>
-              ))}
-            </View>
+              );
+            })}
+          </View>
 
           {authMethod === 'password' && (
             <>
@@ -687,6 +698,9 @@ export default function AuthScreen({ onAuthenticated }) {
               <Text style={styles.inputLabel}>Email Address</Text>
               <VoiceTextInput style={styles.input} value={email} onChangeText={setEmail} placeholder="Enter email address" keyboardType="email-address" autoCapitalize="none" placeholderTextColor={COLORS.textMuted} />
               <Text style={styles.inputLabel}>{isLogin ? 'Password' : 'Password (min 8 chars)'}</Text>
+              {!isLogin && (
+                <Text style={styles.hintText}>Use at least 8 chars with uppercase, lowercase, and a number.</Text>
+              )}
               <VoiceTextInput
                 style={styles.input}
                 value={password}
