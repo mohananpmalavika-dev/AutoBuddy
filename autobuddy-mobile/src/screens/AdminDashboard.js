@@ -124,6 +124,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
     driver: emptyRoleSubscriptionConfig(),
   });
   const [pendingSubscriptionActivations, setPendingSubscriptionActivations] = useState([]);
+  const [pendingSubscriptionPayments, setPendingSubscriptionPayments] = useState([]);
   const [pendingPhoneChangeRequests, setPendingPhoneChangeRequests] = useState([]);
   const [pendingDriverFareRequests, setPendingDriverFareRequests] = useState([]);
   const [approvedDriverFareConfigs, setApprovedDriverFareConfigs] = useState([]);
@@ -167,6 +168,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
     const pendingRegistrations = await apiRequest('/admin/registration-payments/pending', { token }).catch(() => []);
     const subscriptionSettings = await apiRequest('/subscriptions/config', { token }).catch(() => null);
     const pendingSubscriptions = await apiRequest('/admin/subscriptions/pending', { token }).catch(() => []);
+    const pendingSubscriptionPaymentRows = await apiRequest('/admin/subscriptions/payments/pending', { token }).catch(() => []);
     const pendingPhoneChanges = await apiRequest('/admin/phone-changes/pending', { token }).catch(() => []);
     const pendingDriverFare = await apiRequest('/admin/driver-fare-calculator/pending', { token }).catch(() => []);
     const approvedDriverFare = await apiRequest('/admin/driver-fare-calculator/approved', { token }).catch(() => []);
@@ -212,6 +214,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
       });
     }
     setPendingSubscriptionActivations(Array.isArray(pendingSubscriptions) ? pendingSubscriptions : []);
+    setPendingSubscriptionPayments(Array.isArray(pendingSubscriptionPaymentRows) ? pendingSubscriptionPaymentRows : []);
     setPendingPhoneChangeRequests(Array.isArray(pendingPhoneChanges) ? pendingPhoneChanges : []);
     setPendingDriverFareRequests(Array.isArray(pendingDriverFare) ? pendingDriverFare : []);
     setApprovedDriverFareConfigs(Array.isArray(approvedDriverFare) ? approvedDriverFare : []);
@@ -487,6 +490,24 @@ export default function AdminDashboard({ token, user, onLogout }) {
           },
         }),
       activate ? 'Subscription activated for user.' : 'Subscription deactivated for user.',
+    );
+    if (done) {
+      await refreshAdminData();
+    }
+  };
+
+  const reviewSubscriptionPayment = async (paymentSubmissionId, status) => {
+    const done = await runAction(
+      () =>
+        apiRequest(`/admin/subscriptions/payments/${paymentSubmissionId}`, {
+          method: 'PUT',
+          token,
+          body: {
+            status,
+            reject_reason: status === 'rejected' ? 'Rejected by admin review.' : undefined,
+          },
+        }),
+      status === 'verified' ? 'Subscription payment verified.' : 'Subscription payment rejected.',
     );
     if (done) {
       await refreshAdminData();
@@ -989,6 +1010,44 @@ export default function AdminDashboard({ token, user, onLogout }) {
                     onPress={() => activateSubscriptionForUser(item.id, item.subscription?.plan_type, true)}
                     disabled={loading}>
                     <Text style={styles.btnText}>Activate</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))
+          )}
+        </View>
+
+        <View style={[styles.section, activeAdminMenu !== 'subscriptions' && styles.hiddenSection]}>
+          <Text style={styles.sectionTitle}>Per-Trip Payment Verifications</Text>
+          {pendingSubscriptionPayments.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyText}>No pending subscription payment verifications.</Text>
+            </View>
+          ) : (
+            pendingSubscriptionPayments.map((item) => (
+              <View key={item.payment_submission_id} style={styles.kycCard}>
+                <Text style={styles.driverName}>{item.name || 'User'}</Text>
+                <Text style={styles.kycDate}>{item.email} | {item.phone}</Text>
+                <Text style={styles.kycDate}>Role: {item.role}</Text>
+                <Text style={styles.kycDate}>Submission: {item.payment_submission_id}</Text>
+                <Text style={styles.kycDate}>Method: {item.payment_method || 'N/A'}</Text>
+                {!!item.payment_utr && <Text style={styles.kycDate}>UTR: {item.payment_utr}</Text>}
+                {!!item.payment_ref && <Text style={styles.kycDate}>Ref: {item.payment_ref}</Text>}
+                <Text style={styles.kycDate}>Cycles: {Number(item.due_count || 0)}</Text>
+                <Text style={styles.kycDate}>Amount: Rs {Number(item.total_amount || 0).toFixed(2)}</Text>
+                <Text style={styles.kycDate}>Submitted: {String(item.submitted_at || '')}</Text>
+                <View style={styles.actionButtons}>
+                  <TouchableOpacity
+                    style={[styles.btn, styles.btnReject]}
+                    onPress={() => reviewSubscriptionPayment(item.payment_submission_id, 'rejected')}
+                    disabled={loading}>
+                    <Text style={styles.btnText}>Reject</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.btn, styles.btnApprove]}
+                    onPress={() => reviewSubscriptionPayment(item.payment_submission_id, 'verified')}
+                    disabled={loading}>
+                    <Text style={styles.btnText}>Verify</Text>
                   </TouchableOpacity>
                 </View>
               </View>

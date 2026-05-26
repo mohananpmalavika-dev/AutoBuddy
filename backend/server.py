@@ -1188,7 +1188,13 @@ class SubscriptionSelectionRequest(BaseModel):
     plan_type: SubscriptionPlanType
 
 class SubscriptionDuePaymentRequest(BaseModel):
+    payment_method: Literal["qr", "razorpay"]
+    payment_utr: Optional[str] = Field(default=None, min_length=6, max_length=120)
     payment_ref: Optional[str] = Field(default=None, max_length=120)
+
+class SubscriptionDueReviewRequest(BaseModel):
+    status: Literal["verified", "rejected"]
+    reject_reason: Optional[str] = Field(default=None, max_length=250)
 
 class SubscriptionUserActivationRequest(BaseModel):
     plan_type: Optional[SubscriptionPlanType] = None
@@ -2346,6 +2352,26 @@ def get_subscription_period_expiry(plan_type: SubscriptionPlanType, start_at: da
         return start_at + timedelta(days=365)
     return None
 
+PER_TRIP_BLOCK_GRACE_RIDES = 2
+
+def get_per_trip_due_gate(subscription: Dict[str, Any], role_config: RoleSubscriptionConfig) -> Dict[str, Any]:
+    completed_rides = int(subscription.get("per_trip_completed_rides", 0) or 0)
+    charged_cycles = int(subscription.get("per_trip_charged_cycles", 0) or 0)
+    outstanding_amount = round(float(subscription.get("outstanding_amount", 0.0) or 0.0), 2)
+    ride_threshold = max(1, int(role_config.per_trip.ride_threshold or 10))
+    block_after_completed_rides = (charged_cycles * ride_threshold) + PER_TRIP_BLOCK_GRACE_RIDES
+    rides_remaining_before_block = max(0, block_after_completed_rides - completed_rides)
+    blocked = outstanding_amount > 0 and completed_rides >= block_after_completed_rides
+    return {
+        "outstanding_amount": outstanding_amount,
+        "ride_threshold": ride_threshold,
+        "charged_cycles": charged_cycles,
+        "completed_rides": completed_rides,
+        "block_after_completed_rides": block_after_completed_rides,
+        "rides_remaining_before_block": rides_remaining_before_block,
+        "blocked": blocked,
+    }
+
 async def ensure_user_can_take_ride_actions(user: Dict[str, Any], action_label: str):
     if user.get("role") == UserRole.ADMIN:
         return
@@ -2379,12 +2405,24 @@ async def ensure_user_can_take_ride_actions(user: Dict[str, Any], action_label: 
         if not expires_at or expires_at < now_utc:
             raise HTTPException(status_code=403, detail="Your subscription plan is expired. Please renew.")
 
-    outstanding_amount = float(subscription.get("outstanding_amount", 0.0) or 0.0)
-    if outstanding_amount > 0:
-        raise HTTPException(
-            status_code=402,
-            detail=f"Subscription due of Rs {outstanding_amount:.2f} is pending. Please pay to continue.",
-        )
+    if selected_plan == SubscriptionPlanType.PER_TRIP:
+        per_trip_gate = get_per_trip_due_gate(subscription, role_config)
+        if per_trip_gate["blocked"]:
+            raise HTTPException(
+                status_code=402,
+                detail=(
+                    f"Per-trip subscription due of Rs {per_trip_gate['outstanding_amount']:.2f} is pending. "
+                    f"After {per_trip_gate['ride_threshold']} rides, max {PER_TRIP_BLOCK_GRACE_RIDES} extra rides are allowed. "
+                    "Submit payment and wait for admin verification to continue."
+                ),
+            )
+    else:
+        outstanding_amount = float(subscription.get("outstanding_amount", 0.0) or 0.0)
+        if outstanding_amount > 0:
+            raise HTTPException(
+                status_code=402,
+                detail=f"Subscription due of Rs {outstanding_amount:.2f} is pending. Please pay to continue.",
+            )
 
 async def apply_per_trip_subscription_charge(
     *,
@@ -2417,6 +2455,8 @@ async def apply_per_trip_subscription_charge(
     reached_cycles = completed_rides // ride_threshold
     new_cycles = max(0, reached_cycles - charged_cycles)
     outstanding_increment = round(new_cycles * plan_amount, 2)
+    current_outstanding = round(float(subscription.get("outstanding_amount", 0.0) or 0.0), 2)
+    projected_outstanding = round(current_outstanding + outstanding_increment, 2)
 
     set_fields = {
         "subscription.per_trip_completed_rides": completed_rides,
@@ -2456,12 +2496,31 @@ async def apply_per_trip_subscription_charge(
         if due_docs:
             await db.subscription_dues.insert_many(due_docs)
 
+    if role == UserRole.DRIVER:
+        projected_subscription = {
+            **subscription,
+            "per_trip_completed_rides": completed_rides,
+            "per_trip_charged_cycles": charged_cycles + new_cycles,
+            "outstanding_amount": projected_outstanding,
+        }
+        gate = get_per_trip_due_gate(projected_subscription, role_config)
+        if gate["blocked"]:
+            await db.drivers.update_one(
+                {"user_id": user_id},
+                {"$set": {"is_available": False, "is_online": False, "updated_at": completed_at}},
+            )
+
 def serialize_subscription_for_response(user: Dict[str, Any], config: SubscriptionConfig) -> Dict[str, Any]:
     subscription = get_user_subscription(user)
     role = user.get("role", UserRole.PASSENGER)
     role_config = get_role_subscription_config(config, role)
     selected_plan = parse_subscription_plan_type(subscription.get("plan_type"))
     plan_amount = get_subscription_plan_amount(role_config, selected_plan) if selected_plan else 0.0
+    per_trip_gate = (
+        get_per_trip_due_gate(subscription, role_config)
+        if selected_plan == SubscriptionPlanType.PER_TRIP
+        else None
+    )
     return {
         "role": role.value if isinstance(role, Enum) else str(role),
         "plan_type": selected_plan.value if selected_plan else None,
@@ -2477,10 +2536,25 @@ def serialize_subscription_for_response(user: Dict[str, Any], config: Subscripti
         "total_due_generated": round(float(subscription.get("total_due_generated", 0.0) or 0.0), 2),
         "last_charged_at": subscription.get("last_charged_at"),
         "last_paid_at": subscription.get("last_paid_at"),
+        "last_payment_submission_at": subscription.get("last_payment_submission_at"),
+        "last_payment_status": subscription.get("last_payment_status"),
+        "last_payment_reject_reason": subscription.get("last_payment_reject_reason"),
         "activation_note": subscription.get("activation_note"),
         "current_plan_amount": plan_amount,
         "current_plan_active_in_admin_config": bool(is_subscription_plan_active(role_config, selected_plan)) if selected_plan else False,
         "per_trip_threshold": int(role_config.per_trip.ride_threshold),
+        "per_trip_grace_rides": PER_TRIP_BLOCK_GRACE_RIDES,
+        "per_trip_block_after_completed_rides": (
+            per_trip_gate.get("block_after_completed_rides")
+            if per_trip_gate
+            else None
+        ),
+        "per_trip_rides_remaining_before_block": (
+            per_trip_gate.get("rides_remaining_before_block")
+            if per_trip_gate
+            else None
+        ),
+        "per_trip_blocked_due_to_unpaid": bool(per_trip_gate.get("blocked")) if per_trip_gate else False,
     }
 
 def get_time_multiplier() -> float:
@@ -3912,14 +3986,26 @@ async def get_subscription_plan_config(current_user: dict = Depends(get_current_
 async def get_my_subscription(current_user: dict = Depends(get_current_user)):
     config = await get_subscription_config()
     dues = await db.subscription_dues.find(
-        {"user_id": current_user["id"], "status": "due"}
+        {
+            "user_id": current_user["id"],
+            "status": {"$in": ["due", "pending_verification", "rejected"]},
+        }
     ).sort("created_at", -1).to_list(200)
     for due in dues:
         due.pop("_id", None)
+    fee_settings = await get_registration_fee_settings()
+    payment_options = {
+        "enable_qr": bool(fee_settings.enable_qr),
+        "enable_razorpay": bool(fee_settings.enable_razorpay),
+        "qr_code_url": fee_settings.registration_qr_code_url,
+        "upi_id": fee_settings.registration_upi_id,
+        "razorpay_payment_link": fee_settings.razorpay_payment_link,
+    }
 
     return {
         "subscription": serialize_subscription_for_response(current_user, config),
         "pending_dues": dues,
+        "payment_options": payment_options,
     }
 
 @api_router.put("/subscriptions/select")
@@ -3975,49 +4061,90 @@ async def pay_subscription_due(
     outstanding_amount = round(float(subscription.get("outstanding_amount", 0.0) or 0.0), 2)
     if outstanding_amount <= 0:
         return {"message": "No pending subscription due", "outstanding_amount": 0.0}
+    fee_settings = await get_registration_fee_settings()
+    enabled_methods: List[str] = []
+    if fee_settings.enable_qr:
+        enabled_methods.append("qr")
+    if fee_settings.enable_razorpay:
+        enabled_methods.append("razorpay")
+    if not enabled_methods:
+        raise HTTPException(status_code=400, detail="Subscription payment methods are not configured by admin.")
+    if payload.payment_method not in enabled_methods:
+        raise HTTPException(status_code=400, detail="Selected payment method is not enabled by admin.")
+    if payload.payment_method == "qr" and not str(payload.payment_utr or "").strip():
+        raise HTTPException(status_code=400, detail="UTR number is required for QR/UPI payment.")
 
-    wallet = await db.user_wallets.find_one({"user_id": current_user["id"]})
-    wallet_balance = round(float((wallet or {}).get("balance", 0.0) or 0.0), 2)
-    if wallet_balance < outstanding_amount:
+    pending_verification = await db.subscription_dues.find_one(
+        {"user_id": current_user["id"], "status": "pending_verification"},
+        {"_id": 1},
+    )
+    if pending_verification:
         raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Insufficient wallet balance. Need Rs {outstanding_amount:.2f}, "
-                f"available Rs {wallet_balance:.2f}."
-            ),
+            status_code=409,
+            detail="Payment is already submitted and pending admin verification.",
         )
 
+    open_dues = await db.subscription_dues.find(
+        {"user_id": current_user["id"], "status": {"$in": ["due", "rejected"]}}
+    ).to_list(500)
+    if not open_dues:
+        now = datetime.utcnow()
+        fallback_due = {
+            "id": str(uuid.uuid4()),
+            "user_id": current_user["id"],
+            "role": current_user.get("role"),
+            "booking_id": None,
+            "cycle_number": int(subscription.get("per_trip_charged_cycles", 0) or 0) or 1,
+            "plan_type": SubscriptionPlanType.PER_TRIP.value,
+            "threshold": int(subscription.get("per_trip_threshold", 10) or 10),
+            "amount": outstanding_amount,
+            "status": "due",
+            "created_at": now,
+            "updated_at": now,
+        }
+        await db.subscription_dues.insert_one(fallback_due)
+        open_dues = [fallback_due]
+
     now = datetime.utcnow()
-    await db.user_wallets.update_one(
-        {"user_id": current_user["id"]},
-        {"$inc": {"balance": -outstanding_amount}, "$set": {"updated_at": now}},
-    )
+    submission_id = str(uuid.uuid4())
+    open_due_ids = [str(item.get("id")) for item in open_dues if item.get("id")]
+    payment_utr = str(payload.payment_utr or "").strip() or None
+    payment_ref = str(payload.payment_ref or "").strip() or None
+
     await db.users.update_one(
         {"id": current_user["id"]},
         {
             "$set": {
-                "subscription.outstanding_amount": 0.0,
-                "subscription.last_paid_at": now,
-                "subscription.last_payment_ref": payload.payment_ref,
+                "subscription.last_payment_submission_at": now,
+                "subscription.last_payment_status": "pending_verification",
+                "subscription.last_payment_method": payload.payment_method,
+                "subscription.last_payment_utr": payment_utr,
+                "subscription.last_payment_ref": payment_ref,
+                "subscription.last_payment_submission_id": submission_id,
+                "subscription.last_payment_reject_reason": None,
             }
         },
     )
     await db.subscription_dues.update_many(
-        {"user_id": current_user["id"], "status": "due"},
+        {"id": {"$in": open_due_ids}},
         {
             "$set": {
-                "status": "paid",
-                "paid_at": now,
-                "payment_ref": payload.payment_ref,
+                "status": "pending_verification",
+                "payment_method": payload.payment_method,
+                "payment_utr": payment_utr,
+                "payment_ref": payment_ref,
+                "payment_submission_id": submission_id,
+                "payment_submitted_at": now,
+                "payment_reject_reason": None,
                 "updated_at": now,
             }
         },
     )
 
     return {
-        "message": "Subscription due paid successfully",
-        "paid_amount": outstanding_amount,
-        "remaining_wallet_balance": round(wallet_balance - outstanding_amount, 2),
+        "message": "Subscription payment submitted for admin verification.",
+        "submitted_amount": outstanding_amount,
+        "payment_submission_id": submission_id,
     }
 
 # ==================== DRIVER ENDPOINTS ====================
@@ -4136,6 +4263,8 @@ async def update_driver_location(location_update: DriverLocationUpdate, current_
 async def update_driver_availability(availability: DriverAvailabilityUpdate, current_user: dict = Depends(get_current_user)):
     if current_user["role"] != UserRole.DRIVER:
         raise HTTPException(status_code=403, detail="Only drivers can update availability")
+    if availability.is_available:
+        await ensure_user_can_take_ride_actions(current_user, "going online")
     
     await db.drivers.update_one(
         {"user_id": current_user["id"]},
@@ -6950,6 +7079,149 @@ async def get_pending_subscription_activations(current_user: dict = Depends(get_
         }
         for user in users
     ]
+
+@api_router.get("/admin/subscriptions/payments/pending")
+async def get_pending_subscription_payments(current_user: dict = Depends(get_current_user)):
+    if current_user["role"] != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    rows = await db.subscription_dues.find(
+        {"status": "pending_verification"},
+        {"_id": 0},
+    ).sort("payment_submitted_at", -1).to_list(2000)
+    if not rows:
+        return []
+
+    grouped: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        submission_id = str(row.get("payment_submission_id") or "")
+        if not submission_id:
+            continue
+        entry = grouped.get(submission_id)
+        if not entry:
+            entry = {
+                "payment_submission_id": submission_id,
+                "user_id": row.get("user_id"),
+                "role": row.get("role"),
+                "payment_method": row.get("payment_method"),
+                "payment_utr": row.get("payment_utr"),
+                "payment_ref": row.get("payment_ref"),
+                "submitted_at": row.get("payment_submitted_at") or row.get("updated_at") or row.get("created_at"),
+                "due_count": 0,
+                "total_amount": 0.0,
+                "due_ids": [],
+            }
+            grouped[submission_id] = entry
+        entry["due_count"] += 1
+        entry["total_amount"] = round(float(entry["total_amount"]) + float(row.get("amount") or 0.0), 2)
+        if row.get("id"):
+            entry["due_ids"].append(row.get("id"))
+
+    user_ids = [str(item.get("user_id") or "") for item in grouped.values() if item.get("user_id")]
+    users = await db.users.find(
+        {"id": {"$in": user_ids}},
+        {"_id": 0, "id": 1, "name": 1, "email": 1, "phone": 1},
+    ).to_list(len(user_ids) or 1)
+    user_map = {str(user.get("id")): user for user in users}
+
+    out: List[Dict[str, Any]] = []
+    for item in grouped.values():
+        profile = user_map.get(str(item.get("user_id") or ""), {})
+        out.append(
+            {
+                **item,
+                "name": profile.get("name"),
+                "email": profile.get("email"),
+                "phone": profile.get("phone"),
+            }
+        )
+    out.sort(key=lambda row: str(row.get("submitted_at") or ""), reverse=True)
+    return out
+
+@api_router.put("/admin/subscriptions/payments/{payment_submission_id}")
+async def review_subscription_payment_submission(
+    payment_submission_id: str,
+    payload: SubscriptionDueReviewRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user["role"] != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    dues = await db.subscription_dues.find(
+        {"payment_submission_id": payment_submission_id, "status": "pending_verification"},
+        {"_id": 0},
+    ).to_list(1000)
+    if not dues:
+        raise HTTPException(status_code=404, detail="Pending subscription payment submission not found")
+
+    user_id = str(dues[0].get("user_id") or "")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Invalid subscription payment submission")
+    now = datetime.utcnow()
+
+    if payload.status == "verified":
+        total_amount = round(sum(float(item.get("amount") or 0.0) for item in dues), 2)
+        due_ids = [item.get("id") for item in dues if item.get("id")]
+        await db.subscription_dues.update_many(
+            {"id": {"$in": due_ids}},
+            {
+                "$set": {
+                    "status": "verified",
+                    "verified_at": now,
+                    "verified_by": current_user.get("id"),
+                    "reviewed_at": now,
+                    "reviewed_by": current_user.get("id"),
+                    "payment_reject_reason": None,
+                    "updated_at": now,
+                }
+            },
+        )
+        user = await db.users.find_one({"id": user_id}, {"_id": 0, "subscription": 1})
+        if user:
+            subscription = get_user_subscription(user)
+            current_outstanding = round(float(subscription.get("outstanding_amount", 0.0) or 0.0), 2)
+            new_outstanding = max(0.0, round(current_outstanding - total_amount, 2))
+            await db.users.update_one(
+                {"id": user_id},
+                {
+                    "$set": {
+                        "subscription.outstanding_amount": new_outstanding,
+                        "subscription.last_paid_at": now,
+                        "subscription.last_payment_status": "verified",
+                        "subscription.last_payment_reject_reason": None,
+                        "subscription.last_payment_reviewed_at": now,
+                        "subscription.last_payment_reviewed_by": current_user.get("id"),
+                    }
+                },
+            )
+        return {"message": "Subscription payment verified"}
+
+    reject_reason = str(payload.reject_reason or "").strip() or "Rejected by admin review."
+    due_ids = [item.get("id") for item in dues if item.get("id")]
+    await db.subscription_dues.update_many(
+        {"id": {"$in": due_ids}},
+        {
+            "$set": {
+                "status": "rejected",
+                "reviewed_at": now,
+                "reviewed_by": current_user.get("id"),
+                "payment_reject_reason": reject_reason,
+                "updated_at": now,
+            }
+        },
+    )
+    await db.users.update_one(
+        {"id": user_id},
+        {
+            "$set": {
+                "subscription.last_payment_status": "rejected",
+                "subscription.last_payment_reject_reason": reject_reason,
+                "subscription.last_payment_reviewed_at": now,
+                "subscription.last_payment_reviewed_by": current_user.get("id"),
+            }
+        },
+    )
+    return {"message": "Subscription payment rejected"}
 
 @api_router.get("/admin/driver-fare-calculator/pending")
 async def get_pending_driver_fare_calculator_requests(current_user: dict = Depends(get_current_user)):

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
+  Linking,
   SafeAreaView,
   Share,
   ScrollView,
@@ -28,6 +29,11 @@ export default function DriverProfile({ token, user, onLogout, onBack }) {
   const [autoDetails, setAutoDetails] = useState(null);
   const [ownerDetails, setOwnerDetails] = useState(null);
   const [subscriptionInfo, setSubscriptionInfo] = useState(null);
+  const [pendingSubscriptionDues, setPendingSubscriptionDues] = useState([]);
+  const [subscriptionPaymentOptions, setSubscriptionPaymentOptions] = useState(null);
+  const [subscriptionPaymentMethod, setSubscriptionPaymentMethod] = useState('');
+  const [subscriptionPaymentUtr, setSubscriptionPaymentUtr] = useState('');
+  const [subscriptionPaymentRef, setSubscriptionPaymentRef] = useState('');
   const [referralInfo, setReferralInfo] = useState(null);
 
   // Password change
@@ -99,6 +105,8 @@ export default function DriverProfile({ token, user, onLogout, onBack }) {
       if (subPayload?.subscription) {
         setSubscriptionInfo(subPayload.subscription);
       }
+      setPendingSubscriptionDues(Array.isArray(subPayload?.pending_dues) ? subPayload.pending_dues : []);
+      setSubscriptionPaymentOptions(subPayload?.payment_options || null);
     } catch {
       // ignore
     }
@@ -260,6 +268,55 @@ export default function DriverProfile({ token, user, onLogout, onBack }) {
     }
   };
 
+  const openSubscriptionRazorpayLink = async () => {
+    const link = String(subscriptionPaymentOptions?.razorpay_payment_link || '').trim();
+    if (!link) {
+      setError('Razorpay link is not configured by admin.');
+      return;
+    }
+    try {
+      await Linking.openURL(link);
+    } catch {
+      setError('Could not open Razorpay link.');
+    }
+  };
+
+  const paySubscriptionDue = async () => {
+    if (!subscriptionPaymentMethod) {
+      setError('Select a payment method.');
+      return;
+    }
+    if (subscriptionPaymentMethod === 'qr' && !subscriptionPaymentUtr.trim()) {
+      setError('Enter UTR number for QR/UPI payment.');
+      return;
+    }
+    const paid = await callApi(
+      () =>
+        apiRequest('/subscriptions/pay-due', {
+          method: 'POST',
+          token,
+          body: {
+            payment_method: subscriptionPaymentMethod,
+            payment_utr: subscriptionPaymentMethod === 'qr' ? subscriptionPaymentUtr.trim() : undefined,
+            payment_ref: subscriptionPaymentRef.trim() || undefined,
+          },
+        }),
+      'Subscription payment submitted for admin verification.',
+    );
+    if (paid) {
+      setSubscriptionPaymentMethod('');
+      setSubscriptionPaymentUtr('');
+      setSubscriptionPaymentRef('');
+      await refreshProfileData();
+    }
+  };
+
+  const duesPendingVerification = pendingSubscriptionDues.filter((due) => due?.status === 'pending_verification');
+  const duesRejected = pendingSubscriptionDues.filter((due) => due?.status === 'rejected');
+  const canSubmitDuePayment =
+    Number(subscriptionInfo?.outstanding_amount || 0) > 0 &&
+    duesPendingVerification.length === 0;
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
@@ -374,6 +431,122 @@ export default function DriverProfile({ token, user, onLogout, onBack }) {
                   <Text style={styles.infoLabel}>Outstanding Due:</Text>
                   <Text style={styles.infoValue}>INR {Number(subscriptionInfo.outstanding_amount || 0).toFixed(2)}</Text>
                 </View>
+                {Number(subscriptionInfo.outstanding_amount || 0) > 0 && (
+                  <View style={styles.subscriptionDueBox}>
+                    {!!subscriptionInfo?.per_trip_block_after_completed_rides && (
+                      <Text style={styles.infoText}>
+                        Per-trip limit: blocked after ride {subscriptionInfo.per_trip_block_after_completed_rides} until payment is verified.
+                      </Text>
+                    )}
+                    {!!subscriptionInfo?.per_trip_rides_remaining_before_block && (
+                      <Text style={styles.infoText}>
+                        Rides left before block: {subscriptionInfo.per_trip_rides_remaining_before_block}
+                      </Text>
+                    )}
+                    {duesPendingVerification.length > 0 && (
+                      <Text style={styles.warningText}>
+                        Payment is pending admin verification. New submission is locked.
+                      </Text>
+                    )}
+                    {duesRejected.length > 0 && (
+                      <Text style={styles.error}>
+                        Last payment was rejected. Please repay and submit again.
+                      </Text>
+                    )}
+                    <Text style={styles.inputLabel}>Payment Method</Text>
+                    <View style={styles.optionRow}>
+                      {Boolean(subscriptionPaymentOptions?.enable_qr) && (
+                        <TouchableOpacity
+                          style={[
+                            styles.optionChip,
+                            subscriptionPaymentMethod === 'qr' && styles.optionChipActive,
+                          ]}
+                          onPress={() => setSubscriptionPaymentMethod('qr')}
+                          disabled={loading || !canSubmitDuePayment}>
+                          <Text
+                            style={[
+                              styles.optionChipText,
+                              subscriptionPaymentMethod === 'qr' && styles.optionChipTextActive,
+                            ]}>
+                            QR / UPI
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                      {Boolean(subscriptionPaymentOptions?.enable_razorpay) && (
+                        <TouchableOpacity
+                          style={[
+                            styles.optionChip,
+                            subscriptionPaymentMethod === 'razorpay' && styles.optionChipActive,
+                          ]}
+                          onPress={() => setSubscriptionPaymentMethod('razorpay')}
+                          disabled={loading || !canSubmitDuePayment}>
+                          <Text
+                            style={[
+                              styles.optionChipText,
+                              subscriptionPaymentMethod === 'razorpay' && styles.optionChipTextActive,
+                            ]}>
+                            Razorpay
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                    {subscriptionPaymentMethod === 'qr' && (
+                      <>
+                        {!!subscriptionPaymentOptions?.qr_code_url && (
+                          <Image
+                            source={{ uri: subscriptionPaymentOptions.qr_code_url }}
+                            style={styles.subscriptionQrImage}
+                            resizeMode="contain"
+                          />
+                        )}
+                        {!!subscriptionPaymentOptions?.upi_id && (
+                          <Text style={styles.infoText}>UPI ID: {subscriptionPaymentOptions.upi_id}</Text>
+                        )}
+                        <VoiceTextInput
+                          style={styles.input}
+                          value={subscriptionPaymentUtr}
+                          onChangeText={setSubscriptionPaymentUtr}
+                          placeholder="Enter UTR number"
+                          placeholderTextColor={COLORS.textMuted}
+                          editable={!loading && canSubmitDuePayment}
+                        />
+                      </>
+                    )}
+                    {subscriptionPaymentMethod === 'razorpay' && (
+                      <TouchableOpacity
+                        style={styles.actionButton}
+                        onPress={openSubscriptionRazorpayLink}
+                        disabled={loading || !canSubmitDuePayment}>
+                        <Text style={styles.actionText}>Open Razorpay Link</Text>
+                      </TouchableOpacity>
+                    )}
+                    <VoiceTextInput
+                      style={styles.input}
+                      value={subscriptionPaymentRef}
+                      onChangeText={setSubscriptionPaymentRef}
+                      placeholder="Payment reference (optional)"
+                      placeholderTextColor={COLORS.textMuted}
+                      editable={!loading && canSubmitDuePayment}
+                    />
+                    <TouchableOpacity
+                      style={styles.actionButton}
+                      onPress={paySubscriptionDue}
+                      disabled={loading || !canSubmitDuePayment}>
+                      <Text style={styles.actionText}>Submit Payment For Verification</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+                {pendingSubscriptionDues.length > 0 && (
+                  <>
+                    <Text style={styles.infoTitle}>Pending Dues</Text>
+                    {pendingSubscriptionDues.slice(0, 5).map((due) => (
+                      <Text key={due.id} style={styles.infoText}>
+                        Cycle {due.cycle_number}: INR {Number(due.amount || 0).toFixed(2)} ({due.status})
+                        {due.payment_reject_reason ? ` - ${due.payment_reject_reason}` : ''}
+                      </Text>
+                    ))}
+                  </>
+                )}
               </View>
             )}
 
@@ -637,6 +810,7 @@ const styles = StyleSheet.create({
   infoLabel: { fontSize: 13, fontWeight: '600', color: '#666666' },
   infoValue: { fontSize: 13, fontWeight: '500', color: '#202020' },
   infoText: { fontSize: 13, color: '#555555', marginBottom: 8 },
+  inputLabel: { fontSize: 13, color: '#1E3126', fontWeight: '700', marginBottom: 6 },
   input: {
     borderWidth: 1,
     borderColor: '#CBD9D0',
@@ -655,6 +829,35 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     flex: 1,
     ...SHADOWS.soft,
+  },
+  subscriptionDueBox: {
+    marginTop: 8,
+    gap: 8,
+  },
+  optionRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  optionChip: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#CBD9D0',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    backgroundColor: '#F6FAF7',
+  },
+  optionChipActive: {
+    borderColor: '#2E7D32',
+    backgroundColor: '#E3F2E8',
+  },
+  optionChipText: { color: '#355243', fontWeight: '700' },
+  optionChipTextActive: { color: '#2E7D32' },
+  subscriptionQrImage: {
+    width: '100%',
+    height: 180,
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    marginBottom: 8,
   },
   shareButton: {
     marginTop: 8,

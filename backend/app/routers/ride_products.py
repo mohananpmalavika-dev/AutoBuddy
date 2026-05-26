@@ -11,6 +11,7 @@ from app.db.deps import get_db
 from app.utils.rbac import get_current_user_secure
 
 router = APIRouter(prefix="/api", tags=["ride_products"])
+PER_TRIP_BLOCK_GRACE_RIDES = 2
 
 
 class RideProduct(str, Enum):
@@ -92,6 +93,76 @@ def _normalize_role(value: Any) -> str:
     if "." in role:
         role = role.split(".")[-1]
     return role
+
+
+def _as_utc_naive(value: Any) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=None) if value.tzinfo else value
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+            return parsed.replace(tzinfo=None) if parsed.tzinfo else parsed
+        except Exception:
+            return None
+    return None
+
+
+def _is_scheme_active(plan: Dict[str, Any]) -> bool:
+    amount = _to_float(plan.get("amount"), 0.0)
+    if amount <= 0 or not bool(plan.get("active")):
+        return False
+    start_at = _as_utc_naive(plan.get("scheme_start_at"))
+    end_at = _as_utc_naive(plan.get("scheme_end_at"))
+    if not start_at or not end_at:
+        return False
+    now = datetime.utcnow()
+    return start_at <= now <= end_at
+
+
+async def _ensure_subscription_allows_advanced_booking(db: AsyncIOMotorDatabase, user: Dict[str, Any]) -> None:
+    role = _normalize_role(user.get("role"))
+    if role == "admin":
+        return
+
+    pricing = await db.pricing_rules.find_one({}, {"_id": 0, "subscription_config": 1})
+    subscription_config = (pricing or {}).get("subscription_config") or {}
+    role_config = subscription_config.get("driver" if role == "driver" else "passenger") or {}
+
+    plans = [role_config.get("monthly"), role_config.get("quarterly"), role_config.get("annually"), role_config.get("per_trip")]
+    paid_active_window_exists = any(_is_scheme_active(plan or {}) for plan in plans)
+    if not paid_active_window_exists:
+        return
+
+    subscription = user.get("subscription") if isinstance(user.get("subscription"), dict) else {}
+    selected_plan = str(subscription.get("plan_type") or "").strip().lower()
+    if not selected_plan:
+        raise HTTPException(status_code=403, detail="Select a subscription plan and wait for admin activation before creating bookings.")
+    if not subscription.get("is_active") or not subscription.get("activated_by_admin"):
+        raise HTTPException(status_code=403, detail="Your subscription is pending admin activation.")
+
+    selected_plan_config = role_config.get(selected_plan) if selected_plan in {"monthly", "quarterly", "annually", "per_trip"} else None
+    if not _is_scheme_active(selected_plan_config or {}):
+        raise HTTPException(status_code=403, detail="Your selected subscription plan is currently disabled by admin.")
+
+    outstanding = _to_float(subscription.get("outstanding_amount"), 0.0)
+    if selected_plan == "per_trip" and outstanding > 0:
+        ride_threshold = max(1, int(_to_float((role_config.get("per_trip") or {}).get("ride_threshold"), 10)))
+        completed = int(_to_float(subscription.get("per_trip_completed_rides"), 0))
+        charged_cycles = int(_to_float(subscription.get("per_trip_charged_cycles"), 0))
+        block_after = (charged_cycles * ride_threshold) + PER_TRIP_BLOCK_GRACE_RIDES
+        if completed >= block_after:
+            raise HTTPException(
+                status_code=402,
+                detail=(
+                    f"Per-trip due of Rs {outstanding:.2f} is pending. "
+                    "Submit payment and wait for admin verification to continue booking."
+                ),
+            )
+    elif selected_plan in {"monthly", "quarterly", "annually"} and outstanding > 0:
+        raise HTTPException(
+            status_code=402,
+            detail=f"Subscription due of Rs {outstanding:.2f} is pending. Please pay to continue.",
+        )
 
 
 @router.get("/ride-products")
@@ -178,6 +249,7 @@ async def create_advanced_booking(
 ):
     if _normalize_role(current_user.get("role")) != "passenger":
         raise HTTPException(status_code=403, detail="Passenger only")
+    await _ensure_subscription_allows_advanced_booking(db, current_user)
 
     if payload.ride_product == RideProduct.CORPORATE and not payload.corporate_code:
         raise HTTPException(status_code=400, detail="Corporate code required")
