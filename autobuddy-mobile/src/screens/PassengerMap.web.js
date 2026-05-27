@@ -50,6 +50,7 @@ import PassengerKYCPanel from '../components/PassengerKYCPanel';
 import PassengerDocumentsPanel from '../components/PassengerDocumentsPanel';
 import ReceiptsPanel from '../components/ReceiptsPanel';
 import SubscriptionPanel from '../components/SubscriptionPanel';
+import PostRideRatingModal from '../components/PostRideRatingModal';
 import { NotificationProvider, useNotifications } from '../contexts/NotificationContext';
 import { useNotificationManager } from '../hooks/useNotificationManager';
 import {
@@ -157,6 +158,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [showNotificationCenter, setShowNotificationCenter] = useState(false);
   const [showInteractiveMap, setShowInteractiveMap] = useState(true);
   const [selectingPoint, setSelectingPoint] = useState('pickup');
+  const [showRatingModal, setShowRatingModal] = useState(false);
+  const [justCompletedBooking, setJustCompletedBooking] = useState(null);
   
   // Initialize notifications
   useNotificationManager(token, user?.id);
@@ -711,6 +714,19 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       cancelled = true;
     };
   }, [normalizeBookingPaymentMethod, token]);
+
+  // Watch for ride completion and auto-trigger rating modal
+  useEffect(() => {
+    if (!activeBooking?.id) {
+      return;
+    }
+    
+    const currentStatus = String(activeBooking?.status || '').toLowerCase();
+    if (currentStatus === 'completed' && !showRatingModal) {
+      setJustCompletedBooking(activeBooking);
+      setShowRatingModal(true);
+    }
+  }, [activeBooking?.id, activeBooking?.status, showRatingModal]);
 
   const handlePromoDiscountApplied = useCallback((promoState) => {
     const nextPromo = {
@@ -2532,6 +2548,24 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               }}
             />
           </View>
+        )}
+        
+        {/* Post-Ride Rating Modal */}
+        {showRatingModal && justCompletedBooking && (
+          <PostRideRatingModal
+            visible={showRatingModal}
+            booking={justCompletedBooking}
+            token={token}
+            onClose={() => {
+              setShowRatingModal(false);
+              setJustCompletedBooking(null);
+            }}
+            onRatingSubmitted={() => {
+              setShowRatingModal(false);
+              setJustCompletedBooking(null);
+              setMessage('Thank you for your rating!');
+            }}
+          />
         )}
       </View>
       </SafeAreaView>

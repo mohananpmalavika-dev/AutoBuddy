@@ -1,6 +1,7 @@
 import { DarkTheme, DefaultTheme, Slot, ThemeProvider } from 'expo-router';
 import { Platform, View, useColorScheme } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import * as Sentry from '@sentry/react-native';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 
@@ -17,6 +18,16 @@ import { SupportProvider } from '@/contexts/SupportContext';
 import { AccessibilityProvider } from '@/contexts/AccessibilityContext';
 
 const RootView = Platform.OS === 'web' ? View : GestureHandlerRootView;
+
+// Initialize Sentry for error monitoring
+const SENTRY_DSN = process.env.EXPO_PUBLIC_SENTRY_DSN || '';
+if (SENTRY_DSN) {
+  Sentry.init({
+    dsn: SENTRY_DSN,
+    environment: process.env.NODE_ENV === 'production' ? 'production' : 'development',
+    tracesSampleRate: 1.0,
+  });
+}
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();

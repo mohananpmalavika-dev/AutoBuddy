@@ -2,6 +2,7 @@ import React from 'react';
 import LostItemTab from './LostItemTab';
 import ReceiptTab from './ReceiptTab';
 
+export default function PostRideTabs({ activeTab, onTabChange, booking }) {
   return (
     <div className="post-ride-tabs">
       <div className="tab-header">

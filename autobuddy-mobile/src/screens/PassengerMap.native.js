@@ -32,6 +32,8 @@ import PromoCodePanel from '../components/PromoCodePanel';
 import SupportTicketsPanel from '../components/SupportTicketsPanel';
 import PaymentMethodsPanel from '../components/PaymentMethodsPanel';
 import PassengerRatingsPanel from '../components/PassengerRatingsPanel';
+import PostRideRatingModal from '../components/PostRideRatingModal';
+import SavedPlacesQuickSelect from '../components/SavedPlacesQuickSelect';
 import PreferencesPanel from '../components/PreferencesPanel';
 import SavedPlacesPanel from '../components/SavedPlacesPanel';
 import EmergencyContactsPanel from '../components/EmergencyContactsPanel';
@@ -135,6 +137,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [spinWinStatus, setSpinWinStatus] = useState(null);
   const [spinWinLoading, setSpinWinLoading] = useState(false);
   const [spinningNow, setSpinningNow] = useState(false);
+  const [showRatingModal, setShowRatingModal] = useState(false);
+  const [justCompletedBooking, setJustCompletedBooking] = useState(null);
   useNotificationManager(token, user?.id);
   const { unreadCount } = useNotifications();
   const mapRef = useRef(null);
@@ -189,6 +193,19 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       cancelled = true;
     };
   }, [normalizeBookingPaymentMethod, token]);
+
+  // Watch for ride completion and auto-trigger rating modal
+  useEffect(() => {
+    if (!activeBooking?.id) {
+      return;
+    }
+    
+    const currentStatus = String(activeBooking?.status || '').toLowerCase();
+    if (currentStatus === 'completed' && !showRatingModal) {
+      setJustCompletedBooking(activeBooking);
+      setShowRatingModal(true);
+    }
+  }, [activeBooking?.id, activeBooking?.status, showRatingModal]);
 
   const handlePromoDiscountApplied = useCallback((promoState) => {
     const nextPromo = {
@@ -1487,6 +1504,18 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                   placeholderTextColor={COLORS.textMuted}
                   style={styles.searchInput}
                 />
+                <SavedPlacesQuickSelect
+                  token={token}
+                  selectingFor="pickup"
+                  onSelectPlace={(place) => {
+                    const loc = {
+                      latitude: Number(place?.latitude),
+                      longitude: Number(place?.longitude),
+                      address: String(place?.address || place?.name || '').trim(),
+                    };
+                    setLocationForPoint('pickup', loc);
+                  }}
+                />
                 {searchingPickup && <Text style={styles.searchHint}>Searching pickup...</Text>}
                 {pickupSuggestions.map((item) => (
                   <TouchableOpacity
@@ -1507,6 +1536,18 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                   placeholder="Enter drop area, landmark, or address"
                   placeholderTextColor={COLORS.textMuted}
                   style={styles.searchInput}
+                />
+                <SavedPlacesQuickSelect
+                  token={token}
+                  selectingFor="dropoff"
+                  onSelectPlace={(place) => {
+                    const loc = {
+                      latitude: Number(place?.latitude),
+                      longitude: Number(place?.longitude),
+                      address: String(place?.address || place?.name || '').trim(),
+                    };
+                    setLocationForPoint('dropoff', loc);
+                  }}
                 />
                 {searchingDropoff && <Text style={styles.searchHint}>Searching drop...</Text>}
                 {dropoffSuggestions.map((item) => (
@@ -2022,6 +2063,24 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           {activePassengerMenu === 'receipts' && <ReceiptsPanel token={token} />}
           {activePassengerMenu === 'subscription' && <SubscriptionPanel token={token} />}
         </ScrollView>
+
+        {/* Post-Ride Rating Modal */}
+        {showRatingModal && justCompletedBooking && (
+          <PostRideRatingModal
+            visible={showRatingModal}
+            booking={justCompletedBooking}
+            token={token}
+            onClose={() => {
+              setShowRatingModal(false);
+              setJustCompletedBooking(null);
+            }}
+            onRatingSubmitted={() => {
+              setShowRatingModal(false);
+              setJustCompletedBooking(null);
+              setMessage('Thank you for your rating!');
+            }}
+          />
+        )}
       </View>
     </View>
   );
