@@ -28,6 +28,10 @@ import RideProductsGrid from '../components/RideProductsGrid';
 import WebGoogleLiveMap from '../components/WebGoogleLiveMap';
 import LocationSearchModal from '../components/LocationSearchModal';
 import BookingConfirmationCard from '../components/BookingConfirmationCard';
+import NotificationBell from '../components/NotificationBell';
+import NotificationCenter from '../components/NotificationCenter';
+import { NotificationProvider, useNotifications } from '../contexts/NotificationContext';
+import { useNotificationManager } from '../hooks/useNotificationManager';
 import {
   FadeSlideView,
   GlassCard,
@@ -61,7 +65,7 @@ const DEFAULT_CITY_LOCATION = {
   longitude: 80.2707,
 };
 
-export default function PassengerMap({ token, user, onLogout, onProfilePress = undefined }) {
+export function PassengerMapContent({ token, user, onLogout, onProfilePress = undefined }) {
   const autoPickupInitializedRef = useRef(false);
   const bookingStatusRef = useRef({ bookingId: null, status: null });
   const pickupSearchRequestRef = useRef(0);
@@ -98,6 +102,11 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
   const [optedOutDriverIds, setOptedOutDriverIds] = useState([]);
   const [autoFetchingTripData, setAutoFetchingTripData] = useState(false);
   const [scheduledAtInput, setScheduledAtInput] = useState('');
+  const [showNotificationCenter, setShowNotificationCenter] = useState(false);
+  
+  // Initialize notifications
+  useNotificationManager(token, user?.id);
+  const { unreadCount } = useNotifications();
   const [rideProduct, setRideProduct] = useState('normal');
   const [corporateCode, setCorporateCode] = useState('');
   const [airportTerminal, setAirportTerminal] = useState('');
@@ -1262,6 +1271,11 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
               <Text style={styles.sub}>{t.passengerCenter}</Text>
             </View>
             <Image source={LOGO_SOURCE} style={styles.headerLogo} resizeMode="contain" />
+            <NotificationBell
+              onPress={() => setShowNotificationCenter(true)}
+              unreadCount={unreadCount}
+              style={styles.headerButton}
+            />
             <TouchableOpacity onPress={handleProfilePress} style={styles.profileButton}>
               <Text style={styles.profileText}>{t.profile}</Text>
             </TouchableOpacity>
@@ -1942,6 +1956,23 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
             )}
           </ScrollView>
         </View>
+
+        {/* Notification Center Modal */}
+        {showNotificationCenter && (
+          <View style={styles.notificationCenterOverlay}>
+            <NotificationCenter
+              token={token}
+              onClose={() => setShowNotificationCenter(false)}
+              onNotificationPress={(notification) => {
+                // Navigate to relevant screen based on notification type
+                if (notification.type === 'booking_accepted' || notification.bookingId) {
+                  setActivePassengerMenu(PRIMARY_PASSENGER_MENU_KEY);
+                }
+                setShowNotificationCenter(false);
+              }}
+            />
+          </View>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -2369,4 +2400,27 @@ const styles = StyleSheet.create({
     marginTop: 6,
     lineHeight: 16,
   },
+  notificationCenterOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'white',
+    zIndex: 1000,
+  },
+  headerButton: {
+    marginRight: 8,
+  },
 });
+
+/**
+ * Wrapper component that provides NotificationContext to PassengerMapContent
+ */
+export default function PassengerMap(props) {
+  return (
+    <NotificationProvider>
+      <PassengerMapContent {...props} />
+    </NotificationProvider>
+  );
+}
