@@ -364,18 +364,31 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     const pickup = resolveCoords(activeRide?.pickup_location || activeRide?.pickup || activeRide?.pickup_location_details);
     const drop = resolveCoords(activeRide?.dropoff_location || activeRide?.dropoff || activeRide?.dropoff_location_details);
     const driverPlace = resolveCoords(driverLocation || activeRide?.driver_location);
+    const navigatingToPickup = activeRideStatus === 'accepted' || activeRideStatus === 'driver_arrived';
+    const navigatingToDrop = activeRideStatus === 'in_progress';
+    const routeOrigin = navigatingToPickup || navigatingToDrop ? (driverPlace || pickup) : null;
+    const routeDestination = navigatingToPickup ? pickup : navigatingToDrop ? drop : null;
+    const hasRoute =
+      !!routeOrigin &&
+      !!routeDestination &&
+      (Math.abs(routeOrigin.latitude - routeDestination.latitude) > 0.000001 ||
+        Math.abs(routeOrigin.longitude - routeDestination.longitude) > 0.000001);
     const place = driverPlace || pickup || drop;
     const usingBasicEmbed = !googleMapsWebKey;
     let fallbackUrl = '';
 
     if (usingBasicEmbed) {
-      if (pickup && drop) {
+      if (hasRoute) {
+        fallbackUrl = `https://www.google.com/maps?output=embed&saddr=${routeOrigin.latitude},${routeOrigin.longitude}&daddr=${routeDestination.latitude},${routeDestination.longitude}`;
+      } else if (pickup && drop) {
         fallbackUrl = `https://www.google.com/maps?output=embed&saddr=${pickup.latitude},${pickup.longitude}&daddr=${drop.latitude},${drop.longitude}`;
       } else if (place) {
         fallbackUrl = `https://www.google.com/maps?output=embed&q=${place.latitude},${place.longitude}&z=14`;
       } else {
         fallbackUrl = `https://www.google.com/maps?output=embed&q=${DEFAULT_CITY_LOCATION.latitude},${DEFAULT_CITY_LOCATION.longitude}&z=11`;
       }
+    } else if (hasRoute) {
+      fallbackUrl = `https://www.google.com/maps/embed/v1/directions?key=${encodeURIComponent(googleMapsWebKey)}&origin=${routeOrigin.latitude},${routeOrigin.longitude}&destination=${routeDestination.latitude},${routeDestination.longitude}&avoid=tolls|highways`;
     } else if (pickup && drop) {
       fallbackUrl = `https://www.google.com/maps/embed/v1/directions?key=${encodeURIComponent(googleMapsWebKey)}&origin=${pickup.latitude},${pickup.longitude}&destination=${drop.latitude},${drop.longitude}&avoid=tolls|highways`;
     } else if (place) {
@@ -390,9 +403,11 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       pickup,
       drop,
       driverPlace,
+      routeOrigin,
+      routeDestination,
       fallbackUrl,
     };
-  }, [googleMapsWebKey, activeRide, driverLocation]);
+  }, [googleMapsWebKey, activeRide, activeRideStatus, driverLocation]);
 
   const runAction = useCallback(async (fn, successText) => {
     try {
@@ -496,8 +511,12 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       // Always update from server when we fetch profile
       if (typeof profile.is_available === 'boolean') {
         setServerIsOnline(profile.is_available);
-        // Only update local state if not in the middle of a toggle or if pending sync failed
-        if (!availabilitySyncPending && !pendingAvailabilitySyncRef.current) {
+        const canApplyServerAvailability =
+          !availabilitySyncPending &&
+          !pendingAvailabilitySyncRef.current &&
+          Date.now() >= availabilityUiOverrideUntilRef.current;
+        // Avoid overriding an in-flight toggle with stale profile snapshots.
+        if (canApplyServerAvailability) {
           setIsOnline(profile.is_available);
         }
       }
@@ -558,7 +577,11 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       if (includeProfile && profile && typeof profile.is_available === 'boolean') {
         // Always sync server state, then update local state if no pending changes
         setServerIsOnline(profile.is_available);
-        if (!pendingAvailabilitySyncRef.current) {
+        const canApplyServerAvailability =
+          !availabilitySyncPending &&
+          !pendingAvailabilitySyncRef.current &&
+          Date.now() >= availabilityUiOverrideUntilRef.current;
+        if (canApplyServerAvailability) {
           setIsOnline(profile.is_available);
         }
       }
@@ -589,7 +612,16 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     } finally {
       refreshInFlightRef.current = false;
     }
-  }, [attachReadableAddress, hydrateDriverFareConfig, normalizeLocation, requestDriverData]);
+  }, [availabilitySyncPending, attachReadableAddress, hydrateDriverFareConfig, normalizeLocation, requestDriverData]);
+
+  const refreshRideStageValidation = useCallback(async () => {
+    const [ride, requests] = await Promise.all([
+      requestDriverData('/drivers/active-ride', null),
+      requestDriverData('/drivers/pending-requests', []),
+    ]);
+    setActiveRide(ride || null);
+    setPendingRequests(Array.isArray(requests) ? requests : []);
+  }, [requestDriverData]);
 
   const refreshSpinWinStatus = useCallback(
     async ({ silent = false } = {}) => {
@@ -886,10 +918,14 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       return;
     }
     const next = typeof nextValue === 'boolean' ? nextValue : !isOnline;
+    if (next === isOnline && !pendingAvailabilitySyncRef.current) {
+      return;
+    }
     const requestId = availabilityToggleRequestIdRef.current + 1;
     availabilityToggleRequestIdRef.current = requestId;
     
     // Immediately show optimistic UI
+    availabilityUiOverrideUntilRef.current = Date.now() + 15000;
     setIsOnline(next);
     setAvailabilitySyncPending(true);
     setError('');
@@ -910,6 +946,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       if (updated && typeof updated.is_available === 'boolean') {
         const savedStatus = updated.is_available;
         setServerIsOnline(savedStatus);
+        availabilityUiOverrideUntilRef.current = Date.now() + 15000;
         setIsOnline(savedStatus);
         setAvailabilitySyncPending(false);
         pendingAvailabilitySyncRef.current = null;
@@ -926,6 +963,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       } else {
         // Fallback: assume success if no error thrown
         setServerIsOnline(next);
+        availabilityUiOverrideUntilRef.current = Date.now() + 15000;
         setIsOnline(next);
         setAvailabilitySyncPending(false);
         pendingAvailabilitySyncRef.current = null;
@@ -967,8 +1005,9 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       }),
     );
     if (accepted) {
+      setPendingRequests((prev) => (Array.isArray(prev) ? prev.filter((item) => item?.id !== bookingId) : prev));
       await pushDriverLocation({ fallbackLocation: driverLocation, silent: true });
-      await refreshDriverData();
+      await refreshRideStageValidation();
     }
   };
 
@@ -1037,6 +1076,15 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     if (updated) {
       setRideStartOtp('');
       setRideEndOtp('');
+      setActiveRide((prev) => {
+        if (completionStep) {
+          return null;
+        }
+        if (!updated || typeof updated !== 'object') {
+          return prev;
+        }
+        return { ...(prev || {}), ...updated };
+      });
       // If trip started, push a fresh driver location and show live route promptly
       if (requiresStartOtp) {
         try {
@@ -1045,7 +1093,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
           // ignore
         }
       }
-      await refreshDriverData();
+      await refreshRideStageValidation();
     }
   };
 
@@ -1095,8 +1143,8 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
             pickupLocation={mapState.pickup}
             dropoffLocation={mapState.drop}
             driverLocation={mapState.driverPlace}
-            routeOrigin={mapState.pickup}
-            routeDestination={mapState.drop}
+            routeOrigin={mapState.routeOrigin}
+            routeDestination={mapState.routeDestination}
           />
         </View>
 

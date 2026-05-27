@@ -106,7 +106,9 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   const liveLocationRideStatuses = useMemo(() => new Set(['accepted', 'driver_arrived', 'in_progress']), []);
   const activeRideStatus = String(activeRide?.status || '').toLowerCase();
   const activeRideId = String(activeRide?.id || '').trim() || null;
-  const showLiveRoute = activeRideStatus === 'in_progress';
+  const navigatingToPickup = activeRideStatus === 'accepted' || activeRideStatus === 'driver_arrived';
+  const navigatingToDrop = activeRideStatus === 'in_progress';
+  const showStageRoute = navigatingToPickup || navigatingToDrop;
   const shouldSyncDriverLocation = (isOnline && !availabilitySyncPending) || liveLocationRideStatuses.has(activeRideStatus);
   const {
     connected: realtimeConnected,
@@ -358,8 +360,12 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       // Always update from server when we fetch profile
       if (typeof profile.is_available === 'boolean') {
         setServerIsOnline(profile.is_available);
-        // Only update local state if not in the middle of a toggle or if pending sync failed
-        if (!availabilitySyncPending && !pendingAvailabilitySyncRef.current) {
+        const canApplyServerAvailability =
+          !availabilitySyncPending &&
+          !pendingAvailabilitySyncRef.current &&
+          Date.now() >= availabilityUiOverrideUntilRef.current;
+        // Avoid overriding an in-flight toggle with stale profile snapshots.
+        if (canApplyServerAvailability) {
           setIsOnline(profile.is_available);
         }
       }
@@ -419,7 +425,11 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       if (includeProfile && profile && typeof profile.is_available === 'boolean') {
         // Always sync server state, then update local state if no pending changes
         setServerIsOnline(profile.is_available);
-        if (!pendingAvailabilitySyncRef.current) {
+        const canApplyServerAvailability =
+          !availabilitySyncPending &&
+          !pendingAvailabilitySyncRef.current &&
+          Date.now() >= availabilityUiOverrideUntilRef.current;
+        if (canApplyServerAvailability) {
           setIsOnline(profile.is_available);
         }
       }
@@ -445,14 +455,24 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     } finally {
       refreshInFlightRef.current = false;
     }
-  }, [hydrateDriverFareConfig, normalizeLocation, token]);
+  }, [availabilitySyncPending, hydrateDriverFareConfig, normalizeLocation, token]);
+
+  const refreshRideStageValidation = useCallback(async () => {
+    const [ride, requests] = await Promise.all([
+      apiRequest('/drivers/active-ride', { token }).catch(() => null),
+      apiRequest('/drivers/pending-requests', { token }).catch(() => []),
+    ]);
+    setActiveRide(ride || null);
+    setPendingRequests(Array.isArray(requests) ? requests : []);
+  }, [token]);
 
   useEffect(() => {
-    if (!showLiveRoute || !mapRef.current || !activeRide) {
+    if (!showStageRoute || !mapRef.current || !activeRide) {
       return;
     }
+    const pickup = normalizeLocation(activeRide.pickup_location || activeRide.pickup || activeRide.pickup_location_details);
     const drop = normalizeLocation(activeRide.dropoff_location || activeRide.dropoff || activeRide.dropoff_location_details);
-    const target = drop || normalizeLocation(activeRide.pickup_location || activeRide.pickup || activeRide.pickup_location_details);
+    const target = navigatingToDrop ? (drop || pickup) : (pickup || drop);
     if (!target) return;
     try {
       mapRef.current.animateToRegion(
@@ -467,7 +487,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     } catch (_e) {
       // ignore
     }
-  }, [activeRide, normalizeLocation, showLiveRoute]);
+  }, [activeRide, navigatingToDrop, normalizeLocation, showStageRoute]);
 
   const refreshSpinWinStatus = useCallback(
     async ({ silent = false } = {}) => {
@@ -738,10 +758,14 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       return;
     }
     const next = typeof nextValue === 'boolean' ? nextValue : !isOnline;
+    if (next === isOnline && !pendingAvailabilitySyncRef.current) {
+      return;
+    }
     const requestId = availabilityToggleRequestIdRef.current + 1;
     availabilityToggleRequestIdRef.current = requestId;
     
     // Immediately show optimistic UI
+    availabilityUiOverrideUntilRef.current = Date.now() + 15000;
     setIsOnline(next);
     setAvailabilitySyncPending(true);
     setError('');
@@ -762,6 +786,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       if (updated && typeof updated.is_available === 'boolean') {
         const savedStatus = updated.is_available;
         setServerIsOnline(savedStatus);
+        availabilityUiOverrideUntilRef.current = Date.now() + 15000;
         setIsOnline(savedStatus);
         setAvailabilitySyncPending(false);
         pendingAvailabilitySyncRef.current = null;
@@ -778,6 +803,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       } else {
         // Fallback: assume success if no error thrown
         setServerIsOnline(next);
+        availabilityUiOverrideUntilRef.current = Date.now() + 15000;
         setIsOnline(next);
         setAvailabilitySyncPending(false);
         pendingAvailabilitySyncRef.current = null;
@@ -819,8 +845,9 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       }),
     );
     if (accepted) {
+      setPendingRequests((prev) => (Array.isArray(prev) ? prev.filter((item) => item?.id !== bookingId) : prev));
       await pushDriverLocation({ fallbackLocation: driverLocation, silent: true });
-      await refreshDriverData();
+      await refreshRideStageValidation();
     }
   };
 
@@ -881,7 +908,13 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
               if (updatedWithoutOtp) {
                 setRideStartOtp('');
                 setRideEndOtp('');
-                await refreshDriverData();
+                setActiveRide((prev) => {
+                  if (!updatedWithoutOtp || typeof updatedWithoutOtp !== 'object') {
+                    return null;
+                  }
+                  return { ...(prev || {}), ...updatedWithoutOtp };
+                });
+                await refreshRideStageValidation();
               }
             },
           },
@@ -903,6 +936,15 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     if (updated) {
       setRideStartOtp('');
       setRideEndOtp('');
+      setActiveRide((prev) => {
+        if (completionStep) {
+          return null;
+        }
+        if (!updated || typeof updated !== 'object') {
+          return prev;
+        }
+        return { ...(prev || {}), ...updated };
+      });
       // If trip started, push a fresh driver location and enable live-route UI
       if (requiresStartOtp) {
         try {
@@ -911,7 +953,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
           // ignore
         }
       }
-      await refreshDriverData();
+      await refreshRideStageValidation();
     }
   };
 
@@ -938,19 +980,19 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
         <Marker coordinate={driverLocation} title="You">
           <View style={styles.driverMarker} />
         </Marker>
-        {/* Show pickup/drop markers and a simple route line when live route is active */}
-        {showLiveRoute && activeRide && (
+        {/* Show stage-based route: accepted/arrived -> pickup, in_progress -> drop */}
+        {showStageRoute && activeRide && (
           (() => {
             const pickup = normalizeLocation(activeRide.pickup_location || activeRide.pickup || activeRide.pickup_location_details);
             const drop = normalizeLocation(activeRide.dropoff_location || activeRide.dropoff || activeRide.dropoff_location_details);
+            const destination = navigatingToDrop ? (drop || pickup) : (pickup || drop);
             const routeCoords = [];
             if (driverLocation) routeCoords.push({ latitude: driverLocation.latitude, longitude: driverLocation.longitude });
-            if (pickup) routeCoords.push({ latitude: pickup.latitude, longitude: pickup.longitude });
-            if (drop) routeCoords.push({ latitude: drop.latitude, longitude: drop.longitude });
+            if (destination) routeCoords.push({ latitude: destination.latitude, longitude: destination.longitude });
             return (
               <>
-                {pickup && <Marker coordinate={pickup} pinColor="green" />}
-                {drop && <Marker coordinate={drop} pinColor="red" />}
+                {pickup && navigatingToPickup && <Marker coordinate={pickup} pinColor="green" />}
+                {drop && navigatingToDrop && <Marker coordinate={drop} pinColor="red" />}
                 {routeCoords.length >= 2 && (
                   <Polyline coordinates={routeCoords} strokeColor={COLORS.primary} strokeWidth={4} />
                 )}
