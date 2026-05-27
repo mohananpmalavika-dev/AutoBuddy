@@ -15,7 +15,6 @@ import { isPlacesConfigured, reverseGeocodeLocation } from '../lib/places';
 import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme';
 import RideCommunicationCard from '../components/RideCommunicationCard';
 import WebCommandBar from '../components/WebCommandBar';
-import VoiceTextInput from '../components/VoiceTextInput';
 import KeralaSafetyCard from '../components/KeralaSafetyCard';
 import DriverTrustCard from '../components/DriverTrustCard';
 import DriverKycPanel from '../components/DriverKycPanel';
@@ -1589,18 +1588,6 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
                   <Text style={styles.settingLabel}>Online Status: {displayIsOnline ? 'Online' : 'Offline'}</Text>
                   <TouchableOpacity style={styles.actionButton} onPress={() => toggleOnlineStatus()}>
                     <Text style={styles.actionButtonText}>{displayIsOnline ? 'Go Offline' : 'Go Online'}</Text>
-                  </TouchableOpacity>
-                </View>
-                <View style={styles.settingItem}>
-                  <Text style={styles.settingLabel}>Profile</Text>
-                  <TouchableOpacity style={styles.actionButton} onPress={handleProfilePress}>
-                    <Text style={styles.actionButtonText}>Manage Profile</Text>
-                  </TouchableOpacity>
-                </View>
-                <View style={styles.settingItem}>
-                  <Text style={styles.settingLabel}>Account</Text>
-                  <TouchableOpacity style={styles.actionButton} onPress={onLogout}>
-                    <Text style={styles.actionButtonText}>Logout</Text>
                   </TouchableOpacity>
                 </View>
               </View>

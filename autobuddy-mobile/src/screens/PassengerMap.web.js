@@ -121,6 +121,18 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [optedOutDriverIds, setOptedOutDriverIds] = useState([]);
   const [autoFetchingTripData, setAutoFetchingTripData] = useState(false);
   const [scheduledAtInput, setScheduledAtInput] = useState('');
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('cash');
+  const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState(null);
+  const [selectedPaymentChannel, setSelectedPaymentChannel] = useState(null);
+  const [passengerPreferences, setPassengerPreferences] = useState(null);
+  const [appliedPromo, setAppliedPromo] = useState({
+    code: null,
+    discount: 0,
+    discount_type: null,
+    discount_value: 0,
+    max_discount: null,
+  });
+  const [passengerAccessibility, setPassengerAccessibility] = useState(null);
   const [showNotificationCenter, setShowNotificationCenter] = useState(false);
   
   // Initialize notifications
@@ -181,6 +193,73 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       scheduled: t.scheduled || 'Scheduled Rides',
     }),
     [t],
+  );
+
+  const normalizeBookingPaymentMethod = useCallback((value) => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (!normalized || normalized === 'cash') {
+      return 'cash';
+    }
+    return 'online';
+  }, []);
+
+  const paymentMethodLabel = useMemo(() => {
+    if (selectedPaymentMethod === 'online') {
+      return 'Online';
+    }
+    return 'Cash';
+  }, [selectedPaymentMethod]);
+
+  const accessibilityUi = useMemo(() => {
+    const textSize = String(passengerAccessibility?.text_size || 'normal').toLowerCase();
+    const textScale =
+      textSize === 'extra_large'
+        ? 1.18
+        : textSize === 'large'
+          ? 1.1
+          : 1;
+    const highContrast = Boolean(passengerAccessibility?.high_contrast);
+    return {
+      textScale,
+      panelStyle: highContrast ? { backgroundColor: '#FFFFFF', borderColor: '#000000', borderWidth: 2 } : null,
+      textStyle: {
+        color: highContrast ? '#000000' : COLORS.textMain,
+        fontSize: Math.round(13 * textScale),
+      },
+      headingStyle: {
+        color: highContrast ? '#000000' : COLORS.textMain,
+        fontSize: Math.round(20 * textScale),
+      },
+    };
+  }, [passengerAccessibility]);
+
+  const triggerA11yFeedback = useCallback(
+    (announcement) => {
+      if (!announcement) {
+        return;
+      }
+      if (passengerAccessibility?.haptic_feedback && typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate(12);
+      }
+      if (
+        (passengerAccessibility?.screen_reader_enabled || passengerAccessibility?.voice_guidance) &&
+        typeof window !== 'undefined' &&
+        window.speechSynthesis
+      ) {
+        try {
+          const utterance = new SpeechSynthesisUtterance(String(announcement));
+          utterance.lang = 'en-IN';
+          if (passengerAccessibility?.reduce_motion) {
+            utterance.rate = 0.9;
+          }
+          window.speechSynthesis.cancel();
+          window.speechSynthesis.speak(utterance);
+        } catch {
+          // Ignore speech synthesis failures.
+        }
+      }
+    },
+    [passengerAccessibility],
   );
 
   const normalizeLocation = (location) => {
@@ -367,16 +446,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   }, [nearbyDrivers, optedOutDriverIds, fareExpectation, estimateDriverFare]);
 
   const notifyWithVoice = useCallback((title, body) => {
-    if (typeof window !== 'undefined' && window.speechSynthesis) {
-      try {
-        const utterance = new SpeechSynthesisUtterance(`${title}. ${body}`);
-        utterance.lang = 'en-IN';
-        window.speechSynthesis.cancel();
-        window.speechSynthesis.speak(utterance);
-      } catch {
-        // Ignore speech synthesis failures.
-      }
-    }
+    triggerA11yFeedback(`${title}. ${body}`);
     if (typeof Notification !== 'undefined') {
       try {
         if (Notification.permission === 'granted') {
@@ -388,7 +458,21 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         // Ignore browser notification errors.
       }
     }
-  }, []);
+  }, [triggerA11yFeedback]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') {
+      return undefined;
+    }
+    const htmlNode = document.documentElement;
+    const previousBehavior = htmlNode.style.scrollBehavior;
+    if (passengerAccessibility?.reduce_motion) {
+      htmlNode.style.scrollBehavior = 'auto';
+    }
+    return () => {
+      htmlNode.style.scrollBehavior = previousBehavior;
+    };
+  }, [passengerAccessibility?.reduce_motion]);
 
   const isPageVisible = useCallback(() => {
     if (typeof document === 'undefined') {
@@ -526,6 +610,122 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     setNearbyDrivers([]);
     setOptedOutDriverIds([]);
   };
+
+  useEffect(() => {
+    if (!token) {
+      return undefined;
+    }
+    let cancelled = false;
+    const hydratePassengerSettings = async () => {
+      const [prefs, accessibility] = await Promise.all([
+        apiRequest('/v1/passengers/preferences', { token }).catch(() => null),
+        apiRequest('/v1/passengers/accessibility', { token }).catch(() => null),
+      ]);
+      if (cancelled) {
+        return;
+      }
+      if (prefs) {
+        setPassengerPreferences(prefs);
+        if (prefs.default_payment_method) {
+          setSelectedPaymentMethod(normalizeBookingPaymentMethod(prefs.default_payment_method));
+        }
+      }
+      if (accessibility) {
+        setPassengerAccessibility(accessibility);
+      }
+    };
+    hydratePassengerSettings().catch(() => null);
+    return () => {
+      cancelled = true;
+    };
+  }, [normalizeBookingPaymentMethod, token]);
+
+  const handlePromoDiscountApplied = useCallback((promoState) => {
+    const nextPromo = {
+      code: promoState?.code || null,
+      discount: Number(promoState?.discount || 0),
+      discount_type: promoState?.discount_type || null,
+      discount_value: Number(promoState?.discount_value || promoState?.discount || 0),
+      max_discount:
+        promoState?.max_discount === null || promoState?.max_discount === undefined
+          ? null
+          : Number(promoState.max_discount),
+    };
+    setAppliedPromo(nextPromo);
+    if (nextPromo.code) {
+      setMessage(`Promo applied: ${nextPromo.code}`);
+    }
+  }, []);
+
+  const handleDefaultMethodChange = useCallback(
+    (method) => {
+      const nextMethodType = method?.method_type || method;
+      const nextMethod = normalizeBookingPaymentMethod(nextMethodType);
+      setSelectedPaymentMethod(nextMethod);
+      setSelectedPaymentMethodId(method?.id || null);
+      setSelectedPaymentChannel(typeof nextMethodType === 'string' ? nextMethodType : null);
+      setMessage(`Payment method set to ${nextMethod === 'online' ? 'Online' : 'Cash'}.`);
+    },
+    [normalizeBookingPaymentMethod],
+  );
+
+  const handlePreferencesChange = useCallback(
+    (nextPrefs) => {
+      setPassengerPreferences(nextPrefs || null);
+      if (nextPrefs?.default_payment_method) {
+        const nextDefault = String(nextPrefs.default_payment_method || '').trim();
+        setSelectedPaymentMethod(normalizeBookingPaymentMethod(nextDefault));
+        setSelectedPaymentChannel(nextDefault || null);
+      }
+    },
+    [normalizeBookingPaymentMethod],
+  );
+
+  const handleAccessibilityChange = useCallback((settings) => {
+    setPassengerAccessibility(settings || null);
+  }, []);
+
+  const handleMenuSelection = useCallback(
+    (menuKey, label) => {
+      setActivePassengerMenu(menuKey);
+      setShowPassengerMenus(false);
+      triggerA11yFeedback(`${label || 'Menu'} selected`);
+    },
+    [triggerA11yFeedback],
+  );
+
+  const handleUseSavedPlace = useCallback(
+    async (place) => {
+      const latitude = Number(place?.latitude);
+      const longitude = Number(place?.longitude);
+      let resolvedLocation = null;
+
+      if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+        resolvedLocation = {
+          latitude: Number(latitude.toFixed(6)),
+          longitude: Number(longitude.toFixed(6)),
+          address: String(place?.address || place?.name || '').trim() || 'Saved place',
+        };
+      } else if (placesConfigured && String(place?.address || '').trim()) {
+        const suggestions = await searchPlaces(String(place.address).trim(), searchBias).catch(() => []);
+        const bestSuggestion = Array.isArray(suggestions) ? suggestions[0] : null;
+        if (bestSuggestion?.placeId) {
+          resolvedLocation = await getPlaceLocation(bestSuggestion.placeId).catch(() => null);
+        }
+      }
+
+      if (!resolvedLocation) {
+        setError('This saved place is missing map coordinates. Edit it with a valid location.');
+        return;
+      }
+
+      const targetPoint = pickupLocation ? 'dropoff' : 'pickup';
+      setLocationForPoint(targetPoint, resolvedLocation);
+      setActivePassengerMenu(PRIMARY_PASSENGER_MENU_KEY);
+      setMessage(targetPoint === 'pickup' ? t.pickupSelectedChooseDrop : t.dropSelected);
+    },
+    [pickupLocation, placesConfigured, searchBias, t.dropSelected, t.pickupSelectedChooseDrop],
+  );
 
   
   const handleSearchTextChange = async (point, text) => {
@@ -1179,6 +1379,14 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       return;
     }
 
+    const rideNotes = [];
+    if (effectiveRideProduct === 'school_elderly_safe') {
+      rideNotes.push(`Safe ride priority: ${safeRidePriority}`);
+    }
+    if (appliedPromo?.code) {
+      rideNotes.push(`Promo requested: ${appliedPromo.code}`);
+    }
+
     const booking = await callApi(() =>
       apiRequest('/bookings/advanced', {
         method: 'POST',
@@ -1186,7 +1394,21 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         body: {
           pickup_location: locations.pickup,
           drop_location: locations.dropoff,
-          payment_method: 'cash',
+          payment_method: selectedPaymentMethod,
+          payment_method_id: selectedPaymentMethodId || undefined,
+          payment_channel: selectedPaymentChannel || undefined,
+          promo_code: appliedPromo?.code || undefined,
+          promo_discount_type: appliedPromo?.discount_type || undefined,
+          promo_discount_value:
+            Number.isFinite(Number(appliedPromo?.discount_value)) && Number(appliedPromo?.discount_value) > 0
+              ? Number(appliedPromo.discount_value)
+              : undefined,
+          promo_max_discount:
+            appliedPromo?.max_discount !== null &&
+            appliedPromo?.max_discount !== undefined &&
+            Number.isFinite(Number(appliedPromo.max_discount))
+              ? Number(appliedPromo.max_discount)
+              : undefined,
           ride_product: effectiveRideProduct,
           passenger_count: passengerCount,
           allow_parallel: allowParallel,
@@ -1201,10 +1423,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           rental_hours: effectiveRideProduct === 'rental_hourly' ? rentalHours : undefined,
           safe_ride_priority:
             effectiveRideProduct === 'school_elderly_safe' ? safeRidePriority : undefined,
-          notes:
-            effectiveRideProduct === 'school_elderly_safe'
-              ? `Safe ride priority: ${safeRidePriority}`
-              : undefined,
+          notes: rideNotes.length > 0 ? rideNotes.join(' | ') : undefined,
         },
       }),
     );
@@ -1287,17 +1506,17 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           />
           <View style={styles.mapOverlayWrap}>
             <GlassCard style={styles.mapOverlayCard}>
-              <Text style={styles.mapOverlayTitle}>{t.mapTitle}</Text>
-              <Text style={styles.mapOverlayMalayalam}>{t.mapSubtitle}</Text>
+              <Text style={[styles.mapOverlayTitle, accessibilityUi.textStyle]}>{t.mapTitle}</Text>
+              <Text style={[styles.mapOverlayMalayalam, accessibilityUi.textStyle]}>{t.mapSubtitle}</Text>
             </GlassCard>
           </View>
         </View>
 
-        <View style={styles.panel}>
+        <View style={[styles.panel, accessibilityUi.panelStyle]}>
           <View style={styles.headerRow}>
             <View style={styles.headerUserBlock}>
-              <Text style={styles.hello}>{t.hi}, {user?.name || t.passengerFallbackName}</Text>
-              <Text style={styles.sub}>{t.passengerCenter}</Text>
+              <Text style={[styles.hello, accessibilityUi.headingStyle]}>{t.hi}, {user?.name || t.passengerFallbackName}</Text>
+              <Text style={[styles.sub, accessibilityUi.textStyle]}>{t.passengerCenter}</Text>
             </View>
             <Image source={LOGO_SOURCE} style={styles.headerLogo} resizeMode="contain" />
             <NotificationBell
@@ -1338,15 +1557,18 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                   styles.primaryMenuButton,
                   activePassengerMenu === PRIMARY_PASSENGER_MENU_KEY && styles.primaryMenuButtonActive,
                 ]}
-                onPress={() => {
-                  setActivePassengerMenu(PRIMARY_PASSENGER_MENU_KEY);
-                  setShowPassengerMenus(false);
-                }}>
+                onPress={() => handleMenuSelection(PRIMARY_PASSENGER_MENU_KEY, t.rideBooking)}>
                 <Text style={styles.primaryMenuButtonText}>{t.rideBooking}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.menuToggleButton}
-                onPress={() => setShowPassengerMenus((prev) => !prev)}>
+                onPress={() =>
+                  setShowPassengerMenus((prev) => {
+                    const next = !prev;
+                    triggerA11yFeedback(next ? `${t.otherMenus} opened` : `${t.otherMenus} closed`);
+                    return next;
+                  })
+                }>
                 <Text style={styles.menuToggleButtonText}>
                   {showPassengerMenus ? t.hideMenus : t.otherMenus}
                 </Text>
@@ -1359,10 +1581,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                   <TouchableOpacity
                     key={menu.key}
                     style={[styles.menuChip, activePassengerMenu === menu.key && styles.menuChipActive]}
-                    onPress={() => {
-                      setActivePassengerMenu(menu.key);
-                      setShowPassengerMenus(false);
-                    }}>
+                    onPress={() => handleMenuSelection(menu.key, menuLabels[menu.key] || menu.key)}>
                     <Text style={[styles.menuChipText, activePassengerMenu === menu.key && styles.menuChipTextActive]}>
                       {menuLabels[menu.key] || menu.key}
                     </Text>
@@ -1378,10 +1597,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                 </Text>
                 <TouchableOpacity
                   style={styles.menuToggleButton}
-                  onPress={() => {
-                    setActivePassengerMenu(PRIMARY_PASSENGER_MENU_KEY);
-                    setShowPassengerMenus(false);
-                  }}>
+                  onPress={() => handleMenuSelection(PRIMARY_PASSENGER_MENU_KEY, t.rideBooking)}>
                   <Text style={styles.menuToggleButtonText}>{t.backToRide}</Text>
                 </TouchableOpacity>
               </View>
@@ -1711,6 +1927,25 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                       </TouchableOpacity>
                     </View>
                   )}
+
+                  <View style={styles.infoBlock}>
+                    <Text style={styles.infoTitle}>Booking Preferences</Text>
+                    <Text style={styles.infoText}>Payment: {paymentMethodLabel}</Text>
+                    {!!selectedPaymentChannel && (
+                      <Text style={styles.hint}>Channel: {String(selectedPaymentChannel).toUpperCase()}</Text>
+                    )}
+                    {appliedPromo?.code ? (
+                      <Text style={styles.infoText}>
+                        Promo: {appliedPromo.code}
+                        {appliedPromo.discount > 0 ? ` (${appliedPromo.discount}${appliedPromo.discount_type === 'percentage' ? '%' : ''} off)` : ''}
+                      </Text>
+                    ) : (
+                      <Text style={styles.hint}>No promo code applied</Text>
+                    )}
+                    {!!passengerPreferences?.language && (
+                      <Text style={styles.hint}>Preference language: {String(passengerPreferences.language).toUpperCase()}</Text>
+                    )}
+                  </View>
                 </View>
                 <View style={styles.actionsRow}>
                   <TouchableOpacity style={styles.actionButton} onPress={createBooking} disabled={loading}>
@@ -1985,14 +2220,28 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             )}
 
             {activePassengerMenu === 'notifications' && <NotificationCenter token={token} onClose={() => setShowNotificationCenter(false)} />}
-            {activePassengerMenu === 'promo' && <PromoCodePanel token={token} />}
+            {activePassengerMenu === 'promo' && (
+              <PromoCodePanel
+                token={token}
+                rideFare={Number(fare?.total_fare || activeBooking?.estimated_fare || 1)}
+                onDiscountApplied={handlePromoDiscountApplied}
+              />
+            )}
             {activePassengerMenu === 'support' && <SupportTicketsPanel token={token} />}
-            {activePassengerMenu === 'payment' && <PaymentMethodsPanel token={token} />}
+            {activePassengerMenu === 'payment' && (
+              <PaymentMethodsPanel token={token} onDefaultMethodChange={handleDefaultMethodChange} />
+            )}
             {activePassengerMenu === 'ratings' && <PassengerRatingsPanel token={token} />}
-            {activePassengerMenu === 'preferences' && <PreferencesPanel token={token} />}
-            {activePassengerMenu === 'places' && <SavedPlacesPanel token={token} />}
+            {activePassengerMenu === 'preferences' && (
+              <PreferencesPanel token={token} onPreferencesChange={handlePreferencesChange} />
+            )}
+            {activePassengerMenu === 'places' && (
+              <SavedPlacesPanel token={token} onUsePlace={handleUseSavedPlace} />
+            )}
             {activePassengerMenu === 'emergency' && <EmergencyContactsPanel token={token} />}
-            {activePassengerMenu === 'accessibility' && <AccessibilityPanel token={token} />}
+            {activePassengerMenu === 'accessibility' && (
+              <AccessibilityPanel token={token} onSettingsChange={handleAccessibilityChange} />
+            )}
             {activePassengerMenu === 'scheduled' && <ScheduledRidesPanel token={token} />}
           </ScrollView>
         </View>

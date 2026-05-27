@@ -469,45 +469,156 @@ async def seed_admin():
                     upsert=True,
                 )
 
-        # Create essential indexes
-        await db.users.create_index("email", unique=True)
-        await db.users.create_index("id", unique=True)
-        await db.bookings.create_index("id")
-        await db.bookings.create_index("id", unique=True)
-        await db.bookings.create_index("passenger_id")
-        await db.bookings.create_index("driver_id")
-        await db.drivers.create_index("user_id", unique=True)
-        await db.drivers.create_index([("geo_point", "2dsphere")])
-        await db.drivers.create_index([("current_location_geo", "2dsphere")])
-        await db.drivers.create_index([("is_online", 1), ("is_available", 1), ("kyc_status", 1)])
-        await db.bookings.create_index([("status", 1), ("created_at", -1)])
-        await db.bookings.create_index("status")
-        await db.bookings.create_index([("created_at", -1)])
-        await db.bookings.create_index("pickup_heat_cell")
-        await db.bookings.create_index([("pickup_location_geo", "2dsphere")])
-        await db.dispatch_logs.create_index([("created_at", -1)])
-        await db.dispatch_logs.create_index("booking_id")
-        await db.dispatch_logs.create_index("pickup_heat_cell")
-        await db.dispatch_attempts.create_index("booking_id")
-        await db.dispatch_attempts.create_index("driver_id")
-        await db.dispatch_attempts.create_index([("booking_id", 1), ("driver_id", 1)], unique=True)
-        await db.dispatch_risk_logs.create_index([("created_at", -1)])
-        await db.dispatch_risk_logs.create_index("booking_id")
-        await db.driver_kyc.create_index("driver_id", unique=True)
-        await db.sos_alerts.create_index("created_at", expireAfterSeconds=60 * 60 * 24 * 30)
-        await db.payment_orders.create_index("order_id", unique=True)
-        await db.booking_chat.create_index([("booking_id", 1), ("created_at", 1)])
-        await db.push_tokens.create_index("user_id", unique=True)
-        await db.notifications.create_index([("user_id", 1), ("created_at", -1)])
-        await db.notifications.create_index("created_at", expireAfterSeconds=60 * 60 * 24 * 30)
-        await db.emergency_contacts.create_index("user_id")
-        await db.user_wallets.create_index("user_id", unique=True)
-        await db.driver_wallets.create_index("driver_id", unique=True)
-        await db.driver_withdrawal_requests.create_index([("driver_id", 1), ("created_at", -1)])
-        await db.driver_earnings_reports.create_index([("driver_id", 1), ("created_at", -1)])
-        await db.subscription_dues.create_index("id", unique=True)
-        await db.subscription_dues.create_index([("user_id", 1), ("status", 1), ("created_at", -1)])
-        await db.passenger_favorite_drivers.create_index([("passenger_id", 1), ("driver_id", 1)], unique=True)
+        # Create essential indexes (skip if already exist)
+        from pymongo.errors import OperationFailure
+        try:
+            await db.users.create_index("email", unique=True)
+        except OperationFailure:
+            pass
+        try:
+            await db.users.create_index("id", unique=True)
+        except OperationFailure:
+            pass
+        try:
+            await db.bookings.create_index("id", unique=True)
+        except OperationFailure:
+            pass
+        try:
+            await db.bookings.create_index("passenger_id")
+        except OperationFailure:
+            pass
+        try:
+            await db.bookings.create_index("driver_id")
+        except OperationFailure:
+            pass
+        try:
+            await db.drivers.create_index("user_id", unique=True)
+        except OperationFailure:
+            pass
+        try:
+            await db.drivers.create_index([("geo_point", "2dsphere")])
+        except OperationFailure:
+            pass
+        try:
+            await db.drivers.create_index([("current_location_geo", "2dsphere")])
+        except OperationFailure:
+            pass
+        try:
+            await db.drivers.create_index([("is_online", 1), ("is_available", 1), ("kyc_status", 1)])
+        except OperationFailure:
+            pass
+        try:
+            await db.bookings.create_index([("status", 1), ("created_at", -1)])
+        except OperationFailure:
+            pass
+        try:
+            await db.bookings.create_index("status")
+        except OperationFailure:
+            pass
+        try:
+            await db.bookings.create_index([("created_at", -1)])
+        except OperationFailure:
+            pass
+        try:
+            await db.bookings.create_index("pickup_heat_cell")
+        except OperationFailure:
+            pass
+        try:
+            await db.bookings.create_index([("pickup_location_geo", "2dsphere")])
+        except OperationFailure:
+            pass
+        try:
+            await db.dispatch_logs.create_index([("created_at", -1)])
+        except OperationFailure:
+            pass
+        try:
+            await db.dispatch_logs.create_index("booking_id")
+        except OperationFailure:
+            pass
+        try:
+            await db.dispatch_logs.create_index("pickup_heat_cell")
+        except OperationFailure:
+            pass
+        try:
+            await db.dispatch_attempts.create_index("booking_id")
+        except OperationFailure:
+            pass
+        try:
+            await db.dispatch_attempts.create_index("driver_id")
+        except OperationFailure:
+            pass
+        try:
+            await db.dispatch_attempts.create_index([("booking_id", 1), ("driver_id", 1)], unique=True)
+        except OperationFailure:
+            pass
+        try:
+            await db.dispatch_risk_logs.create_index([("created_at", -1)])
+        except OperationFailure:
+            pass
+        try:
+            await db.dispatch_risk_logs.create_index("booking_id")
+        except OperationFailure:
+            pass
+        try:
+            await db.driver_kyc.create_index("driver_id", unique=True)
+        except OperationFailure:
+            pass
+        try:
+            await db.sos_alerts.create_index("created_at", expireAfterSeconds=60 * 60 * 24 * 30)
+        except OperationFailure:
+            pass
+        try:
+            await db.payment_orders.create_index("order_id", unique=True)
+        except OperationFailure:
+            pass
+        try:
+            await db.booking_chat.create_index([("booking_id", 1), ("created_at", 1)])
+        except OperationFailure:
+            pass
+        try:
+            await db.push_tokens.create_index("user_id", unique=True)
+        except OperationFailure:
+            pass
+        try:
+            await db.notifications.create_index([("user_id", 1), ("created_at", -1)])
+        except OperationFailure:
+            pass
+        try:
+            await db.notifications.create_index("created_at", expireAfterSeconds=60 * 60 * 24 * 30)
+        except OperationFailure:
+            pass
+        try:
+            await db.emergency_contacts.create_index("user_id")
+        except OperationFailure:
+            pass
+        try:
+            await db.user_wallets.create_index("user_id", unique=True)
+        except OperationFailure:
+            pass
+        try:
+            await db.driver_wallets.create_index("driver_id", unique=True)
+        except OperationFailure:
+            pass
+        try:
+            await db.driver_withdrawal_requests.create_index([("driver_id", 1), ("created_at", -1)])
+        except OperationFailure:
+            pass
+        try:
+            await db.driver_earnings_reports.create_index([("driver_id", 1), ("created_at", -1)])
+        except OperationFailure:
+            pass
+        try:
+            await db.subscription_dues.create_index("id", unique=True)
+        except OperationFailure:
+            pass
+        try:
+            await db.subscription_dues.create_index([("user_id", 1), ("status", 1), ("created_at", -1)])
+        except OperationFailure:
+            pass
+        try:
+            await db.passenger_favorite_drivers.create_index([("passenger_id", 1), ("driver_id", 1)], unique=True)
+        except OperationFailure:
+            pass
         await db.passenger_blocked_drivers.create_index([("passenger_id", 1), ("driver_id", 1)], unique=True)
         await db.driver_blocked_passengers.create_index([("driver_id", 1), ("passenger_id", 1)], unique=True)
         await db.drivers.create_index([("custom_fare_pricing_request.status", 1), ("custom_fare_pricing_request.submitted_at", -1)])

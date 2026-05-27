@@ -16,7 +16,7 @@ from app.db.models_features import (
     AccessibilitySetting
 )
 from app.schemas.features_schemas import (
-    RatingCreate, RatingResponse,
+    RatingCreate, RatingUpdate, RatingResponse,
     SavedPlaceCreate, SavedPlaceResponse,
     PreferencesUpdate, PreferencesResponse,
     ScheduledRideCreate, ScheduledRideResponse,
@@ -85,6 +85,33 @@ def get_rating(
     
     if not rating:
         raise HTTPException(status_code=404, detail="Rating not found")
+    return rating
+
+
+@router.patch("/ratings/{rating_id}", response_model=RatingResponse)
+def update_rating(
+    rating_id: str,
+    rating_update: RatingUpdate,
+    current_passenger: dict = Depends(get_current_passenger),
+    db: Session = Depends(get_db)
+):
+    """Update an existing rating owned by the passenger"""
+    rating = db.query(PassengerRating).filter(
+        PassengerRating.id == rating_id,
+        PassengerRating.passenger_id == current_passenger["id"]
+    ).first()
+
+    if not rating:
+        raise HTTPException(status_code=404, detail="Rating not found")
+
+    update_data = rating_update.dict(exclude_unset=True)
+    if "score" in update_data and update_data["score"] is not None:
+        rating.score = update_data["score"]
+    if "feedback" in update_data:
+        rating.feedback = update_data["feedback"]
+
+    db.commit()
+    db.refresh(rating)
     return rating
 
 

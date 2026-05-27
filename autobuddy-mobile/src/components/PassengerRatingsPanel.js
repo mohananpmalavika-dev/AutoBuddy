@@ -31,6 +31,7 @@ export default function PassengerRatingsPanel({ token }) {
   const [error, setError] = useState('');
   const [ratings, setRatings] = useState([]);
   const [showSubmitForm, setShowSubmitForm] = useState(false);
+  const [editingRatingId, setEditingRatingId] = useState(null);
   const [pastRides, setPastRides] = useState([]);
   const [selectedRideId, setSelectedRideId] = useState(null);
   const [score, setScore] = useState(0);
@@ -45,6 +46,7 @@ export default function PassengerRatingsPanel({ token }) {
     setScore(0);
     setFeedback('');
     setSelectedRideId(null);
+    setEditingRatingId(null);
     setError('');
   }, []);
 
@@ -94,7 +96,7 @@ export default function PassengerRatingsPanel({ token }) {
 
   const submitRating = useCallback(async () => {
     const selectedRide = pastRides.find((ride) => ride.id === selectedRideId);
-    if (score === 0 || !selectedRide) {
+    if (score === 0 || (!editingRatingId && !selectedRide)) {
       setError('Please select a ride and give a rating');
       return;
     }
@@ -102,29 +104,46 @@ export default function PassengerRatingsPanel({ token }) {
     try {
       setError('');
       setLoading(true);
-      const response = await apiRequest('/v1/passengers/ratings', {
-        method: 'POST',
-        token,
-        body: {
-          booking_id: selectedRide.id,
-          driver_id: selectedRide.driver_id,
-          score,
-          feedback: feedback.trim() || null,
-        },
-      });
+      if (editingRatingId) {
+        const response = await apiRequest(`/v1/passengers/ratings/${editingRatingId}`, {
+          method: 'PATCH',
+          token,
+          body: {
+            score,
+            feedback: feedback.trim() || null,
+          },
+        });
+        const updatedRating = response?.data || response;
+        if (updatedRating) {
+          setRatings((prev) =>
+            prev.map((rating) => (rating.id === updatedRating.id ? updatedRating : rating)),
+          );
+        }
+      } else {
+        const response = await apiRequest('/v1/passengers/ratings', {
+          method: 'POST',
+          token,
+          body: {
+            booking_id: selectedRide.id,
+            driver_id: selectedRide.driver_id,
+            score,
+            feedback: feedback.trim() || null,
+          },
+        });
 
-      const newRating = response?.data || response;
-      if (newRating) {
-        setRatings((prev) => [newRating, ...prev]);
-        setShowSubmitForm(false);
-        resetForm();
+        const newRating = response?.data || response;
+        if (newRating) {
+          setRatings((prev) => [newRating, ...prev]);
+        }
       }
+      setShowSubmitForm(false);
+      resetForm();
     } catch (err) {
-      setError(err.message || 'Failed to submit rating');
+      setError(err.message || 'Failed to save rating');
     } finally {
       setLoading(false);
     }
-  }, [token, score, selectedRideId, pastRides, feedback, resetForm]);
+  }, [token, score, selectedRideId, pastRides, feedback, resetForm, editingRatingId]);
 
   const deleteRating = useCallback(
     async (ratingId) => {
@@ -151,26 +170,30 @@ export default function PassengerRatingsPanel({ token }) {
     return (
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
         <View style={styles.formSection}>
-          <Text style={styles.formTitle}>Rate Your Ride</Text>
+          <Text style={styles.formTitle}>{editingRatingId ? 'Update Rating' : 'Rate Your Ride'}</Text>
 
           {!!error && <Text style={styles.errorText}>{error}</Text>}
 
-          <Text style={styles.fieldLabel}>Select Ride</Text>
-          {unratedRides.length === 0 ? (
-            <Text style={styles.noRidesText}>No completed rides available to rate</Text>
-          ) : (
-            <View style={styles.ridesDropdown}>
-              {unratedRides.map((ride) => (
-                <TouchableOpacity
-                  key={ride.id}
-                  style={[styles.rideOption, selectedRideId === ride.id && styles.rideOptionActive]}
-                  onPress={() => setSelectedRideId(ride.id)}>
-                  <Text style={styles.rideOptionText}>
-                    {ride.driver_name || 'Driver'} - {new Date(ride.created_at).toLocaleDateString()}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+          {!editingRatingId && (
+            <>
+              <Text style={styles.fieldLabel}>Select Ride</Text>
+              {unratedRides.length === 0 ? (
+                <Text style={styles.noRidesText}>No completed rides available to rate</Text>
+              ) : (
+                <View style={styles.ridesDropdown}>
+                  {unratedRides.map((ride) => (
+                    <TouchableOpacity
+                      key={ride.id}
+                      style={[styles.rideOption, selectedRideId === ride.id && styles.rideOptionActive]}
+                      onPress={() => setSelectedRideId(ride.id)}>
+                      <Text style={styles.rideOptionText}>
+                        {ride.driver_name || 'Driver'} - {new Date(ride.created_at).toLocaleDateString()}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </>
           )}
 
           <Text style={styles.fieldLabel}>Rating</Text>
@@ -201,7 +224,9 @@ export default function PassengerRatingsPanel({ token }) {
               style={[styles.button, styles.submitButton]}
               onPress={submitRating}
               disabled={loading || score === 0}>
-              <Text style={styles.submitButtonText}>{loading ? 'Submitting...' : 'Submit Rating'}</Text>
+              <Text style={styles.submitButtonText}>
+                {loading ? 'Saving...' : editingRatingId ? 'Update Rating' : 'Submit Rating'}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -242,6 +267,18 @@ export default function PassengerRatingsPanel({ token }) {
               </View>
 
               {!!rating.feedback && <Text style={styles.ratingFeedback}>{rating.feedback}</Text>}
+
+              <TouchableOpacity
+                style={styles.editButton}
+                onPress={() => {
+                  setEditingRatingId(rating.id);
+                  setScore(Number(rating.score || 0));
+                  setFeedback(String(rating.feedback || ''));
+                  setSelectedRideId(rating.booking_id || null);
+                  setShowSubmitForm(true);
+                }}>
+                <Text style={styles.editButtonText}>Edit</Text>
+              </TouchableOpacity>
 
               <Text style={styles.ratingDate}>{new Date(rating.created_at).toLocaleDateString()}</Text>
             </View>
@@ -285,6 +322,16 @@ const styles = StyleSheet.create({
   ratingStars: { fontSize: 16, marginTop: 4, color: '#FFC107' },
   deleteIcon: { fontSize: 14, color: '#D32F2F', fontWeight: '700' },
   ratingFeedback: { fontSize: 12, color: COLORS.textMain, lineHeight: 16, marginBottom: 8 },
+  editButton: {
+    alignSelf: 'flex-start',
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  editButtonText: { color: COLORS.primary, fontSize: 11, fontWeight: '700' },
   ratingDate: { fontSize: 10, color: COLORS.textMuted },
   formSection: {
     padding: 16,

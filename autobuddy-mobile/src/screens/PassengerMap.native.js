@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
+  Vibration,
   View,
 } from 'react-native';
 import * as Location from 'expo-location';
@@ -25,13 +26,49 @@ import RideCommunicationCard from '../components/RideCommunicationCard';
 import VoiceTextInput from '../components/VoiceTextInput';
 import BookingConfirmationCard from '../components/BookingConfirmationCard';
 import InteractiveMap from '../components/InteractiveMap';
+import KeralaSafetyCard from '../components/KeralaSafetyCard';
+import PromoCodePanel from '../components/PromoCodePanel';
+import SupportTicketsPanel from '../components/SupportTicketsPanel';
+import PaymentMethodsPanel from '../components/PaymentMethodsPanel';
+import PassengerRatingsPanel from '../components/PassengerRatingsPanel';
+import PreferencesPanel from '../components/PreferencesPanel';
+import SavedPlacesPanel from '../components/SavedPlacesPanel';
+import EmergencyContactsPanel from '../components/EmergencyContactsPanel';
+import AccessibilityPanel from '../components/AccessibilityPanel';
+import ScheduledRidesPanel from '../components/ScheduledRidesPanel';
+import NotificationCenter from '../components/NotificationCenter';
+import PassengerProfilePanel from '../components/PassengerProfilePanel';
+import PassengerKYCPanel from '../components/PassengerKYCPanel';
+import PassengerDocumentsPanel from '../components/PassengerDocumentsPanel';
+import ReceiptsPanel from '../components/ReceiptsPanel';
+import SubscriptionPanel from '../components/SubscriptionPanel';
+import { NotificationProvider, useNotifications } from '../contexts/NotificationContext';
+import { useNotificationManager } from '../hooks/useNotificationManager';
 import { usePassengerRideRealtime } from '../hooks/usePassengerRideRealtime';
+import { useKeralaSafety } from '../hooks/useKeralaSafety';
 
 const PASSENGER_MENU_OPTIONS = [
   { key: 'ride', label: 'Ride Booking' },
   { key: 'drivers', label: 'Drivers' },
+  { key: 'safety', label: 'Safety' },
   { key: 'wallet', label: 'Wallet' },
+  { key: 'spin', label: 'Spin & Win' },
+  { key: 'notifications', label: 'Notifications' },
+  { key: 'promo', label: 'Promo Codes' },
+  { key: 'support', label: 'Support' },
+  { key: 'payment', label: 'Payment' },
+  { key: 'ratings', label: 'Ratings' },
+  { key: 'preferences', label: 'Preferences' },
+  { key: 'places', label: 'Saved Places' },
+  { key: 'emergency', label: 'Emergency' },
+  { key: 'accessibility', label: 'Accessibility' },
+  { key: 'scheduled', label: 'Scheduled Rides' },
   { key: 'history', label: 'Ride History' },
+  { key: 'profile', label: 'Profile' },
+  { key: 'kyc', label: 'KYC Verification' },
+  { key: 'documents', label: 'Documents' },
+  { key: 'receipts', label: 'Receipts' },
+  { key: 'subscription', label: 'Subscription' },
 ];
 const PRIMARY_PASSENGER_MENU_KEY = 'ride';
 const DASHBOARD_PASSENGER_MENU_KEYS = new Set([PRIMARY_PASSENGER_MENU_KEY]);
@@ -42,7 +79,7 @@ const SECONDARY_PASSENGER_MENU_OPTIONS = PASSENGER_MENU_OPTIONS.filter(
 const DEFAULT_REGION = { latitude: 13.0827, longitude: 80.2707, latitudeDelta: 0.05, longitudeDelta: 0.05 };
 const passengerMapStyle = [];
 
-export default function PassengerMap({ token, user, onLogout, onProfilePress = undefined }) {
+export function PassengerMapContent({ token, user, onLogout, onProfilePress = undefined }) {
   const autoPickupInitializedRef = useRef(false);
   const bookingStatusRef = useRef({ bookingId: null, status: null });
   const driverAddressCacheRef = useRef(new Map());
@@ -73,6 +110,18 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
   const [autoFetchingTripData, setAutoFetchingTripData] = useState(false);
   const [bookingMode, setBookingMode] = useState('instant');
   const [scheduledAtInput, setScheduledAtInput] = useState('');
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('cash');
+  const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState(null);
+  const [selectedPaymentChannel, setSelectedPaymentChannel] = useState(null);
+  const [passengerPreferences, setPassengerPreferences] = useState(null);
+  const [appliedPromo, setAppliedPromo] = useState({
+    code: null,
+    discount: 0,
+    discount_type: null,
+    discount_value: 0,
+    max_discount: null,
+  });
+  const [passengerAccessibility, setPassengerAccessibility] = useState(null);
   const [selectingPoint, setSelectingPoint] = useState('pickup');
   const [mapError, setMapError] = useState('');
   const [activePassengerMenu, setActivePassengerMenu] = useState(PRIMARY_PASSENGER_MENU_KEY);
@@ -80,6 +129,11 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
   const [bookingJustCreated, setBookingJustCreated] = useState(false);
   const [showInteractiveMap, setShowInteractiveMap] = useState(true);
   const [locationSearchModalVisible, setLocationSearchModalVisible] = useState(false);
+  const [spinWinStatus, setSpinWinStatus] = useState(null);
+  const [spinWinLoading, setSpinWinLoading] = useState(false);
+  const [spinningNow, setSpinningNow] = useState(false);
+  useNotificationManager(token, user?.id);
+  const { unreadCount } = useNotifications();
   const mapRef = useRef(null);
   const [driverLiveAddress, setDriverLiveAddress] = useState('');
   const pickupAddressRequestRef = useRef(0);
@@ -96,6 +150,77 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
   };
   const placesConfigured = isPlacesConfigured();
   const liveTrackStatuses = useMemo(() => new Set(['accepted', 'driver_arrived', 'in_progress']), []);
+  const normalizeBookingPaymentMethod = useCallback((value) => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (!normalized || normalized === 'cash') {
+      return 'cash';
+    }
+    return 'online';
+  }, []);
+
+  useEffect(() => {
+    if (!token) {
+      return undefined;
+    }
+    let cancelled = false;
+    const hydratePassengerSettings = async () => {
+      const [prefs, accessibility] = await Promise.all([
+        apiRequest('/v1/passengers/preferences', { token }).catch(() => null),
+        apiRequest('/v1/passengers/accessibility', { token }).catch(() => null),
+      ]);
+      if (cancelled) {
+        return;
+      }
+      if (prefs) {
+        setPassengerPreferences(prefs);
+        if (prefs.default_payment_method) {
+          setSelectedPaymentMethod(normalizeBookingPaymentMethod(prefs.default_payment_method));
+        }
+      }
+      if (accessibility) {
+        setPassengerAccessibility(accessibility);
+      }
+    };
+    hydratePassengerSettings().catch(() => null);
+    return () => {
+      cancelled = true;
+    };
+  }, [normalizeBookingPaymentMethod, token]);
+
+  const handlePromoDiscountApplied = useCallback((promoState) => {
+    setAppliedPromo({
+      code: promoState?.code || null,
+      discount: Number(promoState?.discount || 0),
+      discount_type: promoState?.discount_type || null,
+      discount_value: Number(promoState?.discount_value || promoState?.discount || 0),
+      max_discount:
+        promoState?.max_discount === null || promoState?.max_discount === undefined
+          ? null
+          : Number(promoState.max_discount),
+    });
+  }, []);
+
+  const handleDefaultMethodChange = useCallback(
+    (method) => {
+      const nextMethodType = method?.method_type || method;
+      setSelectedPaymentMethod(normalizeBookingPaymentMethod(nextMethodType));
+      setSelectedPaymentMethodId(method?.id || null);
+      setSelectedPaymentChannel(typeof nextMethodType === 'string' ? nextMethodType : null);
+    },
+    [normalizeBookingPaymentMethod],
+  );
+
+  const handlePreferencesChange = useCallback(
+    (nextPrefs) => {
+      setPassengerPreferences(nextPrefs || null);
+      if (nextPrefs?.default_payment_method) {
+        const nextDefault = String(nextPrefs.default_payment_method || '').trim();
+        setSelectedPaymentMethod(normalizeBookingPaymentMethod(nextDefault));
+        setSelectedPaymentChannel(nextDefault || null);
+      }
+    },
+    [normalizeBookingPaymentMethod],
+  );
   const normalizeLocation = useCallback((location) => {
     if (!location) {
       return null;
@@ -157,6 +282,28 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
     const parsed = Number(String(fareExpectationInput || '').trim());
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
   }, [fareExpectationInput]);
+  const keralaSafety = useKeralaSafety({
+    token,
+    userName: user?.name,
+    activeBooking,
+  });
+  const accessibilityUi = useMemo(() => {
+    const textSize = String(passengerAccessibility?.text_size || 'normal').toLowerCase();
+    const textScale = textSize === 'extra_large' ? 1.18 : textSize === 'large' ? 1.1 : 1;
+    const highContrast = Boolean(passengerAccessibility?.high_contrast);
+    return {
+      containerStyle: highContrast ? { backgroundColor: '#FFFFFF' } : null,
+      panelStyle: highContrast ? { borderColor: '#000000', borderWidth: 2 } : null,
+      textStyle: {
+        color: highContrast ? '#000000' : COLORS.textMain,
+        fontSize: Math.round(13 * textScale),
+      },
+      titleStyle: {
+        color: highContrast ? '#000000' : COLORS.textMain,
+        fontSize: Math.round(20 * textScale),
+      },
+    };
+  }, [passengerAccessibility]);
   const estimateDriverFare = useCallback(
     (driver) => {
       const projectedFare = Number(driver?.projected_fare);
@@ -215,7 +362,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
         latitudeDelta: 0.02,
         longitudeDelta: 0.02,
       },
-      450,
+      passengerAccessibility?.reduce_motion ? 0 : 450,
     );
   };
 
@@ -235,6 +382,39 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
     setNearbyDrivers([]);
     setOptedOutDriverIds([]);
   };
+
+  const handleUseSavedPlace = useCallback(
+    async (place) => {
+      const latitude = Number(place?.latitude);
+      const longitude = Number(place?.longitude);
+      let resolvedLocation = null;
+
+      if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+        resolvedLocation = {
+          latitude: Number(latitude.toFixed(6)),
+          longitude: Number(longitude.toFixed(6)),
+          address: String(place?.address || place?.name || '').trim() || 'Saved place',
+        };
+      } else if (placesConfigured && String(place?.address || '').trim()) {
+        const suggestions = await searchPlaces(String(place.address).trim(), pickupLocation || dropoffLocation || DEFAULT_REGION).catch(() => []);
+        const best = Array.isArray(suggestions) ? suggestions[0] : null;
+        if (best?.placeId) {
+          resolvedLocation = await getPlaceLocation(best.placeId).catch(() => null);
+        }
+      }
+
+      if (!resolvedLocation) {
+        setError('This saved place is missing map coordinates.');
+        return;
+      }
+
+      const point = pickupLocation ? 'dropoff' : 'pickup';
+      setLocationForPoint(point, resolvedLocation);
+      setActivePassengerMenu(PRIMARY_PASSENGER_MENU_KEY);
+      setMessage(point === 'pickup' ? 'Pickup selected. Choose drop location.' : 'Drop location selected.');
+    },
+    [dropoffLocation, pickupLocation, placesConfigured],
+  );
 
   const resolveReadableAddress = useCallback(async (latitude, longitude) => {
     if (placesConfigured) {
@@ -360,10 +540,25 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
     }
   };
 
-  const notifyWithVoice = useCallback((title, body) => {
-    Alert.alert(title, body);
-    AccessibilityInfo.announceForAccessibility(`${title}. ${body}`);
-  }, []);
+  const triggerA11yFeedback = useCallback(
+    (announcement) => {
+      if (passengerAccessibility?.haptic_feedback) {
+        Vibration.vibrate(15);
+      }
+      if (passengerAccessibility?.screen_reader_enabled || passengerAccessibility?.voice_guidance) {
+        AccessibilityInfo.announceForAccessibility(String(announcement || '').trim());
+      }
+    },
+    [passengerAccessibility],
+  );
+
+  const notifyWithVoice = useCallback(
+    (title, body) => {
+      Alert.alert(title, body);
+      triggerA11yFeedback(`${title}. ${body}`);
+    },
+    [triggerA11yFeedback],
+  );
 
   const refreshActiveBooking = async () => {
     const booking = await callApi(
@@ -393,6 +588,46 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
     }
   };
 
+  const fetchSpinWinStatus = useCallback(
+    async ({ silent = false } = {}) => {
+      try {
+        if (!silent) {
+          setSpinWinLoading(true);
+        }
+        const status = await apiRequest('/spin-win/config', { token });
+        setSpinWinStatus(status || null);
+      } catch (err) {
+        if (!silent) {
+          setError(err.message || 'Could not load Spin & Win status.');
+        }
+      } finally {
+        if (!silent) {
+          setSpinWinLoading(false);
+        }
+      }
+    },
+    [token],
+  );
+
+  const spinNow = useCallback(async () => {
+    if (spinningNow) {
+      return;
+    }
+    try {
+      setSpinningNow(true);
+      setError('');
+      const result = await apiRequest('/spin-win/spin', { method: 'POST', token });
+      const rewardLabel = String(result?.reward?.prize_label || 'Reward').trim() || 'Reward';
+      const remaining = Number(result?.spins_left_today ?? 0);
+      setMessage(`Spin complete: ${rewardLabel}. Spins left today: ${remaining}.`);
+      await fetchSpinWinStatus({ silent: true });
+    } catch (err) {
+      setError(err.message || 'Spin failed. Please try again.');
+    } finally {
+      setSpinningNow(false);
+    }
+  }, [fetchSpinWinStatus, spinningNow, token]);
+
   useEffect(() => {
     let unmounted = false;
     const refreshSilently = async () => {
@@ -403,10 +638,12 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
       passengerPollCycleRef.current += 1;
       const cycle = passengerPollCycleRef.current;
       const includeBookings = activePassengerMenu === 'history' || cycle % 3 === 0;
+      const includeSpinStatus = activePassengerMenu === 'spin' || cycle % 6 === 0;
       try {
-        const [active, bookings] = await Promise.all([
+        const [active, bookings, spinStatus] = await Promise.all([
           apiRequest('/bookings/active', { token }).catch(() => null),
           includeBookings ? apiRequest('/bookings', { token }).catch(() => []) : Promise.resolve(null),
+          includeSpinStatus ? apiRequest('/spin-win/config', { token }).catch(() => null) : Promise.resolve(null),
         ]);
         if (unmounted) {
           return;
@@ -414,6 +651,9 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
         setActiveBooking(active || null);
         if (includeBookings) {
           setPassengerBookings(Array.isArray(bookings) ? bookings : []);
+        }
+        if (includeSpinStatus) {
+          setSpinWinStatus(spinStatus || null);
         }
       } catch {
         // Keep last known state on silent refresh failures.
@@ -448,16 +688,22 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
     }
     bookingStatusRef.current = { bookingId, status };
 
-    if (status === 'driver_arrived') {
-      notifyWithVoice('Driver Arrived', 'Your driver has arrived at the pickup point.');
-      return;
-    }
-    if (status === 'in_progress') {
-      notifyWithVoice('Trip Started', 'Your trip has started.');
-      return;
-    }
-    if (status === 'completed') {
-      notifyWithVoice('Trip Completed', 'Your trip has ended.');
+    // Comprehensive booking state announcements for better UX
+    const bookingStateMessages = {
+      pending: { title: 'Booking Pending', msg: 'Your booking is being processed.' },
+      searching: { title: 'Searching for Drivers', msg: 'We are finding the best driver for you.' },
+      accepted: { title: 'Driver Found', msg: 'Your driver has accepted your ride.' },
+      driver_arrived: { title: 'Driver Arrived', msg: 'Your driver has arrived at the pickup point.' },
+      in_progress: { title: 'Trip Started', msg: 'Your trip has started.' },
+      completed: { title: 'Trip Completed', msg: 'Your trip has ended.' },
+      cancelled: { title: 'Booking Cancelled', msg: 'Your booking has been cancelled.' },
+      waiting_for_payment: { title: 'Payment Required', msg: 'Please complete the payment to continue.' },
+      rating_pending: { title: 'Rate Your Ride', msg: 'Please rate your ride experience.' },
+    };
+
+    const announcement = bookingStateMessages[status];
+    if (announcement) {
+      notifyWithVoice(announcement.title, announcement.msg);
     }
   }, [activeBooking?.id, activeBookingStatus, notifyWithVoice]);
 
@@ -729,6 +975,25 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
     setOptedOutDriverIds([]);
   };
 
+  const getMenuLabel = useCallback(
+    (menu) => {
+      if (menu?.key === 'notifications' && unreadCount > 0) {
+        return `${menu.label} (${unreadCount})`;
+      }
+      return menu?.label || 'Menu';
+    },
+    [unreadCount],
+  );
+
+  const handleMenuSelection = useCallback(
+    (menuKey, label) => {
+      setActivePassengerMenu(menuKey);
+      setShowPassengerMenus(false);
+      triggerA11yFeedback(`${label || 'Menu'} selected`);
+    },
+    [triggerA11yFeedback],
+  );
+
   useEffect(() => {
     if (autoPickupInitializedRef.current || pickupLocation) {
       return;
@@ -804,6 +1069,10 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
     }
 
     const effectiveRideProduct = isScheduledMode ? 'scheduled' : 'normal';
+    const rideNotes = [];
+    if (appliedPromo?.code) {
+      rideNotes.push(`Promo requested: ${appliedPromo.code}`);
+    }
     const booking = await callApi(() =>
       apiRequest('/bookings/advanced', {
         method: 'POST',
@@ -811,12 +1080,27 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
         body: {
           pickup_location: pickupLocation,
           drop_location: dropoffLocation,
-          payment_method: 'cash',
+          payment_method: selectedPaymentMethod,
+          payment_method_id: selectedPaymentMethodId || undefined,
+          payment_channel: selectedPaymentChannel || undefined,
+          promo_code: appliedPromo?.code || undefined,
+          promo_discount_type: appliedPromo?.discount_type || undefined,
+          promo_discount_value:
+            Number.isFinite(Number(appliedPromo?.discount_value)) && Number(appliedPromo?.discount_value) > 0
+              ? Number(appliedPromo.discount_value)
+              : undefined,
+          promo_max_discount:
+            appliedPromo?.max_discount !== null &&
+            appliedPromo?.max_discount !== undefined &&
+            Number.isFinite(Number(appliedPromo.max_discount))
+              ? Number(appliedPromo.max_discount)
+              : undefined,
           ride_product: effectiveRideProduct,
           passenger_count: 1,
           allow_parallel: allowParallel,
           selected_driver_id: selectedDriverId || undefined,
           scheduled_for: scheduledForIso,
+          notes: rideNotes.length ? rideNotes.join(' | ') : undefined,
         },
       }),
     );
@@ -824,6 +1108,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
       setActiveBooking(booking);
       setBookingJustCreated(true);
       setMessage(isScheduledMode ? 'Scheduled ride request created.' : 'Ride request created.');
+      triggerA11yFeedback(isScheduledMode ? 'Scheduled ride request created' : 'Ride request created');
       refreshPassengerBookings({ silent: true });
     }
   };
@@ -853,6 +1138,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
             );
             if (cancelled) {
               setMessage('Booking cancelled.');
+              triggerA11yFeedback('Booking cancelled');
               await refreshActiveBooking();
               await refreshPassengerBookings({ silent: true });
             }
@@ -932,12 +1218,12 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
         latitudeDelta: 0.01,
         longitudeDelta: 0.01,
       },
-      600,
+      passengerAccessibility?.reduce_motion ? 0 : 600,
     );
-  }, [liveDriverLocation]);
+  }, [liveDriverLocation, passengerAccessibility?.reduce_motion]);
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, accessibilityUi.containerStyle]}>
       <MapView
         ref={mapRef}
         style={styles.map}
@@ -984,10 +1270,10 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
         </View>
       )}
 
-      <View style={styles.topBar}>
+      <View style={[styles.topBar, accessibilityUi.panelStyle]}>
         <View>
-          <Text style={styles.hello}>Hi, {user?.name || 'Passenger'}</Text>
-          <Text style={styles.sub}>Passenger Command Center</Text>
+          <Text style={[styles.hello, accessibilityUi.titleStyle]}>Hi, {user?.name || 'Passenger'}</Text>
+          <Text style={[styles.sub, accessibilityUi.textStyle]}>Passenger Command Center</Text>
         </View>
         {typeof onProfilePress === 'function' && (
           <TouchableOpacity onPress={onProfilePress} style={styles.logoutButton}>
@@ -999,13 +1285,13 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
         </TouchableOpacity>
       </View>
 
-      <View style={styles.bottomCard}>
+      <View style={[styles.bottomCard, accessibilityUi.panelStyle]}>
         <ScrollView
           contentContainerStyle={styles.bottomCardScrollContent}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled">
-          <Text style={styles.title}>Ride Flow</Text>
-          <Text style={styles.route}>Tap map to pick {selectingPoint}</Text>
+          <Text style={[styles.title, accessibilityUi.titleStyle]}>Ride Flow</Text>
+          <Text style={[styles.route, accessibilityUi.textStyle]}>Tap map to pick {selectingPoint}</Text>
           {loading && <ActivityIndicator color={COLORS.primary} style={styles.loader} />}
           {autoFetchingTripData && <ActivityIndicator color={COLORS.primary} style={styles.loader} />}
           {!!error && <Text style={styles.error}>{error}</Text>}
@@ -1026,14 +1312,19 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                 activePassengerMenu === PRIMARY_PASSENGER_MENU_KEY && styles.primaryMenuButtonActive,
               ]}
               onPress={() => {
-                setActivePassengerMenu(PRIMARY_PASSENGER_MENU_KEY);
-                setShowPassengerMenus(false);
+                handleMenuSelection(PRIMARY_PASSENGER_MENU_KEY, 'Ride Booking');
               }}>
               <Text style={styles.primaryMenuButtonText}>Ride Booking</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.menuToggleButton}
-              onPress={() => setShowPassengerMenus((prev) => !prev)}>
+              onPress={() =>
+                setShowPassengerMenus((prev) => {
+                  const next = !prev;
+                  triggerA11yFeedback(next ? 'Other menus opened' : 'Other menus closed');
+                  return next;
+                })
+              }>
               <Text style={styles.menuToggleButtonText}>{showPassengerMenus ? 'Hide Menus' : 'Other Menus'}</Text>
             </TouchableOpacity>
           </View>
@@ -1044,12 +1335,9 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                 <TouchableOpacity
                   key={menu.key}
                   style={[styles.menuChip, activePassengerMenu === menu.key && styles.menuChipActive]}
-                  onPress={() => {
-                    setActivePassengerMenu(menu.key);
-                    setShowPassengerMenus(false);
-                  }}>
+                  onPress={() => handleMenuSelection(menu.key, getMenuLabel(menu))}>
                   <Text style={[styles.menuChipText, activePassengerMenu === menu.key && styles.menuChipTextActive]}>
-                    {menu.label}
+                    {getMenuLabel(menu)}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -1059,14 +1347,11 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
           {activePassengerMenu !== PRIMARY_PASSENGER_MENU_KEY && (
             <View style={styles.activeMenuInfoRow}>
               <Text style={styles.activeMenuInfoText}>
-                {PASSENGER_MENU_OPTIONS.find((menu) => menu.key === activePassengerMenu)?.label || 'Menu'}
+                {getMenuLabel(PASSENGER_MENU_OPTIONS.find((menu) => menu.key === activePassengerMenu)) || 'Menu'}
               </Text>
               <TouchableOpacity
                 style={styles.menuToggleButton}
-                onPress={() => {
-                  setActivePassengerMenu(PRIMARY_PASSENGER_MENU_KEY);
-                  setShowPassengerMenus(false);
-                }}>
+                onPress={() => handleMenuSelection(PRIMARY_PASSENGER_MENU_KEY, 'Ride Booking')}>
                 <Text style={styles.menuToggleButtonText}>Back to Ride</Text>
               </TouchableOpacity>
             </View>
@@ -1076,6 +1361,12 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
             <View style={styles.infoBlock}>
               <Text style={styles.infoTitle}>Wallet & Revenue</Text>
               <RevenueCard token={token} role={user?.role} />
+            </View>
+          )}
+          {activePassengerMenu === 'safety' && (
+            <View style={styles.infoBlock}>
+              <Text style={styles.infoTitle}>Safety</Text>
+              <KeralaSafetyCard safety={keralaSafety} />
             </View>
           )}
 
@@ -1221,6 +1512,33 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                     />
                   </>
                 )}
+              </View>
+
+              <View style={styles.infoBlock}>
+                <Text style={styles.infoTitle}>Booking Preferences</Text>
+                <Text style={styles.infoText}>
+                  Payment: {selectedPaymentMethod === 'online' ? 'Online' : 'Cash'}
+                </Text>
+                {!!selectedPaymentChannel && (
+                  <Text style={styles.infoText}>
+                    Channel: {String(selectedPaymentChannel).toUpperCase()}
+                  </Text>
+                )}
+                {appliedPromo?.code ? (
+                  <Text style={styles.infoText}>
+                    Promo: {appliedPromo.code}
+                  </Text>
+                ) : (
+                  <Text style={styles.infoText}>Promo: none</Text>
+                )}
+                {!!passengerPreferences?.language && (
+                  <Text style={styles.infoText}>
+                    Language: {String(passengerPreferences.language).toUpperCase()}
+                  </Text>
+                )}
+                {passengerAccessibility?.high_contrast ? (
+                  <Text style={styles.infoText}>Accessibility: High contrast enabled</Text>
+                ) : null}
               </View>
 
               <View style={styles.actionsRow}>
@@ -1453,6 +1771,74 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                     currentUserId={user?.id}
                     counterpartName={activeBooking.driver_name || 'Driver'}
                   />
+                  
+                  {/* Active Ride Quick Actions */}
+                  <View style={styles.quickActionsRow}>
+                    <TouchableOpacity
+                      style={[styles.quickActionButton, { backgroundColor: '#FF6B6B' }]}
+                      onPress={() => {
+                        Alert.alert(
+                          'Emergency Alert',
+                          'Contact emergency services?',
+                          [
+                            { text: 'Cancel', style: 'cancel' },
+                            { text: 'Call Emergency', style: 'destructive', onPress: () => setActivePassengerMenu('emergency') },
+                          ]
+                        );
+                      }}
+                    >
+                      <Text style={styles.quickActionIcon}>🆘</Text>
+                      <Text style={styles.quickActionLabel}>Emergency</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.quickActionButton, { backgroundColor: '#FF9800' }]}
+                      onPress={() => {
+                        Alert.alert(
+                          'Report Issue',
+                          'Report a problem with this ride?',
+                          [
+                            { text: 'Cancel', style: 'cancel' },
+                            {
+                              text: 'Report',
+                              style: 'default',
+                              onPress: () => {
+                                setActivePassengerMenu('support');
+                                setMessage('Opening support to report issue...');
+                              },
+                            },
+                          ]
+                        );
+                      }}
+                    >
+                      <Text style={styles.quickActionIcon}>⚠️</Text>
+                      <Text style={styles.quickActionLabel}>Report Issue</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.quickActionButton, { backgroundColor: '#2196F3' }]}
+                      onPress={() => {
+                        Alert.alert(
+                          'Lost Item',
+                          'Report a lost item?',
+                          [
+                            { text: 'Cancel', style: 'cancel' },
+                            {
+                              text: 'Report Lost Item',
+                              style: 'default',
+                              onPress: () => {
+                                setActivePassengerMenu('support');
+                                setMessage('Opening support to report lost item...');
+                              },
+                            },
+                          ]
+                        );
+                      }}
+                    >
+                      <Text style={styles.quickActionIcon}>🔍</Text>
+                      <Text style={styles.quickActionLabel}>Lost Item</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               )}
             </>
@@ -1491,6 +1877,90 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
               )}
             </View>
           )}
+          {activePassengerMenu === 'spin' && (
+            <View style={styles.infoBlock}>
+              <Text style={styles.infoTitle}>Spin & Win</Text>
+              {!spinWinStatus ? (
+                <Text style={styles.infoText}>Spin status is unavailable. Tap refresh.</Text>
+              ) : (
+                <>
+                  <Text style={styles.infoText}>
+                    Status: {spinWinStatus.enabled ? 'Enabled' : 'Disabled'}
+                  </Text>
+                  <Text style={styles.infoText}>
+                    Daily limit: {Number(spinWinStatus.daily_spin_limit || 0)} | Used:{' '}
+                    {Number(spinWinStatus.spins_used_today || 0)} | Left:{' '}
+                    {Number(spinWinStatus.spins_left_today || 0)}
+                  </Text>
+                  {!spinWinStatus.eligible && (
+                    <Text style={styles.infoText}>
+                      {spinWinStatus.eligibility_reason || 'Not eligible for Spin & Win.'}
+                    </Text>
+                  )}
+                </>
+              )}
+              <View style={styles.actionsRow}>
+                <TouchableOpacity
+                  style={styles.actionButton}
+                  onPress={spinNow}
+                  disabled={
+                    spinningNow ||
+                    spinWinLoading ||
+                    !spinWinStatus?.eligible ||
+                    Number(spinWinStatus?.spins_left_today || 0) <= 0
+                  }>
+                  <Text style={styles.actionText}>{spinningNow ? 'Spinning...' : 'Spin Now'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.actionButtonMuted}
+                  onPress={() => fetchSpinWinStatus({ silent: false })}
+                  disabled={spinWinLoading}>
+                  <Text style={styles.actionText}>{spinWinLoading ? 'Refreshing...' : 'Refresh'}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+          {activePassengerMenu === 'notifications' && (
+            <NotificationCenter
+              token={token}
+              onClose={() => {
+                setActivePassengerMenu(PRIMARY_PASSENGER_MENU_KEY);
+              }}
+              onNotificationPress={(notification) => {
+                if (notification?.bookingId) {
+                  setActivePassengerMenu(PRIMARY_PASSENGER_MENU_KEY);
+                }
+              }}
+            />
+          )}
+          {activePassengerMenu === 'promo' && (
+            <PromoCodePanel
+              token={token}
+              rideFare={Number(fare?.total_fare || activeBooking?.estimated_fare || 1)}
+              onDiscountApplied={handlePromoDiscountApplied}
+            />
+          )}
+          {activePassengerMenu === 'support' && <SupportTicketsPanel token={token} />}
+          {activePassengerMenu === 'payment' && (
+            <PaymentMethodsPanel token={token} onDefaultMethodChange={handleDefaultMethodChange} />
+          )}
+          {activePassengerMenu === 'ratings' && <PassengerRatingsPanel token={token} />}
+          {activePassengerMenu === 'preferences' && (
+            <PreferencesPanel token={token} onPreferencesChange={handlePreferencesChange} />
+          )}
+          {activePassengerMenu === 'places' && (
+            <SavedPlacesPanel token={token} onUsePlace={handleUseSavedPlace} />
+          )}
+          {activePassengerMenu === 'emergency' && <EmergencyContactsPanel token={token} />}
+          {activePassengerMenu === 'accessibility' && (
+            <AccessibilityPanel token={token} onSettingsChange={setPassengerAccessibility} />
+          )}
+          {activePassengerMenu === 'scheduled' && <ScheduledRidesPanel token={token} />}
+          {activePassengerMenu === 'profile' && <PassengerProfilePanel token={token} />}
+          {activePassengerMenu === 'kyc' && <PassengerKYCPanel token={token} />}
+          {activePassengerMenu === 'documents' && <PassengerDocumentsPanel token={token} />}
+          {activePassengerMenu === 'receipts' && <ReceiptsPanel token={token} />}
+          {activePassengerMenu === 'subscription' && <SubscriptionPanel token={token} />}
         </ScrollView>
       </View>
     </View>
@@ -1899,6 +2369,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   cancelText: { color: '#fff', fontWeight: '700' },
+  quickActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+  },
+  quickActionButton: {
+    flex: 1,
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickActionIcon: {
+    fontSize: 18,
+    marginBottom: 4,
+  },
+  quickActionLabel: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 11,
+    textAlign: 'center',
+  },
   historyCard: {
     backgroundColor: '#F5F5F5',
     borderRadius: 8,
@@ -1939,3 +2435,10 @@ const styles = StyleSheet.create({
   },
 });
 
+export default function PassengerMap(props) {
+  return (
+    <NotificationProvider>
+      <PassengerMapContent {...props} />
+    </NotificationProvider>
+  );
+}

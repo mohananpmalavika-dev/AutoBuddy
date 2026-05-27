@@ -76,6 +76,8 @@ export default function PromoCodePanel({ token, rideFare = 1, onDiscountApplied 
           code: promoCode.trim(),
           discount: normalized.discount_percent || normalized.discount_amount || 0,
           discount_type: normalized.discount_type,
+          discount_value: normalized.discount_value || normalized.discount_percent || normalized.discount_amount || 0,
+          max_discount: normalized.max_discount || null,
         });
       }
     } catch (err) {
@@ -91,7 +93,7 @@ export default function PromoCodePanel({ token, rideFare = 1, onDiscountApplied 
     setValidationResult(null);
     setAppliedCode(null);
     setError('');
-    onDiscountApplied({ code: null, discount: 0, discount_type: null });
+    onDiscountApplied({ code: null, discount: 0, discount_type: null, discount_value: 0, max_discount: null });
   }, [onDiscountApplied]);
 
   const applyCodeFromList = useCallback((code) => {

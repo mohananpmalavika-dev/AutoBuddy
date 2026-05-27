@@ -46,7 +46,7 @@ function AccessibilitySelect({ label, field, value, options, saving, onSelect })
   );
 }
 
-export default function AccessibilityPanel({ token }) {
+export default function AccessibilityPanel({ token, onSettingsChange = () => {} }) {
   const [loading, setLoading] = useState(false);
   const [accessibility, setAccessibility] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -57,13 +57,17 @@ export default function AccessibilityPanel({ token }) {
       setLoading(true);
       setError('');
       const response = await apiRequest('/v1/passengers/accessibility', { token });
-      setAccessibility(response?.data || response || null);
+      const nextSettings = response?.data || response || null;
+      setAccessibility(nextSettings);
+      if (nextSettings) {
+        onSettingsChange(nextSettings);
+      }
     } catch (err) {
       setError(err.message || 'Failed to load accessibility settings');
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [onSettingsChange, token]);
 
   useEffect(() => {
     if (!token) {
@@ -85,14 +89,18 @@ export default function AccessibilityPanel({ token }) {
           token,
           body: { [field]: value },
         });
-        setAccessibility(response?.data || response || null);
+        const nextSettings = response?.data || response || null;
+        setAccessibility(nextSettings);
+        if (nextSettings) {
+          onSettingsChange(nextSettings);
+        }
       } catch (err) {
         setError(err.message || 'Failed to update accessibility setting');
       } finally {
         setSaving(false);
       }
     },
-    [token],
+    [onSettingsChange, token],
   );
 
   if (loading || !accessibility) {

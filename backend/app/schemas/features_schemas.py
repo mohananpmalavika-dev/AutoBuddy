@@ -16,7 +16,12 @@ from enum import Enum
 class RatingCreate(BaseModel):
     driver_id: str
     booking_id: Optional[str] = None
-    score: int = Field(..., ge=1, le=5)
+    score: int = Field(..., ge=1, le=9)
+    feedback: Optional[str] = None
+
+
+class RatingUpdate(BaseModel):
+    score: Optional[int] = Field(default=None, ge=1, le=9)
     feedback: Optional[str] = None
 
 
@@ -281,6 +286,7 @@ class TicketMessageResponse(BaseModel):
     sender_type: str
     sender_name: Optional[str]
     message_text: str
+    attachment_url: Optional[str] = None
     created_at: datetime
     
     class Config:

@@ -50,6 +50,7 @@ export default function PaymentMethodsPanel({ token, onDefaultMethodChange = () 
   const [showAddForm, setShowAddForm] = useState(false);
   const [walletBalance, setWalletBalance] = useState(0);
   const [walletTopupAmount, setWalletTopupAmount] = useState('');
+  const [selectedForBookingId, setSelectedForBookingId] = useState('');
 
   const [paymentType, setPaymentType] = useState('card');
   const [cardNumber, setCardNumber] = useState('');
@@ -71,13 +72,19 @@ export default function PaymentMethodsPanel({ token, onDefaultMethodChange = () 
       setLoading(true);
       setError('');
       const response = await apiRequest('/v1/passengers/payment-methods', { token });
-      setPaymentMethods(Array.isArray(response?.data) ? response.data : Array.isArray(response) ? response : []);
+      const methods = Array.isArray(response?.data) ? response.data : Array.isArray(response) ? response : [];
+      setPaymentMethods(methods);
+      const defaultMethod = methods.find((method) => method?.is_default);
+      if (defaultMethod) {
+        setSelectedForBookingId(defaultMethod.id);
+        onDefaultMethodChange(defaultMethod);
+      }
     } catch (err) {
       setError(err.message || 'Failed to load payment methods');
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [onDefaultMethodChange, token]);
 
   const fetchWalletBalance = useCallback(async () => {
     try {
@@ -366,6 +373,24 @@ export default function PaymentMethodsPanel({ token, onDefaultMethodChange = () 
 
               <View style={styles.methodActions}>
                 <TouchableOpacity
+                  style={[
+                    styles.actionButton,
+                    styles.useButton,
+                    selectedForBookingId === method.id && styles.useButtonActive,
+                  ]}
+                  onPress={() => {
+                    setSelectedForBookingId(method.id);
+                    onDefaultMethodChange(method);
+                  }}>
+                  <Text
+                    style={[
+                      styles.useButtonText,
+                      selectedForBookingId === method.id && styles.useButtonTextActive,
+                    ]}>
+                    {selectedForBookingId === method.id ? 'Selected for booking' : 'Use for booking'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
                   style={[styles.actionButton, styles.deleteButton]}
                   onPress={() => deletePaymentMethod(method.id)}>
                   <Text style={styles.deleteButtonText}>Delete</Text>
@@ -463,6 +488,10 @@ const styles = StyleSheet.create({
   },
   deleteButton: { borderColor: '#D32F2F' },
   deleteButtonText: { color: '#D32F2F', fontWeight: '600', fontSize: 11 },
+  useButton: { borderColor: COLORS.primary },
+  useButtonActive: { backgroundColor: '#E8F5E9' },
+  useButtonText: { color: COLORS.primary, fontWeight: '600', fontSize: 11 },
+  useButtonTextActive: { color: '#2E7D32' },
   formSection: {
     padding: 16,
     margin: 12,

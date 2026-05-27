@@ -19,6 +19,7 @@ export default function SupportTicketsPanel({ token }) {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
+  const [messageAttachmentUrl, setMessageAttachmentUrl] = useState('');
   const [error, setError] = useState('');
 
   // Form state
@@ -26,6 +27,7 @@ export default function SupportTicketsPanel({ token }) {
   const [subject, setSubject] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState('medium');
+  const [createAttachmentUrl, setCreateAttachmentUrl] = useState('');
 
   const categories = useMemo(
     () => [
@@ -99,12 +101,23 @@ export default function SupportTicketsPanel({ token }) {
 
       const newTicket = response?.data || response;
       if (newTicket) {
+        if (createAttachmentUrl.trim()) {
+          await apiRequest(`/v1/passengers/support/tickets/${newTicket.id}/messages`, {
+            method: 'POST',
+            token,
+            body: {
+              message_text: 'Attachment shared',
+              attachment_url: createAttachmentUrl.trim(),
+            },
+          }).catch(() => null);
+        }
         setTickets((prev) => [newTicket, ...prev]);
         setShowCreateForm(false);
         setSubject('');
         setDescription('');
         setCategory('other');
         setPriority('medium');
+        setCreateAttachmentUrl('');
         setError('');
       }
     } catch (err) {
@@ -124,13 +137,17 @@ export default function SupportTicketsPanel({ token }) {
       const response = await apiRequest(`/v1/passengers/support/tickets/${selectedTicket.id}/messages`, {
         method: 'POST',
         token,
-        body: { message_text: newMessage.trim() },
+        body: {
+          message_text: newMessage.trim(),
+          attachment_url: messageAttachmentUrl.trim() || null,
+        },
       });
 
       const addedMessage = response?.data || response;
       if (addedMessage) {
         setMessages((prev) => [...prev, addedMessage]);
         setNewMessage('');
+        setMessageAttachmentUrl('');
       }
     } catch (err) {
       setError(err.message || 'Failed to add message');
@@ -162,7 +179,7 @@ export default function SupportTicketsPanel({ token }) {
           <TouchableOpacity onPress={() => setSelectedTicket(null)}>
             <Text style={styles.backButton}>Back</Text>
           </TouchableOpacity>
-          <Text style={styles.ticketId}>#{selectedTicket.id.substring(0, 8)}</Text>
+          <Text style={styles.ticketId}>#{String(selectedTicket.id || '').substring(0, 8)}</Text>
           <View style={[styles.statusBadge, { backgroundColor: getStatusColor(selectedTicket.status) }]}>
             <Text style={styles.statusText}>{selectedTicket.status.toUpperCase()}</Text>
           </View>
@@ -191,6 +208,9 @@ export default function SupportTicketsPanel({ token }) {
                     msg.sender_type === 'passenger' && styles.passengerMessage,
                   ]}>
                   <Text style={styles.messageText}>{msg.message_text || msg.message}</Text>
+                  {!!msg.attachment_url && (
+                    <Text style={styles.messageAttachment}>Attachment: {msg.attachment_url}</Text>
+                  )}
                   <Text style={styles.messageTime}>
                     {new Date(msg.created_at).toLocaleString()}
                   </Text>
@@ -212,6 +232,13 @@ export default function SupportTicketsPanel({ token }) {
                 placeholderTextColor={COLORS.textMuted}
                 multiline
                 maxHeight={80}
+              />
+              <TextInput
+                style={styles.attachmentInput}
+                value={messageAttachmentUrl}
+                onChangeText={setMessageAttachmentUrl}
+                placeholder="Attachment URL (optional)"
+                placeholderTextColor={COLORS.textMuted}
               />
               <TouchableOpacity style={styles.sendButton} onPress={addMessage} disabled={loading}>
                 <Text style={styles.sendButtonText}>Send</Text>
@@ -313,6 +340,14 @@ export default function SupportTicketsPanel({ token }) {
             placeholderTextColor={COLORS.textMuted}
             multiline
             numberOfLines={4}
+          />
+          <Text style={styles.fieldLabel}>Attachment URL (Optional)</Text>
+          <TextInput
+            style={styles.input}
+            value={createAttachmentUrl}
+            onChangeText={setCreateAttachmentUrl}
+            placeholder="https://example.com/screenshot.png"
+            placeholderTextColor={COLORS.textMuted}
           />
 
           {/* Priority */}
@@ -429,9 +464,10 @@ const styles = StyleSheet.create({
   },
   passengerMessage: { backgroundColor: '#E3F2FD', borderLeftColor: COLORS.primary },
   messageText: { fontSize: 12, color: COLORS.textMain, marginBottom: 4 },
+  messageAttachment: { fontSize: 11, color: COLORS.primary, marginBottom: 4 },
   messageTime: { fontSize: 10, color: COLORS.textMuted },
   messageInputSection: { padding: 12, backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: COLORS.border },
-  inputRow: { flexDirection: 'row', gap: 8 },
+  inputRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-end' },
   messageInput: {
     flex: 1,
     borderWidth: 1,
@@ -442,6 +478,17 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: COLORS.textMain,
     maxHeight: 80,
+  },
+  attachmentInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 11,
+    color: COLORS.textMain,
+    minHeight: 40,
   },
   sendButton: { backgroundColor: COLORS.primary, paddingHorizontal: 16, borderRadius: 8, justifyContent: 'center' },
   sendButtonText: { color: '#FFFFFF', fontWeight: '700', fontSize: 12 },

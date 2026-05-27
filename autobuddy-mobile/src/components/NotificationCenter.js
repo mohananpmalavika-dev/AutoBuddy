@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import {
+  Alert,
   View,
   Text,
   ScrollView,
@@ -77,25 +78,23 @@ export default function NotificationCenter({ token, onClose, onNotificationPress
     if (notifications.length === 0) return;
 
     // Confirm before clearing
-    if (typeof alert !== 'undefined') {
-      alert('Clear all notifications?', '', [
-        { text: 'Cancel', onPress: () => {} },
-        {
-          text: 'Clear',
-          onPress: async () => {
-            setLoading(true);
-            try {
-              clearAll();
-              await notificationService.clearAll(token);
-            } catch (error) {
-              console.error('Error clearing notifications:', error);
-            } finally {
-              setLoading(false);
-            }
-          },
+    Alert.alert('Clear all notifications?', '', [
+      { text: 'Cancel', onPress: () => {} },
+      {
+        text: 'Clear',
+        onPress: async () => {
+          setLoading(true);
+          try {
+            clearAll();
+            await notificationService.clearAll(token);
+          } catch (error) {
+            console.error('Error clearing notifications:', error);
+          } finally {
+            setLoading(false);
+          }
         },
-      ]);
-    }
+      },
+    ]);
   }, [token, notifications, clearAll]);
 
   return (

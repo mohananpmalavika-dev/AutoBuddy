@@ -29,15 +29,31 @@ export default function DriverTabBar({
   compact = false,
 }) {
   const tabs = useMemo(() => [
+    // Core Operation
     { key: 'requests', label: 'Ride Flow', icon: 'R', badge: requestCount > 0 ? requestCount : null },
     { key: 'earnings', label: 'Earnings', icon: 'E', badge: null },
+    
+    // Account Management
+    { key: 'profile', label: 'Profile', icon: 'P', badge: null },
+    { key: 'documents', label: 'Documents', icon: 'D', badge: null },
+    { key: 'vehicle', label: 'Vehicle', icon: 'V', badge: null },
+    
+    // Rewards & Tools
     { key: 'spin', label: 'Spin', icon: 'S', badge: null },
     { key: 'fare', label: 'Fare', icon: 'F', badge: null },
+    
+    // Performance & Analytics
+    { key: 'analytics', label: 'Analytics', icon: 'A', badge: null },
+    
+    // Management
     { key: 'blocked', label: 'Blocked', icon: 'B', badge: null },
     { key: 'safety', label: 'Safety', icon: '!', badge: null },
     { key: 'trust', label: 'Trust', icon: 'T', badge: null },
+    { key: 'support', label: 'Support', icon: 'H', badge: null },
+    
+    // Preferences
+    { key: 'settings', label: 'Settings', icon: '⚙️', badge: null },
     { key: 'actions', label: 'Actions', icon: '+', badge: null },
-    { key: 'settings', label: 'Settings', icon: 'P', badge: null },
   ], [requestCount]);
 
   const handleTabPress = useCallback((tabKey) => {

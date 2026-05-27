@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from datetime import datetime
 from enum import Enum
@@ -6,8 +7,12 @@ from typing import Any, Dict, List, Optional, Set
 from fastapi import APIRouter, Depends, HTTPException, Query
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import func
 
 from app.db.deps import get_db
+from app.db.models_features import PaymentMethod as PassengerPaymentMethod
+from app.db.models_features import PromoCode, PromoCodeUsage
+from app.db.database import SessionLocal
 from app.utils.rbac import get_current_user_secure
 
 router = APIRouter(prefix="/api", tags=["ride_products"])
@@ -47,6 +52,12 @@ class AdvancedBookingRequest(BaseModel):
     allow_parallel: bool = False
     selected_driver_id: Optional[str] = Field(default=None, max_length=120)
     payment_method: str = Field(default="cash", max_length=20)
+    payment_method_id: Optional[str] = Field(default=None, max_length=120)
+    payment_channel: Optional[str] = Field(default=None, max_length=40)
+    promo_code: Optional[str] = Field(default=None, max_length=50)
+    promo_discount_type: Optional[str] = Field(default=None, max_length=20)
+    promo_discount_value: Optional[float] = Field(default=None, ge=0)
+    promo_max_discount: Optional[float] = Field(default=None, ge=0)
 
 
 class DistrictRideProductRule(BaseModel):
@@ -172,6 +183,115 @@ def _extract_district_from_address(address: Any) -> Optional[str]:
             return guess
     guess = _normalize_district_name(tokens[-1])
     return guess or None
+
+
+def _compute_promo_discount(
+    fare_amount: float,
+    discount_type: Optional[str],
+    discount_value: Optional[float],
+    max_discount: Optional[float],
+) -> float:
+    base = max(0.0, float(fare_amount or 0.0))
+    if base <= 0:
+        return 0.0
+    kind = str(discount_type or "").strip().lower()
+    value = max(0.0, float(discount_value or 0.0))
+    if value <= 0:
+        return 0.0
+    if kind == "percentage":
+        discount = (base * value) / 100.0
+    else:
+        discount = value
+    if max_discount is not None:
+        discount = min(discount, max(0.0, float(max_discount or 0.0)))
+    return round(min(discount, base), 2)
+
+
+def _get_owned_payment_method(passenger_id: str, payment_method_id: str) -> PassengerPaymentMethod:
+    with SessionLocal() as session:
+        method = (
+            session.query(PassengerPaymentMethod)
+            .filter(
+                PassengerPaymentMethod.id == payment_method_id,
+                PassengerPaymentMethod.passenger_id == passenger_id,
+                PassengerPaymentMethod.is_active == True,
+            )
+            .first()
+        )
+        if not method:
+            raise HTTPException(status_code=400, detail="Selected payment method is invalid or not available.")
+        return method
+
+
+def _resolve_validated_promo(
+    *,
+    passenger_id: str,
+    promo_code: str,
+    ride_fare: float,
+) -> Dict[str, Any]:
+    code = promo_code.strip()
+    if not code:
+        return {}
+
+    with SessionLocal() as session:
+        now = datetime.utcnow()
+        promo = (
+            session.query(PromoCode)
+            .filter(
+                func.lower(PromoCode.code) == code.lower(),
+                PromoCode.is_active == True,
+                PromoCode.valid_from <= now,
+                PromoCode.valid_until >= now,
+            )
+            .first()
+        )
+        if not promo:
+            raise HTTPException(status_code=400, detail="Promo code not found or expired.")
+
+        if promo.usage_limit:
+            current_usage = (
+                session.query(PromoCodeUsage)
+                .filter(PromoCodeUsage.promo_code_id == promo.id)
+                .count()
+            )
+            if current_usage >= promo.usage_limit:
+                raise HTTPException(status_code=400, detail="Promo code usage limit exceeded.")
+
+        user_usage = (
+            session.query(PromoCodeUsage)
+            .filter(
+                PromoCodeUsage.promo_code_id == promo.id,
+                PromoCodeUsage.passenger_id == passenger_id,
+            )
+            .count()
+        )
+        usage_per_user = int(promo.usage_per_user or 1)
+        if user_usage >= usage_per_user:
+            raise HTTPException(status_code=400, detail="You have already used this promo code.")
+
+        min_ride_fare = float(promo.min_ride_fare or 0.0)
+        if ride_fare < min_ride_fare:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Minimum ride fare ₹{min_ride_fare} required for this promo code.",
+            )
+
+        discount_amount = _compute_promo_discount(
+            ride_fare,
+            promo.discount_type,
+            promo.discount_value,
+            promo.max_discount,
+        )
+        if discount_amount <= 0:
+            raise HTTPException(status_code=400, detail="Promo code does not provide a valid discount for this ride.")
+
+        return {
+            "code": promo.code,
+            "discount_type": str(promo.discount_type or "").strip().lower() or None,
+            "discount_value": float(promo.discount_value or 0.0),
+            "max_discount": float(promo.max_discount) if promo.max_discount is not None else None,
+            "discount_amount": discount_amount,
+        }
 
 
 def _default_ride_product_config() -> Dict[str, Any]:
@@ -531,6 +651,10 @@ async def create_advanced_booking(
     if payload.ride_product == RideProduct.RENTAL_HOURLY and not payload.rental_hours:
         raise HTTPException(status_code=400, detail="Rental hours required for rental/hourly rides")
 
+    normalized_payment_method = str(payload.payment_method or "cash").strip().lower() or "cash"
+    if normalized_payment_method not in {"cash", "online"}:
+        raise HTTPException(status_code=400, detail="payment_method must be cash or online")
+
     if not payload.allow_parallel:
         active_statuses = ["pending", "accepted", "driver_arrived", "in_progress"]
         existing = await db.bookings.find_one(
@@ -548,7 +672,34 @@ async def create_advanced_booking(
     distance_km = max(0.5, _to_float(drop.get("distance_km"), _to_float(pickup.get("distance_km"), 5.0)))
     base_fare = 60.0
     per_km = 18.0
-    estimated_fare = round((base_fare + (distance_km * per_km)) * _product_multiplier(payload.ride_product), 2)
+    raw_estimated_fare = round((base_fare + (distance_km * per_km)) * _product_multiplier(payload.ride_product), 2)
+    payment_method_id = str(payload.payment_method_id or "").strip() or None
+    payment_channel = str(payload.payment_channel or "").strip().lower() or None
+    if payment_method_id:
+        owned_method = await asyncio.to_thread(_get_owned_payment_method, current_user_id, payment_method_id)
+        normalized_payment_method = "online"
+        payment_channel = str(owned_method.method_type or "").strip().lower() or payment_channel
+    elif normalized_payment_method == "cash":
+        payment_channel = None
+
+    promo_code = str(payload.promo_code or "").strip() or None
+    promo_discount_type = None
+    promo_discount_value = 0.0
+    promo_max_discount = None
+    promo_discount_amount = 0.0
+    if promo_code:
+        promo_validation = await asyncio.to_thread(
+            _resolve_validated_promo,
+            passenger_id=current_user_id,
+            promo_code=promo_code,
+            ride_fare=raw_estimated_fare,
+        )
+        promo_code = promo_validation.get("code") or promo_code
+        promo_discount_type = promo_validation.get("discount_type")
+        promo_discount_value = float(promo_validation.get("discount_value") or 0.0)
+        promo_max_discount = promo_validation.get("max_discount")
+        promo_discount_amount = float(promo_validation.get("discount_amount") or 0.0)
+    estimated_fare = round(max(0.0, raw_estimated_fare - promo_discount_amount), 2)
 
     now = datetime.utcnow()
     is_scheduled = payload.ride_product == RideProduct.SCHEDULED or payload.scheduled_for is not None
@@ -575,7 +726,15 @@ async def create_advanced_booking(
         "safe_ride_priority": payload.safe_ride_priority,
         "notes": payload.notes,
         "selected_driver_id": payload.selected_driver_id,
-        "payment_method": str(payload.payment_method or "cash").strip().lower() or "cash",
+        "payment_method": normalized_payment_method,
+        "payment_method_id": payment_method_id,
+        "payment_channel": payment_channel,
+        "promo_code": promo_code,
+        "promo_discount_type": promo_discount_type,
+        "promo_discount_value": promo_discount_value,
+        "promo_max_discount": promo_max_discount,
+        "promo_discount_amount": promo_discount_amount,
+        "fare_before_discount": raw_estimated_fare,
         "status": "scheduled" if is_scheduled else "pending",
         "estimated_fare": estimated_fare,
         "distance_km": round(distance_km, 2),

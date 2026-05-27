@@ -9,6 +9,7 @@ export default function ScheduledRidesPanel({ token }) {
   const [loading, setLoading] = useState(false);
   const [rides, setRides] = useState([]);
   const [showForm, setShowForm] = useState(false);
+  const [editingRideId, setEditingRideId] = useState(null);
   const [formData, setFormData] = useState({
     pickup_location: '',
     dropoff_location: '',
@@ -70,11 +71,52 @@ export default function ScheduledRidesPanel({ token }) {
         recurrence_pattern: 'none',
       });
       setShowForm(false);
+      setEditingRideId(null);
       await fetchScheduledRides();
     } catch (err) {
       Alert.alert('Error', err.message || 'Failed to schedule ride');
     }
   }, [token, formData, fetchScheduledRides]);
+
+  const updateRide = useCallback(async () => {
+    if (!editingRideId) {
+      return;
+    }
+    if (!formData.pickup_location.trim() || !formData.dropoff_location.trim() || !formData.scheduled_time.trim()) {
+      Alert.alert('Error', 'Please fill all fields');
+      return;
+    }
+    const parsedDate = new Date(formData.scheduled_time.replace(' ', 'T'));
+    if (Number.isNaN(parsedDate.getTime())) {
+      Alert.alert('Error', 'Use a valid date/time, for example 2026-05-31 08:30');
+      return;
+    }
+    try {
+      await apiRequest(`/v1/passengers/scheduled-rides/${editingRideId}`, {
+        method: 'PATCH',
+        token,
+        body: {
+          pickup_location: formData.pickup_location.trim(),
+          dropoff_location: formData.dropoff_location.trim(),
+          scheduled_time: parsedDate.toISOString(),
+          ride_type: 'normal',
+          recurring: formData.recurrence_pattern !== 'none',
+          recurrence_pattern: formData.recurrence_pattern === 'none' ? null : formData.recurrence_pattern,
+        },
+      });
+      setFormData({
+        pickup_location: '',
+        dropoff_location: '',
+        scheduled_time: '',
+        recurrence_pattern: 'none',
+      });
+      setShowForm(false);
+      setEditingRideId(null);
+      await fetchScheduledRides();
+    } catch (err) {
+      Alert.alert('Error', err.message || 'Failed to reschedule ride');
+    }
+  }, [editingRideId, fetchScheduledRides, formData, token]);
 
   const cancelRide = useCallback(
     async (rideId) => {
@@ -169,9 +211,25 @@ export default function ScheduledRidesPanel({ token }) {
                 </View>
 
                 {item.status === 'scheduled' && (
-                  <TouchableOpacity onPress={() => cancelRide(item.id)} style={styles.cancelBtn}>
-                    <Text style={styles.cancelBtnText}>Cancel</Text>
-                  </TouchableOpacity>
+                  <View style={styles.scheduledActions}>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setEditingRideId(item.id);
+                        setFormData({
+                          pickup_location: String(item.pickup_location || ''),
+                          dropoff_location: String(item.dropoff_location || ''),
+                          scheduled_time: new Date(item.scheduled_time).toISOString().slice(0, 16).replace('T', ' '),
+                          recurrence_pattern: item.recurring ? String(item.recurrence_pattern || 'weekly') : 'none',
+                        });
+                        setShowForm(true);
+                      }}
+                      style={styles.rescheduleBtn}>
+                      <Text style={styles.rescheduleBtnText}>Reschedule</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => cancelRide(item.id)} style={styles.cancelBtn}>
+                      <Text style={styles.cancelBtnText}>Cancel</Text>
+                    </TouchableOpacity>
+                  </View>
                 )}
               </View>
             )}
@@ -186,7 +244,7 @@ export default function ScheduledRidesPanel({ token }) {
 
           {showForm && (
             <View style={styles.formCard}>
-              <Text style={styles.formTitle}>Schedule a Ride</Text>
+              <Text style={styles.formTitle}>{editingRideId ? 'Reschedule Ride' : 'Schedule a Ride'}</Text>
               <TextInput
                 style={styles.input}
                 placeholder="Pickup location"
@@ -224,11 +282,16 @@ export default function ScheduledRidesPanel({ token }) {
               </View>
 
               <View style={styles.formActions}>
-                <TouchableOpacity style={styles.cancelBtn2} onPress={() => setShowForm(false)}>
+                <TouchableOpacity
+                  style={styles.cancelBtn2}
+                  onPress={() => {
+                    setShowForm(false);
+                    setEditingRideId(null);
+                  }}>
                   <Text style={styles.cancelBtnText2}>Cancel</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.saveBtn} onPress={scheduleRide}>
-                  <Text style={styles.saveBtnText}>Schedule</Text>
+                <TouchableOpacity style={styles.saveBtn} onPress={editingRideId ? updateRide : scheduleRide}>
+                  <Text style={styles.saveBtnText}>{editingRideId ? 'Update' : 'Schedule'}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -271,7 +334,17 @@ const styles = StyleSheet.create({
   metaItem: { flex: 1 },
   metaLabel: { fontSize: 11, fontWeight: '700', color: COLORS.textMuted },
   metaValue: { fontSize: 12, fontWeight: '600', color: COLORS.textMain, marginTop: 2 },
-  cancelBtn: { paddingVertical: 8, borderRadius: 6, borderWidth: 1, borderColor: '#F44336', alignItems: 'center' },
+  scheduledActions: { flexDirection: 'row', gap: 8 },
+  rescheduleBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    alignItems: 'center',
+  },
+  rescheduleBtnText: { fontSize: 13, fontWeight: '600', color: COLORS.primary },
+  cancelBtn: { flex: 1, paddingVertical: 8, borderRadius: 6, borderWidth: 1, borderColor: '#F44336', alignItems: 'center' },
   cancelBtnText: { fontSize: 13, fontWeight: '600', color: '#F44336' },
   formCard: {
     backgroundColor: '#FFFFFF',

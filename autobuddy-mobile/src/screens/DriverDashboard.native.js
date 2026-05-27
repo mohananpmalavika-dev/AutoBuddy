@@ -24,6 +24,13 @@ import VoiceTextInput from '../components/VoiceTextInput';
 import RideCard from '../components/RideCard';
 import DriverTabBar from '../components/DriverTabBar';
 import EarningsPanel from '../components/EarningsPanel';
+import DriverProfile from './DriverProfile';
+import DocumentUploadPanel from '../components/DocumentUploadPanel';
+import VehicleManagementPanel from '../components/VehicleManagementPanel';
+import SupportTicketPanel from '../components/SupportTicketPanel';
+import EnhancedSettingsPanel from '../components/EnhancedSettingsPanel';
+import ProfileManagementPanel from '../components/ProfileManagementPanel';
+import AnalyticsDashboard from '../components/AnalyticsDashboard';
 import { useKeralaSafety } from '../hooks/useKeralaSafety';
 import { useDriverRealtimeTracking } from '../hooks/useDriverRealtimeTracking';
 
@@ -1445,21 +1452,37 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
 
           {/* Settings Tab */}
           {activeTab === 'settings' && (
-            <>
-              <View style={styles.earningsCard}>
-                <Text style={styles.fareTitle}>Settings</Text>
-                <View style={styles.settingItem}>
-                  <Text style={styles.settingLabel}>Online Status: {displayIsOnline ? 'Online' : 'Offline'}</Text>
-                  <TouchableOpacity style={styles.actionButton} onPress={() => toggleOnlineStatus()}>
-                    <Text style={styles.actionButtonText}>{displayIsOnline ? 'Go Offline' : 'Go Online'}</Text>
-                  </TouchableOpacity>
-                </View>
-                <View style={styles.settingItem}>
-                  <Text style={styles.settingLabel}>Live Tracking</Text>
-                  <Text style={[styles.infoText, { marginBottom: 8 }]}>{realtimeConnected ? '🟢 Connected' : '🔴 Reconnecting...'}</Text>
-                </View>
-              </View>
-            </>
+            <EnhancedSettingsPanel
+              token={token}
+              loading={loading}
+              displayIsOnline={displayIsOnline}
+              onToggleOnline={toggleOnlineStatus}
+            />
+          )}
+
+          {/* Profile Tab */}
+          {activeTab === 'profile' && (
+            <ProfileManagementPanel token={token} loading={loading} />
+          )}
+
+          {/* Documents Tab */}
+          {activeTab === 'documents' && (
+            <DocumentUploadPanel token={token} loading={loading} />
+          )}
+
+          {/* Vehicle Tab */}
+          {activeTab === 'vehicle' && (
+            <VehicleManagementPanel token={token} loading={loading} />
+          )}
+
+          {/* Support Tab */}
+          {activeTab === 'support' && (
+            <SupportTicketPanel token={token} loading={loading} />
+          )}
+
+          {/* Analytics Tab */}
+          {activeTab === 'analytics' && (
+            <AnalyticsDashboard token={token} loading={loading} />
           )}
         </ScrollView>
       </BottomSheet>
