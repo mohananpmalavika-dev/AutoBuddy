@@ -25,6 +25,7 @@ import VoiceTextInput from '../components/VoiceTextInput';
 import KeralaSafetyCard from '../components/KeralaSafetyCard';
 import RevenueCard from '../components/RevenueCard';
 import RideProductsGrid from '../components/RideProductsGrid';
+import WebGoogleLiveMap from '../components/WebGoogleLiveMap';
 import {
   FadeSlideView,
   GlassCard,
@@ -53,6 +54,10 @@ const DASHBOARD_PASSENGER_MENU_KEYS = new Set([PRIMARY_PASSENGER_MENU_KEY]);
 const SECONDARY_PASSENGER_MENU_OPTIONS = PASSENGER_MENU_OPTIONS.filter(
   (menu) => !DASHBOARD_PASSENGER_MENU_KEYS.has(menu.key),
 );
+const DEFAULT_CITY_LOCATION = {
+  latitude: 13.0827,
+  longitude: 80.2707,
+};
 
 export default function PassengerMap({ token, user, onLogout, onProfilePress = undefined }) {
   const autoPickupInitializedRef = useRef(false);
@@ -208,58 +213,65 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
     [dropoffLocation, pickupLocation, selectedDropoffLocation, selectedPickupLocation],
   );
 
-  const mapUrl = useMemo(() => {
+  const mapState = useMemo(() => {
     const origin = selectedPickupLocation;
     const destination = selectedDropoffLocation;
     const driverLiveLocation = normalizeLocation(activeBooking?.driver_location);
     const liveTarget = activeBookingStatus === 'in_progress' ? (destination || origin) : (origin || destination);
     const usingBasicEmbed = !googleMapsWebKey;
+    let fallbackUrl = '';
 
     if (usingBasicEmbed) {
       if (isDriverLiveSharing && driverLiveLocation && liveTarget) {
-        return `https://www.google.com/maps?output=embed&saddr=${driverLiveLocation.latitude},${driverLiveLocation.longitude}&daddr=${liveTarget.latitude},${liveTarget.longitude}`;
+        fallbackUrl = `https://www.google.com/maps?output=embed&saddr=${driverLiveLocation.latitude},${driverLiveLocation.longitude}&daddr=${liveTarget.latitude},${liveTarget.longitude}`;
+      } else if (isDriverLiveSharing && driverLiveLocation) {
+        fallbackUrl = `https://www.google.com/maps?output=embed&q=${driverLiveLocation.latitude},${driverLiveLocation.longitude}&z=15`;
+      } else if (origin && destination) {
+        fallbackUrl = `https://www.google.com/maps?output=embed&saddr=${origin.latitude},${origin.longitude}&daddr=${destination.latitude},${destination.longitude}`;
+      } else {
+        const location = origin || destination;
+        fallbackUrl = location
+          ? `https://www.google.com/maps?output=embed&q=${location.latitude},${location.longitude}&z=14`
+          : 'https://www.google.com/maps?output=embed&q=13.0827,80.2707&z=11';
       }
-      if (isDriverLiveSharing && driverLiveLocation) {
-        return `https://www.google.com/maps?output=embed&q=${driverLiveLocation.latitude},${driverLiveLocation.longitude}&z=15`;
-      }
-      if (origin && destination) {
-        return `https://www.google.com/maps?output=embed&saddr=${origin.latitude},${origin.longitude}&daddr=${destination.latitude},${destination.longitude}`;
-      }
-      const location = origin || destination;
-      if (location) {
-        return `https://www.google.com/maps?output=embed&q=${location.latitude},${location.longitude}&z=14`;
-      }
-      return 'https://www.google.com/maps?output=embed&q=13.0827,80.2707&z=11';
-    }
-
-    if (isDriverLiveSharing && driverLiveLocation && liveTarget) {
-      return `https://www.google.com/maps/embed/v1/directions?key=${encodeURIComponent(
+    } else if (isDriverLiveSharing && driverLiveLocation && liveTarget) {
+      fallbackUrl = `https://www.google.com/maps/embed/v1/directions?key=${encodeURIComponent(
         googleMapsWebKey,
       )}&origin=${driverLiveLocation.latitude},${driverLiveLocation.longitude}&destination=${liveTarget.latitude},${liveTarget.longitude}&avoid=tolls|highways`;
-    }
-
-    if (isDriverLiveSharing && driverLiveLocation) {
-      return `https://www.google.com/maps/embed/v1/place?key=${encodeURIComponent(
+    } else if (isDriverLiveSharing && driverLiveLocation) {
+      fallbackUrl = `https://www.google.com/maps/embed/v1/place?key=${encodeURIComponent(
         googleMapsWebKey,
       )}&q=${driverLiveLocation.latitude},${driverLiveLocation.longitude}&zoom=15`;
-    }
-
-    if (origin && destination) {
-      return `https://www.google.com/maps/embed/v1/directions?key=${encodeURIComponent(
+    } else if (origin && destination) {
+      fallbackUrl = `https://www.google.com/maps/embed/v1/directions?key=${encodeURIComponent(
         googleMapsWebKey,
       )}&origin=${origin.latitude},${origin.longitude}&destination=${destination.latitude},${destination.longitude}&avoid=tolls|highways`;
+    } else {
+      const location = origin || destination;
+      fallbackUrl = location
+        ? `https://www.google.com/maps/embed/v1/place?key=${encodeURIComponent(
+            googleMapsWebKey,
+          )}&q=${location.latitude},${location.longitude}&zoom=14`
+        : `https://www.google.com/maps/embed/v1/view?key=${encodeURIComponent(
+            googleMapsWebKey,
+          )}&center=13.0827,80.2707&zoom=11&maptype=roadmap`;
     }
 
-    const location = origin || destination;
-    if (location) {
-      return `https://www.google.com/maps/embed/v1/place?key=${encodeURIComponent(
-        googleMapsWebKey,
-      )}&q=${location.latitude},${location.longitude}&zoom=14`;
-    }
+    const routeOrigin = isDriverLiveSharing && driverLiveLocation && liveTarget
+      ? driverLiveLocation
+      : origin;
+    const routeDestination = isDriverLiveSharing && driverLiveLocation && liveTarget
+      ? liveTarget
+      : destination;
 
-    return `https://www.google.com/maps/embed/v1/view?key=${encodeURIComponent(
-      googleMapsWebKey,
-    )}&center=13.0827,80.2707&zoom=11&maptype=roadmap`;
+    return {
+      fallbackUrl,
+      origin,
+      destination,
+      driverLiveLocation,
+      routeOrigin,
+      routeDestination,
+    };
   }, [googleMapsWebKey, selectedPickupLocation, selectedDropoffLocation, activeBooking, activeBookingStatus, isDriverLiveSharing]);
 
   const fareExpectation = useMemo(() => {
@@ -1157,12 +1169,17 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
       <View style={styles.container}>
         <WebCommandBar />
         <View style={styles.mapContainer}>
-          <iframe
+          <WebGoogleLiveMap
+            apiKey={googleMapsWebKey}
             title={t.passengerMapTitle}
-            src={mapUrl}
-            style={styles.mapIframe}
-            allowFullScreen
-            loading="lazy"
+            fallbackUrl={mapState.fallbackUrl}
+            mapStyle={styles.mapIframe}
+            defaultCenter={DEFAULT_CITY_LOCATION}
+            pickupLocation={mapState.origin}
+            dropoffLocation={mapState.destination}
+            driverLocation={mapState.driverLiveLocation}
+            routeOrigin={mapState.routeOrigin}
+            routeDestination={mapState.routeDestination}
           />
           <View style={styles.mapOverlayWrap}>
             <GlassCard style={styles.mapOverlayCard}>

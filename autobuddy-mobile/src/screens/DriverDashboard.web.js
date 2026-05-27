@@ -20,6 +20,7 @@ import VoiceTextInput from '../components/VoiceTextInput';
 import KeralaSafetyCard from '../components/KeralaSafetyCard';
 import DriverTrustCard from '../components/DriverTrustCard';
 import RevenueCard from '../components/RevenueCard';
+import WebGoogleLiveMap from '../components/WebGoogleLiveMap';
 import {
   FadeSlideView,
   GlassCard,
@@ -342,7 +343,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     });
   }, []);
 
-  const mapUrl = useMemo(() => {
+  const mapState = useMemo(() => {
     const resolveCoords = (location) => {
       if (!location) {
         return null;
@@ -365,28 +366,32 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     const driverPlace = resolveCoords(driverLocation || activeRide?.driver_location);
     const place = driverPlace || pickup || drop;
     const usingBasicEmbed = !googleMapsWebKey;
+    let fallbackUrl = '';
 
     if (usingBasicEmbed) {
       if (pickup && drop) {
-        return `https://www.google.com/maps?output=embed&saddr=${pickup.latitude},${pickup.longitude}&daddr=${drop.latitude},${drop.longitude}`;
+        fallbackUrl = `https://www.google.com/maps?output=embed&saddr=${pickup.latitude},${pickup.longitude}&daddr=${drop.latitude},${drop.longitude}`;
+      } else if (place) {
+        fallbackUrl = `https://www.google.com/maps?output=embed&q=${place.latitude},${place.longitude}&z=14`;
+      } else {
+        fallbackUrl = `https://www.google.com/maps?output=embed&q=${DEFAULT_CITY_LOCATION.latitude},${DEFAULT_CITY_LOCATION.longitude}&z=11`;
       }
-      if (place) {
-        return `https://www.google.com/maps?output=embed&q=${place.latitude},${place.longitude}&z=14`;
-      }
-      return `https://www.google.com/maps?output=embed&q=${DEFAULT_CITY_LOCATION.latitude},${DEFAULT_CITY_LOCATION.longitude}&z=11`;
+    } else if (pickup && drop) {
+      fallbackUrl = `https://www.google.com/maps/embed/v1/directions?key=${encodeURIComponent(googleMapsWebKey)}&origin=${pickup.latitude},${pickup.longitude}&destination=${drop.latitude},${drop.longitude}&avoid=tolls|highways`;
+    } else if (place) {
+      fallbackUrl = `https://www.google.com/maps/embed/v1/place?key=${encodeURIComponent(googleMapsWebKey)}&q=${place.latitude},${place.longitude}&zoom=14`;
+    } else {
+      fallbackUrl = `https://www.google.com/maps/embed/v1/view?key=${encodeURIComponent(
+        googleMapsWebKey,
+      )}&center=${DEFAULT_CITY_LOCATION.latitude},${DEFAULT_CITY_LOCATION.longitude}&zoom=11&maptype=roadmap`;
     }
 
-    if (pickup && drop) {
-      return `https://www.google.com/maps/embed/v1/directions?key=${encodeURIComponent(googleMapsWebKey)}&origin=${pickup.latitude},${pickup.longitude}&destination=${drop.latitude},${drop.longitude}&avoid=tolls|highways`;
-    }
-
-    if (place) {
-      return `https://www.google.com/maps/embed/v1/place?key=${encodeURIComponent(googleMapsWebKey)}&q=${place.latitude},${place.longitude}&zoom=14`;
-    }
-
-    return `https://www.google.com/maps/embed/v1/view?key=${encodeURIComponent(
-      googleMapsWebKey,
-    )}&center=${DEFAULT_CITY_LOCATION.latitude},${DEFAULT_CITY_LOCATION.longitude}&zoom=11&maptype=roadmap`;
+    return {
+      pickup,
+      drop,
+      driverPlace,
+      fallbackUrl,
+    };
   }, [googleMapsWebKey, activeRide, driverLocation]);
 
   const runAction = useCallback(async (fn, successText) => {
@@ -1081,20 +1086,18 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       <View style={styles.container}>
         <WebCommandBar />
         <View style={styles.mapContainer}>
-          {mapUrl ? (
-            <iframe
-              title="Live Driver Map"
-              src={mapUrl}
-              style={styles.mapIframe}
-              allowFullScreen
-              loading="lazy"
-            />
-          ) : (
-            <View style={styles.mapFallback}>
-              <Text style={styles.mapTitle}>Live Driver Map</Text>
-              <Text style={styles.mapSub}>Web preview mode. Native map works in Android/iOS builds.</Text>
-            </View>
-          )}
+          <WebGoogleLiveMap
+            apiKey={googleMapsWebKey}
+            title="Live Driver Map"
+            fallbackUrl={mapState.fallbackUrl}
+            mapStyle={styles.mapIframe}
+            defaultCenter={DEFAULT_CITY_LOCATION}
+            pickupLocation={mapState.pickup}
+            dropoffLocation={mapState.drop}
+            driverLocation={mapState.driverPlace}
+            routeOrigin={mapState.pickup}
+            routeDestination={mapState.drop}
+          />
         </View>
 
         <View style={styles.panel}>
