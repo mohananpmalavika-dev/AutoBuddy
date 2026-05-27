@@ -40,6 +40,7 @@ from app.routers.ride_products import router as modular_ride_products_router
 from app.routers.revenue import router as modular_revenue_router
 from app.routers.security import router as modular_security_router
 from app.routers.safety import router as modular_safety_router
+from app.routers.features_routes import router as modular_features_router
 from app.services.ai_dispatch import build_demand_heatmap, heat_cell as dispatch_heat_cell
 from app.services.revenue_service import (
     apply_referral_signup,
@@ -9435,6 +9436,7 @@ app.include_router(modular_ride_products_router)
 app.include_router(modular_revenue_router)
 app.include_router(modular_security_router)
 app.include_router(modular_safety_router)
+app.include_router(modular_features_router)
 app.include_router(api_router)
 app.mount("/ws", socket_app)
 
