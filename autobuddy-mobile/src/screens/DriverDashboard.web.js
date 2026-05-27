@@ -28,6 +28,9 @@ import {
   RideProgressTimeline,
 } from '../components/PremiumUI';
 import { useKeralaSafety } from '../hooks/useKeralaSafety';
+import RideCard from '../components/RideCard';
+import DriverTabBar from '../components/DriverTabBar';
+import EarningsPanel from '../components/EarningsPanel';
 import DriverProfile from './DriverProfile';
 
 const STATUS_FLOW = ['accepted', 'driver_arrived', 'in_progress', 'completed'];
@@ -98,8 +101,8 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   const [rideStartOtp, setRideStartOtp] = useState('');
   const [rideEndOtp, setRideEndOtp] = useState('');
   const [showProfile, setShowProfile] = useState(false);
-  const [activeDriverMenu, setActiveDriverMenu] = useState(PRIMARY_DRIVER_MENU_KEY);
-  const [showDriverMenus, setShowDriverMenus] = useState(false);
+  const [activeTab, setActiveTab] = useState('requests');
+  const [expandedRideCard, setExpandedRideCard] = useState(false);
   const [spinWinStatus, setSpinWinStatus] = useState(null);
   const [spinWinLoading, setSpinWinLoading] = useState(false);
   const [spinningNow, setSpinningNow] = useState(false);
@@ -1224,393 +1227,119 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
           {!!error && <Text style={styles.error}>{error}</Text>}
           {!!message && <Text style={styles.message}>{message}</Text>}
           {loading && <ActivityIndicator color={COLORS.primary} style={styles.loader} />}
-          <View style={styles.dashboardTopRow}>
-            <TouchableOpacity
-              style={[
-                styles.primaryMenuButton,
-                activeDriverMenu === PRIMARY_DRIVER_MENU_KEY && styles.primaryMenuButtonActive,
-              ]}
-              onPress={() => {
-                setActiveDriverMenu(PRIMARY_DRIVER_MENU_KEY);
-                setShowDriverMenus(false);
-              }}>
-              <Text style={styles.primaryMenuButtonText}>Ride Flow</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.menuToggleButton}
-              onPress={() => setShowDriverMenus((prev) => !prev)}>
-              <Text style={styles.menuToggleButtonText}>{showDriverMenus ? 'Hide Menus' : 'Other Menus'}</Text>
-            </TouchableOpacity>
+
+          {/* Tab Navigation */}
+          <View style={styles.tabsContainer}>
+            <DriverTabBar
+              activeTab={activeTab}
+              onTabChange={setActiveTab}
+              requestCount={pendingRequests.length}
+              isOnline={serverIsOnline}
+              compact={true}
+            />
           </View>
 
-          {showDriverMenus && (
-            <View style={styles.secondaryMenuRow}>
-              {SECONDARY_DRIVER_MENU_OPTIONS.map((menu) => (
-                <TouchableOpacity
-                  key={menu.key}
-                  style={[styles.menuChip, activeDriverMenu === menu.key && styles.menuChipActive]}
-                  onPress={() => {
-                    setActiveDriverMenu(menu.key);
-                    setShowDriverMenus(false);
-                  }}>
-                  <Text style={[styles.menuChipText, activeDriverMenu === menu.key && styles.menuChipTextActive]}>
-                    {menu.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+          {/* Ride Card - Always Visible */}
+          {activeTab === 'requests' && (
+            <View style={styles.rideCardContainer}>
+              <RideCard
+                ride={activeRide}
+                driverLocation={driverLocation}
+                onAccept={() => {}}
+                onDecline={() => {}}
+                onComplete={() => {}}
+                onMessage={() => {}}
+                onCall={() => {}}
+                onMapPress={() => {}}
+                loading={loading}
+                expanded={expandedRideCard}
+                onToggleExpand={setExpandedRideCard}
+              />
             </View>
           )}
 
-          {activeDriverMenu !== PRIMARY_DRIVER_MENU_KEY && (
-            <View style={styles.activeMenuInfoRow}>
-              <Text style={styles.activeMenuInfoText}>
-                {DRIVER_MENU_OPTIONS.find((menu) => menu.key === activeDriverMenu)?.label || 'Menu'}
-              </Text>
-              <TouchableOpacity
-                style={styles.menuToggleButton}
-                onPress={() => {
-                  setActiveDriverMenu(PRIMARY_DRIVER_MENU_KEY);
-                  setShowDriverMenus(false);
-                }}>
-                <Text style={styles.menuToggleButtonText}>Back to Requests</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {activeDriverMenu === 'safety' && (
+          {/* Tab Content - Dynamic Based on Active Tab */}
+          {activeTab === 'requests' && (
             <>
-              <KeralaSafetyCard safety={keralaSafety} compact />
-              <DriverTrustCard token={token} />
-            </>
-          )}
-
-          {activeDriverMenu === 'earnings' && (
-            <>
-              <RevenueCard token={token} role={user?.role} />
-              {!!earnings ? (
-                <View style={styles.earningsCard}>
-                  <Text style={styles.earningsText}>
-                    Today INR {earnings.today_earnings} ({earnings.today_rides} rides)
-                  </Text>
-                  <Text style={styles.earningsText}>
-                    Lifetime INR {earnings.total_earnings} ({earnings.total_rides} rides)
-                  </Text>
-                </View>
-              ) : (
-                <View style={styles.earningsCard}>
-                  <Text style={styles.earningsText}>No earnings summary yet.</Text>
-                </View>
-              )}
-            </>
-          )}
-
-          {activeDriverMenu === 'spin' && (
-            <View style={styles.earningsCard}>
-              <Text style={styles.fareTitle}>Daily Spin & Win</Text>
-              {!spinWinStatus ? (
-                <Text style={styles.earningsText}>Spin status is unavailable. Tap refresh.</Text>
-              ) : (
+              {activeRide ? (
                 <>
-                  <Text style={styles.earningsText}>
-                    Status: {spinWinStatus.enabled ? 'Enabled' : 'Disabled'}
-                  </Text>
-                  <Text style={styles.earningsText}>
-                    Daily limit: {Number(spinWinStatus.daily_spin_limit || 0)} | Used: {Number(spinWinStatus.spins_used_today || 0)} | Left: {Number(spinWinStatus.spins_left_today || 0)}
-                  </Text>
-                  {!!spinWinStatus.starts_at && (
-                    <Text style={styles.earningsText}>Campaign Start: {new Date(spinWinStatus.starts_at).toLocaleString()}</Text>
-                  )}
-                  {!!spinWinStatus.ends_at && (
-                    <Text style={styles.earningsText}>Campaign End: {new Date(spinWinStatus.ends_at).toLocaleString()}</Text>
-                  )}
-                  {!spinWinStatus.eligible && (
-                    <Text style={styles.warningText}>
-                      {spinWinStatus.eligibility_reason || 'Not eligible for Spin & Win.'}
+                  <FadeSlideView>
+                    <GlassCard style={styles.premiumCallout}>
+                      <LiveEtaPulse eta={liveEtaLabel} />
+                      <Text style={styles.premiumTitle}>Ride Operations Active</Text>
+                      <Text style={styles.premiumMalayalam}>Live trip controls are active.</Text>
+                    </GlassCard>
+                  </FadeSlideView>
+                  <View style={styles.requestCard}>
+                    <RideProgressTimeline status={activeRideStatus || 'searching'} />
+                    <Text style={styles.passengerName}>Active Ride: {activeRide.passenger_name || 'Passenger'}</Text>
+                    <Text style={styles.requestDetails}>Status: {activeRide.status}</Text>
+                    <Text style={styles.requestDetails}>
+                      Fare INR {activeRide.estimated_fare} | {activeRide.distance_km} km
                     </Text>
-                  )}
-                  {!!spinWinStatus.latest_reward && (
-                    <Text style={styles.earningsText}>
-                      Last reward: {spinWinStatus.latest_reward.prize_label || 'Reward'} ({spinWinStatus.latest_reward.reward_type || '-'})
-                    </Text>
-                  )}
-                </>
-              )}
-              <View style={styles.requestButtonsRow}>
-                <TouchableOpacity
-                  style={styles.acceptButton}
-                  onPress={spinNow}
-                  disabled={
-                    spinningNow
-                    || spinWinLoading
-                    || !spinWinStatus?.eligible
-                    || Number(spinWinStatus?.spins_left_today || 0) <= 0
-                  }>
-                  <Text style={styles.acceptText}>{spinningNow ? 'Spinning...' : 'Spin Now'}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.actionButtonMuted}
-                  onPress={() => refreshSpinWinStatus({ silent: false })}
-                  disabled={spinWinLoading}>
-                  <Text style={styles.actionText}>{spinWinLoading ? 'Refreshing...' : 'Refresh'}</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-
-          {activeDriverMenu === 'fare' && (
-            <>
-              <View style={styles.earningsCard}>
-                <TouchableOpacity
-                  style={styles.actionButtonMuted}
-                  onPress={() => setShowFareCalculator((prev) => !prev)}
-                  disabled={loading}>
-                  <Text style={styles.actionText}>{showFareCalculator ? 'Hide Fare Details' : 'Fare Details'}</Text>
-                </TouchableOpacity>
-              </View>
-              {showFareCalculator && (
-                <View style={styles.earningsCard}>
-                  <ScrollView
-                    style={styles.fareDetailsScroll}
-                    contentContainerStyle={styles.fareDetailsContent}
-                    showsVerticalScrollIndicator
-                    nestedScrollEnabled>
-                    <Text style={styles.fareTitle}>Fare Details</Text>
-                    {!!pricingRules && (
+                    {!!normalizeLocation(activeRide.pickup_location) && (
+                      <Text style={styles.requestDetails}>
+                        From: {normalizeLocation(activeRide.pickup_location).address}
+                      </Text>
+                    )}
+                    {!!normalizeLocation(activeRide.drop_location || activeRide.dropoff_location) && (
+                      <Text style={styles.requestDetails}>
+                        To: {normalizeLocation(activeRide.drop_location || activeRide.dropoff_location).address}
+                      </Text>
+                    )}
+                    {String(activeRide.status) === 'driver_arrived' && (
                       <>
-                        <Text style={styles.earningsText}>
-                          Trip Fare = max(Min Fare, (Base Fare + Distance x Per KM) x Time Multiplier)
-                        </Text>
-                        <Text style={styles.earningsText}>
-                          Base Fare INR {Number(pricingRules.base_fare || 0).toFixed(2)} | Per KM INR {Number(pricingRules.per_km_rate || 0).toFixed(2)}
-                        </Text>
-                        <Text style={styles.earningsText}>
-                          Min Fare INR {Number(pricingRules.minimum_fare || 0).toFixed(2)} | Surge {Number(pricingRules.surge_multiplier || 1).toFixed(2)}x | Night {Number(pricingRules.night_multiplier || 1).toFixed(2)}x
-                        </Text>
-                        <Text style={styles.earningsText}>
-                          Radius A: {Number(pricingRules.driver_base_search_radius_km || 5).toFixed(1)} km | Radius B: {Number(pricingRules.driver_long_distance_search_radius_km || 12).toFixed(1)} km
-                        </Text>
-                        <Text style={styles.earningsText}>
-                          Extra Pickup: if driver distance {'>'} A, extra = (distance - A) x INR {Number(
-                            pricingRules.driver_pickup_surcharge_per_km || pricingRules.per_km_rate || 0,
-                          ).toFixed(2)}
-                        </Text>
+                        <View style={styles.otpCard}>
+                          <Text style={styles.otpCardLabel}>🔐 PASSENGER OTP REQUIRED</Text>
+                          <Text style={styles.otpCardHint}>Ask passenger to share their pickup OTP</Text>
+                          <VoiceTextInput
+                            value={rideStartOtp}
+                            onChangeText={setRideStartOtp}
+                            keyboardType="number-pad"
+                            placeholder="0000"
+                            placeholderTextColor="#BDBDBD"
+                            style={styles.otpInputLarge}
+                            maxLength={8}
+                            autoFocus={true}
+                          />
+                          <Text style={styles.otpCardNote}>Enter the 4-8 digit code only</Text>
+                        </View>
                       </>
                     )}
-                    <Text style={styles.fareTitle}>Edit Fare Calculator</Text>
-                    <Text style={styles.earningsText}>Status: {driverFareStatus}</Text>
-                    {!!driverFareRequestInfo?.status && (
-                      <Text style={styles.earningsText}>Last Request: {String(driverFareRequestInfo.status)}</Text>
+                    {String(activeRide.status) === 'in_progress' && (
+                      <>
+                        <View style={styles.otpCard}>
+                          <Text style={styles.otpCardLabel}>🏁 COMPLETION OTP (Optional)</Text>
+                          <Text style={styles.otpCardHint}>Passenger drop-off OTP if available</Text>
+                          <VoiceTextInput
+                            value={rideEndOtp}
+                            onChangeText={setRideEndOtp}
+                            keyboardType="number-pad"
+                            placeholder="0000"
+                            placeholderTextColor="#BDBDBD"
+                            style={styles.otpInputLarge}
+                            maxLength={8}
+                          />
+                          <Text style={styles.otpCardNote}>Leave blank to complete without OTP</Text>
+                        </View>
+                      </>
                     )}
-                    {!!driverFareRequestInfo?.request_type && (
-                      <Text style={styles.earningsText}>Request Type: {String(driverFareRequestInfo.request_type)}</Text>
+                    {!!nextActionLabel && (
+                      <TouchableOpacity style={styles.nextActionButton} onPress={moveRideToNextStatus} disabled={loading}>
+                        <Text style={styles.nextActionButtonText}>{nextActionLabel}</Text>
+                      </TouchableOpacity>
                     )}
-                    {!!driverFareRequestInfo?.reject_reason && (
-                      <Text style={styles.error}>Reason: {driverFareRequestInfo.reject_reason}</Text>
-                    )}
-                    <Text style={styles.fieldLabel}>Base Fare (INR)</Text>
-                    <VoiceTextInput
-                      value={driverFareConfig.base_fare}
-                      onChangeText={(value) => updateDriverFareField('base_fare', value)}
-                      style={styles.otpInput}
-                      keyboardType="decimal-pad"
-                      placeholder="Base fare"
-                      placeholderTextColor={COLORS.textMuted}
+                    <RideCommunicationCard
+                      token={token}
+                      booking={activeRide}
+                      currentUserId={user?.id}
+                      counterpartName={activeRide.passenger_name || 'Passenger'}
                     />
-                    <Text style={styles.fieldLabel}>Per KM Rate (INR)</Text>
-                    <VoiceTextInput
-                      value={driverFareConfig.per_km_rate}
-                      onChangeText={(value) => updateDriverFareField('per_km_rate', value)}
-                      style={styles.otpInput}
-                      keyboardType="decimal-pad"
-                      placeholder="Per KM rate"
-                      placeholderTextColor={COLORS.textMuted}
-                    />
-                    <Text style={styles.fieldLabel}>Minimum Fare (INR)</Text>
-                    <VoiceTextInput
-                      value={driverFareConfig.minimum_fare}
-                      onChangeText={(value) => updateDriverFareField('minimum_fare', value)}
-                      style={styles.otpInput}
-                      keyboardType="decimal-pad"
-                      placeholder="Minimum fare"
-                      placeholderTextColor={COLORS.textMuted}
-                    />
-                    <Text style={styles.fieldLabel}>Surge Multiplier</Text>
-                    <VoiceTextInput
-                      value={driverFareConfig.surge_multiplier}
-                      onChangeText={(value) => updateDriverFareField('surge_multiplier', value)}
-                      style={styles.otpInput}
-                      keyboardType="decimal-pad"
-                      placeholder="Surge multiplier"
-                      placeholderTextColor={COLORS.textMuted}
-                    />
-                    <Text style={styles.fieldLabel}>Night Multiplier</Text>
-                    <VoiceTextInput
-                      value={driverFareConfig.night_multiplier}
-                      onChangeText={(value) => updateDriverFareField('night_multiplier', value)}
-                      style={styles.otpInput}
-                      keyboardType="decimal-pad"
-                      placeholder="Night multiplier"
-                      placeholderTextColor={COLORS.textMuted}
-                    />
-                    <Text style={styles.fieldLabel}>Radius A (KM)</Text>
-                    <VoiceTextInput
-                      value={driverFareConfig.driver_base_search_radius_km}
-                      onChangeText={(value) => updateDriverFareField('driver_base_search_radius_km', value)}
-                      style={styles.otpInput}
-                      keyboardType="decimal-pad"
-                      placeholder="Radius A (KM)"
-                      placeholderTextColor={COLORS.textMuted}
-                    />
-                    <Text style={styles.fieldLabel}>Radius B (KM)</Text>
-                    <VoiceTextInput
-                      value={driverFareConfig.driver_long_distance_search_radius_km}
-                      onChangeText={(value) => updateDriverFareField('driver_long_distance_search_radius_km', value)}
-                      style={styles.otpInput}
-                      keyboardType="decimal-pad"
-                      placeholder="Radius B (KM)"
-                      placeholderTextColor={COLORS.textMuted}
-                    />
-                    <Text style={styles.fieldLabel}>Extra Pickup Per KM (INR)</Text>
-                    <VoiceTextInput
-                      value={driverFareConfig.driver_pickup_surcharge_per_km}
-                      onChangeText={(value) => updateDriverFareField('driver_pickup_surcharge_per_km', value)}
-                      style={styles.otpInput}
-                      keyboardType="decimal-pad"
-                      placeholder="Extra pickup per KM"
-                      placeholderTextColor={COLORS.textMuted}
-                    />
-                    <Text style={styles.fieldLabel}>Peak Hours (comma-separated)</Text>
-                    <VoiceTextInput
-                      value={driverFareConfig.peak_hours}
-                      onChangeText={(value) => updateDriverFareField('peak_hours', value)}
-                      style={styles.otpInput}
-                      placeholder="Peak hours comma separated"
-                      placeholderTextColor={COLORS.textMuted}
-                    />
-                    <TouchableOpacity style={styles.acceptButton} onPress={submitDriverFareCalculator} disabled={loading}>
-                      <Text style={styles.acceptText}>Submit For Admin Approval</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.actionButtonMuted} onPress={requestResetToAdminDefault} disabled={loading}>
-                      <Text style={styles.actionText}>Request Reset To Admin Default</Text>
-                    </TouchableOpacity>
-                  </ScrollView>
-                </View>
-              )}
-            </>
-          )}
-
-          {activeDriverMenu === 'blocked' && (
-            blockedPassengerIds.length > 0 ? (
-              <View style={styles.earningsCard}>
-                <Text style={styles.fareTitle}>Blocked Passengers</Text>
-                {blockedPassengerIds.slice(0, 10).map((passengerId) => (
-                  <View key={passengerId} style={styles.blockedRow}>
-                    <Text style={styles.earningsText}>{passengerId}</Text>
-                    <TouchableOpacity
-                      style={styles.blockButton}
-                      onPress={() => toggleBlockedPassenger(passengerId, true)}
-                      disabled={loading}>
-                      <Text style={styles.blockButtonText}>Unblock</Text>
-                    </TouchableOpacity>
                   </View>
-                ))}
-              </View>
-            ) : (
-              <View style={styles.earningsCard}>
-                <Text style={styles.earningsText}>No blocked passengers.</Text>
-              </View>
-            )
-          )}
+                </>
+              ) : null}
 
-          {activeDriverMenu === 'requests' && (
-            activeRide ? (
-              <>
-                <FadeSlideView>
-                  <GlassCard style={styles.premiumCallout}>
-                    <LiveEtaPulse eta={liveEtaLabel} />
-                    <Text style={styles.premiumTitle}>Ride Operations Active</Text>
-                    <Text style={styles.premiumMalayalam}>Live trip controls are active.</Text>
-                  </GlassCard>
-                </FadeSlideView>
-                <View style={styles.requestCard}>
-                  <RideProgressTimeline status={activeRideStatus || 'searching'} />
-                  <Text style={styles.passengerName}>Active Ride: {activeRide.passenger_name || 'Passenger'}</Text>
-                  <Text style={styles.requestDetails}>Status: {activeRide.status}</Text>
-                  <Text style={styles.requestDetails}>
-                    Fare INR {activeRide.estimated_fare} | {activeRide.distance_km} km
-                  </Text>
-                  {!!normalizeLocation(activeRide.pickup_location) && (
-                    <Text style={styles.requestDetails}>
-                      From: {normalizeLocation(activeRide.pickup_location).address}
-                    </Text>
-                  )}
-                  {!!normalizeLocation(activeRide.drop_location || activeRide.dropoff_location) && (
-                    <Text style={styles.requestDetails}>
-                      To: {normalizeLocation(activeRide.drop_location || activeRide.dropoff_location).address}
-                    </Text>
-                  )}
-                  {String(activeRide.status) === 'driver_arrived' && (
-                    <>
-                      <View style={styles.otpCard}>
-                        <Text style={styles.otpCardLabel}>🔐 PASSENGER OTP REQUIRED</Text>
-                        <Text style={styles.otpCardHint}>Ask passenger to share their pickup OTP</Text>
-                        <VoiceTextInput
-                          value={rideStartOtp}
-                          onChangeText={setRideStartOtp}
-                          keyboardType="number-pad"
-                          placeholder="0000"
-                          placeholderTextColor="#BDBDBD"
-                          style={styles.otpInputLarge}
-                          maxLength={8}
-                          autoFocus={true}
-                        />
-                        <Text style={styles.otpCardNote}>Enter the 4-8 digit code only</Text>
-                      </View>
-                    </>
-                  )}
-                  {String(activeRide.status) === 'in_progress' && (
-                    <>
-                      <View style={styles.otpCard}>
-                        <Text style={styles.otpCardLabel}>🏁 COMPLETION OTP (Optional)</Text>
-                        <Text style={styles.otpCardHint}>Passenger drop-off OTP if available</Text>
-                        <VoiceTextInput
-                          value={rideEndOtp}
-                          onChangeText={setRideEndOtp}
-                          keyboardType="number-pad"
-                          placeholder="0000"
-                          placeholderTextColor="#BDBDBD"
-                          style={styles.otpInputLarge}
-                          maxLength={8}
-                        />
-                        <Text style={styles.otpCardNote}>Leave blank to complete without OTP</Text>
-                      </View>
-                    </>
-                  )}
-                  {!!nextActionLabel && (
-                    <TouchableOpacity style={styles.nextActionButton} onPress={moveRideToNextStatus} disabled={loading}>
-                      <Text style={styles.nextActionButtonText}>{nextActionLabel}</Text>
-                    </TouchableOpacity>
-                  )}
-                  <RideCommunicationCard
-                    token={token}
-                    booking={activeRide}
-                    currentUserId={user?.id}
-                    counterpartName={activeRide.passenger_name || 'Passenger'}
-                  />
-                </View>
-              </>
-            ) : (
-              <PremiumEmptyState
-                title="No active ride"
-                subtitle="Accept a ride request to start trip operations."
-                malayalam="No active ride now."
-              />
-            )
-          )}
-
-          {activeDriverMenu === 'requests' && (
-            <>
-              {!activeRide ? (
+              {!activeRide && (
                 isOnline ? (
                   pendingRequests.length === 0 ? (
                     <PremiumEmptyState
@@ -1689,9 +1418,78 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
                     malayalam="Go online to receive requests."
                   />
                 )
-              ) : null}
+              )}
             </>
           )}
+
+          {/* Earnings Tab */}
+          {activeTab === 'earnings' && (
+            <>
+              <RevenueCard token={token} role={user?.role} />
+              <View style={styles.earningsPanel}>
+                <EarningsPanel
+                  earnings={earnings}
+                  pricingRules={pricingRules}
+                  driverFareConfig={driverFareConfig}
+                  loading={loading}
+                  onRequestReport={() => {}}
+                  onRequestWithdraw={() => {}}
+                />
+              </View>
+            </>
+          )}
+
+          {/* Actions Tab */}
+          {activeTab === 'actions' && (
+            <>
+              <View style={styles.earningsCard}>
+                <Text style={styles.fareTitle}>Quick Actions</Text>
+                <TouchableOpacity style={styles.actionButton} onPress={handleProfilePress}>
+                  <Text style={styles.actionButtonText}>👤 Profile Settings</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.actionButton}>
+                  <Text style={styles.actionButtonText}>🎯 Spin & Win</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.actionButton}>
+                  <Text style={styles.actionButtonText}>📊 Fare Calculator</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.actionButton}>
+                  <Text style={styles.actionButtonText}>🚫 Blocked Passengers</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.actionButton}>
+                  <Text style={styles.actionButtonText}>⚠️ Safety Card</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
+
+          {/* Settings Tab */}
+          {activeTab === 'settings' && (
+            <>
+              <View style={styles.earningsCard}>
+                <Text style={styles.fareTitle}>Settings</Text>
+                <View style={styles.settingItem}>
+                  <Text style={styles.settingLabel}>Online Status: {serverIsOnline ? '🟢 Online' : '🔴 Offline'}</Text>
+                  <TouchableOpacity style={styles.actionButton} onPress={() => toggleOnlineStatus()}>
+                    <Text style={styles.actionButtonText}>{serverIsOnline ? 'Go Offline' : 'Go Online'}</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.settingItem}>
+                  <Text style={styles.settingLabel}>Profile</Text>
+                  <TouchableOpacity style={styles.actionButton} onPress={handleProfilePress}>
+                    <Text style={styles.actionButtonText}>Manage Profile</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.settingItem}>
+                  <Text style={styles.settingLabel}>Account</Text>
+                  <TouchableOpacity style={styles.actionButton} onPress={onLogout}>
+                    <Text style={styles.actionButtonText}>Logout</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </>
+          )}
+
           </ScrollView>
         </View>
       </View>
@@ -2088,5 +1886,55 @@ const styles = StyleSheet.create({
   subscriptionDueBox: {
     marginTop: 8,
     gap: 8,
+  },
+  tabsContainer: {
+    marginVertical: 12,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#F8FBF9',
+    borderWidth: 1,
+    borderColor: '#D7E2DA',
+  },
+  rideCardContainer: {
+    marginVertical: 12,
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#D7E2DA',
+    backgroundColor: '#FFFFFF',
+  },
+  earningsPanel: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#D7E2DA',
+    overflow: 'hidden',
+  },
+  actionButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  actionButtonText: {
+    color: '#333333',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  settingItem: {
+    paddingVertical: 12,
+    marginBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEEEEE',
+  },
+  settingLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333333',
+    marginBottom: 8,
   },
 });
