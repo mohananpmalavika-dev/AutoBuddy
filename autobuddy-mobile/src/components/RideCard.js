@@ -7,12 +7,17 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme';
+import KeralaSafetyCard from './KeralaSafetyCard';
 
 /**
  * RideCard Component
  * 
  * Displays current ride status with quick actions.
  * Designed for minimal scrolling - always visible on driver dashboard.
+ * 
+ * Addresses Issues:
+ * - Issue #2: Hidden Ride Information - Prominent placement, swipeable
+ * - Issue #7: Safety Card Accessibility - Safety card visible on ride card
  * 
  * Props:
  *   - ride: Active ride object
@@ -23,6 +28,7 @@ import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme';
  *   - onMessage: () => void
  *   - onCall: () => void
  *   - onMapPress: () => void
+ *   - safety: Safety state object (from useKeralaSafety hook)
  *   - loading: boolean
  *   - expanded: boolean
  *   - onToggleExpand: (boolean) => void
@@ -36,6 +42,7 @@ export default function RideCard({
   onMessage,
   onCall,
   onMapPress,
+  safety = null,
   loading = false,
   expanded = false,
   onToggleExpand,
@@ -235,6 +242,13 @@ export default function RideCard({
             <View style={styles.detailRow}>
               <Text style={styles.detailLabel}>Notes:</Text>
               <Text style={styles.detailValue}>{ride.special_instructions}</Text>
+            </View>
+          )}
+
+          {/* Safety Card - Issue #7: Always visible on ride card */}
+          {safety && (
+            <View style={styles.safetySection}>
+              <KeralaSafetyCard safety={safety} compact={true} />
             </View>
           )}
         </View>
@@ -453,6 +467,12 @@ const styles = StyleSheet.create({
   detailValue: {
     fontSize: 13,
     color: COLORS.textMain,
+  },
+  safetySection: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E0E0E0',
   },
 
   emptyState: {

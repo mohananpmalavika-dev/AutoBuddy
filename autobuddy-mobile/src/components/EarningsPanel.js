@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -6,7 +6,6 @@ import {
   View,
   ScrollView,
   ActivityIndicator,
-  Dimensions,
 } from 'react-native';
 import { COLORS, SHADOWS } from '../theme';
 
@@ -104,7 +103,7 @@ export default function EarningsPanel({
       {/* Today's Earnings Card */}
       {todayMetrics && (
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Today's Earnings</Text>
+          <Text style={styles.cardTitle}>Today&apos;s Earnings</Text>
           <View style={styles.metricsGrid}>
             <View style={styles.metricItem}>
               <Text style={styles.metricValue}>₹{todayMetrics.earnings}</Text>
