@@ -1838,9 +1838,21 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                   />
                 ) : (
                   passengerBookings.slice(0, 20).map((booking) => (
-                    <Text key={booking.id} style={styles.infoText}>
-                      {booking.status} | {booking.driver_name || t.driverNotAssigned} | INR {booking.estimated_fare}
-                    </Text>
+                    <View key={booking.id} style={[styles.historyCard, { borderLeftColor: booking.status === 'completed' ? '#4CAF50' : booking.status === 'cancelled' ? '#F44336' : '#2196F3', borderLeftWidth: 4 }]}>
+                      <View style={styles.historyCardRow}>
+                        <Text style={styles.historyCardStatus}>{booking.status.toUpperCase()}</Text>
+                        <Text style={styles.historyCardId}>{booking.id.substring(0, 8)}</Text>
+                      </View>
+                      <View style={styles.historyCardRow}>
+                        <Text style={styles.historyCardDriver}>{booking.driver_name || t.driverNotAssigned}</Text>
+                        <Text style={styles.historyCardFare}>INR {booking.estimated_fare}</Text>
+                      </View>
+                      {!!booking.pickup_location && !!booking.drop_location && (
+                        <Text style={styles.historyCardRoute} numberOfLines={1}>
+                          {normalizeLocation(booking.pickup_location)?.address || 'Pickup'} → {normalizeLocation(booking.drop_location)?.address || 'Drop'}
+                        </Text>
+                      )}
+                    </View>
                   ))
                 )}
               </View>
@@ -2207,4 +2219,42 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   cancelText: { color: '#fff', fontWeight: '700' },
+  historyCard: {
+    backgroundColor: '#F5F5F5',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 10,
+  },
+  historyCardRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  historyCardStatus: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#202020',
+    textTransform: 'uppercase',
+  },
+  historyCardId: {
+    fontSize: 11,
+    color: '#999999',
+  },
+  historyCardDriver: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#202020',
+  },
+  historyCardFare: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#2196F3',
+  },
+  historyCardRoute: {
+    fontSize: 12,
+    color: '#666666',
+    marginTop: 6,
+    lineHeight: 16,
+  },
 });
