@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Modal, TextInput, ScrollView } from 'react-native';
-import { COLORS, SHADOWS } from '../theme';
+import { View, Text, TouchableOpacity, StyleSheet, Modal, TextInput } from 'react-native';
+import { COLORS } from '../theme';
 import { useRatings } from '../contexts/RatingsContext';
 
 /**

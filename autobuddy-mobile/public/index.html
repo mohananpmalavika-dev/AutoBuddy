@@ -213,6 +213,83 @@
     </div>
 
     <script>
+        function resolveApiBaseUrl() {
+            const host = window.location.hostname || '';
+            if (host === 'localhost' || host === '127.0.0.1') {
+                return 'http://127.0.0.1:8001/api';
+            }
+            if (host.endsWith('onrender.com')) {
+                return `${window.location.origin}/api`;
+            }
+            return 'https://autobuddy-z1vx.onrender.com/api';
+        }
+
+        function readSessionUser() {
+            try {
+                const raw = localStorage.getItem('autobuddy_session_v1');
+                if (!raw) {
+                    return null;
+                }
+                const parsed = JSON.parse(raw);
+                if (!parsed || typeof parsed !== 'object' || !parsed.user || typeof parsed.user !== 'object') {
+                    return null;
+                }
+                return parsed.user;
+            } catch (_) {
+                return null;
+            }
+        }
+
+        function buildLaunchPayload() {
+            const user = readSessionUser();
+            return {
+                page_url: window.location.href,
+                referrer: document.referrer || '',
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || '',
+                language: navigator.language || '',
+                platform: navigator.platform || '',
+                screen_width: window.screen && window.screen.width ? Number(window.screen.width) : null,
+                screen_height: window.screen && window.screen.height ? Number(window.screen.height) : null,
+                device_memory_gb: typeof navigator.deviceMemory === 'number' ? Number(navigator.deviceMemory) : null,
+                user_agent: navigator.userAgent || '',
+                session_user_id: user && user.id ? user.id : null,
+                session_name: user && user.name ? user.name : null,
+                session_email: user && user.email ? user.email : null,
+                session_phone: user && user.phone ? user.phone : null,
+                session_role: user && user.role ? user.role : null
+            };
+        }
+
+        async function recordLaunchVisit() {
+            const endpoint = `${resolveApiBaseUrl()}/launch/visit`;
+            const payload = buildLaunchPayload();
+            try {
+                await fetch(endpoint, {
+                    method: 'POST',
+                    mode: 'cors',
+                    keepalive: true,
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+                return;
+            } catch (_) {
+                // Fallback to sendBeacon for browsers that block keepalive fetch in unload lifecycle.
+            }
+
+            try {
+                const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+                if (navigator.sendBeacon) {
+                    navigator.sendBeacon(endpoint, blob);
+                }
+            } catch (_) {
+                // No-op fallback.
+            }
+        }
+
+        recordLaunchVisit();
+
         setTimeout(() => {
             window.location.href = '/app';
         }, 10000);

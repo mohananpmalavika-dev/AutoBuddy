@@ -555,6 +555,10 @@ async def seed_admin():
         await ensure_default_revenue_plans(db)
         await db.analytics_events.create_index([("created_at", -1)])
         await analytics_db.ride_events.create_index([("created_at", -1)])
+        await db.launch_page_visits.create_index([("created_at", -1)])
+        await db.launch_page_visits.create_index([("event_date", 1)])
+        await db.launch_page_visits.create_index([("identity_key", 1), ("created_at", -1)])
+        await db.launch_page_visits.create_index([("ip_address", 1), ("created_at", -1)])
     except Exception as e:
         logger.error(f"Seed error: {e}")
         import traceback
@@ -1449,6 +1453,86 @@ def get_client_ip(request: Request) -> str:
 
 def get_request_ip(request: Request) -> str:
     return get_client_ip(request)
+
+def _safe_text(value: Any, max_length: int = 300) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    return text[:max_length]
+
+
+def _safe_int(value: Any, *, min_value: int = 0, max_value: int = 20000) -> Optional[int]:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        parsed = int(float(value))
+    except (TypeError, ValueError):
+        return None
+    if parsed < min_value or parsed > max_value:
+        return None
+    return parsed
+
+
+def _safe_float(value: Any, *, min_value: float = 0.0, max_value: float = 256.0) -> Optional[float]:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed < min_value or parsed > max_value:
+        return None
+    return parsed
+
+
+def _safe_phone(value: Any) -> Optional[str]:
+    digits = re.sub(r"\D+", "", str(value or ""))
+    if 8 <= len(digits) <= 15:
+        return digits
+    return None
+
+
+def _normalize_role_text(value: Any) -> Optional[str]:
+    role = str(value or "").strip().lower()
+    if role in {UserRole.PASSENGER.value, UserRole.DRIVER.value, UserRole.ADMIN.value}:
+        return role
+    return None
+
+
+def _build_launch_identity(payload: Dict[str, Any], token_user: Optional[Dict[str, Any]]) -> Dict[str, Optional[str]]:
+    if token_user:
+        user_id = _safe_text(token_user.get("id"), 80)
+        name = _safe_text(token_user.get("name"), 120)
+        email = _safe_text(token_user.get("email"), 200)
+        phone = _safe_phone(token_user.get("phone"))
+        role = _normalize_role_text(token_user.get("role"))
+    else:
+        user_id = _safe_text(payload.get("session_user_id") or payload.get("user_id"), 80)
+        name = _safe_text(payload.get("session_name") or payload.get("name"), 120)
+        email = _safe_text(payload.get("session_email") or payload.get("email"), 200)
+        phone = _safe_phone(payload.get("session_phone") or payload.get("phone"))
+        role = _normalize_role_text(payload.get("session_role") or payload.get("role"))
+
+    identity_key = None
+    if user_id:
+        identity_key = f"user:{user_id}"
+    elif phone:
+        identity_key = f"phone:{phone}"
+    elif email:
+        identity_key = f"email:{email.lower()}"
+    elif name:
+        identity_key = f"name:{name.lower()}"
+
+    return {
+        "user_id": user_id,
+        "name": name,
+        "email": email.lower() if email else None,
+        "phone": phone,
+        "role": role,
+        "identity_key": identity_key,
+    }
 
 async def check_api_rate_limit(ip_address: str):
     await runtime_state.check_api_rate_limit(ip_address)
@@ -7095,6 +7179,214 @@ async def get_admin_ai_dispatch_logs(
         "items": logs,
     }
 
+
+@api_router.post("/launch/visit")
+async def record_launch_visit(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(optional_security),
+):
+    payload: Dict[str, Any] = {}
+    try:
+        parsed = await request.json()
+        if isinstance(parsed, dict):
+            payload = parsed
+    except Exception:
+        payload = {}
+
+    token_user: Optional[Dict[str, Any]] = None
+    if credentials and credentials.credentials:
+        try:
+            token_payload = decode_token(credentials.credentials)
+            token_user_id = _safe_text(token_payload.get("sub"), 80)
+            if token_user_id:
+                token_user = await db.users.find_one({"id": token_user_id}, {"_id": 0})
+        except HTTPException:
+            token_user = None
+        except Exception:
+            token_user = None
+
+    identity = _build_launch_identity(payload, token_user)
+    client_ip = get_client_ip(request)
+    headers = request.headers
+    now_utc = datetime.utcnow()
+    event_date = now_utc.strftime("%Y-%m-%d")
+
+    visit_doc: Dict[str, Any] = {
+        "id": str(uuid.uuid4()),
+        "created_at": now_utc,
+        "event_date": event_date,
+        "ip_address": _safe_text(client_ip, 120),
+        "forwarded_for": _safe_text(headers.get("x-forwarded-for"), 300),
+        "real_ip": _safe_text(headers.get("x-real-ip"), 120),
+        "user_agent": _safe_text(payload.get("user_agent") or headers.get("user-agent"), 500),
+        "page_url": _safe_text(payload.get("page_url"), 600),
+        "referrer": _safe_text(payload.get("referrer") or headers.get("referer"), 600),
+        "origin": _safe_text(headers.get("origin"), 300),
+        "host": _safe_text(headers.get("host"), 300),
+        "timezone": _safe_text(payload.get("timezone"), 120),
+        "language": _safe_text(payload.get("language"), 80),
+        "platform": _safe_text(payload.get("platform"), 120),
+        "screen_width": _safe_int(payload.get("screen_width"), min_value=0, max_value=20000),
+        "screen_height": _safe_int(payload.get("screen_height"), min_value=0, max_value=20000),
+        "device_memory_gb": _safe_float(payload.get("device_memory_gb"), min_value=0.0, max_value=512.0),
+        "country": _safe_text(
+            headers.get("x-vercel-ip-country")
+            or headers.get("cf-ipcountry")
+            or payload.get("country"),
+            100,
+        ),
+        "region": _safe_text(
+            headers.get("x-vercel-ip-country-region")
+            or headers.get("x-appengine-region")
+            or payload.get("region"),
+            120,
+        ),
+        "city": _safe_text(
+            headers.get("x-vercel-ip-city")
+            or headers.get("x-appengine-city")
+            or payload.get("city"),
+            120,
+        ),
+        "user_id": identity.get("user_id"),
+        "name": identity.get("name"),
+        "email": identity.get("email"),
+        "phone": identity.get("phone"),
+        "role": identity.get("role"),
+        "identity_key": identity.get("identity_key") or f"anon_ip:{client_ip}",
+    }
+    await db.launch_page_visits.insert_one(visit_doc)
+
+    return {
+        "message": "launch visit recorded",
+        "visit_id": visit_doc["id"],
+    }
+
+
+@api_router.get("/admin/launch-visits/report")
+async def get_admin_launch_visit_report(
+    days: int = 30,
+    limit: int = 100,
+    current_user: dict = Depends(require_roles(UserRole.ADMIN.value)),
+):
+    _ = current_user
+    safe_days = max(1, min(int(days or 30), 365))
+    safe_limit = max(10, min(int(limit or 100), 500))
+    since = datetime.utcnow() - timedelta(days=safe_days)
+    query = {"created_at": {"$gte": since}}
+
+    total_clicks = await db.launch_page_visits.count_documents(query)
+    unique_ips = await db.launch_page_visits.distinct("ip_address", query)
+    unique_visitors = await db.launch_page_visits.distinct("identity_key", query)
+    known_visitors = await db.launch_page_visits.distinct(
+        "identity_key",
+        {
+            "$and": [
+                query,
+                {
+                    "$or": [
+                        {"user_id": {"$nin": [None, ""]}},
+                        {"phone": {"$nin": [None, ""]}},
+                        {"email": {"$nin": [None, ""]}},
+                        {"name": {"$nin": [None, ""]}},
+                    ]
+                },
+            ]
+        },
+    )
+
+    recent_rows = await db.launch_page_visits.find(
+        query,
+        {
+            "_id": 0,
+            "id": 1,
+            "created_at": 1,
+            "page_url": 1,
+            "referrer": 1,
+            "ip_address": 1,
+            "country": 1,
+            "region": 1,
+            "city": 1,
+            "name": 1,
+            "email": 1,
+            "phone": 1,
+            "role": 1,
+            "identity_key": 1,
+            "timezone": 1,
+            "language": 1,
+            "platform": 1,
+            "user_agent": 1,
+        },
+    ).sort("created_at", -1).limit(safe_limit).to_list(safe_limit)
+
+    visitor_rows = await db.launch_page_visits.aggregate(
+        [
+            {"$match": query},
+            {"$sort": {"created_at": -1}},
+            {
+                "$group": {
+                    "_id": "$identity_key",
+                    "visit_count": {"$sum": 1},
+                    "latest": {"$first": "$$ROOT"},
+                }
+            },
+            {
+                "$project": {
+                    "_id": 0,
+                    "identity_key": "$_id",
+                    "visit_count": 1,
+                    "last_seen_at": "$latest.created_at",
+                    "name": "$latest.name",
+                    "email": "$latest.email",
+                    "phone": "$latest.phone",
+                    "role": "$latest.role",
+                    "ip_address": "$latest.ip_address",
+                    "country": "$latest.country",
+                    "region": "$latest.region",
+                    "city": "$latest.city",
+                }
+            },
+            {"$sort": {"last_seen_at": -1}},
+            {"$limit": safe_limit},
+        ]
+    ).to_list(safe_limit)
+
+    daily_rows = await db.launch_page_visits.aggregate(
+        [
+            {"$match": query},
+            {
+                "$group": {
+                    "_id": "$event_date",
+                    "clicks": {"$sum": 1},
+                    "unique_ips_set": {"$addToSet": "$ip_address"},
+                    "unique_visitors_set": {"$addToSet": "$identity_key"},
+                }
+            },
+            {
+                "$project": {
+                    "_id": 0,
+                    "date": "$_id",
+                    "clicks": 1,
+                    "unique_ips": {"$size": "$unique_ips_set"},
+                    "unique_visitors": {"$size": "$unique_visitors_set"},
+                }
+            },
+            {"$sort": {"date": 1}},
+        ]
+    ).to_list(safe_days + 2)
+
+    return {
+        "days": safe_days,
+        "summary": {
+            "total_clicks": int(total_clicks),
+            "unique_ips": len([ip for ip in unique_ips if ip]),
+            "unique_visitors": len([visitor for visitor in unique_visitors if visitor]),
+            "known_visitors": len([visitor for visitor in known_visitors if visitor]),
+        },
+        "daily": daily_rows,
+        "recent_clicks": recent_rows,
+        "visitors": visitor_rows,
+    }
+
 # ==================== RATING ENDPOINTS ====================
 @api_router.post("/ratings")
 async def create_rating(rating_data: RatingCreate, current_user: dict = Depends(get_current_user)):
@@ -9165,9 +9457,6 @@ async def shutdown_db_client():
         except Exception:
             pass
     client.close()
-
-
-
 
 
 

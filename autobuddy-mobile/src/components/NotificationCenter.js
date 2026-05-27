@@ -153,7 +153,7 @@ export default function NotificationCenter({ token, onClose, onNotificationPress
             <Text style={styles.emptyIcon}>🔔</Text>
             <Text style={styles.emptyTitle}>No Notifications</Text>
             <Text style={styles.emptySubtitle}>
-              You're all caught up! We'll notify you when something important happens.
+              You&apos;re all caught up! We&apos;ll notify you when something important happens.
             </Text>
           </View>
         ) : (

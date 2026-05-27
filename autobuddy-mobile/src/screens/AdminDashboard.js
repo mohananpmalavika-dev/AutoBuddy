@@ -65,6 +65,7 @@ const ADMIN_MENU_OPTIONS = [
   { key: 'analytics', label: 'Overview' },
   { key: 'trips', label: 'Ongoing Trips' },
   { key: 'users', label: 'Users & Live' },
+  { key: 'launch_visits', label: 'Launch Visitors' },
   { key: 'spin', label: 'Spin & Win' },
   { key: 'subscriptions', label: 'Subscriptions' },
   { key: 'phone', label: 'Phone Requests' },
@@ -153,6 +154,21 @@ function defaultSpinWinConfigState() {
     starts_at: '',
     ends_at: '',
     prizes: [defaultSpinWinPrizeState()],
+  };
+}
+
+function defaultLaunchVisitReportState() {
+  return {
+    days: 30,
+    summary: {
+      total_clicks: 0,
+      unique_ips: 0,
+      unique_visitors: 0,
+      known_visitors: 0,
+    },
+    daily: [],
+    recent_clicks: [],
+    visitors: [],
   };
 }
 
@@ -334,6 +350,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
     passengers_live: 0,
     total_live: 0,
   });
+  const [launchVisitReport, setLaunchVisitReport] = useState(defaultLaunchVisitReportState());
   const [spinWinConfig, setSpinWinConfig] = useState(defaultSpinWinConfigState());
   const [spinWinWinners, setSpinWinWinners] = useState([]);
   const [rideProductDistrictConfig, setRideProductDistrictConfig] = useState(
@@ -376,6 +393,10 @@ export default function AdminDashboard({ token, user, onLogout }) {
     const approvedDriverFare = await apiRequest('/admin/driver-fare-calculator/approved', { token }).catch(() => []);
     const activeTrips = await apiRequest('/admin/bookings/ongoing', { token }).catch(() => []);
     const usersLiveStatus = await apiRequest('/admin/users/live-status', { token }).catch(() => null);
+    const launchVisits = await apiRequest('/admin/launch-visits/report', {
+      token,
+      query: { days: 30, limit: 120 },
+    }).catch(() => null);
     const spinWinSettings = await apiRequest('/admin/spin-win/config', { token }).catch(() => null);
     const spinWinWinnerRows = await apiRequest('/admin/spin-win/winners', { token, query: { limit: 50 } }).catch(() => []);
     const rideProductsDistrictSettings = await apiRequest('/admin/ride-products/district-config', { token }).catch(() => null);
@@ -431,6 +452,19 @@ export default function AdminDashboard({ token, user, onLogout }) {
       passengers_live: Number(usersLiveStatus?.live_counts?.passengers_live || 0),
       total_live: Number(usersLiveStatus?.live_counts?.total_live || 0),
     });
+    if (launchVisits) {
+      setLaunchVisitReport({
+        ...defaultLaunchVisitReportState(),
+        ...launchVisits,
+        summary: {
+          ...defaultLaunchVisitReportState().summary,
+          ...(launchVisits.summary || {}),
+        },
+        daily: Array.isArray(launchVisits.daily) ? launchVisits.daily : [],
+        recent_clicks: Array.isArray(launchVisits.recent_clicks) ? launchVisits.recent_clicks : [],
+        visitors: Array.isArray(launchVisits.visitors) ? launchVisits.visitors : [],
+      });
+    }
     if (spinWinSettings) {
       setSpinWinConfig(normalizeSpinWinConfig(spinWinSettings));
     }
@@ -1354,6 +1388,95 @@ export default function AdminDashboard({ token, user, onLogout }) {
                 )}
               </View>
             ))
+          )}
+        </View>
+
+        <View style={[styles.section, activeAdminMenu !== 'launch_visits' && styles.hiddenSection]}>
+          <Text style={styles.sectionTitle}>Launch Page Visitor Report</Text>
+          <Text style={styles.kycDate}>
+            Auto-tracked whenever the public launch page opens. Range: last {launchVisitReport.days || 30} days.
+          </Text>
+
+          <View style={styles.statsGrid}>
+            <View style={styles.statCard}>
+              <Text style={styles.statLabel}>Total Clicks</Text>
+              <Text style={styles.statValue}>{Number(launchVisitReport.summary?.total_clicks || 0)}</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statLabel}>Unique Visitors</Text>
+              <Text style={styles.statValue}>{Number(launchVisitReport.summary?.unique_visitors || 0)}</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statLabel}>Known Visitors</Text>
+              <Text style={styles.statValue}>{Number(launchVisitReport.summary?.known_visitors || 0)}</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statLabel}>Unique IPs</Text>
+              <Text style={styles.statValue}>{Number(launchVisitReport.summary?.unique_ips || 0)}</Text>
+            </View>
+          </View>
+
+          <Text style={styles.sectionSubtitle}>Daily Click Trend</Text>
+          {Array.isArray(launchVisitReport.daily) && launchVisitReport.daily.length > 0 ? (
+            launchVisitReport.daily.map((row) => (
+              <View key={String(row.date)} style={styles.kycCard}>
+                <Text style={styles.driverName}>{row.date}</Text>
+                <Text style={styles.kycDate}>Clicks: {Number(row.clicks || 0)}</Text>
+                <Text style={styles.kycDate}>Unique Visitors: {Number(row.unique_visitors || 0)}</Text>
+                <Text style={styles.kycDate}>Unique IPs: {Number(row.unique_ips || 0)}</Text>
+              </View>
+            ))
+          ) : (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyText}>No launch visits recorded yet.</Text>
+            </View>
+          )}
+
+          <Text style={styles.sectionSubtitle}>Visitors (Who Opened the Launch Page)</Text>
+          {Array.isArray(launchVisitReport.visitors) && launchVisitReport.visitors.length > 0 ? (
+            launchVisitReport.visitors.map((visitor, idx) => (
+              <View key={`${visitor.identity_key || 'visitor'}-${idx}`} style={styles.kycCard}>
+                <Text style={styles.driverName}>
+                  {visitor.name || visitor.phone || visitor.email || visitor.identity_key || 'Anonymous visitor'}
+                </Text>
+                <Text style={styles.kycDate}>Phone: {visitor.phone || 'N/A'}</Text>
+                <Text style={styles.kycDate}>Email: {visitor.email || 'N/A'}</Text>
+                <Text style={styles.kycDate}>Role: {visitor.role || 'Unknown'}</Text>
+                <Text style={styles.kycDate}>IP: {visitor.ip_address || 'N/A'}</Text>
+                <Text style={styles.kycDate}>
+                  Location: {[visitor.city, visitor.region, visitor.country].filter(Boolean).join(', ') || 'Unknown'}
+                </Text>
+                <Text style={styles.kycDate}>Visits: {Number(visitor.visit_count || 0)}</Text>
+                <Text style={styles.kycDate}>Last Seen: {formatDateTime(visitor.last_seen_at)}</Text>
+              </View>
+            ))
+          ) : (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyText}>No visitor identities available yet.</Text>
+            </View>
+          )}
+
+          <Text style={styles.sectionSubtitle}>Recent Launch Clicks</Text>
+          {Array.isArray(launchVisitReport.recent_clicks) && launchVisitReport.recent_clicks.length > 0 ? (
+            launchVisitReport.recent_clicks.map((click, idx) => (
+              <View key={`${click.id || 'click'}-${idx}`} style={styles.kycCard}>
+                <Text style={styles.driverName}>{formatDateTime(click.created_at)}</Text>
+                <Text style={styles.kycDate}>
+                  Visitor: {click.name || click.phone || click.email || click.identity_key || 'Anonymous'}
+                </Text>
+                <Text style={styles.kycDate}>Phone: {click.phone || 'N/A'}</Text>
+                <Text style={styles.kycDate}>IP: {click.ip_address || 'N/A'}</Text>
+                <Text style={styles.kycDate}>
+                  Location: {[click.city, click.region, click.country].filter(Boolean).join(', ') || 'Unknown'}
+                </Text>
+                <Text style={styles.kycDate}>Page: {click.page_url || 'N/A'}</Text>
+                <Text style={styles.kycDate}>Referrer: {click.referrer || 'Direct'}</Text>
+              </View>
+            ))
+          ) : (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyText}>No recent click records found.</Text>
+            </View>
           )}
         </View>
 
@@ -2490,4 +2613,3 @@ const styles = StyleSheet.create({
   btnApprove: { backgroundColor: '#2E7D32' },
   btnText: { color: '#fff', fontWeight: '600' },
 });
-
