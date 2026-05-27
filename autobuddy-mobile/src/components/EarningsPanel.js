@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import {
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
   ScrollView,
@@ -32,6 +33,7 @@ export default function EarningsPanel({
   onRequestWithdraw,
 }) {
   const [showFareDetails, setShowFareDetails] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState('');
 
   const todayMetrics = useMemo(() => {
     if (!earnings) return null;
@@ -158,6 +160,21 @@ export default function EarningsPanel({
           <Text style={styles.actionButtonText}>Withdraw</Text>
         </TouchableOpacity>
       </View>
+      <TextInput
+        style={styles.withdrawInput}
+        value={withdrawAmount}
+        onChangeText={setWithdrawAmount}
+        placeholder="Withdrawal amount"
+        placeholderTextColor={COLORS.gray}
+        keyboardType="decimal-pad"
+        editable={!loading}
+      />
+      <TouchableOpacity
+        style={[styles.actionButton, styles.withdrawSubmitButton]}
+        onPress={() => onRequestWithdraw?.(Number(withdrawAmount || 0), 'bank_transfer')}
+        disabled={loading}>
+        <Text style={styles.actionButtonText}>Submit Withdrawal Request</Text>
+      </TouchableOpacity>
 
       {/* Fare Details Section */}
       <TouchableOpacity
@@ -370,6 +387,19 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: COLORS.white,
     textAlign: 'center',
+  },
+  withdrawInput: {
+    borderWidth: 1,
+    borderColor: '#D7E2DA',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 10,
+    color: COLORS.textMain,
+    backgroundColor: COLORS.surface,
+  },
+  withdrawSubmitButton: {
+    marginBottom: 12,
   },
 
   // Fare Details

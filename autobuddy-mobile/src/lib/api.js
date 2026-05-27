@@ -134,10 +134,25 @@ export async function refreshAccessToken() {
   return payload.access_token;
 }
 
-export async function apiRequest(path, options = {}) {
+export async function apiRequest(path, options = {}, legacyPath = undefined, legacyBody = undefined) {
+  const legacySignature = typeof options === 'string';
+  if (legacySignature) {
+    options = {
+      method: options,
+      token: path,
+      body: legacyBody,
+    };
+    path = legacyPath;
+  }
+
   const { method = 'GET', token, body, query, timeoutMs = 20000, _retry = false } = options;
   const nowMs = Date.now();
-  const normalizedPath = String(path || '');
+  let normalizedPath = String(path || '');
+  if (normalizedPath === '/api') {
+    normalizedPath = '';
+  } else if (normalizedPath.startsWith('/api/')) {
+    normalizedPath = normalizedPath.slice(4);
+  }
   if (
     nowMs < backendOutageUntilMs &&
     !normalizedPath.includes('/auth/login') &&
@@ -149,7 +164,7 @@ export async function apiRequest(path, options = {}) {
     throw fastFailError;
   }
 
-  const url = new URL(`${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`);
+  const url = new URL(`${API_BASE_URL}${normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`}`);
   if (query) {
     Object.entries(query).forEach(([key, value]) => {
       if (value !== undefined && value !== null && value !== '') {
@@ -207,7 +222,7 @@ export async function apiRequest(path, options = {}) {
       }
       if (
         response.status === 503 &&
-        String(path) === '/auth/login' &&
+        normalizedPath === '/auth/login' &&
         method.toUpperCase() === 'POST' &&
         body &&
         !options._legacyTried
@@ -220,11 +235,11 @@ export async function apiRequest(path, options = {}) {
       if (
         response.status === 401 &&
         !_retry &&
-        !String(path).includes('/auth/login') &&
-        !String(path).includes('/auth/refresh')
+        !normalizedPath.includes('/auth/login') &&
+        !normalizedPath.includes('/auth/refresh')
       ) {
         const newToken = await refreshAccessToken();
-        return apiRequest(path, {
+        return apiRequest(normalizedPath, {
           ...options,
           token: newToken,
           _retry: true,
@@ -240,7 +255,7 @@ export async function apiRequest(path, options = {}) {
     consecutiveServerErrors = 0;
     backendOutageUntilMs = 0;
 
-    return data;
+    return legacySignature ? { data } : data;
   } catch (err) {
     if (err.name === 'AbortError') {
       throw new Error('Network timeout. Please check connection.');

@@ -66,16 +66,16 @@ export function useDriverActions({ token, onStatusChange } = {}) {
       setError('');
 
       try {
-        const endpoint = wantOnline ? '/drivers/go-online' : '/drivers/go-offline';
-        const response = await apiRequest(endpoint, {
-          method: 'POST',
+        const response = await apiRequest('/drivers/availability', {
+          method: 'PUT',
           token,
+          body: { is_available: wantOnline },
         });
 
-        if (response?.success) {
-          setIsOnline(wantOnline);
-          setServerIsOnline(wantOnline);
-          onStatusChange?.(wantOnline);
+        if (typeof response?.is_available === 'boolean') {
+          setIsOnline(response.is_available);
+          setServerIsOnline(response.is_available);
+          onStatusChange?.(response.is_available);
           return true;
         }
 
@@ -105,13 +105,13 @@ export function useDriverActions({ token, onStatusChange } = {}) {
       setError('');
 
       try {
-        const response = await apiRequest(`/drivers/block/${passengerId}`, {
-          method: 'POST',
+        const response = await apiRequest(`/drivers/blocked-passengers/${passengerId}`, {
+          method: 'PUT',
           token,
-          body: { reason },
+          body: { is_blocked: true, reason },
         });
 
-        if (response?.success) {
+        if (response?.message) {
           setBlockedPassengerIds((prev) => {
             if (prev.includes(passengerId)) return prev;
             return [...prev, passengerId];
@@ -144,12 +144,13 @@ export function useDriverActions({ token, onStatusChange } = {}) {
       setError('');
 
       try {
-        const response = await apiRequest(`/drivers/unblock/${passengerId}`, {
-          method: 'POST',
+        const response = await apiRequest(`/drivers/blocked-passengers/${passengerId}`, {
+          method: 'PUT',
           token,
+          body: { is_blocked: false },
         });
 
-        if (response?.success) {
+        if (response?.message) {
           setBlockedPassengerIds((prev) => prev.filter((id) => id !== passengerId));
           return true;
         }
@@ -181,7 +182,9 @@ export function useDriverActions({ token, onStatusChange } = {}) {
           token,
         });
 
-        if (response?.success) {
+        if (Array.isArray(response)) {
+          setPendingRequests(response);
+        } else if (response?.success) {
           setPendingRequests(response.data?.requests || []);
         } else if (Array.isArray(response?.data)) {
           setPendingRequests(response.data);
@@ -206,7 +209,9 @@ export function useDriverActions({ token, onStatusChange } = {}) {
           token,
         });
 
-        if (response?.success) {
+        if (Array.isArray(response?.passenger_ids)) {
+          setBlockedPassengerIds(response.passenger_ids);
+        } else if (response?.success) {
           setBlockedPassengerIds(response.data?.passenger_ids || []);
         } else if (Array.isArray(response?.data)) {
           setBlockedPassengerIds(response.data);
@@ -281,13 +286,14 @@ export function useDriverActions({ token, onStatusChange } = {}) {
       setError('');
 
       try {
-        const response = await apiRequest(`/drivers/report/${reportType}`, {
+        const response = await apiRequest('/drivers/earnings/report', {
           method: 'POST',
           token,
+          body: { format: 'json', report_type: reportType },
         });
 
-        if (response?.success) {
-          return response.data?.url || true;
+        if (response?.report || response?.report_id) {
+          return response.report || true;
         }
 
         throw new Error(response?.message || `Failed to generate ${reportType} report`);
@@ -310,10 +316,12 @@ export function useDriverActions({ token, onStatusChange } = {}) {
 
   // Initial fetch on mount
   useEffect(() => {
-    if (token) {
+    if (!token) return undefined;
+    const timer = setTimeout(() => {
       refreshPendingRequests();
       refreshBlockedPassengers();
-    }
+    }, 0);
+    return () => clearTimeout(timer);
   }, [token, refreshPendingRequests, refreshBlockedPassengers]);
 
   return {

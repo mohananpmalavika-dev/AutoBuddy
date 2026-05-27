@@ -41,6 +41,7 @@ from app.routers.revenue import router as modular_revenue_router
 from app.routers.security import router as modular_security_router
 from app.routers.safety import router as modular_safety_router
 from app.routers.features_routes import router as modular_features_router
+from app.routers.notifications_addon import router as modular_notifications_router
 from app.services.ai_dispatch import build_demand_heatmap, heat_cell as dispatch_heat_cell
 from app.services.revenue_service import (
     apply_referral_signup,
@@ -502,6 +503,8 @@ async def seed_admin():
         await db.emergency_contacts.create_index("user_id")
         await db.user_wallets.create_index("user_id", unique=True)
         await db.driver_wallets.create_index("driver_id", unique=True)
+        await db.driver_withdrawal_requests.create_index([("driver_id", 1), ("created_at", -1)])
+        await db.driver_earnings_reports.create_index([("driver_id", 1), ("created_at", -1)])
         await db.subscription_dues.create_index("id", unique=True)
         await db.subscription_dues.create_index([("user_id", 1), ("status", 1), ("created_at", -1)])
         await db.passenger_favorite_drivers.create_index([("passenger_id", 1), ("driver_id", 1)], unique=True)
@@ -1077,6 +1080,13 @@ class DriverFareCalculatorReview(BaseModel):
 
 class DriverFareCalculatorResetRequest(BaseModel):
     note: Optional[str] = Field(default="Reset to admin default fare calculator", max_length=200)
+
+class DriverWithdrawalRequest(BaseModel):
+    amount: float = Field(gt=0.0)
+    method: str = Field(default="bank_transfer", min_length=2, max_length=40)
+
+class DriverEarningsReportRequest(BaseModel):
+    format: Literal["json", "pdf"] = "json"
 
 class BookingCreate(BaseModel):
     pickup_location: Location
@@ -5046,25 +5056,119 @@ async def get_driver_earnings(current_user: dict = Depends(get_current_user)):
     """Get driver's earnings summary"""
     if current_user["role"] != UserRole.DRIVER:
         raise HTTPException(status_code=403, detail="Only drivers can access this")
-    
+
     completed_rides = await db.bookings.find({
         "driver_id": current_user["id"],
         "status": BookingStatus.COMPLETED
-    }).to_list(1000)
-    
-    total_earnings = sum(ride.get("final_fare", ride.get("estimated_fare", 0)) for ride in completed_rides)
+    }).to_list(5000)
+
+    now = datetime.utcnow()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start = now - timedelta(days=7)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    def ride_updated_at(ride: Dict[str, Any]) -> datetime:
+        value = ride.get("updated_at") or ride.get("created_at") or datetime.min
+        return value if isinstance(value, datetime) else datetime.min
+
+    def ride_fare(ride: Dict[str, Any]) -> float:
+        try:
+            return float(ride.get("final_fare", ride.get("estimated_fare", 0)) or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    total_earnings = sum(ride_fare(ride) for ride in completed_rides)
     total_rides = len(completed_rides)
-    
-    # Today's earnings
-    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    today_rides = [r for r in completed_rides if r.get("updated_at", r["created_at"]) >= today_start]
-    today_earnings = sum(ride.get("final_fare", ride.get("estimated_fare", 0)) for ride in today_rides)
-    
+    today_rides = [ride for ride in completed_rides if ride_updated_at(ride) >= today_start]
+    weekly_rides = [ride for ride in completed_rides if ride_updated_at(ride) >= week_start]
+    monthly_rides = [ride for ride in completed_rides if ride_updated_at(ride) >= month_start]
+    wallet = await db.driver_wallets.find_one({"driver_id": current_user["id"]}, {"_id": 0}) or {}
+
     return {
-        "total_earnings": total_earnings,
+        "total_earnings": round(total_earnings, 2),
         "total_rides": total_rides,
-        "today_earnings": today_earnings,
-        "today_rides": len(today_rides)
+        "today_earnings": round(sum(ride_fare(ride) for ride in today_rides), 2),
+        "today_rides": len(today_rides),
+        "weekly_earnings": round(sum(ride_fare(ride) for ride in weekly_rides), 2),
+        "weekly_rides": len(weekly_rides),
+        "monthly_earnings": round(sum(ride_fare(ride) for ride in monthly_rides), 2),
+        "monthly_rides": len(monthly_rides),
+        "wallet_balance": round(float(wallet.get("balance", 0.0) or 0.0), 2),
+        "pending_withdrawal": round(float(wallet.get("pending_withdrawal", 0.0) or 0.0), 2),
+    }
+
+
+@api_router.post("/drivers/earnings/report")
+async def create_driver_earnings_report(
+    payload: DriverEarningsReportRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user["role"] != UserRole.DRIVER:
+        raise HTTPException(status_code=403, detail="Only drivers can request earnings reports")
+
+    report = await get_driver_earnings(current_user)
+    report_doc = {
+        "id": str(uuid.uuid4()),
+        "driver_id": current_user["id"],
+        "format": payload.format,
+        "report": report,
+        "created_at": datetime.utcnow(),
+    }
+    await db.driver_earnings_reports.insert_one(report_doc)
+    report_doc.pop("_id", None)
+    return {
+        "message": "Driver earnings report generated",
+        "report_id": report_doc["id"],
+        "report": report,
+    }
+
+
+@api_router.post("/drivers/withdraw")
+async def request_driver_withdrawal(
+    payload: DriverWithdrawalRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user["role"] != UserRole.DRIVER:
+        raise HTTPException(status_code=403, detail="Only drivers can request withdrawals")
+
+    amount = round(float(payload.amount), 2)
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Withdrawal amount must be greater than zero")
+
+    now = datetime.utcnow()
+    wallet = await db.driver_wallets.find_one({"driver_id": current_user["id"]}, {"_id": 0}) or {}
+    balance = round(float(wallet.get("balance", 0.0) or 0.0), 2)
+    if amount > balance:
+        raise HTTPException(status_code=400, detail="Withdrawal amount exceeds wallet balance")
+
+    withdrawal_id = str(uuid.uuid4())
+    update_result = await db.driver_wallets.update_one(
+        {"driver_id": current_user["id"], "balance": {"$gte": amount}},
+        {
+            "$inc": {"balance": -amount, "pending_withdrawal": amount},
+            "$set": {"updated_at": now},
+            "$setOnInsert": {"created_at": now},
+        },
+        upsert=False,
+    )
+    if update_result.modified_count == 0:
+        raise HTTPException(status_code=400, detail="Wallet balance changed. Refresh and try again.")
+
+    request_doc = {
+        "id": withdrawal_id,
+        "driver_id": current_user["id"],
+        "amount": amount,
+        "method": payload.method,
+        "status": "pending",
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.driver_withdrawal_requests.insert_one(request_doc)
+    return {
+        "message": "Withdrawal request submitted",
+        "withdrawal_id": withdrawal_id,
+        "status": "pending",
+        "amount": amount,
     }
 
 # ==================== BOOKING ENDPOINTS ====================
@@ -9437,6 +9541,7 @@ app.include_router(modular_revenue_router)
 app.include_router(modular_security_router)
 app.include_router(modular_safety_router)
 app.include_router(modular_features_router)
+app.include_router(modular_notifications_router)
 app.include_router(api_router)
 app.mount("/ws", socket_app)
 
@@ -9459,9 +9564,6 @@ async def shutdown_db_client():
         except Exception:
             pass
     client.close()
-
-
-
 
 
 

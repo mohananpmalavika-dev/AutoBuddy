@@ -159,6 +159,7 @@ class PaymentMethodResponse(BaseModel):
     method_type: str
     card_last_four: Optional[str]
     card_brand: Optional[str]
+    card_expiry: Optional[str] = None
     upi_id: Optional[str]
     bank_name: Optional[str]
     is_default: bool
@@ -297,6 +298,7 @@ class SupportTicketResponse(BaseModel):
     id: str
     passenger_id: str
     subject: str
+    description: str
     category: str
     status: str
     priority: str

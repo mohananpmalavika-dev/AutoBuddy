@@ -1,4 +1,526 @@
-# 🚕 Passenger Menu Audit - Feature-Wise, Functional, & Technical
+# � PASSENGER MENU - COMPREHENSIVE AUDIT REPORT
+
+**Date:** May 27, 2026  
+**Status:** ⚠️ **INCOMPLETE** - Backend 100% Done, Frontend ~40% Done  
+**Scope:** Feature completeness, functionality verification, technical implementation check
+
+---
+
+## 🎯 Executive Summary
+
+| Component | Feature Name | Backend ✅ | Frontend 🎨 | Gap | Priority |
+|-----------|------------|-----------|----------|-----|----------|
+| Notifications | System notifications & bell | ✅ Full | ✅ Full | ✅ COMPLETE | - |
+| Ratings | Passenger ratings | ✅ Full | ❌ MISSING | **HIGH** | 🔴 Critical |
+| Saved Places | Store favorite locations | ✅ Full | ❌ MISSING | **HIGH** | 🔴 Critical |
+| Preferences | User preferences/settings | ✅ Full | ❌ MISSING | **HIGH** | 🔴 Critical |
+| Payment Methods | Add/manage payment cards | ✅ Full | ❌ MISSING | **HIGH** | 🔴 Critical |
+| Emergency Contacts | Add emergency contact info | ✅ Full | ❌ MISSING | **HIGH** | 🔴 Critical |
+| Promo Codes | Validate & apply discounts | ✅ Full | ❌ MISSING | **HIGH** | 🔴 Critical |
+| Support Tickets | Help & support system | ✅ Full | ❌ MISSING | **HIGH** | 🔴 Critical |
+| Accessibility | Accessibility settings | ✅ Full | ❌ MISSING | **HIGH** | 🔴 Critical |
+| Scheduled Rides | Schedule future rides | ✅ Full | ⚠️ Partial | **MEDIUM** | 🟡 Important |
+
+**Bottom Line:** Backend 100% complete. Frontend missing **8 major UI panels + 34-43 hours of work**
+
+---
+
+## ✅ Current Passenger Menu (What IS Implemented)
+
+### Tab 1: 🚗 Ride Booking
+**File:** `PassengerMap.web.js` (lines 1565-1710)  
+**Status:** ✅ COMPLETE
+
+**What works:**
+- ✅ Pickup location search (auto-fill + manual search)
+- ✅ Dropoff location search
+- ✅ Ride product selection (normal, corporate, airport, rental, tourism, etc.)
+- ✅ Passenger count
+- ✅ Conditional fields (corporate code, airport details, rental hours, etc.)
+- ✅ Inline driver selection (first 5 drivers)
+- ✅ Active ride tracking (status, OTP, timeline)
+
+**What's missing:**
+- ❌ Saved places quick-select
+- ❌ Promo code input
+- ❌ Accessibility options
+
+---
+
+### Tab 2: 👨‍💼 Drivers
+**Status:** ✅ COMPLETE
+- ✅ Available drivers list
+- ✅ Fare estimates
+- ✅ Select/block/favorite toggles
+- ❌ No dedicated favorites management tab
+
+---
+
+### Tab 3: 🛡️ Safety
+**Status:** ✅ COMPLETE
+- ✅ Kerala safety features
+- ✅ Safety tips & alerts
+
+---
+
+### Tab 4: 💰 Wallet
+**Status:** ⚠️ PARTIAL
+- ✅ Wallet balance display
+- ❌ No payment method management
+- ❌ No transaction history
+
+---
+
+### Tab 5: 🎡 Spin & Win
+**Status:** ✅ COMPLETE
+- ✅ Daily spins tracking
+- ✅ Spin now functionality
+
+---
+
+### Tab 6: 📜 History
+**Status:** ✅ COMPLETE
+- ✅ Past rides list (last 20)
+- ❌ No rating submission from history
+
+---
+
+### Tab 7: 🔔 Notifications
+**Status:** ✅ COMPLETE
+- ✅ Bell icon with unread badge
+- ✅ Notification center modal
+- ✅ Real-time WebSocket
+
+---
+
+## 🔴 CRITICAL MISSING - Backend Ready, Frontend Needed
+
+### 1. ⭐ Passenger Ratings (Feature #2)
+**Backend Status:** ✅ READY  
+**Frontend Status:** ❌ MISSING COMPLETELY
+
+```javascript
+// Backend endpoints exist:
+POST   /api/v1/passengers/ratings           // Submit rating
+GET    /api/v1/passengers/ratings           // Get my ratings
+PUT    /api/v1/passengers/ratings/{id}      // Edit rating
+DELETE /api/v1/passengers/ratings/{id}      // Delete rating
+
+// Models, validation, WebSocket events - ALL DONE
+```
+
+**What needs to be built:**
+```
+New Tab: "My Ratings"
+├── List my ratings (with driver name, date, score)
+├── Filter by rating/date
+├── View/edit/delete options
+└── Submit new rating form
+    ├── Select ride from history
+    ├── Star picker (1-5)
+    ├── Feedback text
+    └── Submit button
+```
+
+**Effort:** 3-4 hours
+
+---
+
+### 2. 📍 Saved Places (Feature #3)
+**Backend Status:** ✅ READY  
+**Frontend Status:** ❌ MISSING COMPLETELY
+
+```javascript
+// Backend endpoints exist:
+POST   /api/v1/passengers/saved-places
+GET    /api/v1/passengers/saved-places
+PUT    /api/v1/passengers/saved-places/{id}
+DELETE /api/v1/passengers/saved-places/{id}
+```
+
+**What needs to be built:**
+```
+New Tab: "Saved Places"
+├── Add Home address
+├── Add Work address
+├── Add other favorites
+├── One-tap use in booking
+└── Edit/delete functionality
+
++ Quick-select chips in Ride Booking tab
+```
+
+**Effort:** 4-5 hours
+
+---
+
+### 3. ⚙️ User Preferences (Feature #5)
+**Backend Status:** ✅ READY  
+**Frontend Status:** ❌ MISSING COMPLETELY
+
+```javascript
+// Backend endpoints exist:
+GET    /api/v1/passengers/preferences
+PATCH  /api/v1/passengers/preferences
+```
+
+**What needs to be built:**
+```
+New Tab: "My Preferences"
+├── Music preference toggle
+├── Temperature preference (cool/warm)
+├── Conversation preference (quiet/chatty)
+├── Driver preference (male/female/any)
+├── Payment method default
+├── Route preference (fastest/safest)
+└── Notification preferences
+```
+
+**Effort:** 3-4 hours
+
+---
+
+### 4. 💳 Payment Methods (Feature #6)
+**Backend Status:** ✅ READY  
+**Frontend Status:** ❌ MISSING COMPLETELY
+
+```javascript
+// Backend endpoints exist:
+POST   /api/v1/passengers/payment-methods
+GET    /api/v1/passengers/payment-methods
+DELETE /api/v1/passengers/payment-methods/{id}
+```
+
+**What needs to be built:**
+```
+New Tab: "Payment Methods"
+├── List saved cards
+├── Add new card
+├── Set default payment
+├── Edit card details
+├── Delete card
+└── Wallet balance display
+```
+
+**Effort:** 4-5 hours
+
+---
+
+### 5. 🆘 Emergency Contacts (Feature #7)
+**Backend Status:** ✅ READY  
+**Frontend Status:** ❌ MISSING COMPLETELY
+
+```javascript
+// Backend endpoints exist:
+POST   /api/v1/passengers/emergency-contacts
+GET    /api/v1/passengers/emergency-contacts
+DELETE /api/v1/passengers/emergency-contacts/{id}
+```
+
+**What needs to be built:**
+```
+New Tab: "Emergency Contacts"
+├── Add Mom/Dad/Friend contacts
+├── Quick call button
+├── Auto-notify during emergency
+└── Edit/delete functionality
+```
+
+**Effort:** 3-4 hours
+
+---
+
+### 6. 🎟️ Promo Codes (Feature #8)
+**Backend Status:** ✅ READY  
+**Frontend Status:** ❌ MISSING COMPLETELY
+
+```javascript
+// Backend endpoint exists:
+POST   /api/v1/passengers/promo-codes/validate
+```
+
+**What needs to be built:**
+```
+In Ride Booking tab:
+├── Add promo code input field
+├── Validate button
+├── Show discount (if valid)
+└── Remove code option
+
+Validation feedback:
+├── ✅ Valid code - shows discount amount
+├── ❌ Invalid/expired/usage limit exceeded
+└── Applied code shows final fare
+```
+
+**Effort:** 2-3 hours
+
+---
+
+### 7. 🎧 Support/Help Tickets (Feature #9)
+**Backend Status:** ✅ READY  
+**Frontend Status:** ❌ MISSING COMPLETELY
+
+```javascript
+// Backend endpoints exist:
+POST   /api/v1/passengers/support/tickets
+GET    /api/v1/passengers/support/tickets
+POST   /api/v1/passengers/support/tickets/{id}/messages
+```
+
+**What needs to be built:**
+```
+New Tab: "Help & Support"
+├── Create new ticket form
+│   ├── Category (driver behavior, pricing, lost item, bug)
+│   ├── Subject
+│   ├── Description
+│   ├── Attach screenshot
+│   └── Priority level
+├── My tickets list
+│   ├── Status badge
+│   ├── Message count
+│   └── Created/updated date
+└── View ticket details
+    ├── Messages thread
+    ├── Add reply
+    └── Close ticket
+```
+
+**Effort:** 4-5 hours
+
+---
+
+### 8. ♿ Accessibility Settings (Feature #10)
+**Backend Status:** ✅ READY  
+**Frontend Status:** ❌ MISSING COMPLETELY
+
+```javascript
+// Backend endpoints exist:
+GET    /api/v1/passengers/accessibility
+PATCH  /api/v1/passengers/accessibility
+```
+
+**What needs to be built:**
+```
+New Tab: "Accessibility"
+├── Visual (font size, contrast, dark mode, color blind mode)
+├── Audio (text-to-speech, vibration, sound alerts)
+├── Motor (larger buttons, voice commands, one-handed mode)
+├── Cognitive (simple language, reduced animations, focus mode)
+└── Mobility (wheelchair accessible drivers, extra boarding time)
+```
+
+**Effort:** 5-6 hours
+
+---
+
+### 9. 📅 Scheduled Rides (Feature #4)
+**Backend Status:** ✅ READY  
+**Frontend Status:** ⚠️ PARTIAL (20% done)
+
+**What exists:**
+- ✅ DateTime picker in ride booking
+- ✅ Backend endpoints ready
+
+**What's missing:**
+- ❌ Dedicated "Scheduled Rides" tab
+- ❌ List scheduled rides
+- ❌ Edit scheduled ride
+- ❌ Cancel scheduled ride
+- ❌ Recurring ride setup
+
+**Effort:** 3-4 hours
+
+---
+
+## 📊 Feature-wise Gap Analysis
+
+```
+FEATURE #1: NOTIFICATIONS ✅
+Backend:  ✅ 100% (models, endpoints, WebSocket)
+Frontend: ✅ 100% (components, integration, UI)
+Overall:  ✅✅✅✅✅ COMPLETE
+
+FEATURE #2: PASSENGER RATINGS ❌
+Backend:  ✅ 100%
+Frontend: ❌ 0% (NO UI AT ALL)
+Overall:  ⚠️⚠️⚠️⚠️⚠️ MISSING FRONTEND
+
+FEATURE #3: SAVED PLACES ❌
+Backend:  ✅ 100%
+Frontend: ❌ 0% (NO UI AT ALL)
+Overall:  ⚠️⚠️⚠️⚠️⚠️ MISSING FRONTEND
+
+FEATURE #4: SCHEDULED RIDES ⚠️
+Backend:  ✅ 100%
+Frontend: ⚠️ 20% (has input, missing full UI)
+Overall:  ⚠️⚠️⚠️⚠️- PARTIALLY DONE
+
+FEATURE #5: PREFERENCES ❌
+Backend:  ✅ 100%
+Frontend: ❌ 0% (NO UI AT ALL)
+Overall:  ⚠️⚠️⚠️⚠️⚠️ MISSING FRONTEND
+
+FEATURE #6: PAYMENT METHODS ❌
+Backend:  ✅ 100%
+Frontend: ❌ 0% (NO UI AT ALL)
+Overall:  ⚠️⚠️⚠️⚠️⚠️ MISSING FRONTEND
+
+FEATURE #7: FAVORITES & EMERGENCY ❌
+Backend:  ✅ 100%
+Frontend: ❌ 0% (NO UI AT ALL)
+Overall:  ⚠️⚠️⚠️⚠️⚠️ MISSING FRONTEND
+
+FEATURE #8: PROMO CODES ❌
+Backend:  ✅ 100%
+Frontend: ❌ 0% (NO UI AT ALL)
+Overall:  ⚠️⚠️⚠️⚠️⚠️ MISSING FRONTEND
+
+FEATURE #9: SUPPORT TICKETS ❌
+Backend:  ✅ 100%
+Frontend: ❌ 0% (NO UI AT ALL)
+Overall:  ⚠️⚠️⚠️⚠️⚠️ MISSING FRONTEND
+
+FEATURE #10: ACCESSIBILITY ❌
+Backend:  ✅ 100%
+Frontend: ❌ 0% (NO UI AT ALL)
+Overall:  ⚠️⚠️⚠️⚠️⚠️ MISSING FRONTEND
+```
+
+---
+
+## 📋 Technical Gap Summary
+
+### Missing Components to Create
+1. **RatingsPanel.js** - Display and submit ratings
+2. **SavedPlacesPanel.js** - Manage favorite locations
+3. **PreferencesPanel.js** - User preferences settings
+4. **PaymentMethodsPanel.js** - Payment cards management
+5. **EmergencyContactsPanel.js** - Emergency contact list
+6. **PromoCodeInput.js** - Promo code validation in booking
+7. **SupportTicketsPanel.js** - Help tickets and messages
+8. **AccessibilityPanel.js** - Accessibility settings
+9. **ScheduledRidesPanel.js** - Scheduled rides management
+
+### Missing Integration Points
+1. Add menu options to `PASSENGER_MENU_OPTIONS` array
+2. Add conditional renders in PassengerMap.web.js
+3. Add 150+ locale strings in passengerDashboard.js
+4. Create custom hooks for each feature
+
+### Missing Localization
+- 150+ new strings needed (English + Malayalam)
+- Currency formatting
+- Date/time formatting
+
+---
+
+## ⏱️ Implementation Effort Estimate
+
+| Feature | Hours | Difficulty |
+|---------|-------|-----------|
+| Promo Codes | 2-3 | Easy |
+| Emergency Contacts | 3-4 | Easy |
+| Passenger Ratings | 3-4 | Medium |
+| Preferences | 3-4 | Medium |
+| Saved Places | 4-5 | Medium |
+| Payment Methods | 4-5 | Medium |
+| Support Tickets | 4-5 | Hard |
+| Scheduled Rides (tab) | 3-4 | Medium |
+| Accessibility | 5-6 | Hard |
+| **TOTAL** | **34-43** | **~1 week** |
+
+---
+
+## 🎯 Overall Completion Status
+
+```
+BACKEND IMPLEMENTATION: 100% ✅
+├── 14 ORM models
+├── 30+ API endpoints
+├── 20+ WebSocket events
+├── 21 integration tests
+├── Request validation (Pydantic)
+├── Authentication & authorization
+└── Database schema (SQLite + PostgreSQL)
+
+FRONTEND IMPLEMENTATION: ~40% ⚠️
+├── ✅ 7 working tabs (Ride, Drivers, Safety, Wallet, Spin, History, Notifications)
+├── ❌ 8 missing tabs (Ratings, Saved Places, Promo, Support, etc.)
+├── ⚠️ 1 partial tab (Scheduled Rides - has input but no management)
+├── ❌ 0 dedicated favorites management UI
+├── ❌ 0 accessibility UI
+└── ❌ 0 payment methods management UI
+
+INTEGRATION: ~50% ⚠️
+├── ✅ Backend-Frontend API connection ready
+├── ✅ WebSocket infrastructure in place
+├── ✅ Authentication working
+├── ❌ Features not exposed in UI
+└── ❌ End-to-end workflows not testable
+
+TESTING: ~50% ⚠️
+├── ✅ 21 backend integration tests
+├── ✅ Tests passing
+├── ❌ Frontend component tests missing
+├── ❌ E2E tests missing
+└── ❌ Manual UI testing incomplete
+
+OVERALL COMPLETION: ~55%
+```
+
+---
+
+## 🚨 Critical Issues & Gaps
+
+### Feature Exposure Problem
+- 8 out of 10 features are **completely hidden from users**
+- Users cannot access: Ratings, Saved Places, Preferences, Payment Methods, Emergency Contacts, Promo Codes, Support, Accessibility
+- Backend is ready but unusable without frontend
+
+### User Experience Impact
+- ❌ Cannot rate drivers after rides
+- ❌ Cannot save favorite places
+- ❌ Cannot customize preferences
+- ❌ Cannot add payment methods
+- ❌ Cannot get support
+- ❌ Cannot use promo codes
+- ❌ Cannot access accessibility features
+
+### Production Readiness
+- ⚠️ **Can deploy** with current features (basic ride booking works)
+- ⚠️ **Should NOT deploy** without at minimum: Promo Codes, Support, Payment Methods
+- ⚠️ Missing critical user-facing features
+
+---
+
+## 📝 Recommended Next Steps
+
+### PHASE 1: Quick Wins (2-3 days)
+1. **Promo Codes Input** (2-3 hours) - Add field to booking, high revenue impact
+2. **Support Tickets** (4-5 hours) - Critical for customer support
+3. **Emergency Contacts** (3-4 hours) - Safety critical
+
+### PHASE 2: Core Features (3-4 days)
+4. **Payment Methods** (4-5 hours) - Required for wallet features
+5. **Saved Places** (4-5 hours) - Improves UX significantly
+6. **Passenger Ratings** (3-4 hours) - Driver quality feedback
+
+### PHASE 3: User Preferences (2-3 days)
+7. **Preferences** (3-4 hours) - Personalization
+8. **Accessibility** (5-6 hours) - Inclusive design
+9. **Scheduled Rides Tab** (3-4 hours) - Complete feature
+
+---
+
+## 📌 Bottom Line
+
+✅ **Backend:** Production-ready, fully tested, all 10 features implemented  
+❌ **Frontend:** ~40% complete, **8 major features missing UI panels**  
+⚠️ **Overall:** 55% done, needs **34-43 hours to complete all features**
+
+**Current state is not production-ready** - users cannot access most premium features. Recommend implementing at minimum Promo Codes, Support, and Payment Methods before deployment.
 
 **Date:** May 27, 2026  
 **Focus Areas:** Feature Completeness | Functional Gaps | Technical Issues

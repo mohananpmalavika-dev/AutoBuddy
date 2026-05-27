@@ -30,6 +30,15 @@ import LocationSearchModal from '../components/LocationSearchModal';
 import BookingConfirmationCard from '../components/BookingConfirmationCard';
 import NotificationBell from '../components/NotificationBell';
 import NotificationCenter from '../components/NotificationCenter';
+import PromoCodePanel from '../components/PromoCodePanel';
+import SupportTicketsPanel from '../components/SupportTicketsPanel';
+import PaymentMethodsPanel from '../components/PaymentMethodsPanel';
+import PassengerRatingsPanel from '../components/PassengerRatingsPanel';
+import PreferencesPanel from '../components/PreferencesPanel';
+import SavedPlacesPanel from '../components/SavedPlacesPanel';
+import EmergencyContactsPanel from '../components/EmergencyContactsPanel';
+import AccessibilityPanel from '../components/AccessibilityPanel';
+import ScheduledRidesPanel from '../components/ScheduledRidesPanel';
 import { NotificationProvider, useNotifications } from '../contexts/NotificationContext';
 import { useNotificationManager } from '../hooks/useNotificationManager';
 import {
@@ -54,6 +63,16 @@ const PASSENGER_MENU_OPTIONS = [
   { key: 'wallet' },
   { key: 'spin' },
   { key: 'history' },
+  { key: 'notifications' },
+  { key: 'promo' },
+  { key: 'support' },
+  { key: 'payment' },
+  { key: 'ratings' },
+  { key: 'preferences' },
+  { key: 'places' },
+  { key: 'emergency' },
+  { key: 'accessibility' },
+  { key: 'scheduled' },
 ];
 const PRIMARY_PASSENGER_MENU_KEY = 'ride';
 const DASHBOARD_PASSENGER_MENU_KEYS = new Set([PRIMARY_PASSENGER_MENU_KEY]);
@@ -150,6 +169,16 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       wallet: t.wallet,
       spin: t.spin,
       history: t.history,
+      notifications: t.notifications || 'Notifications',
+      promo: t.promo || 'Promo Codes',
+      support: t.support || 'Support',
+      payment: t.payment || 'Payment',
+      ratings: t.ratings || 'Ratings',
+      preferences: t.preferences || 'Preferences',
+      places: t.places || 'Saved Places',
+      emergency: t.emergency || 'Emergency',
+      accessibility: t.accessibility || 'Accessibility',
+      scheduled: t.scheduled || 'Scheduled Rides',
     }),
     [t],
   );
@@ -1954,6 +1983,17 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                 )}
               </View>
             )}
+
+            {activePassengerMenu === 'notifications' && <NotificationCenter token={token} onClose={() => setShowNotificationCenter(false)} />}
+            {activePassengerMenu === 'promo' && <PromoCodePanel token={token} />}
+            {activePassengerMenu === 'support' && <SupportTicketsPanel token={token} />}
+            {activePassengerMenu === 'payment' && <PaymentMethodsPanel token={token} />}
+            {activePassengerMenu === 'ratings' && <PassengerRatingsPanel token={token} />}
+            {activePassengerMenu === 'preferences' && <PreferencesPanel token={token} />}
+            {activePassengerMenu === 'places' && <SavedPlacesPanel token={token} />}
+            {activePassengerMenu === 'emergency' && <EmergencyContactsPanel token={token} />}
+            {activePassengerMenu === 'accessibility' && <AccessibilityPanel token={token} />}
+            {activePassengerMenu === 'scheduled' && <ScheduledRidesPanel token={token} />}
           </ScrollView>
         </View>
 

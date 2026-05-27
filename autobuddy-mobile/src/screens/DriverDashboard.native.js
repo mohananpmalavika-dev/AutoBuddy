@@ -15,13 +15,16 @@ import BottomSheet from '@gorhom/bottom-sheet';
 
 import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
+import KeralaSafetyCard from '../components/KeralaSafetyCard';
 import DriverTrustCard from '../components/DriverTrustCard';
+import DriverKycPanel from '../components/DriverKycPanel';
 import RevenueCard from '../components/RevenueCard';
 import RideCommunicationCard from '../components/RideCommunicationCard';
 import VoiceTextInput from '../components/VoiceTextInput';
 import RideCard from '../components/RideCard';
 import DriverTabBar from '../components/DriverTabBar';
 import EarningsPanel from '../components/EarningsPanel';
+import { useKeralaSafety } from '../hooks/useKeralaSafety';
 import { useDriverRealtimeTracking } from '../hooks/useDriverRealtimeTracking';
 
 const driverMapStyle = [
@@ -39,19 +42,6 @@ const DEFAULT_DRIVER_LOCATION = {
 };
 
 const STATUS_FLOW = ['accepted', 'driver_arrived', 'in_progress', 'completed'];
-const DRIVER_MENU_OPTIONS = [
-  { key: 'requests', label: 'Ride Flow' },
-  { key: 'earnings', label: 'Earnings' },
-  { key: 'spin', label: 'Spin & Win' },
-  { key: 'fare', label: 'Fare Tools' },
-  { key: 'blocked', label: 'Blocked' },
-  { key: 'trust', label: 'Trust' },
-];
-const PRIMARY_DRIVER_MENU_KEY = 'requests';
-const DASHBOARD_DRIVER_MENU_KEYS = new Set([PRIMARY_DRIVER_MENU_KEY]);
-const SECONDARY_DRIVER_MENU_OPTIONS = DRIVER_MENU_OPTIONS.filter(
-  (menu) => !DASHBOARD_DRIVER_MENU_KEYS.has(menu.key),
-);
 const DRIVER_MOVING_TRACK_INTERVAL_MS = 5000;
 const DRIVER_IDLE_TRACK_INTERVAL_MS = 20000;
 const DRIVER_IDLE_SPEED_THRESHOLD_KMH = 2;
@@ -87,7 +77,6 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   const [activeRide, setActiveRide] = useState(null);
   const [earnings, setEarnings] = useState(null);
   const [pricingRules, setPricingRules] = useState(null);
-  const [showFareCalculator, setShowFareCalculator] = useState(false);
   const [driverFareConfig, setDriverFareConfig] = useState({
     base_fare: '25',
     per_km_rate: '12',
@@ -103,16 +92,8 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   const [driverFareRequestInfo, setDriverFareRequestInfo] = useState(null);
   const [rideStartOtp, setRideStartOtp] = useState('');
   const [rideEndOtp, setRideEndOtp] = useState('');
-  const [showProfile, setShowProfile] = useState(false);
   const [activeTab, setActiveTab] = useState('requests');
   const [expandedRideCard, setExpandedRideCard] = useState(false);
-  const [spinWinStatus, setSpinWinStatus] = useState(null);
-  const [spinWinLoading, setSpinWinLoading] = useState(false);
-  const [spinningNow, setSpinningNow] = useState(false);
-  const [rideStartOtp, setRideStartOtp] = useState('');
-  const [rideEndOtp, setRideEndOtp] = useState('');
-  const [activeDriverMenu, setActiveDriverMenu] = useState(PRIMARY_DRIVER_MENU_KEY);
-  const [showDriverMenus, setShowDriverMenus] = useState(false);
   const [spinWinStatus, setSpinWinStatus] = useState(null);
   const [spinWinLoading, setSpinWinLoading] = useState(false);
   const [spinningNow, setSpinningNow] = useState(false);
@@ -124,6 +105,12 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   const navigatingToDrop = activeRideStatus === 'in_progress';
   const showStageRoute = navigatingToPickup || navigatingToDrop;
   const shouldSyncDriverLocation = (isOnline && !availabilitySyncPending) || liveLocationRideStatuses.has(activeRideStatus);
+  const displayIsOnline = availabilitySyncPending ? isOnline : serverIsOnline;
+  const keralaSafety = useKeralaSafety({
+    token,
+    userName: user?.name,
+    activeBooking: activeRide,
+  });
   const {
     connected: realtimeConnected,
     trackingError,
@@ -621,6 +608,43 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     }
   };
 
+  const requestDriverEarningsReport = async () => {
+    const report = await runAction(
+      () =>
+        apiRequest('/drivers/earnings/report', {
+          method: 'POST',
+          token,
+          body: { format: 'json' },
+        }),
+      'Driver earnings report generated.',
+    );
+    if (report?.report) {
+      const total = Number(report.report.total_earnings || 0).toFixed(2);
+      const rides = Number(report.report.total_rides || 0);
+      setMessage(`Report ready: INR ${total} across ${rides} completed rides.`);
+    }
+  };
+
+  const requestDriverWithdrawal = async (amount, method = 'bank_transfer') => {
+    const normalizedAmount = Number(amount || 0);
+    if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0) {
+      setError('Enter a valid withdrawal amount.');
+      return;
+    }
+    const result = await runAction(
+      () =>
+        apiRequest('/drivers/withdraw', {
+          method: 'POST',
+          token,
+          body: { amount: normalizedAmount, method },
+        }),
+      'Withdrawal request submitted for admin processing.',
+    );
+    if (result) {
+      await refreshDriverDataSilently({ includeMeta: true });
+    }
+  };
+
   
 
   useEffect(() => {
@@ -786,8 +810,8 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     if (loading || availabilitySyncPending) {
       return;
     }
-    const next = typeof nextValue === 'boolean' ? nextValue : !serverIsOnline;
-    if (next === serverIsOnline && !pendingAvailabilitySyncRef.current) {
+    const next = typeof nextValue === 'boolean' ? nextValue : !displayIsOnline;
+    if (next === displayIsOnline && !pendingAvailabilitySyncRef.current) {
       return;
     }
     const requestId = availabilityToggleRequestIdRef.current + 1;
@@ -1058,14 +1082,14 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
 
       <View style={styles.topBar}>
         <TouchableOpacity
-          style={[styles.statusBadgeButton, { backgroundColor: serverIsOnline ? '#E8F5E9' : '#F5F5F5', borderColor: serverIsOnline ? COLORS.primary : '#BDBDBD' }]}
+          style={[styles.statusBadgeButton, { backgroundColor: displayIsOnline ? '#E8F5E9' : '#F5F5F5', borderColor: displayIsOnline ? COLORS.primary : '#BDBDBD' }]}
           onPress={() => toggleOnlineStatus()}
           disabled={loading || availabilitySyncPending}
         >
-          <View style={[styles.statusDot, { backgroundColor: availabilitySyncPending ? '#FFA500' : serverIsOnline ? COLORS.primary : COLORS.textMuted }]} />
+          <View style={[styles.statusDot, { backgroundColor: availabilitySyncPending ? '#FFA500' : displayIsOnline ? COLORS.primary : COLORS.textMuted }]} />
           <View style={styles.statusContent}>
-            <Text style={[styles.statusText, { color: serverIsOnline ? COLORS.primary : '#666' }]}>
-              {availabilitySyncPending ? 'Updating...' : (serverIsOnline ? 'ONLINE & READY' : 'OFFLINE')}
+            <Text style={[styles.statusText, { color: displayIsOnline ? COLORS.primary : '#666' }]}>
+              {availabilitySyncPending ? (displayIsOnline ? 'GOING ONLINE...' : 'GOING OFFLINE...') : (displayIsOnline ? 'ONLINE & READY' : 'OFFLINE')}
             </Text>
             <Text style={styles.statusSub}>{user?.name || 'Driver'} • Tap to toggle</Text>
           </View>
@@ -1113,7 +1137,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
               activeTab={activeTab}
               onTabChange={setActiveTab}
               requestCount={pendingRequests.length}
-              isOnline={serverIsOnline}
+              isOnline={displayIsOnline}
               compact={false}
             />
           </View>
@@ -1211,7 +1235,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
               ) : null}
 
               {!activeRide && (
-                isOnline ? (
+                displayIsOnline ? (
                   pendingRequests.length === 0 ? (
                     <View style={styles.offlineState}>
                       <Text style={styles.offlineText}>No pending requests right now.</Text>
@@ -1299,10 +1323,99 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
                   pricingRules={pricingRules}
                   driverFareConfig={driverFareConfig}
                   loading={loading}
-                  onRequestReport={() => {}}
-                  onRequestWithdraw={() => {}}
+                  onRequestReport={requestDriverEarningsReport}
+                  onRequestWithdraw={requestDriverWithdrawal}
                 />
               </View>
+            </>
+          )}
+
+          {activeTab === 'spin' && (
+            <View style={styles.earningsCard}>
+              <Text style={styles.fareTitle}>Spin & Win</Text>
+              <Text style={styles.requestDetails}>
+                Status: {spinWinStatus?.enabled ? 'Enabled' : 'Disabled'} | Spins left today: {Number(spinWinStatus?.spins_left_today || 0)}
+              </Text>
+              {!!spinWinStatus?.eligibility_reason && (
+                <Text style={styles.requestDetails}>{spinWinStatus.eligibility_reason}</Text>
+              )}
+              {!!spinWinStatus?.latest_reward?.label && (
+                <Text style={styles.requestDetails}>Latest reward: {spinWinStatus.latest_reward.label}</Text>
+              )}
+              <TouchableOpacity
+                style={styles.actionButton}
+                onPress={spinNow}
+                disabled={loading || spinWinLoading || spinningNow || !spinWinStatus?.eligible || Number(spinWinStatus?.spins_left_today || 0) <= 0}>
+                <Text style={styles.actionButtonText}>{spinningNow ? 'Spinning...' : 'Spin Now'}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {activeTab === 'fare' && (
+            <View style={styles.earningsCard}>
+              <Text style={styles.fareTitle}>Fare Tools</Text>
+              <Text style={styles.requestDetails}>Status: {driverFareStatus}</Text>
+              {!!driverFareRequestInfo?.reject_reason && (
+                <Text style={styles.error}>Rejected: {driverFareRequestInfo.reject_reason}</Text>
+              )}
+              <Text style={styles.fieldLabel}>Base Fare</Text>
+              <VoiceTextInput style={styles.input} value={driverFareConfig.base_fare} onChangeText={(value) => updateDriverFareField('base_fare', value)} keyboardType="decimal-pad" />
+              <Text style={styles.fieldLabel}>Per KM Rate</Text>
+              <VoiceTextInput style={styles.input} value={driverFareConfig.per_km_rate} onChangeText={(value) => updateDriverFareField('per_km_rate', value)} keyboardType="decimal-pad" />
+              <Text style={styles.fieldLabel}>Minimum Fare</Text>
+              <VoiceTextInput style={styles.input} value={driverFareConfig.minimum_fare} onChangeText={(value) => updateDriverFareField('minimum_fare', value)} keyboardType="decimal-pad" />
+              <Text style={styles.fieldLabel}>Surge Multiplier</Text>
+              <VoiceTextInput style={styles.input} value={driverFareConfig.surge_multiplier} onChangeText={(value) => updateDriverFareField('surge_multiplier', value)} keyboardType="decimal-pad" />
+              <Text style={styles.fieldLabel}>Night Multiplier</Text>
+              <VoiceTextInput style={styles.input} value={driverFareConfig.night_multiplier} onChangeText={(value) => updateDriverFareField('night_multiplier', value)} keyboardType="decimal-pad" />
+              <Text style={styles.fieldLabel}>Base Search Radius KM</Text>
+              <VoiceTextInput style={styles.input} value={driverFareConfig.driver_base_search_radius_km} onChangeText={(value) => updateDriverFareField('driver_base_search_radius_km', value)} keyboardType="decimal-pad" />
+              <Text style={styles.fieldLabel}>Long Distance Radius KM</Text>
+              <VoiceTextInput style={styles.input} value={driverFareConfig.driver_long_distance_search_radius_km} onChangeText={(value) => updateDriverFareField('driver_long_distance_search_radius_km', value)} keyboardType="decimal-pad" />
+              <Text style={styles.fieldLabel}>Pickup Surcharge Per KM</Text>
+              <VoiceTextInput style={styles.input} value={driverFareConfig.driver_pickup_surcharge_per_km} onChangeText={(value) => updateDriverFareField('driver_pickup_surcharge_per_km', value)} keyboardType="decimal-pad" />
+              <Text style={styles.fieldLabel}>Peak Hours</Text>
+              <VoiceTextInput style={styles.input} value={driverFareConfig.peak_hours} onChangeText={(value) => updateDriverFareField('peak_hours', value)} placeholder="8,9,17,18,19" placeholderTextColor={COLORS.textMuted} />
+              <View style={styles.requestButtonsRow}>
+                <TouchableOpacity style={styles.acceptButtonNew} onPress={submitDriverFareCalculator} disabled={loading}>
+                  <Text style={styles.acceptTextNew}>Submit For Approval</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.blockButtonNew} onPress={requestResetToAdminDefault} disabled={loading}>
+                  <Text style={styles.blockButtonTextNew}>Reset To Admin Default</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {activeTab === 'blocked' && (
+            <View style={styles.earningsCard}>
+              <Text style={styles.fareTitle}>Blocked Passengers</Text>
+              {blockedPassengerIds.length === 0 ? (
+                <Text style={styles.requestDetails}>No blocked passengers.</Text>
+              ) : (
+                blockedPassengerIds.map((passengerId) => (
+                  <View key={passengerId} style={styles.blockedRow}>
+                    <Text style={styles.requestDetails}>Passenger ID: {passengerId}</Text>
+                    <TouchableOpacity
+                      style={styles.blockButtonNew}
+                      onPress={() => toggleBlockedPassenger(passengerId, true)}
+                      disabled={loading}>
+                      <Text style={styles.blockButtonTextNew}>Unblock</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))
+              )}
+            </View>
+          )}
+
+          {activeTab === 'safety' && (
+            <KeralaSafetyCard safety={keralaSafety} />
+          )}
+
+          {activeTab === 'trust' && (
+            <>
+              <DriverKycPanel token={token} />
+              <DriverTrustCard token={token} />
             </>
           )}
 
@@ -1311,19 +1424,19 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
             <>
               <View style={styles.earningsCard}>
                 <Text style={styles.fareTitle}>Quick Actions</Text>
-                <TouchableOpacity style={styles.actionButton} onPress={() => {}}>
+                <TouchableOpacity style={styles.actionButton} onPress={() => setActiveTab('spin')}>
                   <Text style={styles.actionButtonText}>🎯 Spin & Win</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.actionButton}>
+                <TouchableOpacity style={styles.actionButton} onPress={() => setActiveTab('fare')}>
                   <Text style={styles.actionButtonText}>📊 Fare Calculator</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.actionButton}>
+                <TouchableOpacity style={styles.actionButton} onPress={() => setActiveTab('blocked')}>
                   <Text style={styles.actionButtonText}>🚫 Blocked Passengers</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.actionButton}>
+                <TouchableOpacity style={styles.actionButton} onPress={() => setActiveTab('trust')}>
                   <Text style={styles.actionButtonText}>🛡️ Trust Card</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.actionButton}>
+                <TouchableOpacity style={styles.actionButton} onPress={() => setActiveTab('safety')}>
                   <Text style={styles.actionButtonText}>⚠️ Safety</Text>
                 </TouchableOpacity>
               </View>
@@ -1336,9 +1449,9 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
               <View style={styles.earningsCard}>
                 <Text style={styles.fareTitle}>Settings</Text>
                 <View style={styles.settingItem}>
-                  <Text style={styles.settingLabel}>Online Status: {serverIsOnline ? '🟢 Online' : '🔴 Offline'}</Text>
+                  <Text style={styles.settingLabel}>Online Status: {displayIsOnline ? 'Online' : 'Offline'}</Text>
                   <TouchableOpacity style={styles.actionButton} onPress={() => toggleOnlineStatus()}>
-                    <Text style={styles.actionButtonText}>{serverIsOnline ? 'Go Offline' : 'Go Online'}</Text>
+                    <Text style={styles.actionButtonText}>{displayIsOnline ? 'Go Offline' : 'Go Online'}</Text>
                   </TouchableOpacity>
                 </View>
                 <View style={styles.settingItem}>
@@ -1465,6 +1578,16 @@ const styles = StyleSheet.create({
   warningText: { color: '#D97706', marginBottom: 8, fontWeight: '600' },
   fareTitle: { color: COLORS.textMain, fontWeight: '800', marginBottom: 6 },
   fieldLabel: { color: COLORS.textMain, fontWeight: '700', marginTop: 10, marginBottom: 4 },
+  input: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    color: COLORS.textMain,
+    backgroundColor: COLORS.surface,
+    marginBottom: 8,
+  },
   error: { color: COLORS.danger, marginBottom: 8 },
   message: { color: COLORS.secondary, marginBottom: 8 },
   loader: { marginVertical: 6 },

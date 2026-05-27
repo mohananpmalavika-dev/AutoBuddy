@@ -62,14 +62,14 @@ export function useDriverRide({ token, onRideStatusChange } = {}) {
       setError('');
 
       try {
-        const response = await apiRequest(`/rides/${rideId}/accept`, {
-          method: 'POST',
+        const response = await apiRequest(`/bookings/${rideId}/accept`, {
+          method: 'PUT',
           token,
         });
 
-        if (response?.success) {
-          setRide(response.data);
-          onRideStatusChange?.(response.data);
+        if (response) {
+          setRide(response);
+          onRideStatusChange?.(response);
           return true;
         }
 
@@ -98,13 +98,13 @@ export function useDriverRide({ token, onRideStatusChange } = {}) {
       setError('');
 
       try {
-        const response = await apiRequest(`/rides/${rideId}/decline`, {
-          method: 'POST',
+        const response = await apiRequest(`/bookings/${rideId}/reject`, {
+          method: 'PUT',
           token,
           body: { reason },
         });
 
-        if (response?.success) {
+        if (response) {
           setRide(null);
           return true;
         }
@@ -134,14 +134,15 @@ export function useDriverRide({ token, onRideStatusChange } = {}) {
       setError('');
 
       try {
-        const response = await apiRequest(`/rides/${rideId}/arrived`, {
-          method: 'POST',
+        const response = await apiRequest(`/bookings/${rideId}/status`, {
+          method: 'PUT',
           token,
+          body: { status: 'driver_arrived' },
         });
 
-        if (response?.success) {
-          setRide(response.data);
-          onRideStatusChange?.(response.data);
+        if (response) {
+          setRide(response);
+          onRideStatusChange?.(response);
           return true;
         }
 
@@ -170,20 +171,20 @@ export function useDriverRide({ token, onRideStatusChange } = {}) {
       setError('');
 
       try {
-        const body = {};
+        const body = { status: 'in_progress' };
         if (otpCode) {
-          body.otp_code = otpCode;
+          body.ride_start_otp = otpCode;
         }
 
-        const response = await apiRequest(`/rides/${rideId}/start`, {
-          method: 'POST',
+        const response = await apiRequest(`/bookings/${rideId}/status`, {
+          method: 'PUT',
           token,
-          body: Object.keys(body).length > 0 ? body : undefined,
+          body,
         });
 
-        if (response?.success) {
-          setRide(response.data);
-          onRideStatusChange?.(response.data);
+        if (response) {
+          setRide(response);
+          onRideStatusChange?.(response);
           setRideStartOtp('');
           return true;
         }
@@ -213,21 +214,24 @@ export function useDriverRide({ token, onRideStatusChange } = {}) {
       setError('');
 
       try {
-        const body = {};
+        const body = { status: 'completed' };
         if (otpCode) {
-          body.otp_code = otpCode;
+          body.ride_end_otp = otpCode;
+        } else {
+          body.allow_complete_without_otp = true;
+          body.complete_without_otp_reason = 'driver_completed_without_otp';
         }
         if (rating) {
           body.rating = rating;
         }
 
-        const response = await apiRequest(`/rides/${rideId}/complete`, {
-          method: 'POST',
+        const response = await apiRequest(`/bookings/${rideId}/status`, {
+          method: 'PUT',
           token,
-          body: Object.keys(body).length > 0 ? body : undefined,
+          body,
         });
 
-        if (response?.success) {
+        if (response) {
           setRide(null);
           setRideEndOtp('');
           return true;

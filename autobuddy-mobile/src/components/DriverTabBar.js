@@ -15,7 +15,7 @@ import { COLORS, SHADOWS } from '../theme';
  * Features: Active indicator, badge counts, smooth switching
  * 
  * Props:
- *   - activeTab: 'requests' | 'earnings' | 'actions' | 'settings'
+ *   - activeTab: driver dashboard tab key
  *   - onTabChange: (tabKey) => void
  *   - requestCount: number (pending requests)
  *   - isOnline: boolean
@@ -29,30 +29,15 @@ export default function DriverTabBar({
   compact = false,
 }) {
   const tabs = useMemo(() => [
-    { 
-      key: 'requests', 
-      label: 'Ride Flow', 
-      icon: '🚗',
-      badge: requestCount > 0 ? requestCount : null,
-    },
-    { 
-      key: 'earnings', 
-      label: 'Earnings', 
-      icon: '💰',
-      badge: null,
-    },
-    { 
-      key: 'actions', 
-      label: 'Actions', 
-      icon: '⚙️',
-      badge: null,
-    },
-    { 
-      key: 'settings', 
-      label: 'Settings', 
-      icon: '👤',
-      badge: null,
-    },
+    { key: 'requests', label: 'Ride Flow', icon: 'R', badge: requestCount > 0 ? requestCount : null },
+    { key: 'earnings', label: 'Earnings', icon: 'E', badge: null },
+    { key: 'spin', label: 'Spin', icon: 'S', badge: null },
+    { key: 'fare', label: 'Fare', icon: 'F', badge: null },
+    { key: 'blocked', label: 'Blocked', icon: 'B', badge: null },
+    { key: 'safety', label: 'Safety', icon: '!', badge: null },
+    { key: 'trust', label: 'Trust', icon: 'T', badge: null },
+    { key: 'actions', label: 'Actions', icon: '+', badge: null },
+    { key: 'settings', label: 'Settings', icon: 'P', badge: null },
   ], [requestCount]);
 
   const handleTabPress = useCallback((tabKey) => {

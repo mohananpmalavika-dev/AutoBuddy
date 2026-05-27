@@ -53,7 +53,10 @@ export function useDriverEarnings({ token, onEarningsChange } = {}) {
           token,
         });
 
-        if (response?.success) {
+        if (response?.total_earnings !== undefined || response?.today_earnings !== undefined) {
+          setEarnings(response || {});
+          onEarningsChange?.(response);
+        } else if (response?.success) {
           setEarnings(response.data || {});
           onEarningsChange?.(response.data);
         } else if (response?.data) {
@@ -126,13 +129,13 @@ export function useDriverEarnings({ token, onEarningsChange } = {}) {
       }
 
       try {
-        const response = await apiRequest('/drivers/fare-config', {
+        const response = await apiRequest('/drivers/fare-calculator', {
           method: 'GET',
           token,
         });
 
-        if (response?.success || response?.data) {
-          const config = response.data || response;
+        if (response?.effective_pricing || response?.data) {
+          const config = response.effective_pricing || response.data || response;
           setDriverFareConfig((prev) => ({ ...prev, ...config }));
         }
       } catch (err) {
@@ -168,7 +171,7 @@ export function useDriverEarnings({ token, onEarningsChange } = {}) {
           },
         });
 
-        if (response?.success) {
+        if (response?.withdrawal_id || response?.success) {
           // Refresh earnings after withdrawal
           setTimeout(() => refreshEarnings(true), 500);
           return true;
@@ -205,8 +208,8 @@ export function useDriverEarnings({ token, onEarningsChange } = {}) {
           body: { format },
         });
 
-        if (response?.success) {
-          return response.data?.report_url || true;
+        if (response?.report || response?.report_id || response?.success) {
+          return response.report || response.data?.report_url || true;
         }
 
         throw new Error(response?.message || 'Failed to generate report');
@@ -243,11 +246,13 @@ export function useDriverEarnings({ token, onEarningsChange } = {}) {
 
   // Initial fetch on mount
   useEffect(() => {
-    if (token) {
+    if (!token) return undefined;
+    const timer = setTimeout(() => {
       refreshEarnings();
       refreshPricingRules();
       refreshDriverFareConfig();
-    }
+    }, 0);
+    return () => clearTimeout(timer);
   }, [token, refreshEarnings, refreshPricingRules, refreshDriverFareConfig]);
 
   return {

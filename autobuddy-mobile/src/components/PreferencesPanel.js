@@ -1,198 +1,286 @@
-import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  ScrollView,
-  Switch,
-} from 'react-native';
-import { COLORS } from '../theme';
-import { usePreferences } from '../contexts/PreferencesContext';
+import React, { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { apiRequest } from '../lib/api';
+import { COLORS, SHADOWS } from '../theme';
 
-/**
- * PreferencesPanel - Manage user preferences
- */
-export default function PreferencesPanel() {
-  const { preferences, updatePreference } = usePreferences();
-  const [activeTab, setActiveTab] = useState('notifications');
+const PAYMENT_OPTIONS = [
+  { label: 'Wallet', value: 'wallet' },
+  { label: 'Card', value: 'card' },
+  { label: 'UPI', value: 'upi' },
+  { label: 'Cash', value: 'cash' },
+];
 
-  const renderNotificationPreferences = () => (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>Notification Preferences</Text>
+const LANGUAGE_OPTIONS = [
+  { label: 'English', value: 'en' },
+  { label: 'Malayalam', value: 'ml' },
+];
 
-      <View style={styles.preferenceItem}>
-        <Text style={styles.preferenceLabel}>Push Notifications</Text>
-        <Switch
-          value={preferences.notifications?.push ?? true}
-          onValueChange={(v) => updatePreference('notifications.push', v)}
-        />
-      </View>
-
-      <View style={styles.preferenceItem}>
-        <Text style={styles.preferenceLabel}>Email Notifications</Text>
-        <Switch
-          value={preferences.notifications?.email ?? true}
-          onValueChange={(v) => updatePreference('notifications.email', v)}
-        />
-      </View>
-
-      <View style={styles.preferenceItem}>
-        <Text style={styles.preferenceLabel}>SMS Notifications</Text>
-        <Switch
-          value={preferences.notifications?.sms ?? true}
-          onValueChange={(v) => updatePreference('notifications.sms', v)}
-        />
-      </View>
-
-      <View style={styles.preferenceItem}>
-        <Text style={styles.preferenceLabel}>Promotional Offers</Text>
-        <Switch
-          value={preferences.notifications?.promotions ?? false}
-          onValueChange={(v) => updatePreference('notifications.promotions', v)}
-        />
-      </View>
-    </View>
-  );
-
-  const renderPaymentPreferences = () => (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>Payment Preferences</Text>
-
-      <View style={styles.preferenceItem}>
-        <Text style={styles.preferenceLabel}>Default Payment Method</Text>
-        <Text style={styles.preferenceValue}>
-          {preferences.payment?.defaultMethod || 'Wallet'}
-        </Text>
-      </View>
-
-      <View style={styles.preferenceItem}>
-        <Text style={styles.preferenceLabel}>Save Payment Methods</Text>
-        <Switch
-          value={preferences.payment?.saveCards ?? true}
-          onValueChange={(v) => updatePreference('payment.saveCards', v)}
-        />
-      </View>
-
-      <View style={styles.preferenceItem}>
-        <Text style={styles.preferenceLabel}>Biometric Payment</Text>
-        <Switch
-          value={preferences.payment?.biometricEnabled ?? false}
-          onValueChange={(v) => updatePreference('payment.biometricEnabled', v)}
-        />
-      </View>
-    </View>
-  );
-
-  const renderPrivacyPreferences = () => (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>Privacy Settings</Text>
-
-      <View style={styles.preferenceItem}>
-        <Text style={styles.preferenceLabel}>Profile Visibility</Text>
-        <Switch
-          value={preferences.privacy?.profilePublic ?? false}
-          onValueChange={(v) => updatePreference('privacy.profilePublic', v)}
-        />
-      </View>
-
-      <View style={styles.preferenceItem}>
-        <Text style={styles.preferenceLabel}>Share Location with Driver</Text>
-        <Switch
-          value={preferences.privacy?.shareLocation ?? true}
-          onValueChange={(v) => updatePreference('privacy.shareLocation', v)}
-        />
-      </View>
-
-      <View style={styles.preferenceItem}>
-        <Text style={styles.preferenceLabel}>Analytics & Improvement</Text>
-        <Switch
-          value={preferences.privacy?.analytics ?? true}
-          onValueChange={(v) => updatePreference('privacy.analytics', v)}
-        />
-      </View>
-    </View>
-  );
-
+function PreferenceToggle({ label, field, value, saving, onToggle }) {
   return (
-    <View style={styles.container}>
-      <View style={styles.tabs}>
-        {['notifications', 'payment', 'privacy'].map((tab) => (
+    <TouchableOpacity
+      style={styles.preferenceRow}
+      onPress={() => onToggle(field, !value)}
+      disabled={saving}>
+      <View style={styles.preferenceLabel}>
+        <Text style={styles.preferenceLabelText}>{label}</Text>
+      </View>
+      <View style={[styles.toggle, value && styles.toggleActive]}>
+        <View style={[styles.toggleDot, value && styles.toggleDotActive]} />
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+function PreferenceSelect({ label, field, value, options, saving, onSelect }) {
+  return (
+    <View style={styles.selectBlock}>
+      <Text style={styles.preferenceLabelText}>{label}</Text>
+      <View style={styles.optionsRow}>
+        {options.map((option) => (
           <TouchableOpacity
-            key={tab}
-            style={[styles.tab, activeTab === tab && styles.activeTab]}
-            onPress={() => setActiveTab(tab)}
-          >
-            <Text style={[styles.tabText, activeTab === tab && styles.activeTabText]}>
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            key={option.value}
+            style={[styles.optionChip, value === option.value && styles.optionChipActive]}
+            onPress={() => onSelect(field, option.value)}
+            disabled={saving}>
+            <Text style={[styles.optionChipText, value === option.value && styles.optionChipTextActive]}>
+              {option.label}
             </Text>
           </TouchableOpacity>
         ))}
       </View>
-
-      <ScrollView style={styles.content}>
-        {activeTab === 'notifications' && renderNotificationPreferences()}
-        {activeTab === 'payment' && renderPaymentPreferences()}
-        {activeTab === 'privacy' && renderPrivacyPreferences()}
-      </ScrollView>
     </View>
   );
 }
 
+export default function PreferencesPanel({ token, onPreferencesChange = () => {} }) {
+  const [loading, setLoading] = useState(false);
+  const [prefs, setPrefs] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const fetchPreferences = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError('');
+      const response = await apiRequest('/v1/passengers/preferences', { token });
+      const nextPrefs = response?.data || response || null;
+      setPrefs(nextPrefs);
+      if (nextPrefs) {
+        onPreferencesChange(nextPrefs);
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to load preferences');
+    } finally {
+      setLoading(false);
+    }
+  }, [onPreferencesChange, token]);
+
+  useEffect(() => {
+    if (!token) {
+      return undefined;
+    }
+    const timer = setTimeout(() => {
+      fetchPreferences().catch(() => null);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [token, fetchPreferences]);
+
+  const updatePreference = useCallback(
+    async (field, value) => {
+      try {
+        setSaving(true);
+        setError('');
+        const response = await apiRequest('/v1/passengers/preferences', {
+          method: 'PATCH',
+          token,
+          body: { [field]: value },
+        });
+        const nextPrefs = response?.data || response || null;
+        setPrefs(nextPrefs);
+        if (nextPrefs) {
+          onPreferencesChange(nextPrefs);
+        }
+      } catch (err) {
+        setError(err.message || 'Failed to update preference');
+      } finally {
+        setSaving(false);
+      }
+    },
+    [onPreferencesChange, token],
+  );
+
+  if (loading || !prefs) {
+    return <ActivityIndicator size="large" color={COLORS.primary} style={styles.loader} />;
+  }
+
+  return (
+    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      {!!error && <Text style={styles.errorText}>{error}</Text>}
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Notifications</Text>
+        <PreferenceToggle
+          label="Push Notifications"
+          field="push_notifications"
+          value={prefs.push_notifications}
+          saving={saving}
+          onToggle={updatePreference}
+        />
+        <PreferenceToggle
+          label="SMS Alerts"
+          field="sms_notifications"
+          value={prefs.sms_notifications}
+          saving={saving}
+          onToggle={updatePreference}
+        />
+        <PreferenceToggle
+          label="Email Updates"
+          field="email_notifications"
+          value={prefs.email_notifications}
+          saving={saving}
+          onToggle={updatePreference}
+        />
+        <PreferenceToggle
+          label="Promotional Offers"
+          field="promotional_offers"
+          value={prefs.promotional_offers}
+          saving={saving}
+          onToggle={updatePreference}
+        />
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Payment</Text>
+        <PreferenceSelect
+          label="Default Payment Method"
+          field="default_payment_method"
+          value={prefs.default_payment_method}
+          options={PAYMENT_OPTIONS}
+          saving={saving}
+          onSelect={updatePreference}
+        />
+        <PreferenceToggle
+          label="Save Payment Methods"
+          field="save_card_details"
+          value={prefs.save_card_details}
+          saving={saving}
+          onToggle={updatePreference}
+        />
+        <PreferenceToggle
+          label="Biometric Payment"
+          field="biometric_payment"
+          value={prefs.biometric_payment}
+          saving={saving}
+          onToggle={updatePreference}
+        />
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Privacy and Locale</Text>
+        <PreferenceSelect
+          label="Language"
+          field="language"
+          value={prefs.language}
+          options={LANGUAGE_OPTIONS}
+          saving={saving}
+          onSelect={updatePreference}
+        />
+        <PreferenceToggle
+          label="Public Profile"
+          field="profile_public"
+          value={prefs.profile_public}
+          saving={saving}
+          onToggle={updatePreference}
+        />
+        <PreferenceToggle
+          label="Share Location With Driver"
+          field="share_location_with_driver"
+          value={prefs.share_location_with_driver}
+          saving={saving}
+          onToggle={updatePreference}
+        />
+        <PreferenceToggle
+          label="Usage Analytics"
+          field="analytics_enabled"
+          value={prefs.analytics_enabled}
+          saving={saving}
+          onToggle={updatePreference}
+        />
+      </View>
+
+      <View style={styles.infoBlock}>
+        <Text style={styles.infoText}>
+          These preferences are saved and can be reused by booking, payment, and notification flows.
+        </Text>
+      </View>
+    </ScrollView>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFF',
-  },
-  tabs: {
-    flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: '#EEE',
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  activeTab: {
-    borderBottomWidth: 3,
-    borderBottomColor: COLORS.primary,
-  },
-  tabText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#999',
-  },
-  activeTabText: {
-    color: COLORS.primary,
-  },
-  content: {
-    padding: 16,
-  },
+  container: { flex: 1, backgroundColor: COLORS.background, padding: 12 },
+  loader: { flex: 1, justifyContent: 'center' },
+  errorText: { color: '#D32F2F', fontSize: 12, marginBottom: 10 },
   section: {
-    marginBottom: 20,
+    marginBottom: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    padding: 12,
+    ...SHADOWS.soft,
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '700',
     color: COLORS.textMain,
     marginBottom: 12,
   },
-  preferenceItem: {
+  preferenceRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#EEE',
+    borderBottomColor: '#EFEFEF',
   },
-  preferenceLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: COLORS.textMain,
+  preferenceLabel: { flex: 1 },
+  preferenceLabelText: { fontSize: 13, color: COLORS.textMain, fontWeight: '500' },
+  selectBlock: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#EFEFEF' },
+  toggle: {
+    width: 48,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#CCCCCC',
+    justifyContent: 'center',
+    paddingHorizontal: 2,
   },
-  preferenceValue: {
-    fontSize: 13,
-    color: COLORS.textMuted,
+  toggleActive: { backgroundColor: COLORS.primary },
+  toggleDot: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    alignSelf: 'flex-start',
   },
+  toggleDotActive: { alignSelf: 'flex-end' },
+  optionsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
+  optionChip: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 6,
+    backgroundColor: '#FFFFFF',
+  },
+  optionChipActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  optionChipText: { fontSize: 11, color: COLORS.textMain, fontWeight: '600' },
+  optionChipTextActive: { color: '#FFFFFF' },
+  infoBlock: {
+    padding: 12,
+    marginTop: 10,
+    backgroundColor: '#E3F2FD',
+    borderRadius: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: COLORS.primary,
+  },
+  infoText: { fontSize: 12, color: '#1976D2', lineHeight: 16 },
 });

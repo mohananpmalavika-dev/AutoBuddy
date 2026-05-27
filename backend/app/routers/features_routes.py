@@ -23,7 +23,7 @@ from app.schemas.features_schemas import (
     PaymentMethodCreate, PaymentMethodResponse,
     EmergencyContactCreate, EmergencyContactResponse,
     PromoCodeResponse, PromoCodeValidateRequest,
-    SupportTicketCreate, SupportTicketResponse, TicketMessageCreate,
+    SupportTicketCreate, SupportTicketResponse, TicketMessageCreate, TicketMessageResponse,
     AccessibilitySettingsUpdate, AccessibilitySettingsResponse
 )
 from app.core.auth import get_current_passenger
@@ -482,6 +482,21 @@ def remove_emergency_contact(
 # Feature #8: Promo Codes
 # ============================================================================
 
+@router.get("/promo-codes", response_model=List[PromoCodeResponse])
+def get_available_promo_codes(
+    current_passenger: dict = Depends(get_current_passenger),
+    db: Session = Depends(get_db)
+):
+    """Get active promo codes visible to the passenger"""
+    now = datetime.utcnow()
+    promos = db.query(PromoCode).filter(
+        PromoCode.is_active == True,
+        PromoCode.valid_from <= now,
+        PromoCode.valid_until >= now
+    ).order_by(PromoCode.valid_until.asc()).limit(20).all()
+    return promos
+
+
 @router.post("/promo-codes/validate", response_model=PromoCodeResponse)
 def validate_promo_code(
     request: PromoCodeValidateRequest,
@@ -571,7 +586,27 @@ def get_support_tickets(
     return tickets
 
 
-@router.post("/support/tickets/{ticket_id}/messages")
+@router.get("/support/tickets/{ticket_id}/messages", response_model=List[TicketMessageResponse])
+def get_ticket_messages(
+    ticket_id: str,
+    current_passenger: dict = Depends(get_current_passenger),
+    db: Session = Depends(get_db)
+):
+    """Get messages for a support ticket"""
+    ticket = db.query(SupportTicket).filter(
+        SupportTicket.id == ticket_id,
+        SupportTicket.passenger_id == current_passenger["id"]
+    ).first()
+    
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Support ticket not found")
+
+    return db.query(TicketMessage).filter(
+        TicketMessage.ticket_id == ticket_id
+    ).order_by(TicketMessage.created_at.asc()).all()
+
+
+@router.post("/support/tickets/{ticket_id}/messages", response_model=TicketMessageResponse)
 def add_ticket_message(
     ticket_id: str,
     message: TicketMessageCreate,
@@ -602,7 +637,7 @@ def add_ticket_message(
     db.commit()
     db.refresh(ticket_msg)
     
-    return {"message": "Message added to ticket"}
+    return ticket_msg
 
 
 # ============================================================================
