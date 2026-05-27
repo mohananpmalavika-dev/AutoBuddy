@@ -799,7 +799,8 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
             silent: true,
           });
         }
-        await refreshDriverDataSilently({ includeProfile: true });
+        // Don't refresh profile immediately - trust the API response to avoid stale data overwriting correct state
+        await refreshDriverDataSilently({ includeProfile: false });
       } else {
         // Fallback: assume success if no error thrown
         setServerIsOnline(next);
@@ -808,7 +809,8 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
         setAvailabilitySyncPending(false);
         pendingAvailabilitySyncRef.current = null;
         setMessage(next ? 'You are online and discoverable.' : 'You are offline.');
-        await refreshDriverDataSilently({ includeProfile: true });
+        // Don't refresh profile immediately - trust the API response to avoid stale data overwriting correct state
+        await refreshDriverDataSilently({ includeProfile: false });
       }
     } catch (err) {
       // On error, revert to server state
