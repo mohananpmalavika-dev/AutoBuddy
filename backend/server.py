@@ -972,11 +972,17 @@ class Gender(str, Enum):
 
 class BookingStatus(str, Enum):
     PENDING = "pending"
+    SEARCHING = "searching"
     ACCEPTED = "accepted"
     DRIVER_ARRIVED = "driver_arrived"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
+    REJECTED = "rejected"
+    NO_DRIVER_FOUND = "no_driver_found"
+    BOOKING_FAILED = "booking_failed"
+    WAITING_FOR_PAYMENT = "waiting_for_payment"
+    RATING_PENDING = "rating_pending"
 
 class PaymentMethod(str, Enum):
     CASH = "cash"

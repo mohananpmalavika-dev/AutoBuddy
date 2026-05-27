@@ -77,6 +77,10 @@ export default function WebGoogleLiveMap({
   driverLocation = null,
   routeOrigin = null,
   routeDestination = null,
+  isInteractiveMode = false,
+  onMapPress = null,
+  onMarkerDragEnd = null,
+  selectingPoint = null,
 }) {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
@@ -120,6 +124,18 @@ export default function WebGoogleLiveMap({
           streetViewControl: false,
           fullscreenControl: false,
         });
+        
+        // Add click listener for interactive mode (click to place markers)
+        if (isInteractiveMode && onMapPress) {
+          mapRef.current.addListener('click', (event) => {
+            const coordinate = {
+              latitude: event.latLng.lat(),
+              longitude: event.latLng.lng(),
+            };
+            onMapPress(coordinate);
+          });
+        }
+        
         directionsServiceRef.current = new googleMaps.DirectionsService();
         directionsRendererRef.current = new googleMaps.DirectionsRenderer({
           suppressMarkers: true,
@@ -162,17 +178,42 @@ export default function WebGoogleLiveMap({
       }
       const nextPosition = createLatLng(googleMaps, point);
       if (!currentMarker) {
-        markersRef.current[markerKey] = new googleMaps.Marker({
+        const markerConfig = {
           map,
           position: nextPosition,
           title: titleText,
           label: labelText,
-        });
+        };
+        
+        // Enable dragging for pickup/dropoff markers in interactive mode
+        if (isInteractiveMode && (markerKey === 'pickup' || markerKey === 'dropoff') && onMarkerDragEnd) {
+          markerConfig.draggable = true;
+        }
+        
+        markersRef.current[markerKey] = new googleMaps.Marker(markerConfig);
+        
+        // Add drag listener for interactive markers
+        if (isInteractiveMode && (markerKey === 'pickup' || markerKey === 'dropoff') && onMarkerDragEnd) {
+          markersRef.current[markerKey].addListener('dragend', (event) => {
+            const coordinate = {
+              latitude: event.latLng.lat(),
+              longitude: event.latLng.lng(),
+            };
+            onMarkerDragEnd(markerKey, coordinate);
+          });
+        }
         return;
       }
       currentMarker.setPosition(nextPosition);
       currentMarker.setTitle(titleText);
       currentMarker.setLabel(labelText);
+      
+      // Update draggable state based on interactive mode
+      if (isInteractiveMode && (markerKey === 'pickup' || markerKey === 'dropoff')) {
+        currentMarker.setDraggable(true);
+      } else {
+        currentMarker.setDraggable(false);
+      }
     };
 
     syncMarker('pickup', pickupPoint, 'Pickup', 'P');
@@ -226,6 +267,9 @@ export default function WebGoogleLiveMap({
     driverPoint,
     routeOriginPoint,
     routeDestinationPoint,
+    isInteractiveMode,
+    onMapPress,
+    onMarkerDragEnd,
   ]);
 
   if (!apiKey || loadFailed) {

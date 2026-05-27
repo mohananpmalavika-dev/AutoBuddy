@@ -26,6 +26,7 @@ import RideCommunicationCard from '../components/RideCommunicationCard';
 import VoiceTextInput from '../components/VoiceTextInput';
 import BookingConfirmationCard from '../components/BookingConfirmationCard';
 import InteractiveMap from '../components/InteractiveMap';
+import ScheduledPickupPicker from '../components/ScheduledPickupPicker';
 import KeralaSafetyCard from '../components/KeralaSafetyCard';
 import PromoCodePanel from '../components/PromoCodePanel';
 import SupportTicketsPanel from '../components/SupportTicketsPanel';
@@ -46,6 +47,7 @@ import { NotificationProvider, useNotifications } from '../contexts/Notification
 import { useNotificationManager } from '../hooks/useNotificationManager';
 import { usePassengerRideRealtime } from '../hooks/usePassengerRideRealtime';
 import { useKeralaSafety } from '../hooks/useKeralaSafety';
+import { validateScheduledPickup } from '../lib/scheduling';
 
 const PASSENGER_MENU_OPTIONS = [
   { key: 'ride', label: 'Ride Booking' },
@@ -110,6 +112,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [autoFetchingTripData, setAutoFetchingTripData] = useState(false);
   const [bookingMode, setBookingMode] = useState('instant');
   const [scheduledAtInput, setScheduledAtInput] = useState('');
+  const [scheduledTimeZone, setScheduledTimeZone] = useState('local');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('cash');
   const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState(null);
   const [selectedPaymentChannel, setSelectedPaymentChannel] = useState(null);
@@ -149,7 +152,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     return { latitude, longitude, address: formatCoordinateAddress(latitude, longitude) };
   };
   const placesConfigured = isPlacesConfigured();
-  const liveTrackStatuses = useMemo(() => new Set(['accepted', 'driver_arrived', 'in_progress']), []);
+  const liveTrackStatuses = useMemo(() => new Set(['searching', 'accepted', 'driver_arrived', 'in_progress']), []);
   const normalizeBookingPaymentMethod = useCallback((value) => {
     const normalized = String(value || '').trim().toLowerCase();
     if (!normalized || normalized === 'cash') {
@@ -697,6 +700,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       in_progress: { title: 'Trip Started', msg: 'Your trip has started.' },
       completed: { title: 'Trip Completed', msg: 'Your trip has ended.' },
       cancelled: { title: 'Booking Cancelled', msg: 'Your booking has been cancelled.' },
+      rejected: { title: 'Booking Rejected', msg: 'Your booking request was not accepted. Please try again.' },
+      no_driver_found: { title: 'No Driver Available', msg: 'Sorry, no drivers are currently available. Please try again later.' },
+      booking_failed: { title: 'Booking Failed', msg: 'There was an issue booking your ride. Please try again.' },
       waiting_for_payment: { title: 'Payment Required', msg: 'Please complete the payment to continue.' },
       rating_pending: { title: 'Rate Your Ride', msg: 'Please rate your ride experience.' },
     };
@@ -994,6 +1000,11 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     [triggerA11yFeedback],
   );
 
+  const openRideEmergencyPanel = useCallback(() => {
+    handleMenuSelection('emergency', 'Emergency during this ride');
+    setMessage('Opening emergency contacts for this ride.');
+  }, [handleMenuSelection]);
+
   useEffect(() => {
     if (autoPickupInitializedRef.current || pickupLocation) {
       return;
@@ -1039,22 +1050,12 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     const isScheduledMode = bookingMode === 'scheduled';
     let scheduledForIso = undefined;
     if (isScheduledMode) {
-      const normalized = String(scheduledAtInput || '').trim();
-      if (!normalized) {
-        setError('Enter pickup date/time for scheduled ride (YYYY-MM-DD HH:mm).');
+      const scheduleValidation = validateScheduledPickup(scheduledAtInput, scheduledTimeZone);
+      if (!scheduleValidation.valid) {
+        setError(scheduleValidation.message);
         return;
       }
-      const candidate = normalized.replace(' ', 'T');
-      const parsed = new Date(candidate);
-      if (Number.isNaN(parsed.getTime())) {
-        setError('Invalid schedule format. Use YYYY-MM-DD HH:mm.');
-        return;
-      }
-      if (parsed.getTime() <= Date.now() + (2 * 60 * 1000)) {
-        setError('Scheduled pickup time must be at least 2 minutes in the future.');
-        return;
-      }
-      scheduledForIso = parsed.toISOString();
+      scheduledForIso = scheduleValidation.iso;
     }
 
     const existingActive = await apiRequest('/bookings/active', { token }).catch(() => null);
@@ -1501,16 +1502,13 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                   </TouchableOpacity>
                 </View>
                 {bookingMode === 'scheduled' && (
-                  <>
-                    <Text style={styles.infoText}>Pickup time (YYYY-MM-DD HH:mm)</Text>
-                    <VoiceTextInput
-                      value={scheduledAtInput}
-                      onChangeText={setScheduledAtInput}
-                      placeholder="2026-05-31 08:30"
-                      placeholderTextColor={COLORS.textMuted}
-                      style={styles.searchInput}
-                    />
-                  </>
+                  <ScheduledPickupPicker
+                    value={scheduledAtInput}
+                    onChangeText={setScheduledAtInput}
+                    timezone={scheduledTimeZone}
+                    onTimezoneChange={setScheduledTimeZone}
+                    inputStyle={styles.searchInput}
+                  />
                 )}
               </View>
 
@@ -1742,6 +1740,21 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                     </Text>
                   )}
                   <Text style={styles.infoText}>Fare: INR {activeBooking.estimated_fare}</Text>
+                  <View style={styles.rideEmergencyCard}>
+                    <View style={styles.rideEmergencyCopy}>
+                      <Text style={styles.rideEmergencyTitle}>Emergency during this ride</Text>
+                      <Text style={styles.rideEmergencyText}>
+                        Open emergency contacts from this active booking.
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.rideEmergencyButton}
+                      onPress={openRideEmergencyPanel}
+                      accessibilityRole="button"
+                      accessibilityLabel="Emergency during this ride">
+                      <Text style={styles.rideEmergencyButtonText}>Open</Text>
+                    </TouchableOpacity>
+                  </View>
                   {activeBookingStatus === 'driver_arrived' && !!activeRideStartOtp && (
                     <View style={[styles.infoBlock, { backgroundColor: COLORS.secondary, borderRadius: 8, padding: 12, marginVertical: 8 }]}>
                       <Text style={[styles.infoTitle, { fontSize: 14, marginBottom: 6 }]}>Share OTP with Driver</Text>
@@ -1774,23 +1787,6 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                   
                   {/* Active Ride Quick Actions */}
                   <View style={styles.quickActionsRow}>
-                    <TouchableOpacity
-                      style={[styles.quickActionButton, { backgroundColor: '#FF6B6B' }]}
-                      onPress={() => {
-                        Alert.alert(
-                          'Emergency Alert',
-                          'Contact emergency services?',
-                          [
-                            { text: 'Cancel', style: 'cancel' },
-                            { text: 'Call Emergency', style: 'destructive', onPress: () => setActivePassengerMenu('emergency') },
-                          ]
-                        );
-                      }}
-                    >
-                      <Text style={styles.quickActionIcon}>🆘</Text>
-                      <Text style={styles.quickActionLabel}>Emergency</Text>
-                    </TouchableOpacity>
-
                     <TouchableOpacity
                       style={[styles.quickActionButton, { backgroundColor: '#FF9800' }]}
                       onPress={() => {
@@ -2360,6 +2356,39 @@ const styles = StyleSheet.create({
     color: COLORS.primaryDark,
     fontWeight: '800',
     marginBottom: 6,
+  },
+  rideEmergencyCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: COLORS.danger,
+    borderRadius: 10,
+    padding: 10,
+    backgroundColor: '#FFF4F4',
+  },
+  rideEmergencyCopy: {
+    flex: 1,
+  },
+  rideEmergencyTitle: {
+    color: COLORS.danger,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  rideEmergencyText: {
+    color: COLORS.textMuted,
+    fontSize: 12,
+  },
+  rideEmergencyButton: {
+    backgroundColor: COLORS.danger,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  rideEmergencyButtonText: {
+    color: '#fff',
+    fontWeight: '800',
   },
   cancelButton: {
     marginTop: 10,

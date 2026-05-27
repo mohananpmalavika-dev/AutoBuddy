@@ -28,6 +28,7 @@ import RideProductsGrid from '../components/RideProductsGrid';
 import WebGoogleLiveMap from '../components/WebGoogleLiveMap';
 import LocationSearchModal from '../components/LocationSearchModal';
 import BookingConfirmationCard from '../components/BookingConfirmationCard';
+import ScheduledPickupPicker from '../components/ScheduledPickupPicker';
 import NotificationBell from '../components/NotificationBell';
 import NotificationCenter from '../components/NotificationCenter';
 import PromoCodePanel from '../components/PromoCodePanel';
@@ -39,6 +40,11 @@ import SavedPlacesPanel from '../components/SavedPlacesPanel';
 import EmergencyContactsPanel from '../components/EmergencyContactsPanel';
 import AccessibilityPanel from '../components/AccessibilityPanel';
 import ScheduledRidesPanel from '../components/ScheduledRidesPanel';
+import PassengerProfilePanel from '../components/PassengerProfilePanel';
+import PassengerKYCPanel from '../components/PassengerKYCPanel';
+import PassengerDocumentsPanel from '../components/PassengerDocumentsPanel';
+import ReceiptsPanel from '../components/ReceiptsPanel';
+import SubscriptionPanel from '../components/SubscriptionPanel';
 import { NotificationProvider, useNotifications } from '../contexts/NotificationContext';
 import { useNotificationManager } from '../hooks/useNotificationManager';
 import {
@@ -54,6 +60,7 @@ import {
   getPassengerRideProductLabels,
   resolvePassengerLocale,
 } from '../locales/passengerDashboard';
+import { validateScheduledPickup } from '../lib/scheduling';
 
 const LOGO_SOURCE = require('../../assets/images/autobuddy-logo.jpg');
 const PASSENGER_MENU_OPTIONS = [
@@ -73,6 +80,11 @@ const PASSENGER_MENU_OPTIONS = [
   { key: 'emergency' },
   { key: 'accessibility' },
   { key: 'scheduled' },
+  { key: 'profile' },
+  { key: 'kyc' },
+  { key: 'documents' },
+  { key: 'receipts' },
+  { key: 'subscription' },
 ];
 const PRIMARY_PASSENGER_MENU_KEY = 'ride';
 const DASHBOARD_PASSENGER_MENU_KEYS = new Set([PRIMARY_PASSENGER_MENU_KEY]);
@@ -121,6 +133,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [optedOutDriverIds, setOptedOutDriverIds] = useState([]);
   const [autoFetchingTripData, setAutoFetchingTripData] = useState(false);
   const [scheduledAtInput, setScheduledAtInput] = useState('');
+  const [scheduledTimeZone, setScheduledTimeZone] = useState('local');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('cash');
   const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState(null);
   const [selectedPaymentChannel, setSelectedPaymentChannel] = useState(null);
@@ -134,6 +147,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   });
   const [passengerAccessibility, setPassengerAccessibility] = useState(null);
   const [showNotificationCenter, setShowNotificationCenter] = useState(false);
+  const [showInteractiveMap, setShowInteractiveMap] = useState(true);
+  const [selectingPoint, setSelectingPoint] = useState('pickup');
   
   // Initialize notifications
   useNotificationManager(token, user?.id);
@@ -170,7 +185,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   });
   const placesConfigured = isPlacesConfigured();
   const googleMapsWebKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
-  const liveTrackStatuses = useMemo(() => new Set(['accepted', 'driver_arrived', 'in_progress']), []);
+  const liveTrackStatuses = useMemo(() => new Set(['searching', 'accepted', 'driver_arrived', 'in_progress']), []);
   const t = useMemo(() => resolvePassengerLocale(languageCode), [languageCode]);
   const rideProductLabels = useMemo(() => getPassengerRideProductLabels(t), [t]);
   const menuLabels = useMemo(
@@ -191,6 +206,11 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       emergency: t.emergency || 'Emergency',
       accessibility: t.accessibility || 'Accessibility',
       scheduled: t.scheduled || 'Scheduled Rides',
+      profile: t.profile || 'Profile',
+      kyc: t.kyc || 'Identity Verification',
+      documents: t.documents || 'Documents',
+      receipts: t.receipts || 'Saved Receipts',
+      subscription: t.subscription || 'Subscription',
     }),
     [t],
   );
@@ -694,6 +714,12 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     [triggerA11yFeedback],
   );
 
+  const openRideEmergencyPanel = useCallback(() => {
+    const label = t.emergencyDuringRide || 'Emergency during this ride';
+    handleMenuSelection('emergency', label);
+    setMessage(t.openingEmergencyContactsForRide || 'Opening emergency contacts for this ride.');
+  }, [handleMenuSelection, t]);
+
   const handleUseSavedPlace = useCallback(
     async (place) => {
       const latitude = Number(place?.latitude);
@@ -806,6 +832,45 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       }
     }
   };
+
+  // Interactive map handlers - match native implementation for feature parity
+  const handleMapPress = useCallback((coordinate) => {
+    setError('');
+    
+    const nextLocation = {
+      latitude: coordinate.latitude,
+      longitude: coordinate.longitude,
+      address: `Lat ${coordinate.latitude.toFixed(4)}, Lng ${coordinate.longitude.toFixed(4)}`,
+    };
+
+    if (selectingPoint === 'pickup') {
+      setLocationForPoint('pickup', nextLocation);
+      setSelectingPoint('dropoff');
+      setMessage(t.pickupSelected || 'Pickup selected. Now select dropoff.');
+      resolveAddressForPoint('pickup', coordinate).catch(() => null);
+      return;
+    }
+
+    if (selectingPoint === 'dropoff') {
+      setLocationForPoint('dropoff', nextLocation);
+      setSelectingPoint('pickup');
+      setMessage(t.dropSelected || 'Drop selected.');
+      resolveAddressForPoint('dropoff', coordinate).catch(() => null);
+      return;
+    }
+  }, [selectingPoint, t]);
+
+  const handleMarkerDragEnd = useCallback((markerKey, coordinate) => {
+    const nextLocation = {
+      latitude: coordinate.latitude,
+      longitude: coordinate.longitude,
+      address: `Lat ${coordinate.latitude.toFixed(4)}, Lng ${coordinate.longitude.toFixed(4)}`,
+    };
+    
+    setLocationForPoint(markerKey, nextLocation);
+    setMessage(markerKey === 'pickup' ? 'Pickup moved' : 'Drop moved');
+    resolveAddressForPoint(markerKey, coordinate).catch(() => null);
+  }, [t]);
 
   const autofillPickupFromCurrentLocation = useCallback(async ({ silent = false } = {}) => {
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
@@ -1171,18 +1236,27 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     }
     bookingStatusRef.current = { bookingId, status };
 
-    if (status === 'driver_arrived') {
-      notifyWithVoice(t.driverArrivedTitle, t.driverArrivedBody);
-      return;
+    // Comprehensive booking state notifications for all statuses
+    const bookingStateMessages = {
+      pending: { titleKey: 'bookingPendingTitle', bodyKey: 'bookingPendingBody' },
+      searching: { titleKey: 'searchingForDriverTitle', bodyKey: 'searchingForDriverBody' },
+      accepted: { titleKey: 'driverFoundTitle', bodyKey: 'driverFoundBody' },
+      driver_arrived: { titleKey: 'driverArrivedTitle', bodyKey: 'driverArrivedBody' },
+      in_progress: { titleKey: 'tripStartedTitle', bodyKey: 'tripStartedBody' },
+      completed: { titleKey: 'tripCompletedTitle', bodyKey: 'tripCompletedBody' },
+      cancelled: { titleKey: 'bookingCancelledTitle', bodyKey: 'bookingCancelledBody' },
+      rejected: { titleKey: 'bookingRejectedTitle', bodyKey: 'bookingRejectedBody' },
+      no_driver_found: { titleKey: 'noDriverFoundTitle', bodyKey: 'noDriverFoundBody' },
+      booking_failed: { titleKey: 'bookingFailedTitle', bodyKey: 'bookingFailedBody' },
+      waiting_for_payment: { titleKey: 'waitingForPaymentTitle', bodyKey: 'waitingForPaymentBody' },
+      rating_pending: { titleKey: 'ratingPendingTitle', bodyKey: 'ratingPendingBody' },
+    };
+
+    const messageKeys = bookingStateMessages[status];
+    if (messageKeys && t[messageKeys.titleKey] && t[messageKeys.bodyKey]) {
+      notifyWithVoice(t[messageKeys.titleKey], t[messageKeys.bodyKey]);
     }
-    if (status === 'in_progress') {
-      notifyWithVoice(t.tripStartedTitle, t.tripStartedBody);
-      return;
-    }
-    if (status === 'completed') {
-      notifyWithVoice(t.tripCompletedTitle, t.tripCompletedBody);
-    }
-  }, [activeBooking?.id, activeBooking?.status, notifyWithVoice, t.driverArrivedBody, t.driverArrivedTitle, t.tripCompletedBody, t.tripCompletedTitle, t.tripStartedBody, t.tripStartedTitle]);
+  }, [activeBooking?.id, activeBooking?.status, notifyWithVoice, t]);
 
   const confirmCreateParallelBooking = () => {
     if (typeof window === 'undefined' || typeof window.confirm !== 'function') {
@@ -1331,20 +1405,20 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     const isScheduledMode = effectiveRideProduct === 'scheduled';
     let scheduledForIso = undefined;
     if (isScheduledMode) {
-      if (!scheduledAtInput) {
-        setError(t.selectPickupTimeScheduled);
+      const scheduleValidation = validateScheduledPickup(
+        scheduledAtInput,
+        scheduledTimeZone,
+        {
+          required: t.selectPickupTimeScheduled,
+          invalid: t.enterValidPickupDateTime,
+          future: t.scheduledPickupFuture,
+        },
+      );
+      if (!scheduleValidation.valid) {
+        setError(scheduleValidation.message);
         return;
       }
-      const parsed = new Date(scheduledAtInput);
-      if (Number.isNaN(parsed.getTime())) {
-        setError(t.enterValidPickupDateTime);
-        return;
-      }
-      if (parsed.getTime() <= Date.now() + (2 * 60 * 1000)) {
-        setError(t.scheduledPickupFuture);
-        return;
-      }
-      scheduledForIso = parsed.toISOString();
+      scheduledForIso = scheduleValidation.iso;
     }
 
     const existingActive = await apiRequest('/bookings/active', { token }).catch(() => null);
@@ -1503,6 +1577,10 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             driverLocation={mapState.driverLiveLocation}
             routeOrigin={mapState.routeOrigin}
             routeDestination={mapState.routeDestination}
+            isInteractiveMode={showInteractiveMap}
+            onMapPress={handleMapPress}
+            onMarkerDragEnd={handleMarkerDragEnd}
+            selectingPoint={selectingPoint}
           />
           <View style={styles.mapOverlayWrap}>
             <GlassCard style={styles.mapOverlayCard}>
@@ -1675,7 +1753,36 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                 {/* PHASE 3A: Simplified UI - removed redundant InteractiveMap component */}
                 {/* Use top WebGoogleLiveMap for visual reference, text search below for location selection */}
 
-                <View style={styles.selectedBlock}>
+                {/* Interactive Map Toggle & Instructions */}
+                <View style={styles.infoBlock}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                    <Text style={styles.infoTitle}>{showInteractiveMap ? 'Interactive Map' : 'Search Location'}</Text>
+                    <TouchableOpacity
+                      style={[
+                        styles.button,
+                        {
+                          paddingVertical: 8,
+                          paddingHorizontal: 16,
+                          backgroundColor: showInteractiveMap ? COLORS.primary : COLORS.mutedDark,
+                        },
+                      ]}
+                      onPress={() => setShowInteractiveMap(!showInteractiveMap)}>
+                      <Text style={[styles.buttonText, { fontSize: 13 }]}>
+                        {showInteractiveMap ? t.hide : t.show || (showInteractiveMap ? 'Hide' : 'Show')}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  {showInteractiveMap && (
+                    <Text style={[styles.hint, { marginBottom: 12, fontWeight: '500', color: COLORS.primary }]}>
+                      {t.tapMapToSelect || `Tap map to pick ${selectingPoint}`}
+                    </Text>
+                  )}
+                </View>
+
+                {/* Show text search or interactive mode */}
+                {!showInteractiveMap && (
+                  <>
+                    <View style={styles.selectedBlock}>
                   <View style={styles.pickupLabelRow}>
                     <Text style={styles.infoTitle}>{t.pickupSearch}</Text>
                     <TouchableOpacity
@@ -1730,6 +1837,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                     <Text style={styles.validationText}>{t.dropRequired}</Text>
                   )}
                 </View>
+                  </>
+                )}
                 {/* Trip summary removed per UI request */}
                 <View style={styles.infoBlock}>
                   <Text style={styles.infoTitle}>{t.rideType}</Text>
@@ -1806,24 +1915,26 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                   )}
 
                   {isScheduledBookingMode && (
-                    <>
-                      <Text style={styles.infoText}>{t.setPickupTime}</Text>
-                      <input
-                        type="datetime-local"
-                        value={scheduledAtInput}
-                        onChange={(event) => setScheduledAtInput(event.target.value)}
-                        style={{
-                          width: '100%',
-                          border: '1px solid #CBD9D0',
-                          borderRadius: 8,
-                          padding: '9px 10px',
-                          marginTop: 4,
-                          marginBottom: 4,
-                          backgroundColor: '#FFFFFF',
-                          color: '#202020',
-                        }}
+                    <ScheduledPickupPicker
+                      value={scheduledAtInput}
+                      onChangeText={setScheduledAtInput}
+                      timezone={scheduledTimeZone}
+                      onTimezoneChange={setScheduledTimeZone}
+                      inputStyle={styles.input}
+                      labels={{
+                        title: t.setPickupTime,
+                        date: t.date || 'Date',
+                        time: t.time || 'Time',
+                        timezone: t.timezone || 'Timezone',
+                        manual: t.manual || 'Manual',
+                        ready: t.ready || 'Ready',
+                      }}
+                      messages={{
+                        required: t.selectPickupTimeScheduled,
+                        invalid: t.enterValidPickupDateTime,
+                        future: t.scheduledPickupFuture,
+                      }}
                       />
-                    </>
                   )}
 
                   <Text style={styles.infoText}>{t.passengerCount}</Text>
@@ -2162,6 +2273,23 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                           {t.includesPickupSurcharge}: INR {Number(activeBooking.pickup_surcharge || 0).toFixed(2)}
                         </Text>
                       )}
+                      <View style={styles.rideEmergencyCard}>
+                        <View style={styles.rideEmergencyCopy}>
+                          <Text style={styles.rideEmergencyTitle}>
+                            {t.emergencyDuringRide || 'Emergency during this ride'}
+                          </Text>
+                          <Text style={styles.rideEmergencyText}>
+                            {t.openEmergencyFromActiveBooking || 'Open emergency contacts from this active booking.'}
+                          </Text>
+                        </View>
+                        <TouchableOpacity
+                          style={styles.rideEmergencyButton}
+                          onPress={openRideEmergencyPanel}
+                          accessibilityRole="button"
+                          accessibilityLabel={t.emergencyDuringRide || 'Emergency during this ride'}>
+                          <Text style={styles.rideEmergencyButtonText}>{t.open || 'Open'}</Text>
+                        </TouchableOpacity>
+                      </View>
                       {canCancelActiveBooking ? (
                         <TouchableOpacity onPress={cancelBooking} style={styles.cancelButton} disabled={loading}>
                           <Text style={styles.cancelText}>{t.cancelBooking}</Text>
@@ -2243,6 +2371,11 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               <AccessibilityPanel token={token} onSettingsChange={handleAccessibilityChange} />
             )}
             {activePassengerMenu === 'scheduled' && <ScheduledRidesPanel token={token} />}
+            {activePassengerMenu === 'profile' && <PassengerProfilePanel token={token} />}
+            {activePassengerMenu === 'kyc' && <PassengerKYCPanel token={token} />}
+            {activePassengerMenu === 'documents' && <PassengerDocumentsPanel token={token} />}
+            {activePassengerMenu === 'receipts' && <ReceiptsPanel token={token} />}
+            {activePassengerMenu === 'subscription' && <SubscriptionPanel token={token} />}
           </ScrollView>
         </View>
 
@@ -2642,6 +2775,39 @@ const styles = StyleSheet.create({
     color: '#1B5E20',
     fontWeight: '800',
     marginBottom: 6,
+  },
+  rideEmergencyCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#C62828',
+    borderRadius: 10,
+    padding: 10,
+    backgroundColor: '#FFF4F4',
+  },
+  rideEmergencyCopy: {
+    flex: 1,
+  },
+  rideEmergencyTitle: {
+    color: '#C62828',
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  rideEmergencyText: {
+    color: '#666666',
+    fontSize: 12,
+  },
+  rideEmergencyButton: {
+    backgroundColor: '#C62828',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  rideEmergencyButtonText: {
+    color: '#fff',
+    fontWeight: '800',
   },
   cancelButton: {
     marginTop: 10,
