@@ -827,7 +827,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   }, [driverTrackingIntervalMs, normalizeLocation, pushDriverLocation, shouldSyncDriverLocation]);
 
   const toggleOnlineStatus = async (nextValue) => {
-    if (loading || availabilitySyncPending) {
+    if (availabilitySyncPending) {
       return;
     }
     const next = typeof nextValue === 'boolean' ? nextValue : !displayIsOnline;
@@ -1104,7 +1104,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
         <TouchableOpacity
           style={[styles.statusBadgeButton, { backgroundColor: displayIsOnline ? '#E8F5E9' : '#F5F5F5', borderColor: displayIsOnline ? COLORS.primary : '#BDBDBD' }]}
           onPress={() => toggleOnlineStatus()}
-          disabled={loading || availabilitySyncPending}
+          disabled={availabilitySyncPending}
         >
           <View style={[styles.statusDot, { backgroundColor: availabilitySyncPending ? '#FFA500' : displayIsOnline ? COLORS.primary : COLORS.textMuted }]} />
           <View style={styles.statusContent}>
@@ -1889,4 +1889,3 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
 });
-
