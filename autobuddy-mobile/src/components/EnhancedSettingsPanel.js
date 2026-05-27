@@ -4,31 +4,82 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
+import VoiceTextInput from './VoiceTextInput';
+
+const DEFAULT_SETTINGS = {
+  push_notifications: true,
+  email_notifications: true,
+  sms_alerts: true,
+  sound_enabled: true,
+  vibration_enabled: true,
+  quiet_hours_enabled: false,
+  quiet_hours_start: '22:00',
+  quiet_hours_end: '08:00',
+  language: 'en',
+  theme: 'light',
+  share_location: true,
+  accept_promo: true,
+};
+
+function isValidTime24(value) {
+  return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(value || '').trim());
+}
+
+function normalizeSettings(rawSettings = {}) {
+  const source = rawSettings && typeof rawSettings === 'object' ? rawSettings : {};
+  return {
+    ...DEFAULT_SETTINGS,
+    ...source,
+    push_notifications: source.push_notifications ?? DEFAULT_SETTINGS.push_notifications,
+    email_notifications: source.email_notifications ?? DEFAULT_SETTINGS.email_notifications,
+    sms_alerts: source.sms_alerts ?? DEFAULT_SETTINGS.sms_alerts,
+    sound_enabled: source.sound_enabled ?? DEFAULT_SETTINGS.sound_enabled,
+    vibration_enabled: source.vibration_enabled ?? DEFAULT_SETTINGS.vibration_enabled,
+    quiet_hours_enabled: source.quiet_hours_enabled ?? DEFAULT_SETTINGS.quiet_hours_enabled,
+    quiet_hours_start: isValidTime24(source.quiet_hours_start) ? source.quiet_hours_start : DEFAULT_SETTINGS.quiet_hours_start,
+    quiet_hours_end: isValidTime24(source.quiet_hours_end) ? source.quiet_hours_end : DEFAULT_SETTINGS.quiet_hours_end,
+    language: ['en', 'ml', 'hi', 'ta'].includes(String(source.language || '').toLowerCase()) ? String(source.language).toLowerCase() : DEFAULT_SETTINGS.language,
+    theme: ['light', 'dark', 'auto'].includes(String(source.theme || '').toLowerCase()) ? String(source.theme).toLowerCase() : DEFAULT_SETTINGS.theme,
+    share_location: source.share_location ?? DEFAULT_SETTINGS.share_location,
+    accept_promo: source.accept_promo ?? DEFAULT_SETTINGS.accept_promo,
+  };
+}
+
+function SettingRow({ label, value, onToggle, disabled = false }) {
+  return (
+    <View style={styles.settingRow}>
+      <Text style={styles.settingLabel}>{label}</Text>
+      <TouchableOpacity
+        style={[styles.toggle, value && styles.toggleActive]}
+        onPress={onToggle}
+        disabled={disabled}
+      >
+        <View style={[styles.toggleThumb, value && styles.toggleThumbActive]} />
+      </TouchableOpacity>
+    </View>
+  );
+}
 
 /**
  * EnhancedSettingsPanel - Expanded driver settings
  * Notifications, preferences, privacy, accessibility
  */
-export default function EnhancedSettingsPanel({ token, loading: parentLoading = false, displayIsOnline, onToggleOnline }) {
-  const [settings, setSettings] = useState({
-    push_notifications: true,
-    email_notifications: true,
-    sms_alerts: true,
-    sound_enabled: true,
-    vibration_enabled: true,
-    quiet_hours_enabled: false,
-    quiet_hours_start: '22:00',
-    quiet_hours_end: '08:00',
-    language: 'en',
-    theme: 'light',
-    share_location: true,
-    accept_promo: true,
+export default function EnhancedSettingsPanel({
+  token,
+  loading: parentLoading = false,
+  displayIsOnline,
+  onToggleOnline,
+  onNavigateToTab,
+}) {
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+  const [quietHoursDraft, setQuietHoursDraft] = useState({
+    quiet_hours_start: DEFAULT_SETTINGS.quiet_hours_start,
+    quiet_hours_end: DEFAULT_SETTINGS.quiet_hours_end,
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -47,107 +98,80 @@ export default function EnhancedSettingsPanel({ token, loading: parentLoading = 
     { value: 'auto', label: '🔄 Auto (System)' },
   ];
 
-  useEffect(() => {
-    fetchSettings();
-  }, []);
-
-  const fetchSettings = async () => {
+  const fetchSettings = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
-      try {
-        const data = await apiRequest('/drivers/settings', { token });
-        if (data && data.settings) {
-          setSettings(data.settings);
-        }
-      } catch (err) {
-        console.log('Settings endpoint not yet implemented, using defaults');
-      }
+      const data = await apiRequest('/drivers/settings', { token });
+      const nextSettings = normalizeSettings(data?.settings || {});
+      setSettings(nextSettings);
+      setQuietHoursDraft({
+        quiet_hours_start: nextSettings.quiet_hours_start,
+        quiet_hours_end: nextSettings.quiet_hours_end,
+      });
     } catch (err) {
-      setError(err.message || 'Using default settings');
+      setError(err.message || 'Could not load settings.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
 
-  const updateSetting = async (key, value) => {
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchSettings().catch(() => null);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [fetchSettings]);
+
+  const updateSettingsBulk = async (updates = {}) => {
     try {
       setLoading(true);
       setError('');
-      const updated = { ...settings, [key]: value };
-      await apiRequest('/drivers/settings', {
+      const response = await apiRequest('/drivers/settings', {
         method: 'PUT',
         token,
-        body: { [key]: value },
+        body: updates,
       });
-      setSettings(updated);
-      setMessage('Setting updated');
+      const nextSettings = normalizeSettings(response?.settings || { ...settings, ...updates });
+      setSettings(nextSettings);
+      setQuietHoursDraft({
+        quiet_hours_start: nextSettings.quiet_hours_start,
+        quiet_hours_end: nextSettings.quiet_hours_end,
+      });
+      setMessage('Settings updated.');
+      setTimeout(() => setMessage(''), 2500);
     } catch (err) {
-      setError(err.message || 'Failed to update setting');
+      setError(err.message || 'Failed to update settings');
     } finally {
       setLoading(false);
     }
   };
 
+  const updateSetting = async (key, value) => updateSettingsBulk({ [key]: value });
+
   const toggleSetting = (key) => {
-    updateSetting(key, !settings[key]);
+    updateSetting(key, !Boolean(settings[key]));
+  };
+
+  const saveQuietHours = () => {
+    const start = String(quietHoursDraft.quiet_hours_start || '').trim();
+    const end = String(quietHoursDraft.quiet_hours_end || '').trim();
+    if (!isValidTime24(start) || !isValidTime24(end)) {
+      setError('Quiet hours must use 24-hour HH:MM format (example: 22:00).');
+      return;
+    }
+    updateSettingsBulk({
+      quiet_hours_start: start,
+      quiet_hours_end: end,
+    });
   };
 
   const handleChangePassword = () => {
-    Alert.prompt(
-      'Change Password',
-      'Enter your current password',
-      [
-        {
-          text: 'Cancel',
-          onPress: () => {},
-          style: 'cancel',
-        },
-        {
-          text: 'Next',
-          onPress: async (currentPassword) => {
-            Alert.prompt(
-              'New Password',
-              'Enter your new password',
-              [
-                {
-                  text: 'Cancel',
-                  onPress: () => {},
-                  style: 'cancel',
-                },
-                {
-                  text: 'Confirm',
-                  onPress: async (newPassword) => {
-                    try {
-                      setLoading(true);
-                      setError('');
-                      try {
-                        await apiRequest('/drivers/change-password', {
-                          method: 'POST',
-                          token,
-                          body: { currentPassword, newPassword },
-                        });
-                        setMessage('Password changed successfully');
-                        setTimeout(() => setMessage(''), 3000);
-                      } catch (err) {
-                        console.log('Change password endpoint not yet implemented');
-                        Alert.alert('Info', 'Password change functionality coming soon');
-                      }
-                    } catch (err) {
-                      setError(err.message || 'Failed to change password');
-                    } finally {
-                      setLoading(false);
-                    }
-                  },
-                },
-              ],
-              'secure-text',
-            );
-          },
-        },
-      ],
-      'secure-text',
-    );
+    if (typeof onNavigateToTab === 'function') {
+      onNavigateToTab('profile');
+      return;
+    }
+    Alert.alert('Security', 'Use Profile > Account Security to change your password.');
   };
 
   const handlePaymentMethods = () => {
@@ -196,74 +220,9 @@ export default function EnhancedSettingsPanel({ token, loading: parentLoading = 
   const handleDeleteAccount = () => {
     Alert.alert(
       'Delete Account',
-      'This action cannot be undone. All your data will be permanently deleted.',
-      [
-        {
-          text: 'Cancel',
-          onPress: () => {},
-          style: 'cancel',
-        },
-        {
-          text: 'Delete',
-          onPress: async () => {
-            Alert.prompt(
-              'Confirm Deletion',
-              'Type "DELETE" to confirm account deletion',
-              [
-                {
-                  text: 'Cancel',
-                  onPress: () => {},
-                  style: 'cancel',
-                },
-                {
-                  text: 'Delete',
-                  onPress: async (text) => {
-                    if (text === 'DELETE') {
-                      try {
-                        setLoading(true);
-                        setError('');
-                        try {
-                          await apiRequest('/drivers/account', {
-                            method: 'DELETE',
-                            token,
-                          });
-                          Alert.alert('Account Deleted', 'Your account has been deleted');
-                          // Redirect to login or app entry point
-                        } catch (err) {
-                          console.log('Delete account endpoint not yet implemented');
-                          Alert.alert('Info', 'Account deletion functionality coming soon');
-                        }
-                      } catch (err) {
-                        setError(err.message || 'Failed to delete account');
-                      } finally {
-                        setLoading(false);
-                      }
-                    } else {
-                      Alert.alert('Cancelled', 'Account deletion cancelled');
-                    }
-                  },
-                },
-              ],
-            );
-          },
-          style: 'destructive',
-        },
-      ],
+      'Account deletion requires support verification right now. Please contact support from the Support tab.',
     );
   };
-
-  const SettingRow = ({ label, value, onToggle }) => (
-    <View style={styles.settingRow}>
-      <Text style={styles.settingLabel}>{label}</Text>
-      <TouchableOpacity
-        style={[styles.toggle, value && styles.toggleActive]}
-        onPress={onToggle}
-        disabled={parentLoading}
-      >
-        <View style={[styles.toggleThumb, value && styles.toggleThumbActive]} />
-      </TouchableOpacity>
-    </View>
-  );
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
@@ -295,26 +254,31 @@ export default function EnhancedSettingsPanel({ token, loading: parentLoading = 
           label="Push Notifications"
           value={settings.push_notifications}
           onToggle={() => toggleSetting('push_notifications')}
+          disabled={parentLoading}
         />
         <SettingRow
           label="Email Notifications"
           value={settings.email_notifications}
           onToggle={() => toggleSetting('email_notifications')}
+          disabled={parentLoading}
         />
         <SettingRow
           label="SMS Alerts"
           value={settings.sms_alerts}
           onToggle={() => toggleSetting('sms_alerts')}
+          disabled={parentLoading}
         />
         <SettingRow
           label="Sound Enabled"
           value={settings.sound_enabled}
           onToggle={() => toggleSetting('sound_enabled')}
+          disabled={parentLoading}
         />
         <SettingRow
           label="Vibration"
           value={settings.vibration_enabled}
           onToggle={() => toggleSetting('vibration_enabled')}
+          disabled={parentLoading}
         />
       </View>
 
@@ -325,25 +289,33 @@ export default function EnhancedSettingsPanel({ token, loading: parentLoading = 
           label="Enable Quiet Hours"
           value={settings.quiet_hours_enabled}
           onToggle={() => toggleSetting('quiet_hours_enabled')}
+          disabled={parentLoading}
         />
         {settings.quiet_hours_enabled && (
           <View style={styles.quietHoursForm}>
             <Text style={styles.fieldLabel}>Start Time</Text>
             <VoiceTextInput
               style={styles.input}
-              value={settings.quiet_hours_start}
-              onChangeText={(value) => updateSetting('quiet_hours_start', value)}
+              value={quietHoursDraft.quiet_hours_start}
+              onChangeText={(value) => setQuietHoursDraft((previous) => ({ ...previous, quiet_hours_start: value }))}
               placeholder="22:00"
               placeholderTextColor={COLORS.textMuted}
             />
             <Text style={styles.fieldLabel}>End Time</Text>
             <VoiceTextInput
               style={styles.input}
-              value={settings.quiet_hours_end}
-              onChangeText={(value) => updateSetting('quiet_hours_end', value)}
+              value={quietHoursDraft.quiet_hours_end}
+              onChangeText={(value) => setQuietHoursDraft((previous) => ({ ...previous, quiet_hours_end: value }))}
               placeholder="08:00"
               placeholderTextColor={COLORS.textMuted}
             />
+            <TouchableOpacity
+              style={[styles.actionButton, (parentLoading || loading) && styles.actionButtonDisabled]}
+              onPress={saveQuietHours}
+              disabled={parentLoading || loading}
+            >
+              <Text style={styles.actionButtonText}>Save Quiet Hours</Text>
+            </TouchableOpacity>
             <Text style={styles.quietHoursInfo}>
               No notifications will be sent during these hours
             </Text>
@@ -358,11 +330,13 @@ export default function EnhancedSettingsPanel({ token, loading: parentLoading = 
           label="Share Location"
           value={settings.share_location}
           onToggle={() => toggleSetting('share_location')}
+          disabled={parentLoading}
         />
         <SettingRow
           label="Accept Promotional Offers"
           value={settings.accept_promo}
           onToggle={() => toggleSetting('accept_promo')}
+          disabled={parentLoading}
         />
         <Text style={styles.privacyNote}>
           Your location is only shared during active rides. Promotional offers help you earn more.
@@ -635,6 +609,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
     ...SHADOWS.soft,
+  },
+  actionButtonDisabled: {
+    opacity: 0.5,
   },
   actionButtonText: {
     fontSize: 13,

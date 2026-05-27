@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -14,123 +14,203 @@ import * as ImagePicker from 'expo-image-picker';
 import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
 
-/**
- * ProfileManagementPanel - Driver profile management
- * Profile photo, personal info, bank details, emergency contacts
- */
-export default function ProfileManagementPanel({ token, loading: parentLoading = false }) {
-  const [profile, setProfile] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    profile_photo: null,
-    rating: 0,
-    total_rides: 0,
-    account_status: 'active',
-    emergency_contact_name: '',
-    emergency_contact_phone: '',
-    bank_account_holder: '',
-    bank_account_number: '',
-    bank_ifsc_code: '',
-    bank_name: '',
-  });
+const EMPTY_PROFILE = {
+  name: '',
+  email: '',
+  phone: '',
+  profile_photo: null,
+  rating: 0,
+  total_rides: 0,
+  account_status: 'active',
+  emergency_contact_name: '',
+  emergency_contact_phone: '',
+  emergency_contact_relationship: '',
+  emergency_contact_verified: false,
+  emergency_contact_updated_at: null,
+  bank_account_holder: '',
+  bank_account_number: '',
+  bank_account_masked: '',
+  bank_ifsc_code: '',
+  bank_name: '',
+  bank_verification_status: 'not_submitted',
+  bank_updated_at: null,
+  two_factor_enabled: false,
+};
 
+function normalizeProfile(value = {}) {
+  return {
+    ...EMPTY_PROFILE,
+    ...value,
+    rating: Number(value.rating || 0),
+    total_rides: Number(value.total_rides || 0),
+  };
+}
+
+function formatDate(value) {
+  if (!value) return 'Not available';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString();
+}
+
+function maskAccountNumber(value, fallback = '') {
+  const digits = String(value || '').replace(/\D+/g, '');
+  if (!digits) return fallback || 'Not set';
+  return `****${digits.slice(-4)}`;
+}
+
+function getStatusColor(status) {
+  const normalized = String(status || '').toLowerCase();
+  if (['active', 'verified', 'approved'].includes(normalized)) return COLORS.success;
+  if (['pending', 'pending_verification', 'not_submitted'].includes(normalized)) return COLORS.warning;
+  return COLORS.error;
+}
+
+function FormField({
+  label,
+  value,
+  placeholder,
+  onChange,
+  editable = true,
+  secure = false,
+  keyboardType = 'default',
+  disabled = false,
+}) {
+  return (
+    <View style={styles.fieldContainer}>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      <TextInput
+        style={[styles.fieldInput, (!editable || disabled) && styles.fieldDisabled]}
+        value={value}
+        placeholder={placeholder}
+        onChangeText={onChange}
+        editable={editable && !disabled}
+        placeholderTextColor={COLORS.textMuted}
+        secureTextEntry={secure}
+        keyboardType={keyboardType}
+        autoCapitalize="none"
+      />
+    </View>
+  );
+}
+
+function EditableSectionHeader({ title, editing, onEdit }) {
+  return (
+    <View style={styles.sectionHeader}>
+      <Text style={styles.sectionTitle}>{title}</Text>
+      {!editing ? (
+        <TouchableOpacity onPress={onEdit}>
+          <Text style={styles.editButton}>Edit</Text>
+        </TouchableOpacity>
+      ) : null}
+    </View>
+  );
+}
+
+function SecurityOption({ label, note, open, onPress }) {
+  return (
+    <TouchableOpacity style={styles.securityOption} onPress={onPress}>
+      <View style={styles.securityInfo}>
+        <Text style={styles.securityLabel}>{label}</Text>
+        <Text style={styles.securityNote}>{note}</Text>
+      </View>
+      <Text style={styles.arrow}>{open ? 'Hide' : 'Open'}</Text>
+    </TouchableOpacity>
+  );
+}
+
+export default function ProfileManagementPanel({ token, loading: parentLoading = false }) {
+  const [profile, setProfile] = useState(EMPTY_PROFILE);
+  const [tempProfile, setTempProfile] = useState(EMPTY_PROFILE);
   const [editMode, setEditMode] = useState({
     personalInfo: false,
     bankDetails: false,
     emergencyContact: false,
   });
-
-  const [tempProfile, setTempProfile] = useState({...profile});
+  const [passwordForm, setPasswordForm] = useState({ current: '', next: '', confirm: '' });
+  const [twoFactor, setTwoFactor] = useState({ enabled: false, otpDemo: '', otp: '', disablePassword: '' });
+  const [loginHistory, setLoginHistory] = useState([]);
+  const [securityOpen, setSecurityOpen] = useState({
+    password: false,
+    twoFactor: false,
+    loginHistory: false,
+  });
   const [loading, setLoading] = useState(false);
+  const [securityLoading, setSecurityLoading] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
-  useEffect(() => {
-    fetchProfile();
+  const setTimedMessage = useCallback((nextMessage) => {
+    setMessage(nextMessage);
+    setTimeout(() => setMessage(''), 3000);
   }, []);
 
-  const fetchProfile = async () => {
+  const applyProfile = useCallback((payload) => {
+    const nextProfile = normalizeProfile(payload?.profile || payload || {});
+    setProfile(nextProfile);
+    setTempProfile(nextProfile);
+    setTwoFactor((previous) => ({ ...previous, enabled: Boolean(nextProfile.two_factor_enabled) }));
+  }, []);
+
+  const fetchSecurityState = useCallback(async () => {
+    try {
+      const [twoFactorPayload, loginPayload] = await Promise.all([
+        apiRequest('/users/security/2fa', { token }),
+        apiRequest('/users/security/login-history', { token }),
+      ]);
+      setTwoFactor((previous) => ({
+        ...previous,
+        enabled: Boolean(twoFactorPayload?.enabled),
+      }));
+      setLoginHistory(Array.isArray(loginPayload?.logins) ? loginPayload.logins : []);
+    } catch {
+      setLoginHistory([]);
+    }
+  }, [token]);
+
+  const fetchProfile = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
-      try {
-        const data = await apiRequest('/drivers/profile', { token });
-        const profileData = data?.profile || data;
-        if (profileData) {
-          setProfile(profileData);
-          setTempProfile(profileData);
-        }
-      } catch (err) {
-        console.log('Profile endpoint not yet implemented, using mock data');
-        const mockProfile = {
-          name: 'Driver Name',
-          email: 'driver@autobuddy.com',
-          phone: '+91 9876543210',
-          profile_photo: null,
-          rating: 4.8,
-          total_rides: 245,
-          account_status: 'active',
-          emergency_contact_name: '',
-          emergency_contact_phone: '',
-          bank_account_holder: '',
-          bank_account_number: '',
-          bank_ifsc_code: '',
-          bank_name: '',
-        };
-        setProfile(mockProfile);
-        setTempProfile(mockProfile);
-      }
+      const data = await apiRequest('/drivers/profile', { token });
+      applyProfile(data);
+      await fetchSecurityState();
     } catch (err) {
-      setError(err.message || 'Failed to load profile');
+      setError(err.message || 'Could not load profile.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [applyProfile, fetchSecurityState, token]);
 
-  const pickImage = async () => {
-    try {
-      // Request camera roll permissions
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Camera roll access is required to upload photos.');
-        return;
-      }
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchProfile().catch(() => null);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [fetchProfile]);
 
-      // Launch image picker
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
-      });
-
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        setUploadingPhoto(true);
-        await uploadProfilePhoto(result.assets[0]);
-        setUploadingPhoto(false);
-      }
-    } catch (err) {
-      Alert.alert('Error', 'Failed to pick image: ' + err.message);
+  const updateProfileFromResponse = (response, fallbackProfile = tempProfile) => {
+    if (response?.profile) {
+      applyProfile(response.profile);
+    } else {
+      applyProfile(fallbackProfile);
     }
   };
 
-  const uploadProfilePhoto = async (asset) => {
-    try {
-      setUploadingPhoto(true);
-      setError('');
-      
-      // Create FormData for multipart file upload
-      const formData = new FormData();
-      formData.append('file', {
-        uri: asset.uri,
-        type: 'image/jpeg',
-        name: `profile-${Date.now()}.jpg`,
-      });
-
+  const uploadProfilePhoto = useCallback(
+    async (asset) => {
       try {
-        // Upload to backend
+        setUploadingPhoto(true);
+        setError('');
+
+        const formData = new FormData();
+        formData.append('file', {
+          uri: asset.uri,
+          type: asset.mimeType || 'image/jpeg',
+          name: asset.fileName || `profile-${Date.now()}.jpg`,
+        });
+
         const response = await apiRequest('/drivers/profile/photo', {
           token,
           method: 'POST',
@@ -138,23 +218,52 @@ export default function ProfileManagementPanel({ token, loading: parentLoading =
           isFormData: true,
         });
 
-        if (response && response.profile_photo) {
-          setProfile({ ...profile, profile_photo: response.profile_photo });
-          setMessage('Profile photo updated successfully');
-          setTimeout(() => setMessage(''), 3000);
-        }
+        applyProfile({ ...profile, profile_photo: response?.profile_photo || asset.uri });
+        setTimedMessage('Profile photo updated.');
       } catch (err) {
-        console.log('Profile photo upload endpoint not yet implemented, saving locally');
-        // Fallback: save locally for now
-        setProfile({ ...profile, profile_photo: asset.uri });
-        setMessage('Photo saved locally (sync pending)');
-        setTimeout(() => setMessage(''), 3000);
+        setError(err.message || 'Failed to upload photo');
+        Alert.alert('Upload Failed', err.message || 'Could not upload photo');
+      } finally {
+        setUploadingPhoto(false);
       }
-    } catch (err) {
-      setError(err.message || 'Failed to upload photo');
-      Alert.alert('Upload Failed', err.message || 'Could not upload photo');
-    } finally {
-      setUploadingPhoto(false);
+    },
+    [applyProfile, profile, setTimedMessage, token],
+  );
+
+  const pickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission Required', 'Photo library access is required to upload photos.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets?.length) {
+      await uploadProfilePhoto(result.assets[0]);
+    }
+  };
+
+  const captureImage = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission Required', 'Camera access is required to capture a profile photo.');
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets?.length) {
+      await uploadProfilePhoto(result.assets[0]);
     }
   };
 
@@ -162,23 +271,18 @@ export default function ProfileManagementPanel({ token, loading: parentLoading =
     try {
       setLoading(true);
       setError('');
-      try {
-        await apiRequest('/drivers/profile', {
-          token,
-          method: 'PUT',
-          body: {
-            name: tempProfile.name,
-            email: tempProfile.email,
-            phone: tempProfile.phone,
-          },
-        });
-      } catch (err) {
-        console.log('Profile update endpoint not yet implemented, saving locally');
-      }
-      setProfile(tempProfile);
-      setEditMode({...editMode, personalInfo: false});
-      setMessage('Profile updated successfully');
-      setTimeout(() => setMessage(''), 3000);
+      const response = await apiRequest('/drivers/profile', {
+        token,
+        method: 'PUT',
+        body: {
+          name: tempProfile.name,
+          email: tempProfile.email,
+          phone: tempProfile.phone,
+        },
+      });
+      updateProfileFromResponse(response, tempProfile);
+      setEditMode((previous) => ({ ...previous, personalInfo: false }));
+      setTimedMessage('Profile updated.');
     } catch (err) {
       setError(err.message || 'Failed to update profile');
     } finally {
@@ -190,22 +294,25 @@ export default function ProfileManagementPanel({ token, loading: parentLoading =
     try {
       setLoading(true);
       setError('');
-      const data = await apiRequest('/drivers/profile/bank', {
+      const payload = {
+        bank_account_holder: tempProfile.bank_account_holder,
+        bank_account_number: tempProfile.bank_account_number,
+        bank_ifsc_code: tempProfile.bank_ifsc_code,
+        bank_name: tempProfile.bank_name,
+      };
+      const response = await apiRequest('/drivers/profile/bank', {
         token,
         method: 'PUT',
-        body: {
-          bank_account_holder: tempProfile.bank_account_holder,
-          bank_account_number: tempProfile.bank_account_number,
-          bank_ifsc_code: tempProfile.bank_ifsc_code,
-          bank_name: tempProfile.bank_name,
-        },
+        body: payload,
       });
-      if (data) {
-        setProfile(tempProfile);
-        setEditMode({...editMode, bankDetails: false});
-        setMessage('Bank details updated successfully');
-        setTimeout(() => setMessage(''), 3000);
-      }
+      updateProfileFromResponse(response, {
+        ...tempProfile,
+        bank_account_masked: maskAccountNumber(payload.bank_account_number),
+        bank_verification_status: 'pending_verification',
+        bank_updated_at: new Date().toISOString(),
+      });
+      setEditMode((previous) => ({ ...previous, bankDetails: false }));
+      setTimedMessage('Bank details submitted for verification.');
     } catch (err) {
       setError(err.message || 'Failed to update bank details');
     } finally {
@@ -217,20 +324,24 @@ export default function ProfileManagementPanel({ token, loading: parentLoading =
     try {
       setLoading(true);
       setError('');
-      const data = await apiRequest('/drivers/profile/emergency-contact', {
+      const payload = {
+        emergency_contact_name: tempProfile.emergency_contact_name,
+        emergency_contact_phone: tempProfile.emergency_contact_phone,
+        relationship: tempProfile.emergency_contact_relationship || 'Emergency contact',
+      };
+      const response = await apiRequest('/drivers/profile/emergency-contact', {
         token,
         method: 'PUT',
-        body: {
-          emergency_contact_name: tempProfile.emergency_contact_name,
-          emergency_contact_phone: tempProfile.emergency_contact_phone,
-        },
+        body: payload,
       });
-      if (data) {
-        setProfile(tempProfile);
-        setEditMode({...editMode, emergencyContact: false});
-        setMessage('Emergency contact updated successfully');
-        setTimeout(() => setMessage(''), 3000);
-      }
+      updateProfileFromResponse(response, {
+        ...tempProfile,
+        emergency_contact_relationship: payload.relationship,
+        emergency_contact_verified: true,
+        emergency_contact_updated_at: new Date().toISOString(),
+      });
+      setEditMode((previous) => ({ ...previous, emergencyContact: false }));
+      setTimedMessage('Emergency contact activated.');
     } catch (err) {
       setError(err.message || 'Failed to update emergency contact');
     } finally {
@@ -238,29 +349,138 @@ export default function ProfileManagementPanel({ token, loading: parentLoading =
     }
   };
 
+  const changePassword = async () => {
+    if (!passwordForm.current || !passwordForm.next || !passwordForm.confirm) {
+      setError('All password fields are required.');
+      return;
+    }
+    if (passwordForm.next.length < 8) {
+      setError('New password must be at least 8 characters.');
+      return;
+    }
+    if (passwordForm.next !== passwordForm.confirm) {
+      setError('New passwords do not match.');
+      return;
+    }
+
+    try {
+      setSecurityLoading(true);
+      setError('');
+      await apiRequest('/users/change-password', {
+        token,
+        method: 'PUT',
+        body: {
+          current_password: passwordForm.current,
+          new_password: passwordForm.next,
+        },
+      });
+      setPasswordForm({ current: '', next: '', confirm: '' });
+      setSecurityOpen((previous) => ({ ...previous, password: false }));
+      setTimedMessage('Password changed successfully.');
+    } catch (err) {
+      setError(err.message || 'Failed to change password');
+    } finally {
+      setSecurityLoading(false);
+    }
+  };
+
+  const requestTwoFactor = async () => {
+    try {
+      setSecurityLoading(true);
+      setError('');
+      const response = await apiRequest('/users/security/2fa/request', {
+        token,
+        method: 'POST',
+      });
+      setTwoFactor((previous) => ({
+        ...previous,
+        otpDemo: response?.otp_demo || '',
+        otp: response?.otp_demo || '',
+      }));
+      setTimedMessage('Verification code sent.');
+    } catch (err) {
+      setError(err.message || 'Failed to start two-factor setup');
+    } finally {
+      setSecurityLoading(false);
+    }
+  };
+
+  const verifyTwoFactor = async () => {
+    if (!twoFactor.otp.trim()) {
+      setError('Enter the verification code.');
+      return;
+    }
+    try {
+      setSecurityLoading(true);
+      setError('');
+      await apiRequest('/users/security/2fa/verify', {
+        token,
+        method: 'POST',
+        body: { otp: twoFactor.otp.trim() },
+      });
+      setTwoFactor((previous) => ({ ...previous, enabled: true, otp: '', otpDemo: '' }));
+      applyProfile({ ...profile, two_factor_enabled: true });
+      setTimedMessage('Two-factor authentication enabled.');
+    } catch (err) {
+      setError(err.message || 'Failed to verify code');
+    } finally {
+      setSecurityLoading(false);
+    }
+  };
+
+  const disableTwoFactor = async () => {
+    if (!twoFactor.disablePassword.trim()) {
+      setError('Enter your current password to disable 2FA.');
+      return;
+    }
+    try {
+      setSecurityLoading(true);
+      setError('');
+      await apiRequest('/users/security/2fa/disable', {
+        token,
+        method: 'POST',
+        body: { current_password: twoFactor.disablePassword },
+      });
+      setTwoFactor((previous) => ({ ...previous, enabled: false, disablePassword: '' }));
+      applyProfile({ ...profile, two_factor_enabled: false });
+      setTimedMessage('Two-factor authentication disabled.');
+    } catch (err) {
+      setError(err.message || 'Failed to disable two-factor authentication');
+    } finally {
+      setSecurityLoading(false);
+    }
+  };
+
+  const refreshLoginHistory = async () => {
+    try {
+      setSecurityLoading(true);
+      const response = await apiRequest('/users/security/login-history', { token });
+      setLoginHistory(Array.isArray(response?.logins) ? response.logins : []);
+    } catch (err) {
+      setError(err.message || 'Failed to load login history');
+    } finally {
+      setSecurityLoading(false);
+    }
+  };
+
   const cancelEdit = (section) => {
     setTempProfile(profile);
-    setEditMode({...editMode, [section]: false});
+    setEditMode((previous) => ({ ...previous, [section]: false }));
     setError('');
   };
 
-  const EditField = ({ label, value, placeholder, onChange, editable = true }) => (
-    <View style={styles.fieldContainer}>
-      <Text style={styles.fieldLabel}>{label}</Text>
-      <TextInput
-        style={[styles.fieldInput, !editable && styles.fieldDisabled]}
-        value={value}
-        placeholder={placeholder}
-        onChangeText={onChange}
-        editable={editable && !loading}
-        placeholderTextColor={COLORS.textMuted}
-      />
-    </View>
+  const stats = useMemo(
+    () => [
+      { label: 'Passenger Rating', value: `${profile.rating.toFixed(1)}/5.0` },
+      { label: 'Total Rides', value: profile.total_rides },
+      { label: 'Account Status', value: String(profile.account_status || 'active').toUpperCase() },
+    ],
+    [profile.account_status, profile.rating, profile.total_rides],
   );
 
   if (loading && !profile.name) {
     return (
-      <View style={styles.container}>
+      <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={COLORS.primary} />
       </View>
     );
@@ -268,328 +488,247 @@ export default function ProfileManagementPanel({ token, loading: parentLoading =
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <Text style={styles.title}>👤 Profile Management</Text>
-      <Text style={styles.subtitle}>Manage your personal and account information</Text>
+      <Text style={styles.title}>Profile Management</Text>
+      <Text style={styles.subtitle}>Manage driver identity, payout, emergency, and security settings.</Text>
 
-      {error && <Text style={[styles.message, styles.error]}>{error}</Text>}
-      {message && <Text style={[styles.message, styles.success]}>{message}</Text>}
+      {error ? <Text style={[styles.message, styles.error]}>{error}</Text> : null}
+      {message ? <Text style={[styles.message, styles.success]}>{message}</Text> : null}
 
-      {/* Profile Photo Section */}
       <View style={styles.photoSection}>
         <View style={styles.photoContainer}>
           {profile.profile_photo ? (
-            <Image source={{uri: profile.profile_photo}} style={styles.profilePhoto} />
+            <Image source={{ uri: profile.profile_photo }} style={styles.profilePhoto} />
           ) : (
             <View style={[styles.profilePhoto, styles.photoPlaceholder]}>
-              <Text style={styles.photoPlaceholderText}>📷</Text>
+              <Text style={styles.photoPlaceholderText}>Photo</Text>
             </View>
           )}
-          {uploadingPhoto && (
+          {uploadingPhoto ? (
             <View style={styles.uploadingOverlay}>
               <ActivityIndicator size="large" color={COLORS.primary} />
             </View>
-          )}
+          ) : null}
         </View>
-        <TouchableOpacity
-          style={styles.uploadButton}
-          onPress={pickImage}
-          disabled={uploadingPhoto || parentLoading}
-        >
-          <Text style={styles.uploadButtonText}>📸 Change Photo</Text>
-        </TouchableOpacity>
+        <View style={styles.photoActions}>
+          <TouchableOpacity style={styles.uploadButton} onPress={captureImage} disabled={uploadingPhoto || parentLoading}>
+            <Text style={styles.uploadButtonText}>Use Camera</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.secondaryButton} onPress={pickImage} disabled={uploadingPhoto || parentLoading}>
+            <Text style={styles.secondaryButtonText}>Choose Photo</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
-      {/* Rating & Score Section */}
       <View style={styles.ratingSection}>
-        <View style={styles.ratingCard}>
-          <Text style={styles.ratingIcon}>⭐</Text>
-          <View style={styles.ratingInfo}>
-            <Text style={styles.ratingLabel}>Passenger Rating</Text>
-            <Text style={styles.ratingValue}>{profile.rating.toFixed(1)}/5.0</Text>
-          </View>
-        </View>
-        <View style={styles.ratingCard}>
-          <Text style={styles.ratingIcon}>🚗</Text>
-          <View style={styles.ratingInfo}>
-            <Text style={styles.ratingLabel}>Total Rides</Text>
-            <Text style={styles.ratingValue}>{profile.total_rides}</Text>
-          </View>
-        </View>
-        <View style={styles.ratingCard}>
-          <Text style={styles.ratingIcon}>✅</Text>
-          <View style={styles.ratingInfo}>
-            <Text style={styles.ratingLabel}>Account Status</Text>
-            <Text style={[styles.ratingValue, {color: profile.account_status === 'active' ? COLORS.success : COLORS.error}]}>
-              {profile.account_status?.toUpperCase()}
+        {stats.map((item) => (
+          <View key={item.label} style={styles.ratingCard}>
+            <Text style={styles.ratingLabel}>{item.label}</Text>
+            <Text
+              style={[
+                styles.ratingValue,
+                item.label === 'Account Status' && { color: getStatusColor(profile.account_status) },
+              ]}
+            >
+              {item.value}
             </Text>
           </View>
-        </View>
+        ))}
       </View>
 
-      {/* Personal Information Section */}
       <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>📝 Personal Information</Text>
-          {!editMode.personalInfo && (
-            <TouchableOpacity
-              onPress={() => {
-                setTempProfile(profile);
-                setEditMode({...editMode, personalInfo: true});
-              }}
-              disabled={loading}
-            >
-              <Text style={styles.editButton}>✏️ Edit</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
+        <EditableSectionHeader
+          title="Personal Information"
+          editing={editMode.personalInfo}
+          onEdit={() => {
+            setTempProfile(profile);
+            setEditMode((previous) => ({ ...previous, personalInfo: true }));
+          }}
+        />
         {!editMode.personalInfo ? (
           <View style={styles.infoDisplay}>
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Name</Text>
-              <Text style={styles.infoValue}>{profile.name}</Text>
-            </View>
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Email</Text>
-              <Text style={styles.infoValue}>{profile.email}</Text>
-            </View>
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Phone</Text>
-              <Text style={styles.infoValue}>{profile.phone}</Text>
-            </View>
+            <InfoRow label="Name" value={profile.name || 'Not set'} />
+            <InfoRow label="Email" value={profile.email || 'Not set'} />
+            <InfoRow label="Phone" value={profile.phone || 'Not set'} />
           </View>
         ) : (
           <View style={styles.editForm}>
-            <EditField
-              label="Full Name"
-              value={tempProfile.name}
-              placeholder="Enter your full name"
-              onChange={(text) => setTempProfile({...tempProfile, name: text})}
-            />
-            <EditField
-              label="Email Address"
-              value={tempProfile.email}
-              placeholder="Enter your email"
-              onChange={(text) => setTempProfile({...tempProfile, email: text})}
-            />
-            <EditField
-              label="Phone Number"
-              value={tempProfile.phone}
-              placeholder="Enter your phone number"
-              onChange={(text) => setTempProfile({...tempProfile, phone: text})}
-            />
-            <View style={styles.buttonGroup}>
-              <TouchableOpacity
-                style={[styles.button, styles.saveButton]}
-                onPress={updatePersonalInfo}
-                disabled={loading}
-              >
-                <Text style={styles.buttonText}>💾 Save</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.button, styles.cancelButton]}
-                onPress={() => cancelEdit('personalInfo')}
-                disabled={loading}
-              >
-                <Text style={styles.buttonText}>✕ Cancel</Text>
-              </TouchableOpacity>
-            </View>
+            <FormField disabled={loading || securityLoading} label="Full Name" value={tempProfile.name} placeholder="Enter your full name" onChange={(text) => setTempProfile({ ...tempProfile, name: text })} />
+            <FormField disabled={loading || securityLoading} label="Email Address" value={tempProfile.email} placeholder="Enter your email" onChange={(text) => setTempProfile({ ...tempProfile, email: text })} keyboardType="email-address" />
+            <FormField disabled={loading || securityLoading} label="Phone Number" value={tempProfile.phone} placeholder="10-digit phone number" onChange={(text) => setTempProfile({ ...tempProfile, phone: text })} keyboardType="phone-pad" />
+            <ActionButtons onSave={updatePersonalInfo} onCancel={() => cancelEdit('personalInfo')} loading={loading} />
           </View>
         )}
       </View>
 
-      {/* Emergency Contact Section */}
       <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>🆘 Emergency Contact</Text>
-          {!editMode.emergencyContact && (
-            <TouchableOpacity
-              onPress={() => {
-                setTempProfile(profile);
-                setEditMode({...editMode, emergencyContact: true});
-              }}
-              disabled={loading}
-            >
-              <Text style={styles.editButton}>✏️ Edit</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
+        <EditableSectionHeader
+          title="Emergency Contact"
+          editing={editMode.emergencyContact}
+          onEdit={() => {
+            setTempProfile(profile);
+            setEditMode((previous) => ({ ...previous, emergencyContact: true }));
+          }}
+        />
         {!editMode.emergencyContact ? (
           <View style={styles.infoDisplay}>
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Contact Name</Text>
-              <Text style={styles.infoValue}>{profile.emergency_contact_name || 'Not set'}</Text>
-            </View>
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Contact Phone</Text>
-              <Text style={styles.infoValue}>{profile.emergency_contact_phone || 'Not set'}</Text>
-            </View>
+            <InfoRow label="Contact Name" value={profile.emergency_contact_name || 'Not set'} />
+            <InfoRow label="Contact Phone" value={profile.emergency_contact_phone || 'Not set'} />
+            <InfoRow label="Relationship" value={profile.emergency_contact_relationship || 'Not set'} />
+            <InfoRow label="Status" value={profile.emergency_contact_verified ? 'Active for SOS escalation' : 'Not active'} />
+            <InfoRow label="Updated" value={formatDate(profile.emergency_contact_updated_at)} />
           </View>
         ) : (
           <View style={styles.editForm}>
-            <EditField
-              label="Contact Name"
-              value={tempProfile.emergency_contact_name}
-              placeholder="Name of emergency contact"
-              onChange={(text) => setTempProfile({...tempProfile, emergency_contact_name: text})}
-            />
-            <EditField
-              label="Contact Phone"
-              value={tempProfile.emergency_contact_phone}
-              placeholder="Phone number"
-              onChange={(text) => setTempProfile({...tempProfile, emergency_contact_phone: text})}
-            />
-            <View style={styles.buttonGroup}>
-              <TouchableOpacity
-                style={[styles.button, styles.saveButton]}
-                onPress={updateEmergencyContact}
-                disabled={loading}
-              >
-                <Text style={styles.buttonText}>💾 Save</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.button, styles.cancelButton]}
-                onPress={() => cancelEdit('emergencyContact')}
-                disabled={loading}
-              >
-                <Text style={styles.buttonText}>✕ Cancel</Text>
-              </TouchableOpacity>
-            </View>
+            <FormField disabled={loading || securityLoading} label="Contact Name" value={tempProfile.emergency_contact_name} placeholder="Name of emergency contact" onChange={(text) => setTempProfile({ ...tempProfile, emergency_contact_name: text })} />
+            <FormField disabled={loading || securityLoading} label="Contact Phone" value={tempProfile.emergency_contact_phone} placeholder="10-digit phone number" onChange={(text) => setTempProfile({ ...tempProfile, emergency_contact_phone: text })} keyboardType="phone-pad" />
+            <FormField disabled={loading || securityLoading} label="Relationship" value={tempProfile.emergency_contact_relationship} placeholder="Spouse, sibling, parent..." onChange={(text) => setTempProfile({ ...tempProfile, emergency_contact_relationship: text })} />
+            <ActionButtons onSave={updateEmergencyContact} onCancel={() => cancelEdit('emergencyContact')} loading={loading} />
           </View>
         )}
       </View>
 
-      {/* Bank Account Section */}
       <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>🏦 Bank Account Details</Text>
-          {!editMode.bankDetails && (
-            <TouchableOpacity
-              onPress={() => {
-                setTempProfile(profile);
-                setEditMode({...editMode, bankDetails: true});
-              }}
-              disabled={loading}
-            >
-              <Text style={styles.editButton}>✏️ Edit</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
+        <EditableSectionHeader
+          title="Bank Account Details"
+          editing={editMode.bankDetails}
+          onEdit={() => {
+            setTempProfile(profile);
+            setEditMode((previous) => ({ ...previous, bankDetails: true }));
+          }}
+        />
         {!editMode.bankDetails ? (
           <View style={styles.infoDisplay}>
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Bank Name</Text>
-              <Text style={styles.infoValue}>{profile.bank_name || 'Not set'}</Text>
-            </View>
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Account Holder</Text>
-              <Text style={styles.infoValue}>{profile.bank_account_holder || 'Not set'}</Text>
-            </View>
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Account Number</Text>
-              <Text style={styles.infoValue}>
-                {profile.bank_account_number
-                  ? `****${profile.bank_account_number.slice(-4)}`
-                  : 'Not set'}
-              </Text>
-            </View>
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>IFSC Code</Text>
-              <Text style={styles.infoValue}>{profile.bank_ifsc_code || 'Not set'}</Text>
-            </View>
+            <InfoRow label="Bank Name" value={profile.bank_name || 'Not set'} />
+            <InfoRow label="Account Holder" value={profile.bank_account_holder || 'Not set'} />
+            <InfoRow label="Account Number" value={maskAccountNumber(profile.bank_account_number, profile.bank_account_masked)} />
+            <InfoRow label="IFSC Code" value={profile.bank_ifsc_code || 'Not set'} />
+            <InfoRow label="Verification" value={String(profile.bank_verification_status || 'not_submitted').replace(/_/g, ' ')} />
+            <InfoRow label="Updated" value={formatDate(profile.bank_updated_at)} />
           </View>
         ) : (
           <View style={styles.editForm}>
-            <EditField
-              label="Bank Name"
-              value={tempProfile.bank_name}
-              placeholder="e.g., HDFC Bank"
-              onChange={(text) => setTempProfile({...tempProfile, bank_name: text})}
-            />
-            <EditField
-              label="Account Holder Name"
-              value={tempProfile.bank_account_holder}
-              placeholder="Name as per bank records"
-              onChange={(text) => setTempProfile({...tempProfile, bank_account_holder: text})}
-            />
-            <EditField
-              label="Account Number"
-              value={tempProfile.bank_account_number}
-              placeholder="Your bank account number"
-              onChange={(text) => setTempProfile({...tempProfile, bank_account_number: text})}
-            />
-            <EditField
-              label="IFSC Code"
-              value={tempProfile.bank_ifsc_code}
-              placeholder="e.g., HDFC0001234"
-              onChange={(text) => setTempProfile({...tempProfile, bank_ifsc_code: text.toUpperCase()})}
-            />
-            <View style={styles.bankNote}>
-              <Text style={styles.bankNoteText}>
-                🔒 Your bank details are encrypted and only used for payouts. Never share these details with anyone.
-              </Text>
+            <FormField disabled={loading || securityLoading} label="Bank Name" value={tempProfile.bank_name} placeholder="e.g., HDFC Bank" onChange={(text) => setTempProfile({ ...tempProfile, bank_name: text })} />
+            <FormField disabled={loading || securityLoading} label="Account Holder Name" value={tempProfile.bank_account_holder} placeholder="Name as per bank records" onChange={(text) => setTempProfile({ ...tempProfile, bank_account_holder: text })} />
+            <FormField disabled={loading || securityLoading} label="Account Number" value={tempProfile.bank_account_number} placeholder="Your bank account number" onChange={(text) => setTempProfile({ ...tempProfile, bank_account_number: text })} keyboardType="number-pad" />
+            <FormField disabled={loading || securityLoading} label="IFSC Code" value={tempProfile.bank_ifsc_code} placeholder="e.g., HDFC0001234" onChange={(text) => setTempProfile({ ...tempProfile, bank_ifsc_code: text.toUpperCase() })} />
+            <View style={styles.noticeBlock}>
+              <Text style={styles.noticeText}>Bank details are encrypted and submitted for payout verification before withdrawals use them.</Text>
             </View>
-            <View style={styles.buttonGroup}>
-              <TouchableOpacity
-                style={[styles.button, styles.saveButton]}
-                onPress={updateBankDetails}
-                disabled={loading}
-              >
-                <Text style={styles.buttonText}>💾 Save</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.button, styles.cancelButton]}
-                onPress={() => cancelEdit('bankDetails')}
-                disabled={loading}
-              >
-                <Text style={styles.buttonText}>✕ Cancel</Text>
-              </TouchableOpacity>
-            </View>
+            <ActionButtons onSave={updateBankDetails} onCancel={() => cancelEdit('bankDetails')} loading={loading} />
           </View>
         )}
       </View>
 
-      {/* Security Section */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🔐 Account Security</Text>
-        <TouchableOpacity style={styles.securityOption}>
-          <View style={styles.securityContent}>
-            <Text style={styles.securityIcon}>🔑</Text>
-            <View style={styles.securityInfo}>
-              <Text style={styles.securityLabel}>Change Password</Text>
-              <Text style={styles.securityNote}>Update your account password</Text>
-            </View>
+        <Text style={styles.sectionTitle}>Account Security</Text>
+        <SecurityOption
+          label="Change Password"
+          note="Update your account password."
+          open={securityOpen.password}
+          onPress={() => setSecurityOpen((previous) => ({ ...previous, password: !previous.password }))}
+        />
+        {securityOpen.password ? (
+          <View style={styles.securityPanel}>
+            <FormField disabled={loading || securityLoading} label="Current Password" value={passwordForm.current} placeholder="Current password" secure onChange={(text) => setPasswordForm({ ...passwordForm, current: text })} />
+            <FormField disabled={loading || securityLoading} label="New Password" value={passwordForm.next} placeholder="New password" secure onChange={(text) => setPasswordForm({ ...passwordForm, next: text })} />
+            <FormField disabled={loading || securityLoading} label="Confirm Password" value={passwordForm.confirm} placeholder="Confirm new password" secure onChange={(text) => setPasswordForm({ ...passwordForm, confirm: text })} />
+            <TouchableOpacity style={[styles.fullButton, securityLoading && styles.disabledButton]} onPress={changePassword} disabled={securityLoading}>
+              <Text style={styles.fullButtonText}>Change Password</Text>
+            </TouchableOpacity>
           </View>
-          <Text style={styles.arrow}>›</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.securityOption}>
-          <View style={styles.securityContent}>
-            <Text style={styles.securityIcon}>📱</Text>
-            <View style={styles.securityInfo}>
-              <Text style={styles.securityLabel}>Two-Factor Authentication</Text>
-              <Text style={styles.securityNote}>Add an extra layer of security</Text>
-            </View>
+        ) : null}
+
+        <SecurityOption
+          label="Two-Factor Authentication"
+          note={twoFactor.enabled ? 'Enabled for this account.' : 'Add OTP verification to this account.'}
+          open={securityOpen.twoFactor}
+          onPress={() => setSecurityOpen((previous) => ({ ...previous, twoFactor: !previous.twoFactor }))}
+        />
+        {securityOpen.twoFactor ? (
+          <View style={styles.securityPanel}>
+            <InfoRow label="Status" value={twoFactor.enabled ? 'Enabled' : 'Disabled'} />
+            {!twoFactor.enabled ? (
+              <>
+                <TouchableOpacity style={[styles.fullButton, securityLoading && styles.disabledButton]} onPress={requestTwoFactor} disabled={securityLoading}>
+                  <Text style={styles.fullButtonText}>Send Verification Code</Text>
+                </TouchableOpacity>
+                {twoFactor.otpDemo ? <Text style={styles.devOtp}>Dev code: {twoFactor.otpDemo}</Text> : null}
+                <FormField disabled={loading || securityLoading} label="Verification Code" value={twoFactor.otp} placeholder="6-digit code" onChange={(text) => setTwoFactor({ ...twoFactor, otp: text })} keyboardType="number-pad" />
+                <TouchableOpacity style={[styles.fullButton, securityLoading && styles.disabledButton]} onPress={verifyTwoFactor} disabled={securityLoading}>
+                  <Text style={styles.fullButtonText}>Enable 2FA</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <FormField disabled={loading || securityLoading} label="Current Password" value={twoFactor.disablePassword} placeholder="Current password" secure onChange={(text) => setTwoFactor({ ...twoFactor, disablePassword: text })} />
+                <TouchableOpacity style={[styles.dangerFullButton, securityLoading && styles.disabledButton]} onPress={disableTwoFactor} disabled={securityLoading}>
+                  <Text style={styles.fullButtonText}>Disable 2FA</Text>
+                </TouchableOpacity>
+              </>
+            )}
           </View>
-          <Text style={styles.arrow}>›</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.securityOption}>
-          <View style={styles.securityContent}>
-            <Text style={styles.securityIcon}>📋</Text>
-            <View style={styles.securityInfo}>
-              <Text style={styles.securityLabel}>Login History</Text>
-              <Text style={styles.securityNote}>View recent account activity</Text>
-            </View>
+        ) : null}
+
+        <SecurityOption
+          label="Login History"
+          note="View recent signed-in sessions."
+          open={securityOpen.loginHistory}
+          onPress={() => {
+            setSecurityOpen((previous) => ({ ...previous, loginHistory: !previous.loginHistory }));
+            refreshLoginHistory();
+          }}
+        />
+        {securityOpen.loginHistory ? (
+          <View style={styles.securityPanel}>
+            {securityLoading ? <ActivityIndicator size="small" color={COLORS.primary} /> : null}
+            {loginHistory.length > 0 ? (
+              loginHistory.map((item) => (
+                <View key={item.id || `${item.created_at}-${item.ip}`} style={styles.loginItem}>
+                  <Text style={styles.loginTime}>{formatDate(item.created_at)}</Text>
+                  <Text style={styles.loginMeta}>{item.ip || 'unknown'} - {item.status || 'active'}</Text>
+                  <Text style={styles.loginAgent} numberOfLines={2}>{item.user_agent || 'Unknown device'}</Text>
+                </View>
+              ))
+            ) : (
+              <Text style={styles.emptyText}>No recent login sessions found.</Text>
+            )}
           </View>
-          <Text style={styles.arrow}>›</Text>
-        </TouchableOpacity>
+        ) : null}
       </View>
     </ScrollView>
   );
 }
 
+function InfoRow({ label, value }) {
+  return (
+    <View style={styles.infoRow}>
+      <Text style={styles.infoLabel}>{label}</Text>
+      <Text style={styles.infoValue}>{value}</Text>
+    </View>
+  );
+}
+
+function ActionButtons({ onSave, onCancel, loading }) {
+  return (
+    <View style={styles.buttonGroup}>
+      <TouchableOpacity style={[styles.button, styles.saveButton, loading && styles.disabledButton]} onPress={onSave} disabled={loading}>
+        <Text style={styles.buttonText}>Save</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={[styles.button, styles.cancelButton, loading && styles.disabledButton]} onPress={onCancel} disabled={loading}>
+        <Text style={styles.buttonText}>Cancel</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    padding: 16,
+    backgroundColor: COLORS.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   container: {
     flex: 1,
     padding: 16,
@@ -641,7 +780,9 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surface,
   },
   photoPlaceholderText: {
-    fontSize: 40,
+    fontSize: 14,
+    fontWeight: '800',
+    color: COLORS.textMuted,
   },
   uploadingOverlay: {
     position: 'absolute',
@@ -654,6 +795,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  photoActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
   uploadButton: {
     backgroundColor: COLORS.primary,
     paddingHorizontal: 16,
@@ -664,7 +809,20 @@ const styles = StyleSheet.create({
   uploadButtonText: {
     color: '#fff',
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '800',
+  },
+  secondaryButton: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  secondaryButtonText: {
+    color: COLORS.textMain,
+    fontSize: 13,
+    fontWeight: '800',
   },
   ratingSection: {
     flexDirection: 'row',
@@ -673,24 +831,15 @@ const styles = StyleSheet.create({
   },
   ratingCard: {
     flex: 1,
-    flexDirection: 'row',
     backgroundColor: COLORS.surface,
     borderRadius: 12,
     padding: 12,
-    alignItems: 'center',
     ...SHADOWS.soft,
-  },
-  ratingIcon: {
-    fontSize: 24,
-    marginRight: 8,
-  },
-  ratingInfo: {
-    flex: 1,
   },
   ratingLabel: {
     fontSize: 11,
     color: COLORS.textMuted,
-    marginBottom: 2,
+    marginBottom: 4,
   },
   ratingValue: {
     fontSize: 14,
@@ -714,10 +863,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     color: COLORS.textMain,
+    marginBottom: 12,
   },
   editButton: {
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '800',
     color: COLORS.primary,
   },
   infoDisplay: {
@@ -726,6 +876,7 @@ const styles = StyleSheet.create({
   infoRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    gap: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
@@ -733,12 +884,14 @@ const styles = StyleSheet.create({
   infoLabel: {
     fontSize: 12,
     color: COLORS.textMuted,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   infoValue: {
+    flex: 1,
+    textAlign: 'right',
     fontSize: 13,
     color: COLORS.textMain,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   editForm: {
     gap: 0,
@@ -748,7 +901,7 @@ const styles = StyleSheet.create({
   },
   fieldLabel: {
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '800',
     color: COLORS.textMain,
     marginBottom: 6,
   },
@@ -762,7 +915,6 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
   },
   fieldDisabled: {
-    backgroundColor: COLORS.background,
     color: COLORS.textMuted,
   },
   buttonGroup: {
@@ -786,9 +938,12 @@ const styles = StyleSheet.create({
   buttonText: {
     color: '#fff',
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '800',
   },
-  bankNote: {
+  disabledButton: {
+    opacity: 0.5,
+  },
+  noticeBlock: {
     backgroundColor: '#FFF3E0',
     borderLeftWidth: 4,
     borderLeftColor: COLORS.warning,
@@ -796,7 +951,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginTop: 12,
   },
-  bankNoteText: {
+  noticeText: {
     fontSize: 12,
     color: COLORS.textMain,
     lineHeight: 16,
@@ -809,21 +964,13 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
-  securityContent: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  securityIcon: {
-    fontSize: 20,
-    marginRight: 12,
-  },
   securityInfo: {
     flex: 1,
+    paddingRight: 12,
   },
   securityLabel: {
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '800',
     color: COLORS.textMain,
     marginBottom: 2,
   },
@@ -832,7 +979,62 @@ const styles = StyleSheet.create({
     color: COLORS.textMuted,
   },
   arrow: {
-    fontSize: 18,
+    fontSize: 12,
+    fontWeight: '800',
+    color: COLORS.primary,
+  },
+  securityPanel: {
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  fullButton: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 8,
+    paddingVertical: 11,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  dangerFullButton: {
+    backgroundColor: COLORS.error,
+    borderRadius: 8,
+    paddingVertical: 11,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  fullButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  devOtp: {
+    color: COLORS.textMuted,
+    fontSize: 12,
+    marginTop: 10,
+    marginBottom: 8,
+  },
+  loginItem: {
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  loginTime: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: COLORS.textMain,
+  },
+  loginMeta: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+    marginTop: 3,
+  },
+  loginAgent: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+    marginTop: 3,
+  },
+  emptyText: {
+    fontSize: 12,
     color: COLORS.textMuted,
   },
 });

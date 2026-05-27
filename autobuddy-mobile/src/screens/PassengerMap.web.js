@@ -37,6 +37,7 @@ import PromoCodePanel from '../components/PromoCodePanel';
 import SupportTicketsPanel from '../components/SupportTicketsPanel';
 import PaymentMethodsPanel from '../components/PaymentMethodsPanel';
 import PassengerRatingsPanel from '../components/PassengerRatingsPanel';
+import FavoriteDriversPanel from '../components/FavoriteDriversPanel';
 import PreferencesPanel from '../components/PreferencesPanel';
 import SavedPlacesPanel from '../components/SavedPlacesPanel';
 import SavedPlacesQuickSelect from '../components/SavedPlacesQuickSelect';
@@ -70,6 +71,7 @@ const LOGO_SOURCE = require('../../assets/images/autobuddy-logo.jpg');
 const PASSENGER_MENU_OPTIONS = [
   { key: 'ride' },
   { key: 'drivers' },
+  { key: 'favorites' },
   { key: 'safety' },
   { key: 'wallet' },
   { key: 'spin' },
@@ -198,6 +200,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     () => ({
       ride: t.rideBooking,
       drivers: t.drivers,
+      favorites: t.favorites || 'Favorite Drivers',
       safety: t.safety,
       wallet: t.wallet,
       spin: t.spin,
@@ -2149,6 +2152,17 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                     </View>
                   )}
 
+                  <PromoCodePanel
+                    token={token}
+                    rideFare={Number(fare?.total_fare || 1)}
+                    onDiscountApplied={handlePromoDiscountApplied}
+                    embedded
+                    compact
+                    title="Promo Code"
+                    disabled={!fare}
+                    disabledMessage="Choose pickup and drop to calculate fare before applying a promo."
+                  />
+
                   <View style={styles.infoBlock}>
                     <Text style={styles.infoTitle}>Booking Preferences</Text>
                     <Text style={styles.infoText}>Payment: {paymentMethodLabel}</Text>
@@ -2483,6 +2497,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               <PaymentMethodsPanel token={token} onDefaultMethodChange={handleDefaultMethodChange} />
             )}
             {activePassengerMenu === 'ratings' && <PassengerRatingsPanel token={token} />}
+            {activePassengerMenu === 'favorites' && <FavoriteDriversPanel token={token} />}
             {activePassengerMenu === 'preferences' && (
               <PreferencesPanel token={token} onPreferencesChange={handlePreferencesChange} />
             )}

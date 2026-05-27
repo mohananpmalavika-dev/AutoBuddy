@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import CancellationCostBanner from './CancellationCostBanner';
 import {
   StyleSheet,
   Text,
@@ -159,6 +160,18 @@ export default function BookingConfirmationCard({
   const fareEstimate = Number(booking.estimated_fare || 0).toFixed(2);
   const distance = Number(booking.distance_km || 0).toFixed(1);
 
+  // Example logic for cancellation state/cost (replace with real logic as needed)
+  let cancellationState = 'free';
+  let cancellationCost = 0;
+  if (booking && booking.cancellation_fee) {
+    cancellationState = booking.cancellation_fee > 0 ? 'paid' : 'free';
+    cancellationCost = booking.cancellation_fee;
+  }
+  // If booking is locked, set to 'none'
+  if (booking && booking.cancellation_locked) {
+    cancellationState = 'none';
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.headerRow}>
@@ -168,6 +181,9 @@ export default function BookingConfirmationCard({
           <Text style={styles.dismissButtonText}>✕</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Cancellation Cost Banner */}
+      <CancellationCostBanner cost={cancellationCost} state={cancellationState} />
 
       {/* Booking ID */}
       {booking.id && (

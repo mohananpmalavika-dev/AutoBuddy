@@ -24,13 +24,13 @@ import VoiceTextInput from '../components/VoiceTextInput';
 import RideCard from '../components/RideCard';
 import DriverTabBar from '../components/DriverTabBar';
 import EarningsPanel from '../components/EarningsPanel';
-import DriverProfile from './DriverProfile';
 import DocumentUploadPanel from '../components/DocumentUploadPanel';
 import VehicleManagementPanel from '../components/VehicleManagementPanel';
 import SupportTicketPanel from '../components/SupportTicketPanel';
 import EnhancedSettingsPanel from '../components/EnhancedSettingsPanel';
 import ProfileManagementPanel from '../components/ProfileManagementPanel';
 import AnalyticsDashboard from '../components/AnalyticsDashboard';
+import { DRIVER_QUICK_ACTIONS } from '../constants/driverQuickActions';
 import { useKeralaSafety } from '../hooks/useKeralaSafety';
 import { useDriverRealtimeTracking } from '../hooks/useDriverRealtimeTracking';
 
@@ -649,6 +649,19 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     );
     if (result) {
       await refreshDriverDataSilently({ includeMeta: true });
+    }
+  };
+
+  const handleQuickActionPress = (action) => {
+    if (!action || typeof action !== 'object') {
+      return;
+    }
+    if (action.type === 'earnings_report') {
+      requestDriverEarningsReport().catch(() => null);
+      return;
+    }
+    if (action.type === 'tab' && action.tab) {
+      setActiveTab(action.tab);
     }
   };
 
@@ -1431,21 +1444,11 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
             <>
               <View style={styles.earningsCard}>
                 <Text style={styles.fareTitle}>Quick Actions</Text>
-                <TouchableOpacity style={styles.actionButton} onPress={() => setActiveTab('spin')}>
-                  <Text style={styles.actionButtonText}>🎯 Spin & Win</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.actionButton} onPress={() => setActiveTab('fare')}>
-                  <Text style={styles.actionButtonText}>📊 Fare Calculator</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.actionButton} onPress={() => setActiveTab('blocked')}>
-                  <Text style={styles.actionButtonText}>🚫 Blocked Passengers</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.actionButton} onPress={() => setActiveTab('trust')}>
-                  <Text style={styles.actionButtonText}>🛡️ Trust Card</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.actionButton} onPress={() => setActiveTab('safety')}>
-                  <Text style={styles.actionButtonText}>⚠️ Safety</Text>
-                </TouchableOpacity>
+                {DRIVER_QUICK_ACTIONS.map((action) => (
+                  <TouchableOpacity key={action.key} style={styles.actionButton} onPress={() => handleQuickActionPress(action)}>
+                    <Text style={styles.actionButtonText}>{action.label}</Text>
+                  </TouchableOpacity>
+                ))}
               </View>
             </>
           )}
@@ -1457,6 +1460,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
               loading={loading}
               displayIsOnline={displayIsOnline}
               onToggleOnline={toggleOnlineStatus}
+              onNavigateToTab={setActiveTab}
             />
           )}
 
@@ -1885,3 +1889,4 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
 });
+

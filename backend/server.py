@@ -103,6 +103,8 @@ settings = get_settings()
 UPLOADS_DIR = ROOT_DIR / "uploads"
 PASSENGER_PROFILE_PHOTO_DIR = UPLOADS_DIR / "passenger_profile_photos"
 PASSENGER_DOCUMENTS_DIR = UPLOADS_DIR / "passenger_documents"
+DRIVER_DOCUMENTS_DIR = UPLOADS_DIR / "driver_documents"
+DRIVER_PROFILE_PHOTO_DIR = UPLOADS_DIR / "driver_profile_photos"
 SUPPORT_ATTACHMENTS_DIR = UPLOADS_DIR / "support_attachments"
 
 # MongoDB connection
@@ -568,6 +570,16 @@ async def seed_admin():
         except OperationFailure:
             pass
         try:
+            await db.driver_documents.create_index([("driver_id", 1), ("doc_type", 1)], unique=True)
+            await db.driver_documents.create_index([("driver_id", 1), ("expiry_date", 1)])
+        except OperationFailure:
+            pass
+        try:
+            await db.driver_vehicles.create_index([("driver_id", 1), ("id", 1)], unique=True)
+            await db.driver_vehicles.create_index([("driver_id", 1), ("is_active", 1)])
+        except OperationFailure:
+            pass
+        try:
             await db.sos_alerts.create_index("created_at", expireAfterSeconds=60 * 60 * 24 * 30)
         except OperationFailure:
             pass
@@ -638,6 +650,10 @@ async def seed_admin():
         try:
             await db.driver_support_tickets.create_index([("driver_id", 1), ("updated_at", -1)])
             await db.driver_support_tickets.create_index("status")
+        except OperationFailure:
+            pass
+        try:
+            await db.driver_availability_events.create_index([("driver_id", 1), ("created_at", -1)])
         except OperationFailure:
             pass
         try:
@@ -1037,6 +1053,7 @@ class SubscriptionPlanType(str, Enum):
 
 PHONE_PATTERN = r"^\d{10}$"
 OTP_PATTERN = r"^\d{4,8}$"
+TIME_24H_PATTERN = r"^(?:[01]\d|2[0-3]):[0-5]\d$"
 PHONE_REGEX = re.compile(r"^[6-9]\d{9}$")
 NAME_REGEX = re.compile(r"^[A-Za-z\s]{2,80}$")
 
@@ -1194,10 +1211,16 @@ class DriverSupportTicketCreate(BaseModel):
     description: str = Field(min_length=5, max_length=2000)
     category: str = Field(default="general", min_length=2, max_length=40)
     priority: Literal["low", "normal", "high", "urgent"] = "normal"
+    attachment_urls: List[str] = Field(default_factory=list, max_length=5)
 
 class DriverSupportTicketReply(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     message: str = Field(min_length=1, max_length=2000)
+    attachment_urls: List[str] = Field(default_factory=list, max_length=5)
+
+class DriverSupportTicketEscalation(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    reason: str = Field(min_length=5, max_length=1000)
 
 class OtpSendResponse(BaseModel):
     message: str
@@ -1247,6 +1270,71 @@ class DriverProfile(BaseModel):
 class DriverProfileCreate(BaseModel):
     vehicle_info: VehicleInfo
 
+class DriverProfileUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    name: Optional[str] = Field(default=None, min_length=2, max_length=80)
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = Field(default=None, pattern=PHONE_PATTERN)
+
+    @field_validator("name")
+    @classmethod
+    def validate_optional_name(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        cleaned = str(value or "").strip()
+        if not NAME_REGEX.match(cleaned):
+            raise ValueError("Name should contain only letters and spaces")
+        return cleaned
+
+    @field_validator("phone")
+    @classmethod
+    def validate_optional_phone(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        return normalize_phone(value)
+
+class DriverBankDetailsUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    bank_name: str = Field(min_length=2, max_length=80)
+    bank_account_holder: str = Field(min_length=2, max_length=100)
+    bank_account_number: str = Field(min_length=6, max_length=30)
+    bank_ifsc_code: str = Field(min_length=11, max_length=11)
+
+    @field_validator("bank_account_number")
+    @classmethod
+    def validate_bank_account_number(cls, value: str) -> str:
+        cleaned = re.sub(r"\D+", "", str(value or ""))
+        if len(cleaned) < 6:
+            raise ValueError("Invalid account number")
+        return cleaned
+
+    @field_validator("bank_ifsc_code")
+    @classmethod
+    def validate_ifsc(cls, value: str) -> str:
+        cleaned = str(value or "").strip().upper()
+        if not re.match(r"^[A-Z]{4}0[A-Z0-9]{6}$", cleaned):
+            raise ValueError("Invalid IFSC code")
+        return cleaned
+
+class DriverEmergencyContactUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    emergency_contact_name: str = Field(min_length=2, max_length=80)
+    emergency_contact_phone: str = Field(pattern=PHONE_PATTERN)
+    relationship: Optional[str] = Field(default="Emergency contact", max_length=40)
+
+    @field_validator("emergency_contact_phone")
+    @classmethod
+    def validate_emergency_phone(cls, value: str) -> str:
+        return normalize_phone(value)
+
+class TwoFactorVerifyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    otp: str = Field(pattern=OTP_PATTERN)
+
+class TwoFactorDisableRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    current_password: str = Field(min_length=1, max_length=128)
+
 class DriverLocationUpdate(BaseModel):
     location: Location
 
@@ -1261,6 +1349,52 @@ class DriverAvailabilityUpdate(BaseModel):
 
 class DriverFareUpdate(BaseModel):
     fare_multiplier: float = Field(ge=0.8, le=2.0)  # 0.8x to 2x
+
+class DriverVehiclePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    make: str = Field(min_length=1, max_length=60)
+    model: str = Field(min_length=1, max_length=60)
+    year: int = Field(ge=1900, le=2100)
+    color: Optional[str] = Field(default="", max_length=40)
+    license_plate: str = Field(min_length=2, max_length=30)
+    registration_number: Optional[str] = Field(default=None, max_length=60)
+    seating_capacity: int = Field(default=4, ge=1, le=12)
+    vehicle_type: str = Field(default="auto", min_length=2, max_length=40)
+
+class DriverSettingsUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    push_notifications: Optional[bool] = None
+    email_notifications: Optional[bool] = None
+    sms_alerts: Optional[bool] = None
+    sound_enabled: Optional[bool] = None
+    vibration_enabled: Optional[bool] = None
+    quiet_hours_enabled: Optional[bool] = None
+    quiet_hours_start: Optional[str] = Field(default=None, pattern=TIME_24H_PATTERN)
+    quiet_hours_end: Optional[str] = Field(default=None, pattern=TIME_24H_PATTERN)
+    language: Optional[str] = Field(default=None, min_length=2, max_length=10)
+    theme: Optional[str] = Field(default=None, min_length=3, max_length=20)
+    share_location: Optional[bool] = None
+    accept_promo: Optional[bool] = None
+
+    @field_validator("language")
+    @classmethod
+    def validate_language(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        normalized = str(value or "").strip().lower()
+        if normalized not in {"en", "ml", "hi", "ta"}:
+            raise ValueError("Unsupported language")
+        return normalized
+
+    @field_validator("theme")
+    @classmethod
+    def validate_theme(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        normalized = str(value or "").strip().lower()
+        if normalized not in {"light", "dark", "auto"}:
+            raise ValueError("Unsupported theme")
+        return normalized
 
 class DriverFareCalculatorConfig(BaseModel):
     base_fare: float = Field(default=25.0, ge=0.0)
@@ -1835,6 +1969,167 @@ def build_default_driver_profile(user_id: str) -> Dict[str, Any]:
         "custom_fare_pricing_status": "default",
         "custom_fare_pricing_request": None,
     }
+
+def build_default_driver_settings() -> Dict[str, Any]:
+    return {
+        "push_notifications": True,
+        "email_notifications": True,
+        "sms_alerts": True,
+        "sound_enabled": True,
+        "vibration_enabled": True,
+        "quiet_hours_enabled": False,
+        "quiet_hours_start": "22:00",
+        "quiet_hours_end": "08:00",
+        "language": "en",
+        "theme": "light",
+        "share_location": True,
+        "accept_promo": True,
+    }
+
+def normalize_driver_settings(raw_settings: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    defaults = build_default_driver_settings()
+    source = raw_settings if isinstance(raw_settings, dict) else {}
+    next_settings = defaults.copy()
+
+    bool_keys = {
+        "push_notifications",
+        "email_notifications",
+        "sms_alerts",
+        "sound_enabled",
+        "vibration_enabled",
+        "quiet_hours_enabled",
+        "share_location",
+        "accept_promo",
+    }
+    for key in bool_keys:
+        if key in source:
+            next_settings[key] = bool(source.get(key))
+
+    for key in ("quiet_hours_start", "quiet_hours_end"):
+        value = str(source.get(key) or "").strip()
+        if re.match(TIME_24H_PATTERN, value):
+            next_settings[key] = value
+
+    language = str(source.get("language") or "").strip().lower()
+    if language in {"en", "ml", "hi", "ta"}:
+        next_settings["language"] = language
+
+    theme = str(source.get("theme") or "").strip().lower()
+    if theme in {"light", "dark", "auto"}:
+        next_settings["theme"] = theme
+
+    return next_settings
+
+def build_driver_vehicle_response(vehicle: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": str(vehicle.get("id") or ""),
+        "driver_id": str(vehicle.get("driver_id") or ""),
+        "make": str(vehicle.get("make") or ""),
+        "model": str(vehicle.get("model") or ""),
+        "year": int(vehicle.get("year") or 0),
+        "color": str(vehicle.get("color") or ""),
+        "license_plate": str(vehicle.get("license_plate") or ""),
+        "registration_number": str(vehicle.get("registration_number") or ""),
+        "seating_capacity": int(vehicle.get("seating_capacity") or 4),
+        "vehicle_type": str(vehicle.get("vehicle_type") or "auto"),
+        "is_active": bool(vehicle.get("is_active", False)),
+        "created_at": vehicle.get("created_at"),
+        "updated_at": vehicle.get("updated_at"),
+    }
+
+def build_driver_vehicle_info(vehicle: Dict[str, Any]) -> Dict[str, Any]:
+    make = str(vehicle.get("make") or "").strip()
+    model = str(vehicle.get("model") or "").strip()
+    vehicle_model = " ".join(part for part in [make, model] if part) or "Auto"
+    return {
+        "vehicle_number": str(vehicle.get("license_plate") or ""),
+        "vehicle_model": vehicle_model,
+        "vehicle_color": str(vehicle.get("color") or ""),
+    }
+
+async def sync_driver_primary_vehicle(driver_id: str, vehicle: Optional[Dict[str, Any]]) -> None:
+    now = datetime.utcnow()
+    if vehicle:
+        vehicle_info = build_driver_vehicle_info(vehicle)
+        await db.drivers.update_one(
+            {"user_id": driver_id},
+            {
+                "$set": {
+                    "vehicle_info": vehicle_info,
+                    "auto_number": vehicle_info.get("vehicle_number"),
+                    "auto_registration_number": str(vehicle.get("registration_number") or vehicle_info.get("vehicle_number")),
+                    "auto_model": vehicle_info.get("vehicle_model"),
+                    "auto_color": vehicle_info.get("vehicle_color"),
+                    "updated_at": now,
+                },
+                "$setOnInsert": build_default_driver_profile(driver_id),
+            },
+            upsert=True,
+        )
+    else:
+        await db.drivers.update_one(
+            {"user_id": driver_id},
+            {
+                "$set": {
+                    "vehicle_info": None,
+                    "updated_at": now,
+                },
+                "$unset": {
+                    "auto_number": "",
+                    "auto_registration_number": "",
+                    "auto_model": "",
+                    "auto_color": "",
+                },
+                "$setOnInsert": build_default_driver_profile(driver_id),
+            },
+            upsert=True,
+        )
+    await cache_delete(f"driver_profile:{driver_id}")
+
+def mask_bank_account(account_number: str) -> str:
+    cleaned = re.sub(r"\D+", "", str(account_number or ""))
+    if not cleaned:
+        return ""
+    return f"{'*' * max(0, len(cleaned) - 4)}{cleaned[-4:]}"
+
+def decrypt_profile_value(value: Any) -> str:
+    if not value:
+        return ""
+    try:
+        return decrypt_value(str(value))
+    except Exception:
+        return str(value or "")
+
+def build_driver_profile_response(user: Dict[str, Any], profile: Dict[str, Any]) -> Dict[str, Any]:
+    bank_account_number = decrypt_profile_value(profile.get("bank_account_number_encrypted"))
+    response = without_mongo_id(profile)
+    response.update(
+        {
+            "id": user.get("id"),
+            "user_id": user.get("id"),
+            "name": user.get("name", ""),
+            "email": user.get("email", ""),
+            "phone": user.get("phone", ""),
+            "profile_photo": profile.get("profile_photo"),
+            "rating": float(profile.get("rating", 5.0) or 5.0),
+            "total_rides": int(profile.get("total_rides", 0) or 0),
+            "account_status": user.get("account_status", "active"),
+            "two_factor_enabled": bool(user.get("two_factor_enabled", False)),
+            "bank_name": profile.get("bank_name", ""),
+            "bank_account_holder": profile.get("bank_account_holder", ""),
+            "bank_account_number": bank_account_number,
+            "bank_account_masked": profile.get("bank_account_masked") or mask_bank_account(bank_account_number),
+            "bank_ifsc_code": profile.get("bank_ifsc_code", ""),
+            "bank_verification_status": profile.get("bank_verification_status", "not_submitted"),
+            "bank_updated_at": profile.get("bank_updated_at"),
+            "emergency_contact_name": profile.get("emergency_contact_name", ""),
+            "emergency_contact_phone": profile.get("emergency_contact_phone", ""),
+            "emergency_contact_relationship": profile.get("emergency_contact_relationship", ""),
+            "emergency_contact_verified": bool(profile.get("emergency_contact_verified", False)),
+            "emergency_contact_updated_at": profile.get("emergency_contact_updated_at"),
+        }
+    )
+    return response
 
 def resolve_driver_active_fare_status(driver_profile: Optional[Dict[str, Any]]) -> str:
     profile = driver_profile or {}
@@ -3458,6 +3753,101 @@ async def get_driver_stats(driver_id: str) -> Dict[str, float]:
         "rejection_rate": float(rejected) / max(float(attempts), 1.0),
     }
 
+def get_driver_analytics_start(period: str) -> datetime:
+    now = datetime.utcnow()
+    normalized = str(period or "week").strip().lower()
+    if normalized == "day":
+        return datetime(now.year, now.month, now.day)
+    if normalized == "month":
+        return datetime(now.year, now.month, 1)
+    if normalized == "year":
+        return datetime(now.year, 1, 1)
+    return now - timedelta(days=7)
+
+def booking_metric_date(booking: Dict[str, Any]) -> datetime:
+    value = booking.get("trip_completed_at") or booking.get("updated_at") or booking.get("created_at")
+    return value if isinstance(value, datetime) else datetime.utcnow()
+
+def booking_fare_value(booking: Dict[str, Any]) -> float:
+    return safe_float(booking.get("final_fare"), safe_float(booking.get("estimated_fare"), 0.0))
+
+def booking_distance_value(booking: Dict[str, Any]) -> float:
+    return safe_float(booking.get("actual_distance_km"), safe_float(booking.get("distance_km"), 0.0))
+
+async def calculate_driver_online_hours(driver_id: str, start_at: datetime, end_at: datetime, profile: Dict[str, Any]) -> float:
+    events = await db.driver_availability_events.find(
+        {"driver_id": driver_id, "created_at": {"$gte": start_at, "$lte": end_at}},
+        {"_id": 0, "is_available": 1, "created_at": 1},
+    ).sort("created_at", 1).to_list(1000)
+
+    last_before = await db.driver_availability_events.find_one(
+        {"driver_id": driver_id, "created_at": {"$lt": start_at}},
+        {"_id": 0, "is_available": 1, "created_at": 1},
+        sort=[("created_at", -1)],
+    )
+    online = bool(last_before.get("is_available")) if last_before else False
+    cursor_time = start_at
+    seconds_online = 0.0
+
+    for event in events:
+        event_time = event.get("created_at")
+        if not isinstance(event_time, datetime):
+            continue
+        if online:
+            seconds_online += max(0.0, (event_time - cursor_time).total_seconds())
+        online = bool(event.get("is_available"))
+        cursor_time = event_time
+
+    if online:
+        seconds_online += max(0.0, (end_at - cursor_time).total_seconds())
+
+    if seconds_online <= 0 and profile.get("is_online") and isinstance(profile.get("last_online_at"), datetime):
+        online_start = max(start_at, profile["last_online_at"])
+        seconds_online = max(0.0, (end_at - online_start).total_seconds())
+
+    return round(seconds_online / 3600.0, 2)
+
+def build_driver_analytics_series(bookings: List[Dict[str, Any]], start_at: datetime, end_at: datetime) -> tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]], List[Dict[str, Any]]]:
+    daily: Dict[str, Dict[str, Any]] = {}
+    hourly: Dict[int, int] = {}
+    cursor = datetime(start_at.year, start_at.month, start_at.day)
+    last_day = datetime(end_at.year, end_at.month, end_at.day)
+    while cursor <= last_day:
+        key = cursor.date().isoformat()
+        daily[key] = {"date": key, "rides": 0, "earnings": 0.0, "rating": 0.0}
+        cursor += timedelta(days=1)
+
+    for booking in bookings:
+        metric_date = booking_metric_date(booking)
+        day_key = metric_date.date().isoformat()
+        daily.setdefault(day_key, {"date": day_key, "rides": 0, "earnings": 0.0, "rating": 0.0})
+        daily[day_key]["rides"] += 1
+        daily[day_key]["earnings"] += booking_fare_value(booking)
+        hourly[metric_date.hour] = hourly.get(metric_date.hour, 0) + 1
+
+    daily_trends = [
+        {
+            "date": item["date"],
+            "rides": int(item["rides"]),
+            "earnings": round(float(item["earnings"]), 2),
+            "rating": round(float(item.get("rating") or 0.0), 2),
+        }
+        for item in sorted(daily.values(), key=lambda row: row["date"])
+    ]
+    weekly_comparison = {
+        datetime.strptime(item["date"], "%Y-%m-%d").strftime("%a %d %b"): {
+            "rides": item["rides"],
+            "earnings": item["earnings"],
+            "rating": item["rating"],
+        }
+        for item in daily_trends[-7:]
+    }
+    peak_hours = [
+        {"hour": hour, "count": count}
+        for hour, count in sorted(hourly.items(), key=lambda pair: pair[1], reverse=True)[:5]
+    ]
+    return daily_trends, weekly_comparison, peak_hours
+
 
 async def is_driver_busy(driver_id: str) -> bool:
     active = await db.bookings.find_one({"driver_id": driver_id, "status": {"$in": ACTIVE_RIDE_STATUSES}})
@@ -4142,6 +4532,10 @@ def require_passenger(current_user: Dict[str, Any]) -> None:
     if current_user.get("role") != UserRole.PASSENGER:
         raise HTTPException(status_code=403, detail="Only passengers can access this feature")
 
+def require_driver(current_user: Dict[str, Any]) -> None:
+    if current_user.get("role") != UserRole.DRIVER:
+        raise HTTPException(status_code=403, detail="Only drivers can access this feature")
+
 def safe_upload_filename(original_name: str, prefix: str) -> str:
     suffix = Path(str(original_name or "upload")).suffix.lower()
     if suffix not in {".jpg", ".jpeg", ".png", ".webp", ".pdf"}:
@@ -4201,6 +4595,128 @@ async def save_upload_file(upload: UploadFile, target_dir: Path, prefix: str, ma
         "size": len(contents),
         "path": str(target_path),
     }
+
+DRIVER_DOCUMENT_TYPES: Dict[str, Dict[str, Any]] = {
+    "driver_license": {"label": "Driver License", "expires": True, "renewal_window_days": 30},
+    "vehicle_registration": {"label": "Vehicle Registration", "expires": True, "renewal_window_days": 30},
+    "vehicle_insurance": {"label": "Vehicle Insurance", "expires": True, "renewal_window_days": 30},
+    "pollution_certificate": {"label": "Pollution Certificate", "expires": True, "renewal_window_days": 30},
+    "aadhar": {"label": "Aadhar/ID Proof", "expires": False, "renewal_window_days": 0},
+    "pan": {"label": "PAN Card", "expires": False, "renewal_window_days": 0},
+}
+
+def normalize_driver_doc_type(doc_type: str) -> str:
+    normalized = re.sub(r"[^a-zA-Z0-9_-]+", "_", str(doc_type or "")).strip("_").lower()
+    if normalized == "insurance_policy":
+        normalized = "vehicle_insurance"
+    if normalized not in DRIVER_DOCUMENT_TYPES:
+        raise HTTPException(status_code=400, detail="Unsupported driver document type")
+    return normalized
+
+def normalize_expiry_date(expiry_date: Optional[str]) -> Optional[str]:
+    if isinstance(expiry_date, datetime):
+        return expiry_date.date().isoformat()
+    cleaned = str(expiry_date or "").strip()
+    if not cleaned:
+        return None
+    try:
+        return datetime.strptime(cleaned, "%Y-%m-%d").date().isoformat()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="expiry_date must use YYYY-MM-DD format")
+
+def driver_document_status(document: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not document:
+        return {"days_until_expiry": None, "is_expired": False, "is_expiring_soon": False, "reminder_due": False}
+
+    expiry_date = normalize_expiry_date(document.get("expiry_date"))
+    if not expiry_date:
+        return {"days_until_expiry": None, "is_expired": False, "is_expiring_soon": False, "reminder_due": False}
+
+    expiry = datetime.strptime(expiry_date, "%Y-%m-%d").date()
+    today = datetime.utcnow().date()
+    days_left = (expiry - today).days
+    window = int(DRIVER_DOCUMENT_TYPES.get(document.get("doc_type"), {}).get("renewal_window_days", 30) or 30)
+    return {
+        "days_until_expiry": days_left,
+        "is_expired": days_left < 0,
+        "is_expiring_soon": 0 <= days_left <= window,
+        "reminder_due": days_left <= window,
+    }
+
+def build_driver_document_response(document: Optional[Dict[str, Any]], request: Optional[Request] = None, doc_type: Optional[str] = None) -> Dict[str, Any]:
+    resolved_type = normalize_driver_doc_type(doc_type or (document or {}).get("doc_type"))
+    config = DRIVER_DOCUMENT_TYPES[resolved_type]
+    base: Dict[str, Any] = {
+        "id": None,
+        "type": resolved_type,
+        "doc_type": resolved_type,
+        "label": config["label"],
+        "status": "pending",
+        "verification_status": "pending",
+        "expiry": None,
+        "expiry_date": None,
+        "lastUpdated": None,
+        "uploaded_at": None,
+        "filename": None,
+        "content_type": None,
+        "size": None,
+        "download_url": None,
+        "reject_reason": None,
+        "requires_expiry": bool(config["expires"]),
+    }
+
+    if document:
+        base.update(without_mongo_id(document))
+        base["type"] = resolved_type
+        base["doc_type"] = resolved_type
+        base["label"] = config["label"]
+        base["status"] = document.get("verification_status") or document.get("status") or "pending"
+        base["verification_status"] = base["status"]
+        base["expiry_date"] = normalize_expiry_date(document.get("expiry_date"))
+        base["expiry"] = base["expiry_date"]
+        base["lastUpdated"] = document.get("updated_at") or document.get("uploaded_at")
+        base["requires_expiry"] = bool(config["expires"])
+        if request and document.get("stored_filename"):
+            base["download_url"] = (
+                f"{str(request.base_url).rstrip('/')}/api/drivers/documents/{resolved_type}/download"
+            )
+
+    base.update(driver_document_status(base))
+    return base
+
+async def get_driver_documents_map(driver_id: str, request: Request) -> Dict[str, Dict[str, Any]]:
+    rows = await db.driver_documents.find({"driver_id": driver_id}).to_list(100)
+    by_type = {
+        normalize_driver_doc_type(row.get("doc_type")): row
+        for row in rows
+        if row.get("doc_type")
+    }
+    return {
+        doc_type: build_driver_document_response(by_type.get(doc_type), request, doc_type)
+        for doc_type in DRIVER_DOCUMENT_TYPES
+    }
+
+def build_driver_document_reminders(documents: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+    reminders = []
+    for doc_type, document in documents.items():
+        if not document.get("requires_expiry") or not document.get("expiry_date"):
+            continue
+        if document.get("reminder_due"):
+            reminders.append(
+                {
+                    "doc_type": doc_type,
+                    "label": document.get("label"),
+                    "expiry_date": document.get("expiry_date"),
+                    "days_until_expiry": document.get("days_until_expiry"),
+                    "is_expired": document.get("is_expired"),
+                    "message": (
+                        "Expired document requires renewal"
+                        if document.get("is_expired")
+                        else f"Renewal due in {document.get('days_until_expiry')} days"
+                    ),
+                }
+            )
+    return sorted(reminders, key=lambda item: item.get("days_until_expiry") or 0)
 
 @api_router.get("/users/profile")
 async def get_user_profile(current_user: dict = Depends(get_current_user)):
@@ -4567,6 +5083,102 @@ async def change_user_password(
     )
     return {"success": True, "message": "Password changed successfully"}
 
+@api_router.get("/users/security/2fa")
+async def get_two_factor_status(current_user: dict = Depends(get_current_user)):
+    user = await db.users.find_one({"id": current_user["id"]}, {"_id": 0, "two_factor_enabled": 1, "two_factor_enabled_at": 1})
+    return {
+        "enabled": bool(user and user.get("two_factor_enabled")),
+        "enabled_at": user.get("two_factor_enabled_at") if user else None,
+        "method": "otp",
+    }
+
+@api_router.post("/users/security/2fa/request")
+async def request_two_factor_setup(current_user: dict = Depends(get_current_user)):
+    otp_code = f"{random.randint(100000, 999999)}"
+    now = datetime.utcnow()
+    expires_at = now + timedelta(minutes=10)
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {
+            "$set": {
+                "two_factor_pending_otp_hash": hash_password(otp_code),
+                "two_factor_pending_expires_at": expires_at,
+                "updated_at": now,
+            }
+        },
+    )
+    response = {"success": True, "message": "Verification code sent", "expires_in_seconds": 600}
+    if ENVIRONMENT != "production":
+        response["otp_demo"] = otp_code
+    return response
+
+@api_router.post("/users/security/2fa/verify")
+async def verify_two_factor_setup(payload: TwoFactorVerifyRequest, current_user: dict = Depends(get_current_user)):
+    user = await db.users.find_one({"id": current_user["id"]})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    expires_at = user.get("two_factor_pending_expires_at")
+    if not expires_at or expires_at < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Verification code expired")
+    otp_hash = str(user.get("two_factor_pending_otp_hash") or "")
+    if not otp_hash or not verify_password(payload.otp, otp_hash):
+        raise HTTPException(status_code=401, detail="Invalid verification code")
+
+    now = datetime.utcnow()
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {
+            "$set": {"two_factor_enabled": True, "two_factor_enabled_at": now, "updated_at": now},
+            "$unset": {"two_factor_pending_otp_hash": "", "two_factor_pending_expires_at": ""},
+        },
+    )
+    await cache_delete(f"driver_profile:{current_user['id']}")
+    return {"success": True, "enabled": True, "message": "Two-factor authentication enabled"}
+
+@api_router.post("/users/security/2fa/disable")
+async def disable_two_factor(payload: TwoFactorDisableRequest, current_user: dict = Depends(get_current_user)):
+    user = await db.users.find_one({"id": current_user["id"]})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not verify_password(payload.current_password, str(user.get("password_hash") or "")):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    now = datetime.utcnow()
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {
+            "$set": {"two_factor_enabled": False, "updated_at": now},
+            "$unset": {
+                "two_factor_enabled_at": "",
+                "two_factor_pending_otp_hash": "",
+                "two_factor_pending_expires_at": "",
+            },
+        },
+    )
+    await cache_delete(f"driver_profile:{current_user['id']}")
+    return {"success": True, "enabled": False, "message": "Two-factor authentication disabled"}
+
+@api_router.get("/users/security/login-history")
+async def get_login_history(current_user: dict = Depends(get_current_user)):
+    sessions = await db.refresh_tokens.find(
+        {"user_id": current_user["id"]},
+        {"_id": 0, "id": 1, "ip": 1, "user_agent": 1, "created_at": 1, "revoked": 1, "revoked_at": 1, "expires_at": 1},
+    ).sort("created_at", -1).limit(20).to_list(20)
+    return {
+        "logins": [
+            {
+                "id": item.get("id"),
+                "ip": item.get("ip", "unknown"),
+                "user_agent": item.get("user_agent", ""),
+                "created_at": item.get("created_at"),
+                "revoked": bool(item.get("revoked", False)),
+                "revoked_at": item.get("revoked_at"),
+                "expires_at": item.get("expires_at"),
+                "status": "signed_out" if item.get("revoked") else "active",
+            }
+            for item in sessions
+        ]
+    }
+
 @api_router.post("/users/request-phone-change")
 async def request_phone_change(
     payload: PhoneChangeRequest,
@@ -4910,6 +5522,9 @@ async def get_driver_profile(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail="Driver profile could not be initialized")
 
     profile["current_location"] = await get_effective_driver_location(profile)
+    user = await db.users.find_one({"id": current_user["id"]}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
 
     # Backward-compatible shape for older UI screens expecting nested auto/owner details.
     vehicle_info = profile.get("vehicle_info") if isinstance(profile.get("vehicle_info"), dict) else {}
@@ -4928,9 +5543,320 @@ async def get_driver_profile(current_user: dict = Depends(get_current_user)):
         "owner_email": profile.get("owner_email") if auto_ownership_type == "rented" else current_user.get("email"),
         "owner_address": profile.get("owner_address") if auto_ownership_type == "rented" else None,
     }
-    await cache_set(cache_key, profile, ttl_seconds=60)
+    response_profile = build_driver_profile_response(user, profile)
+    await cache_set(cache_key, response_profile, ttl_seconds=60)
 
-    return profile
+    return response_profile
+
+@api_router.put("/drivers/profile")
+async def update_driver_profile(payload: DriverProfileUpdate, current_user: dict = Depends(get_current_user)):
+    require_driver(current_user)
+    update_data = payload.model_dump(exclude_unset=True)
+    if not update_data:
+        return await get_driver_profile(current_user)
+
+    if "email" in update_data:
+        existing = await db.users.find_one({"email": update_data["email"], "id": {"$ne": current_user["id"]}})
+        if existing:
+            raise HTTPException(status_code=400, detail="Email already registered")
+    if "phone" in update_data:
+        existing = await db.users.find_one({"phone": update_data["phone"], "id": {"$ne": current_user["id"]}})
+        if existing:
+            raise HTTPException(status_code=400, detail="Phone number already registered")
+
+    now = datetime.utcnow()
+    await db.users.update_one({"id": current_user["id"]}, {"$set": {**update_data, "updated_at": now}})
+    await db.drivers.update_one(
+        {"user_id": current_user["id"]},
+        {"$set": {"updated_at": now}, "$setOnInsert": build_default_driver_profile(current_user["id"])},
+        upsert=True,
+    )
+    await cache_delete(f"driver_profile:{current_user['id']}")
+    refreshed_user = await db.users.find_one({"id": current_user["id"]}, {"_id": 0})
+    refreshed_profile = await db.drivers.find_one({"user_id": current_user["id"]}, {"_id": 0})
+    return {"profile": build_driver_profile_response(refreshed_user or current_user, refreshed_profile or {})}
+
+@api_router.post("/drivers/profile/photo")
+async def upload_driver_profile_photo(
+    request: Request,
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
+    require_driver(current_user)
+    saved = await save_upload_file(file, DRIVER_PROFILE_PHOTO_DIR / current_user["id"], current_user["id"])
+    photo_url = f"{str(request.base_url).rstrip('/')}/api/drivers/profile/photo/{saved['filename']}"
+    now = datetime.utcnow()
+    existing = await db.drivers.find_one({"user_id": current_user["id"]}, {"_id": 0, "profile_photo_filename": 1})
+    await db.drivers.update_one(
+        {"user_id": current_user["id"]},
+        {
+            "$set": {
+                "profile_photo": photo_url,
+                "profile_photo_filename": saved["filename"],
+                "updated_at": now,
+            },
+            "$setOnInsert": build_default_driver_profile(current_user["id"]),
+        },
+        upsert=True,
+    )
+    old_filename = existing.get("profile_photo_filename") if existing else None
+    if old_filename and old_filename != saved["filename"]:
+        old_target = DRIVER_PROFILE_PHOTO_DIR / current_user["id"] / Path(old_filename).name
+        if old_target.exists() and old_target.is_file():
+            old_target.unlink()
+    await cache_delete(f"driver_profile:{current_user['id']}")
+    return {"profile_photo": photo_url}
+
+@api_router.get("/drivers/profile/photo/{filename}")
+async def get_driver_profile_photo(filename: str):
+    safe_name = Path(filename).name
+    document = await db.drivers.find_one(
+        {"profile_photo_filename": safe_name},
+        {"_id": 0, "user_id": 1, "profile_photo_filename": 1},
+    )
+    if not document:
+        raise HTTPException(status_code=404, detail="Profile photo not found")
+    target = DRIVER_PROFILE_PHOTO_DIR / document["user_id"] / safe_name
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="Profile photo file not found")
+    return FileResponse(target)
+
+@api_router.put("/drivers/profile/bank")
+async def update_driver_bank_details(payload: DriverBankDetailsUpdate, current_user: dict = Depends(get_current_user)):
+    require_driver(current_user)
+    now = datetime.utcnow()
+    await db.drivers.update_one(
+        {"user_id": current_user["id"]},
+        {
+            "$set": {
+                "bank_name": payload.bank_name,
+                "bank_account_holder": payload.bank_account_holder,
+                "bank_account_number_encrypted": encrypt_value(payload.bank_account_number),
+                "bank_account_masked": mask_bank_account(payload.bank_account_number),
+                "bank_ifsc_code": payload.bank_ifsc_code,
+                "bank_verification_status": "pending_verification",
+                "bank_updated_at": now,
+                "updated_at": now,
+            },
+            "$setOnInsert": build_default_driver_profile(current_user["id"]),
+        },
+        upsert=True,
+    )
+    await cache_delete(f"driver_profile:{current_user['id']}")
+    profile = await db.drivers.find_one({"user_id": current_user["id"]}, {"_id": 0})
+    user = await db.users.find_one({"id": current_user["id"]}, {"_id": 0})
+    return {
+        "success": True,
+        "message": "Bank details submitted for payout verification",
+        "profile": build_driver_profile_response(user or current_user, profile or {}),
+    }
+
+@api_router.put("/drivers/profile/emergency-contact")
+async def update_driver_emergency_contact(
+    payload: DriverEmergencyContactUpdate,
+    current_user: dict = Depends(get_current_user),
+):
+    require_driver(current_user)
+    now = datetime.utcnow()
+    contact_doc = {
+        "id": f"driver-emergency-{current_user['id']}",
+        "user_id": current_user["id"],
+        "name": payload.emergency_contact_name,
+        "phone": payload.emergency_contact_phone,
+        "relationship": payload.relationship or "Emergency contact",
+        "active": True,
+        "source": "driver_profile",
+        "updated_at": now,
+    }
+    await db.emergency_contacts.update_one(
+        {"id": contact_doc["id"], "user_id": current_user["id"]},
+        {"$set": contact_doc, "$setOnInsert": {"created_at": now}},
+        upsert=True,
+    )
+    await db.drivers.update_one(
+        {"user_id": current_user["id"]},
+        {
+            "$set": {
+                "emergency_contact_name": payload.emergency_contact_name,
+                "emergency_contact_phone": payload.emergency_contact_phone,
+                "emergency_contact_relationship": payload.relationship or "Emergency contact",
+                "emergency_contact_verified": True,
+                "emergency_contact_updated_at": now,
+                "updated_at": now,
+            },
+            "$setOnInsert": build_default_driver_profile(current_user["id"]),
+        },
+        upsert=True,
+    )
+    await cache_delete(f"driver_profile:{current_user['id']}")
+    profile = await db.drivers.find_one({"user_id": current_user["id"]}, {"_id": 0})
+    user = await db.users.find_one({"id": current_user["id"]}, {"_id": 0})
+    return {
+        "success": True,
+        "message": "Emergency contact saved and activated",
+        "profile": build_driver_profile_response(user or current_user, profile or {}),
+    }
+
+@api_router.get("/drivers/settings")
+async def get_driver_settings(current_user: dict = Depends(get_current_user)):
+    require_driver(current_user)
+    profile = await db.drivers.find_one({"user_id": current_user["id"]}, {"_id": 0, "settings": 1})
+    settings = normalize_driver_settings((profile or {}).get("settings"))
+    return {"settings": settings}
+
+@api_router.put("/drivers/settings")
+async def update_driver_settings(payload: DriverSettingsUpdate, current_user: dict = Depends(get_current_user)):
+    require_driver(current_user)
+    updates = payload.model_dump(exclude_unset=True)
+    profile = await db.drivers.find_one({"user_id": current_user["id"]}, {"_id": 0, "settings": 1}) or {}
+    current_settings = normalize_driver_settings(profile.get("settings"))
+    merged = normalize_driver_settings({**current_settings, **updates})
+    now = datetime.utcnow()
+    await db.drivers.update_one(
+        {"user_id": current_user["id"]},
+        {
+            "$set": {
+                "settings": merged,
+                "updated_at": now,
+            },
+            "$setOnInsert": build_default_driver_profile(current_user["id"]),
+        },
+        upsert=True,
+    )
+    await cache_delete(f"driver_profile:{current_user['id']}")
+    return {"success": True, "settings": merged}
+
+@api_router.get("/drivers/vehicles")
+async def get_driver_vehicles(current_user: dict = Depends(get_current_user)):
+    require_driver(current_user)
+    vehicles = await db.driver_vehicles.find({"driver_id": current_user["id"]}, {"_id": 0}).sort("updated_at", -1).to_list(50)
+    if not vehicles:
+        profile = await db.drivers.find_one({"user_id": current_user["id"]}, {"_id": 0, "vehicle_info": 1})
+        vehicle_info = (profile or {}).get("vehicle_info")
+        if isinstance(vehicle_info, dict) and vehicle_info.get("vehicle_number"):
+            now = datetime.utcnow()
+            vehicle_doc = {
+                "id": str(uuid.uuid4()),
+                "driver_id": current_user["id"],
+                "make": "",
+                "model": str(vehicle_info.get("vehicle_model") or ""),
+                "year": now.year,
+                "color": str(vehicle_info.get("vehicle_color") or ""),
+                "license_plate": str(vehicle_info.get("vehicle_number") or ""),
+                "registration_number": str(vehicle_info.get("vehicle_number") or ""),
+                "seating_capacity": 3,
+                "vehicle_type": "auto",
+                "is_active": True,
+                "created_at": now,
+                "updated_at": now,
+            }
+            await db.driver_vehicles.insert_one(vehicle_doc)
+            vehicles = [vehicle_doc]
+
+    normalized = [build_driver_vehicle_response(item) for item in vehicles]
+    active = next((item for item in normalized if item.get("is_active")), None)
+    if not active and normalized:
+        normalized[0]["is_active"] = True
+        await db.driver_vehicles.update_many({"driver_id": current_user["id"]}, {"$set": {"is_active": False}})
+        await db.driver_vehicles.update_one(
+            {"driver_id": current_user["id"], "id": normalized[0]["id"]},
+            {"$set": {"is_active": True, "updated_at": datetime.utcnow()}},
+        )
+        await sync_driver_primary_vehicle(current_user["id"], normalized[0])
+    return {"vehicles": normalized}
+
+@api_router.post("/drivers/vehicles")
+async def create_driver_vehicle(payload: DriverVehiclePayload, current_user: dict = Depends(get_current_user)):
+    require_driver(current_user)
+    now = datetime.utcnow()
+    has_existing = await db.driver_vehicles.find_one({"driver_id": current_user["id"]}, {"_id": 0, "id": 1})
+    vehicle_doc = {
+        "id": str(uuid.uuid4()),
+        "driver_id": current_user["id"],
+        "make": payload.make,
+        "model": payload.model,
+        "year": payload.year,
+        "color": payload.color or "",
+        "license_plate": payload.license_plate.upper(),
+        "registration_number": (payload.registration_number or payload.license_plate).upper(),
+        "seating_capacity": payload.seating_capacity,
+        "vehicle_type": payload.vehicle_type,
+        "is_active": not bool(has_existing),
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.driver_vehicles.insert_one(vehicle_doc)
+    if vehicle_doc["is_active"]:
+        await sync_driver_primary_vehicle(current_user["id"], vehicle_doc)
+    return {"success": True, "vehicle": build_driver_vehicle_response(vehicle_doc)}
+
+@api_router.put("/drivers/vehicles/{vehicle_id}")
+async def update_driver_vehicle(vehicle_id: str, payload: DriverVehiclePayload, current_user: dict = Depends(get_current_user)):
+    require_driver(current_user)
+    existing = await db.driver_vehicles.find_one({"driver_id": current_user["id"], "id": vehicle_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Vehicle not found")
+
+    now = datetime.utcnow()
+    updated_fields = {
+        "make": payload.make,
+        "model": payload.model,
+        "year": payload.year,
+        "color": payload.color or "",
+        "license_plate": payload.license_plate.upper(),
+        "registration_number": (payload.registration_number or payload.license_plate).upper(),
+        "seating_capacity": payload.seating_capacity,
+        "vehicle_type": payload.vehicle_type,
+        "updated_at": now,
+    }
+    await db.driver_vehicles.update_one(
+        {"driver_id": current_user["id"], "id": vehicle_id},
+        {"$set": updated_fields},
+    )
+    refreshed = await db.driver_vehicles.find_one({"driver_id": current_user["id"], "id": vehicle_id}, {"_id": 0})
+    if refreshed and refreshed.get("is_active"):
+        await sync_driver_primary_vehicle(current_user["id"], refreshed)
+    return {"success": True, "vehicle": build_driver_vehicle_response(refreshed or {**existing, **updated_fields})}
+
+@api_router.put("/drivers/vehicles/{vehicle_id}/activate")
+async def activate_driver_vehicle(vehicle_id: str, current_user: dict = Depends(get_current_user)):
+    require_driver(current_user)
+    target = await db.driver_vehicles.find_one({"driver_id": current_user["id"], "id": vehicle_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="Vehicle not found")
+
+    now = datetime.utcnow()
+    await db.driver_vehicles.update_many({"driver_id": current_user["id"]}, {"$set": {"is_active": False, "updated_at": now}})
+    await db.driver_vehicles.update_one(
+        {"driver_id": current_user["id"], "id": vehicle_id},
+        {"$set": {"is_active": True, "updated_at": now}},
+    )
+    refreshed = await db.driver_vehicles.find_one({"driver_id": current_user["id"], "id": vehicle_id}, {"_id": 0})
+    await sync_driver_primary_vehicle(current_user["id"], refreshed)
+    return {"success": True, "vehicle": build_driver_vehicle_response(refreshed or target)}
+
+@api_router.delete("/drivers/vehicles/{vehicle_id}")
+async def delete_driver_vehicle(vehicle_id: str, current_user: dict = Depends(get_current_user)):
+    require_driver(current_user)
+    target = await db.driver_vehicles.find_one({"driver_id": current_user["id"], "id": vehicle_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="Vehicle not found")
+
+    await db.driver_vehicles.delete_one({"driver_id": current_user["id"], "id": vehicle_id})
+    if target.get("is_active"):
+        replacement = await db.driver_vehicles.find_one({"driver_id": current_user["id"]}, {"_id": 0}, sort=[("updated_at", -1)])
+        if replacement:
+            now = datetime.utcnow()
+            await db.driver_vehicles.update_many({"driver_id": current_user["id"]}, {"$set": {"is_active": False, "updated_at": now}})
+            await db.driver_vehicles.update_one(
+                {"driver_id": current_user["id"], "id": replacement["id"]},
+                {"$set": {"is_active": True, "updated_at": now}},
+            )
+            replacement = await db.driver_vehicles.find_one({"driver_id": current_user["id"], "id": replacement["id"]}, {"_id": 0})
+            await sync_driver_primary_vehicle(current_user["id"], replacement)
+        else:
+            await sync_driver_primary_vehicle(current_user["id"], None)
+    return {"success": True, "message": "Vehicle removed"}
 
 @api_router.put("/drivers/location")
 async def update_driver_location(location_update: DriverLocationUpdate, current_user: dict = Depends(get_current_user)):
@@ -5061,6 +5987,19 @@ async def update_driver_availability(availability: DriverAvailabilityUpdate, cur
         },
         upsert=True,
     )
+    if availability.is_available:
+        await runtime_state.touch_driver_heartbeat(str(current_user["id"]))
+    else:
+        await runtime_state.mark_driver_offline(str(current_user["id"]))
+    await db.driver_availability_events.insert_one(
+        {
+            "id": f"drv-avail-{uuid.uuid4()}",
+            "driver_id": current_user["id"],
+            "is_available": bool(availability.is_available),
+            "is_online": bool(availability.is_available),
+            "created_at": now_utc,
+        }
+    )
     await cache_delete(f"driver_profile:{current_user['id']}")
     if not availability.is_available:
         await runtime_state.clear_driver_live_location(str(current_user["id"]))
@@ -5081,6 +6020,100 @@ async def update_driver_availability(availability: DriverAvailabilityUpdate, cur
         "is_online": bool(profile.get("is_online", availability.is_available)),
         "current_location": await get_effective_driver_location(profile),
     }
+
+@api_router.get("/drivers/analytics")
+async def get_driver_analytics(period: str = "week", current_user: dict = Depends(get_current_user)):
+    require_driver_user(current_user)
+    normalized_period = str(period or "week").strip().lower()
+    if normalized_period not in {"day", "week", "month", "year"}:
+        raise HTTPException(status_code=400, detail="period must be one of day, week, month, year")
+
+    driver_id = current_user["id"]
+    now = datetime.utcnow()
+    start_at = get_driver_analytics_start(normalized_period)
+    assigned_statuses = [
+        BookingStatus.ACCEPTED,
+        BookingStatus.DRIVER_ARRIVED,
+        BookingStatus.IN_PROGRESS,
+        BookingStatus.COMPLETED,
+        BookingStatus.CANCELLED,
+        BookingStatus.RATING_PENDING,
+    ]
+    assigned_query = {
+        "driver_id": driver_id,
+        "created_at": {"$gte": start_at, "$lte": now},
+        "status": {"$in": assigned_statuses},
+    }
+    completed_query = {
+        "driver_id": driver_id,
+        "status": BookingStatus.COMPLETED,
+        "$or": [
+            {"trip_completed_at": {"$gte": start_at, "$lte": now}},
+            {"trip_completed_at": None, "updated_at": {"$gte": start_at, "$lte": now}},
+        ],
+    }
+    dispatch_query = {
+        "driver_id": driver_id,
+        "responded_at": {"$gte": start_at, "$lte": now},
+    }
+
+    assigned_bookings, completed_bookings, cancelled_count, dispatch_attempts, profile = await asyncio.gather(
+        db.bookings.find(assigned_query, {"_id": 0}).to_list(5000),
+        db.bookings.find(completed_query, {"_id": 0}).to_list(5000),
+        db.bookings.count_documents(
+            {
+                "driver_id": driver_id,
+                "status": BookingStatus.CANCELLED,
+                "created_at": {"$gte": start_at, "$lte": now},
+            }
+        ),
+        db.dispatch_attempts.find(dispatch_query, {"_id": 0}).to_list(5000),
+        db.drivers.find_one({"user_id": driver_id}, {"_id": 0}),
+    )
+    profile = profile or {}
+
+    total_rides = len(completed_bookings)
+    assigned_count = len(assigned_bookings)
+    total_earnings = round(sum(booking_fare_value(booking) for booking in completed_bookings), 2)
+    total_distance = sum(booking_distance_value(booking) for booking in completed_bookings)
+    average_trip_distance = round(total_distance / max(total_rides, 1), 2)
+
+    accepted_attempts = sum(1 for attempt in dispatch_attempts if attempt.get("response") == "accepted")
+    rejected_attempts = sum(1 for attempt in dispatch_attempts if attempt.get("response") == "rejected")
+    expired_attempts = sum(1 for attempt in dispatch_attempts if attempt.get("response") == "expired")
+    total_attempts = accepted_attempts + rejected_attempts + expired_attempts
+    acceptance_rate = round((accepted_attempts / max(total_attempts, 1)) * 100, 2)
+    cancellation_rate = round((float(cancelled_count) / max(float(assigned_count), 1.0)) * 100, 2)
+    hours_online = await calculate_driver_online_hours(driver_id, start_at, now, profile)
+    daily_trends, weekly_comparison, peak_hours = build_driver_analytics_series(completed_bookings, start_at, now)
+
+    analytics = {
+        "period": normalized_period,
+        "period_start": start_at,
+        "period_end": now,
+        "data_source": "backend",
+        "total_rides": total_rides,
+        "assigned_rides": assigned_count,
+        "completed_rides": total_rides,
+        "cancelled_rides": int(cancelled_count),
+        "total_earnings": total_earnings,
+        "average_rating": round(float(profile.get("rating", 0.0) or 0.0), 2),
+        "acceptance_rate": acceptance_rate,
+        "cancellation_rate": cancellation_rate,
+        "average_trip_distance": average_trip_distance,
+        "hours_online": hours_online,
+        "rides_per_hour": round(total_rides / max(hours_online, 1.0), 2),
+        "peak_hours": peak_hours,
+        "daily_trends": daily_trends,
+        "weekly_comparison": weekly_comparison,
+        "dispatch_attempts": {
+            "accepted": accepted_attempts,
+            "rejected": rejected_attempts,
+            "expired": expired_attempts,
+            "total": total_attempts,
+        },
+    }
+    return {"analytics": analytics}
 
 @api_router.put("/drivers/fare")
 async def update_driver_fare(fare_update: DriverFareUpdate, current_user: dict = Depends(get_current_user)):
@@ -5194,15 +6227,132 @@ def require_driver_user(current_user: Dict[str, Any]) -> None:
     if current_user["role"] != UserRole.DRIVER:
         raise HTTPException(status_code=403, detail="Only drivers can access this")
 
+DRIVER_SUPPORT_FAQS = [
+    {
+        "id": "driver-faq-response-time",
+        "category": "general",
+        "question": "How long does support take to respond?",
+        "answer": "Most driver tickets receive a first response within 24 hours. Urgent safety and payout issues are prioritized.",
+    },
+    {
+        "id": "driver-faq-payout-delay",
+        "category": "payment",
+        "question": "Why is my payout delayed?",
+        "answer": "Payouts can be delayed if bank details are pending verification or if a trip payment is still being reconciled.",
+    },
+    {
+        "id": "driver-faq-document-review",
+        "category": "document",
+        "question": "How do I fix a rejected document?",
+        "answer": "Open Documents, view the rejected item, check the review note, and reupload a clear current copy.",
+    },
+    {
+        "id": "driver-faq-safety-escalation",
+        "category": "safety",
+        "question": "When should I escalate a ticket?",
+        "answer": "Escalate if the issue blocks rides, affects safety, or has not received a useful response after one support reply.",
+    },
+]
+
+async def notify_support_admins(title: str, body: str, data: Optional[Dict[str, Any]] = None) -> None:
+    admins = await db.users.find({"role": UserRole.ADMIN}, {"_id": 0, "id": 1}).to_list(50)
+    for admin in admins:
+        admin_id = admin.get("id")
+        if admin_id:
+            await notify_user(admin_id, title=title, body=body, data=data)
+
+def normalize_attachment_urls(urls: List[str]) -> List[str]:
+    cleaned = []
+    for url in urls or []:
+        text = str(url or "").strip()
+        if text and text not in cleaned:
+            cleaned.append(text[:500])
+    return cleaned[:5]
+
+@api_router.get("/drivers/support/faqs")
+async def get_driver_support_faqs(
+    category: Optional[str] = None,
+    q: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    require_driver_user(current_user)
+    query_text = str(q or "").strip().lower()
+    category_filter = str(category or "").strip().lower()
+    db_faqs = await db.support_faqs.find(
+        {"audience": {"$in": ["driver", "all"]}, "active": {"$ne": False}},
+        {"_id": 0},
+    ).sort("sort_order", 1).to_list(100)
+    faqs = db_faqs or DRIVER_SUPPORT_FAQS
+    if category_filter:
+        faqs = [faq for faq in faqs if str(faq.get("category") or "").lower() == category_filter]
+    if query_text:
+        faqs = [
+            faq
+            for faq in faqs
+            if query_text in str(faq.get("question") or "").lower()
+            or query_text in str(faq.get("answer") or "").lower()
+        ]
+    return {"faqs": faqs}
+
+@api_router.post("/drivers/support/attachments")
+async def upload_driver_support_attachment(
+    request: Request,
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
+    require_driver_user(current_user)
+    saved = await save_upload_file(file, SUPPORT_ATTACHMENTS_DIR / current_user["id"], "driver-support")
+    attachment_url = f"{str(request.base_url).rstrip('/')}/api/drivers/support/attachments/{saved['filename']}"
+    attachment = {
+        "id": f"drv-att-{uuid.uuid4()}",
+        "user_id": current_user["id"],
+        "role": "driver",
+        "stored_filename": saved["filename"],
+        "filename": saved["original_filename"],
+        "content_type": saved["content_type"],
+        "size": saved["size"],
+        "url": attachment_url,
+        "created_at": datetime.utcnow(),
+    }
+    await db.support_attachments.insert_one(attachment)
+    return without_mongo_id({**attachment, "attachment_url": attachment_url})
+
+@api_router.get("/drivers/support/attachments/{filename}")
+async def download_driver_support_attachment(filename: str, current_user: dict = Depends(get_current_user)):
+    require_driver_user(current_user)
+    attachment = await db.support_attachments.find_one(
+        {"user_id": current_user["id"], "stored_filename": Path(filename).name}
+    )
+    if not attachment:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    target = SUPPORT_ATTACHMENTS_DIR / current_user["id"] / attachment["stored_filename"]
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="Attachment file not found")
+    return FileResponse(target, filename=attachment.get("filename") or attachment["stored_filename"])
+
 @api_router.get("/drivers/support/tickets")
 async def get_driver_support_tickets(
     status_filter: Optional[str] = None,
+    category: Optional[str] = None,
+    priority: Optional[str] = None,
+    q: Optional[str] = None,
     current_user: dict = Depends(get_current_user),
 ):
     require_driver_user(current_user)
     query: Dict[str, Any] = {"driver_id": current_user["id"]}
     if status_filter:
         query["status"] = status_filter
+    if category:
+        query["category"] = str(category).strip().lower()
+    if priority:
+        query["priority"] = str(priority).strip().lower()
+    if q:
+        text = re.escape(str(q).strip())
+        query["$or"] = [
+            {"subject": {"$regex": text, "$options": "i"}},
+            {"description": {"$regex": text, "$options": "i"}},
+            {"id": {"$regex": text, "$options": "i"}},
+        ]
     tickets = await db.driver_support_tickets.find(query).sort("updated_at", -1).to_list(100)
     return {"tickets": [serialize_driver_support_ticket(ticket) for ticket in tickets]}
 
@@ -5214,6 +6364,7 @@ async def create_driver_support_ticket(
     require_driver_user(current_user)
     now = datetime.utcnow()
     category = re.sub(r"[^a-zA-Z0-9_-]+", "_", payload.category).strip("_").lower() or "general"
+    attachment_urls = normalize_attachment_urls(payload.attachment_urls)
     ticket = {
         "id": f"drv-ticket-{uuid.uuid4()}",
         "driver_id": current_user["id"],
@@ -5224,6 +6375,10 @@ async def create_driver_support_ticket(
         "priority": payload.priority,
         "status": "open",
         "assigned_to": None,
+        "attachment_urls": attachment_urls,
+        "escalated": False,
+        "escalated_at": None,
+        "escalation_reason": None,
         "messages": [
             {
                 "id": f"msg-{uuid.uuid4()}",
@@ -5233,6 +6388,7 @@ async def create_driver_support_ticket(
                 "sender_name": current_user.get("name", "Driver"),
                 "text": payload.description,
                 "message_text": payload.description,
+                "attachment_urls": attachment_urls,
                 "timestamp": now,
                 "created_at": now,
             }
@@ -5242,6 +6398,11 @@ async def create_driver_support_ticket(
         "resolved_at": None,
     }
     await db.driver_support_tickets.insert_one(ticket)
+    await notify_support_admins(
+        "New driver support ticket",
+        f"{current_user.get('name', 'Driver')} opened: {payload.subject}",
+        {"type": "driver_support_ticket", "ticket_id": ticket["id"], "category": category, "priority": payload.priority},
+    )
     return {"message": "Support ticket created", "ticket": serialize_driver_support_ticket(ticket)}
 
 @api_router.post("/drivers/support/tickets/{ticket_id}/reply")
@@ -5258,6 +6419,7 @@ async def reply_to_driver_support_ticket(
         raise HTTPException(status_code=400, detail="Closed tickets cannot accept replies")
 
     now = datetime.utcnow()
+    attachment_urls = normalize_attachment_urls(payload.attachment_urls)
     message = {
         "id": f"msg-{uuid.uuid4()}",
         "from": "driver",
@@ -5266,6 +6428,7 @@ async def reply_to_driver_support_ticket(
         "sender_name": current_user.get("name", "Driver"),
         "text": payload.message,
         "message_text": payload.message,
+        "attachment_urls": attachment_urls,
         "timestamp": now,
         "created_at": now,
     }
@@ -5276,7 +6439,59 @@ async def reply_to_driver_support_ticket(
             "$set": {"updated_at": now, "status": "open"},
         },
     )
+    await notify_support_admins(
+        "Driver replied to support ticket",
+        f"{current_user.get('name', 'Driver')} replied on {ticket.get('subject', 'a ticket')}",
+        {"type": "driver_support_reply", "ticket_id": ticket_id},
+    )
     return {"message": "Reply added", "reply": message}
+
+@api_router.put("/drivers/support/tickets/{ticket_id}/escalate")
+async def escalate_driver_support_ticket(
+    ticket_id: str,
+    payload: DriverSupportTicketEscalation,
+    current_user: dict = Depends(get_current_user),
+):
+    require_driver_user(current_user)
+    ticket = await db.driver_support_tickets.find_one({"id": ticket_id, "driver_id": current_user["id"]})
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Support ticket not found")
+    if ticket.get("status") == "closed":
+        raise HTTPException(status_code=400, detail="Closed tickets cannot be escalated")
+
+    now = datetime.utcnow()
+    message = {
+        "id": f"msg-{uuid.uuid4()}",
+        "from": "driver",
+        "sender_type": "driver",
+        "sender_id": current_user["id"],
+        "sender_name": current_user.get("name", "Driver"),
+        "text": f"Escalation requested: {payload.reason}",
+        "message_text": f"Escalation requested: {payload.reason}",
+        "attachment_urls": [],
+        "timestamp": now,
+        "created_at": now,
+    }
+    await db.driver_support_tickets.update_one(
+        {"id": ticket_id, "driver_id": current_user["id"]},
+        {
+            "$push": {"messages": message},
+            "$set": {
+                "status": "in_progress",
+                "priority": "urgent",
+                "escalated": True,
+                "escalated_at": now,
+                "escalation_reason": payload.reason,
+                "updated_at": now,
+            },
+        },
+    )
+    await notify_support_admins(
+        "Driver support escalation",
+        f"{current_user.get('name', 'Driver')} escalated {ticket.get('subject', 'a ticket')}",
+        {"type": "driver_support_escalation", "ticket_id": ticket_id, "reason": payload.reason},
+    )
+    return {"message": "Ticket escalated", "status": "in_progress"}
 
 @api_router.put("/drivers/support/tickets/{ticket_id}/close")
 async def close_driver_support_ticket(
@@ -5292,6 +6507,71 @@ async def close_driver_support_ticket(
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Support ticket not found")
     return {"message": "Ticket closed", "status": "closed"}
+
+@api_router.get("/admin/support/driver-tickets")
+async def admin_get_driver_support_tickets(
+    status_filter: Optional[str] = None,
+    q: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user["role"] != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    query: Dict[str, Any] = {}
+    if status_filter:
+        query["status"] = status_filter
+    if q:
+        text = re.escape(str(q).strip())
+        query["$or"] = [
+            {"subject": {"$regex": text, "$options": "i"}},
+            {"description": {"$regex": text, "$options": "i"}},
+            {"driver_name": {"$regex": text, "$options": "i"}},
+            {"id": {"$regex": text, "$options": "i"}},
+        ]
+    tickets = await db.driver_support_tickets.find(query).sort("updated_at", -1).to_list(200)
+    return {"tickets": [serialize_driver_support_ticket(ticket) for ticket in tickets]}
+
+@api_router.post("/admin/support/driver-tickets/{ticket_id}/reply")
+async def admin_reply_to_driver_support_ticket(
+    ticket_id: str,
+    payload: DriverSupportTicketReply,
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user["role"] != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    ticket = await db.driver_support_tickets.find_one({"id": ticket_id})
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Support ticket not found")
+    if ticket.get("status") == "closed":
+        raise HTTPException(status_code=400, detail="Closed tickets cannot accept replies")
+
+    now = datetime.utcnow()
+    attachment_urls = normalize_attachment_urls(payload.attachment_urls)
+    message = {
+        "id": f"msg-{uuid.uuid4()}",
+        "from": "support",
+        "sender_type": "support",
+        "sender_id": current_user["id"],
+        "sender_name": current_user.get("name", "Support"),
+        "text": payload.message,
+        "message_text": payload.message,
+        "attachment_urls": attachment_urls,
+        "timestamp": now,
+        "created_at": now,
+    }
+    await db.driver_support_tickets.update_one(
+        {"id": ticket_id},
+        {
+            "$push": {"messages": message},
+            "$set": {"updated_at": now, "status": "in_progress"},
+        },
+    )
+    await notify_user(
+        ticket["driver_id"],
+        title="Support replied to your ticket",
+        body=f"Support replied on {ticket.get('subject', 'your ticket')}",
+        data={"type": "driver_support_reply", "ticket_id": ticket_id},
+    )
+    return {"message": "Reply added", "reply": message}
 
 @api_router.get("/places/autocomplete")
 async def places_autocomplete(
@@ -6908,6 +8188,107 @@ async def cancel_booking(booking_id: str, current_user: dict = Depends(get_curre
 async def route_estimate(request: RouteEstimateRequest):
     metrics = await get_route_metrics(request.pickup_location, request.drop_location)
     return RouteEstimateResponse(**metrics)
+
+@api_router.get("/drivers/documents")
+async def get_driver_documents(request: Request, current_user: dict = Depends(get_current_user)):
+    require_driver(current_user)
+    documents = await get_driver_documents_map(current_user["id"], request)
+    reminders = build_driver_document_reminders(documents)
+    return {"documents": documents, "reminders": reminders, "renewal_count": len(reminders)}
+
+
+@api_router.get("/drivers/documents/{doc_type}")
+async def get_driver_document_detail(doc_type: str, request: Request, current_user: dict = Depends(get_current_user)):
+    require_driver(current_user)
+    normalized_type = normalize_driver_doc_type(doc_type)
+    document = await db.driver_documents.find_one({"driver_id": current_user["id"], "doc_type": normalized_type})
+    return {"document": build_driver_document_response(document, request, normalized_type)}
+
+
+@api_router.get("/drivers/documents/{doc_type}/download")
+async def download_driver_document(doc_type: str, current_user: dict = Depends(get_current_user)):
+    require_driver(current_user)
+    normalized_type = normalize_driver_doc_type(doc_type)
+    document = await db.driver_documents.find_one({"driver_id": current_user["id"], "doc_type": normalized_type})
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    stored_filename = Path(str(document.get("stored_filename") or "")).name
+    target = DRIVER_DOCUMENTS_DIR / current_user["id"] / stored_filename
+    if not stored_filename or not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="Document file not found")
+    return FileResponse(target, filename=document.get("filename") or stored_filename)
+
+
+@api_router.post("/drivers/documents/{doc_type}")
+async def upload_driver_document(
+    doc_type: str,
+    request: Request,
+    expiry_date: Optional[str] = Form(default=None),
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
+    require_driver(current_user)
+    normalized_type = normalize_driver_doc_type(doc_type)
+    normalized_expiry = normalize_expiry_date(expiry_date)
+    existing = await db.driver_documents.find_one({"driver_id": current_user["id"], "doc_type": normalized_type})
+    saved = await save_upload_file(file, DRIVER_DOCUMENTS_DIR / current_user["id"], normalized_type)
+    now = datetime.utcnow()
+    document = {
+        "id": existing.get("id") if existing else f"driver-doc-{uuid.uuid4()}",
+        "driver_id": current_user["id"],
+        "doc_type": normalized_type,
+        "type": normalized_type,
+        "filename": saved["original_filename"],
+        "stored_filename": saved["filename"],
+        "content_type": saved["content_type"],
+        "size": saved["size"],
+        "expiry_date": normalized_expiry,
+        "status": "pending",
+        "verification_status": "pending",
+        "reject_reason": None,
+        "uploaded_at": now,
+        "updated_at": now,
+    }
+    await db.driver_documents.update_one(
+        {"driver_id": current_user["id"], "doc_type": normalized_type},
+        {"$set": document, "$setOnInsert": {"created_at": now}},
+        upsert=True,
+    )
+
+    old_filename = existing.get("stored_filename") if existing else None
+    if old_filename and old_filename != saved["filename"]:
+        old_target = DRIVER_DOCUMENTS_DIR / current_user["id"] / Path(old_filename).name
+        if old_target.exists() and old_target.is_file():
+            old_target.unlink()
+
+    response_document = await db.driver_documents.find_one({"driver_id": current_user["id"], "doc_type": normalized_type})
+    return {"document": build_driver_document_response(response_document, request, normalized_type)}
+
+
+@api_router.delete("/drivers/documents/{doc_type}")
+async def delete_driver_document(doc_type: str, request: Request, current_user: dict = Depends(get_current_user)):
+    require_driver(current_user)
+    normalized_type = normalize_driver_doc_type(doc_type)
+    document = await db.driver_documents.find_one({"driver_id": current_user["id"], "doc_type": normalized_type})
+    if not document:
+        return {
+            "success": True,
+            "message": "Document already removed",
+            "document": build_driver_document_response(None, request, normalized_type),
+        }
+
+    await db.driver_documents.delete_one({"driver_id": current_user["id"], "doc_type": normalized_type})
+    stored_filename = document.get("stored_filename")
+    if stored_filename:
+        target = DRIVER_DOCUMENTS_DIR / current_user["id"] / Path(stored_filename).name
+        if target.exists() and target.is_file():
+            target.unlink()
+
+    return {
+        "success": True,
+        "message": "Document deleted",
+        "document": build_driver_document_response(None, request, normalized_type),
+    }
 
 
 @api_router.post("/drivers/kyc")
@@ -10099,7 +11480,7 @@ async def driver_health_monitor():
                 await remove_driver_geo_index(driver_id)
                 await db.drivers.update_one(
                     {"user_id": driver_id},
-                    {"$set": {"is_online": False, "last_offline_at": now}},
+                    {"$set": {"is_online": False, "is_available": False, "last_offline_at": now}},
                 )
 
                 booking_id = await runtime_state.get_driver_active_booking(driver_id)
@@ -10259,16 +11640,3 @@ async def shutdown_db_client():
         except Exception:
             pass
     client.close()
-
-
-
-
-
-
-
-
-
-
-
-
-

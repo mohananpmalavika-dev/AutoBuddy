@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import PostRideTabs from './PostRideTabs';
 import {
   ActivityIndicator,
   Modal,
@@ -68,6 +69,8 @@ export default function PostRideRatingModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [activeTab, setActiveTab] = useState('rate');
+  const [receipt, setReceipt] = useState(null);
 
   // Reset form when modal opens
   useEffect(() => {
@@ -153,113 +156,18 @@ export default function PostRideRatingModal({
         <View style={styles.modalContent}>
           {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.headerTitle}>Rate Your Ride</Text>
+            <Text style={styles.headerTitle}>Post-Ride Actions</Text>
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
               <Text style={styles.closeIcon}>✕</Text>
             </TouchableOpacity>
           </View>
-
-          <ScrollView
-            style={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingBottom: 20 }}>
-            {/* Driver & Ride Info */}
-            <View style={styles.rideInfoCard}>
-              <Text style={styles.rideInfoDriver}>{rideDetails.driverName}</Text>
-              <Text style={styles.rideInfoDetails}>
-                Ride #{rideDetails.id} • {rideDetails.date}
-              </Text>
-              <Text style={styles.rideInfoFare}>Fare: ₹{rideDetails.fare}</Text>
-            </View>
-
-            {/* Star Rating */}
-            <View style={styles.ratingSection}>
-              <Text style={styles.sectionTitle}>How was your experience?</Text>
-              <RatingStars current={score} onSelect={setScore} size="large" />
-            </View>
-
-            {/* Quick Rating Options */}
-            {score === 0 && (
-              <View style={styles.quickRatings}>
-                <TouchableOpacity
-                  style={[styles.quickRatingButton, { borderBottomColor: '#4CAF50' }]}
-                  onPress={() => setScore(5)}>
-                  <Text style={styles.quickRatingEmoji}>😍</Text>
-                  <Text style={styles.quickRatingText}>Excellent</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.quickRatingButton, { borderBottomColor: '#8BC34A' }]}
-                  onPress={() => setScore(4)}>
-                  <Text style={styles.quickRatingEmoji}>😊</Text>
-                  <Text style={styles.quickRatingText}>Good</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.quickRatingButton, { borderBottomColor: '#FFC107' }]}
-                  onPress={() => setScore(3)}>
-                  <Text style={styles.quickRatingEmoji}>😐</Text>
-                  <Text style={styles.quickRatingText}>Average</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.quickRatingButton, { borderBottomColor: '#FF9800' }]}
-                  onPress={() => setScore(2)}>
-                  <Text style={styles.quickRatingEmoji}>😕</Text>
-                  <Text style={styles.quickRatingText}>Poor</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.quickRatingButton, { borderBottomColor: '#F44336' }]}
-                  onPress={() => setScore(1)}>
-                  <Text style={styles.quickRatingEmoji}>😞</Text>
-                  <Text style={styles.quickRatingText}>Terrible</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* Feedback Section */}
-            {score > 0 && (
-              <View style={styles.feedbackSection}>
-                <Text style={styles.sectionTitle}>Share Your Feedback (Optional)</Text>
-                <VoiceTextInput
-                  style={styles.feedbackInput}
-                  value={feedback}
-                  onChangeText={setFeedback}
-                  placeholder="What could be improved? What went well?"
-                  placeholderTextColor={COLORS.textMuted}
-                  multiline
-                  numberOfLines={4}
-                />
-                <Text style={styles.characterCount}>
-                  {feedback.length}/300 characters
-                </Text>
-              </View>
-            )}
-
-            {/* Error Message */}
-            {!!error && (
-              <View style={styles.errorContainer}>
-                <Text style={styles.errorText}>{error}</Text>
-              </View>
-            )}
-          </ScrollView>
-
-          {/* Action Buttons */}
-          <View style={styles.footer}>
-            <TouchableOpacity
-              style={[styles.button, styles.skipButton]}
-              onPress={onClose}
-              disabled={loading}>
-              <Text style={styles.skipButtonText}>Skip for Now</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.button, styles.submitButton, { opacity: score === 0 || loading ? 0.6 : 1 }]}
-              onPress={handleSubmit}
-              disabled={score === 0 || loading}>
-              {loading ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
-              ) : (
-                <Text style={styles.submitButtonText}>Submit Rating</Text>
-              )}
-            </TouchableOpacity>
-          </View>
+          {/* Tabs for post-ride actions */}
+          <PostRideTabs
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+            booking={{ ...booking, token }}
+            receipt={receipt}
+          />
         </View>
       </View>
     </Modal>

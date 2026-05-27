@@ -191,7 +191,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   }, [normalizeBookingPaymentMethod, token]);
 
   const handlePromoDiscountApplied = useCallback((promoState) => {
-    setAppliedPromo({
+    const nextPromo = {
       code: promoState?.code || null,
       discount: Number(promoState?.discount || 0),
       discount_type: promoState?.discount_type || null,
@@ -200,7 +200,11 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         promoState?.max_discount === null || promoState?.max_discount === undefined
           ? null
           : Number(promoState.max_discount),
-    });
+    };
+    setAppliedPromo(nextPromo);
+    if (nextPromo.code) {
+      setMessage(`Promo applied: ${nextPromo.code}`);
+    }
   }, []);
 
   const handleDefaultMethodChange = useCallback(
@@ -1547,6 +1551,17 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                   />
                 )}
               </View>
+
+              <PromoCodePanel
+                token={token}
+                rideFare={Number(fare?.total_fare || 1)}
+                onDiscountApplied={handlePromoDiscountApplied}
+                embedded
+                compact
+                title="Promo Code"
+                disabled={!fare}
+                disabledMessage="Choose pickup and drop to calculate fare before applying a promo."
+              />
 
               <View style={styles.infoBlock}>
                 <Text style={styles.infoTitle}>Booking Preferences</Text>

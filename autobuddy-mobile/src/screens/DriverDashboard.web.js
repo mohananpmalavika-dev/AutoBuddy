@@ -31,8 +31,14 @@ import { useKeralaSafety } from '../hooks/useKeralaSafety';
 import RideCard from '../components/RideCard';
 import DriverTabBar from '../components/DriverTabBar';
 import EarningsPanel from '../components/EarningsPanel';
+import VoiceTextInput from '../components/VoiceTextInput';
+import DocumentUploadPanel from '../components/DocumentUploadPanel';
+import VehicleManagementPanel from '../components/VehicleManagementPanel';
 import SupportTicketPanel from '../components/SupportTicketPanel';
-import DriverProfile from './DriverProfile';
+import EnhancedSettingsPanel from '../components/EnhancedSettingsPanel';
+import ProfileManagementPanel from '../components/ProfileManagementPanel';
+import AnalyticsDashboard from '../components/AnalyticsDashboard';
+import { DRIVER_QUICK_ACTIONS } from '../constants/driverQuickActions';
 
 const STATUS_FLOW = ['accepted', 'driver_arrived', 'in_progress', 'completed'];
 const DEFAULT_CITY_LOCATION = {
@@ -87,7 +93,6 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   const [driverFareRequestInfo, setDriverFareRequestInfo] = useState(null);
   const [rideStartOtp, setRideStartOtp] = useState('');
   const [rideEndOtp, setRideEndOtp] = useState('');
-  const [showProfile, setShowProfile] = useState(false);
   const [activeTab, setActiveTab] = useState('requests');
   const [expandedRideCard, setExpandedRideCard] = useState(false);
   const [spinWinStatus, setSpinWinStatus] = useState(null);
@@ -803,6 +808,19 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     }
   };
 
+  const handleQuickActionPress = (action) => {
+    if (!action || typeof action !== 'object') {
+      return;
+    }
+    if (action.type === 'earnings_report') {
+      requestDriverEarningsReport().catch(() => null);
+      return;
+    }
+    if (action.type === 'tab' && action.tab) {
+      setActiveTab(action.tab);
+    }
+  };
+
   
   useEffect(() => {
     const socket = createAutoBuddySocket(token);
@@ -1174,21 +1192,9 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   const handleProfilePress = useCallback(() => {
     if (typeof onProfilePress === 'function') {
       onProfilePress();
-      return;
     }
-    setShowProfile(true);
+    setActiveTab('profile');
   }, [onProfilePress]);
-
-  if (showProfile) {
-    return (
-      <DriverProfile
-        token={token}
-        user={user}
-        onLogout={onLogout}
-        onBack={() => setShowProfile(false)}
-      />
-    );
-  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -1553,9 +1559,33 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
             </>
           )}
 
+          {activeTab === 'profile' && (
+            <View style={styles.earningsCard}>
+              <ProfileManagementPanel token={token} loading={loading} />
+            </View>
+          )}
+
+          {activeTab === 'documents' && (
+            <View style={styles.earningsCard}>
+              <DocumentUploadPanel token={token} loading={loading} />
+            </View>
+          )}
+
+          {activeTab === 'vehicle' && (
+            <View style={styles.earningsCard}>
+              <VehicleManagementPanel token={token} loading={loading} />
+            </View>
+          )}
+
           {activeTab === 'support' && (
             <View style={styles.earningsCard}>
               <SupportTicketPanel token={token} loading={loading} />
+            </View>
+          )}
+
+          {activeTab === 'analytics' && (
+            <View style={styles.earningsCard}>
+              <AnalyticsDashboard token={token} loading={loading} />
             </View>
           )}
 
@@ -1564,44 +1594,24 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
             <>
               <View style={styles.earningsCard}>
                 <Text style={styles.fareTitle}>Quick Actions</Text>
-                <TouchableOpacity style={styles.actionButton} onPress={handleProfilePress}>
-                  <Text style={styles.actionButtonText}>👤 Profile Settings</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.actionButton} onPress={() => setActiveTab('spin')}>
-                  <Text style={styles.actionButtonText}>🎯 Spin & Win</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.actionButton} onPress={() => setActiveTab('fare')}>
-                  <Text style={styles.actionButtonText}>📊 Fare Calculator</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.actionButton} onPress={() => setActiveTab('blocked')}>
-                  <Text style={styles.actionButtonText}>🚫 Blocked Passengers</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.actionButton} onPress={() => setActiveTab('safety')}>
-                  <Text style={styles.actionButtonText}>⚠️ Safety Card</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.actionButton} onPress={() => setActiveTab('trust')}>
-                  <Text style={styles.actionButtonText}>Trust & KYC</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.actionButton} onPress={() => setActiveTab('support')}>
-                  <Text style={styles.actionButtonText}>Support Tickets</Text>
-                </TouchableOpacity>
+                {DRIVER_QUICK_ACTIONS.map((action) => (
+                  <TouchableOpacity key={action.key} style={styles.actionButton} onPress={() => handleQuickActionPress(action)}>
+                    <Text style={styles.actionButtonText}>{action.label}</Text>
+                  </TouchableOpacity>
+                ))}
               </View>
             </>
           )}
 
           {/* Settings Tab */}
           {activeTab === 'settings' && (
-            <>
-              <View style={styles.earningsCard}>
-                <Text style={styles.fareTitle}>Settings</Text>
-                <View style={styles.settingItem}>
-                  <Text style={styles.settingLabel}>Online Status: {displayIsOnline ? 'Online' : 'Offline'}</Text>
-                  <TouchableOpacity style={styles.actionButton} onPress={() => toggleOnlineStatus()}>
-                    <Text style={styles.actionButtonText}>{displayIsOnline ? 'Go Offline' : 'Go Online'}</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </>
+            <EnhancedSettingsPanel
+              token={token}
+              loading={loading}
+              displayIsOnline={displayIsOnline}
+              onToggleOnline={toggleOnlineStatus}
+              onNavigateToTab={setActiveTab}
+            />
           )}
 
           </ScrollView>
@@ -2052,3 +2062,4 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
 });
+

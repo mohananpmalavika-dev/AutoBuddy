@@ -1,76 +1,226 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
+  Linking,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
 import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
 import VoiceTextInput from './VoiceTextInput';
 
-/**
- * SupportTicketPanel - Driver support system
- * Create and manage support tickets
- */
+const CATEGORIES = [
+  { value: 'all', label: 'All' },
+  { value: 'payment', label: 'Payment' },
+  { value: 'booking', label: 'Booking' },
+  { value: 'account', label: 'Account' },
+  { value: 'safety', label: 'Safety' },
+  { value: 'vehicle', label: 'Vehicle' },
+  { value: 'document', label: 'Document' },
+  { value: 'general', label: 'General' },
+];
+
+const TICKET_CATEGORIES = CATEGORIES.filter((item) => item.value !== 'all');
+
+const PRIORITIES = [
+  { value: 'low', label: 'Low' },
+  { value: 'normal', label: 'Normal' },
+  { value: 'high', label: 'High' },
+  { value: 'urgent', label: 'Urgent' },
+];
+
+const STATUSES = [
+  { value: 'all', label: 'All' },
+  { value: 'open', label: 'Open' },
+  { value: 'in_progress', label: 'In progress' },
+  { value: 'resolved', label: 'Resolved' },
+  { value: 'closed', label: 'Closed' },
+];
+
+function formatDate(value) {
+  if (!value) return 'Not available';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString();
+}
+
+function getStatusColor(status) {
+  switch (status) {
+    case 'open':
+      return COLORS.warning;
+    case 'in_progress':
+      return COLORS.info;
+    case 'resolved':
+      return COLORS.success;
+    case 'closed':
+      return COLORS.textMuted;
+    default:
+      return COLORS.textMuted;
+  }
+}
+
+function getLabel(options, value) {
+  return options.find((item) => item.value === value)?.label || value || 'Unknown';
+}
+
+function FilterChip({ label, active, onPress }) {
+  return (
+    <TouchableOpacity style={[styles.filterChip, active && styles.filterChipActive]} onPress={onPress}>
+      <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
+function AttachmentList({ attachments = [] }) {
+  if (!attachments.length) return null;
+  return (
+    <View style={styles.attachmentsList}>
+      {attachments.map((url, index) => (
+        <TouchableOpacity key={`${url}-${index}`} style={styles.attachmentPill} onPress={() => Linking.openURL(url)}>
+          <Text style={styles.attachmentPillText}>Attachment {index + 1}</Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
+
 export default function SupportTicketPanel({ token, loading: parentLoading = false }) {
+  const [activeTab, setActiveTab] = useState('help');
   const [tickets, setTickets] = useState([]);
+  const [faqs, setFaqs] = useState([]);
+  const [selectedTicketId, setSelectedTicketId] = useState(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [selectedTicket, setSelectedTicket] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
-
-  // Create form
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filters, setFilters] = useState({ status: 'all', category: 'all', priority: 'all' });
+  const [faqCategory, setFaqCategory] = useState('all');
+  const [faqSearch, setFaqSearch] = useState('');
   const [formData, setFormData] = useState({
     subject: '',
     description: '',
     category: 'general',
     priority: 'normal',
+    attachment_urls: [],
   });
-
   const [replyText, setReplyText] = useState('');
+  const [replyAttachments, setReplyAttachments] = useState([]);
+  const [escalationReason, setEscalationReason] = useState('');
 
-  const categories = [
-    { value: 'payment', label: '💰 Payment Issue' },
-    { value: 'booking', label: '📅 Booking Issue' },
-    { value: 'account', label: '👤 Account Issue' },
-    { value: 'safety', label: '⚠️ Safety Concern' },
-    { value: 'vehicle', label: '🚗 Vehicle Issue' },
-    { value: 'document', label: '📄 Document Issue' },
-    { value: 'general', label: '💬 General Inquiry' },
-  ];
+  const selectedTicket = useMemo(
+    () => tickets.find((ticket) => ticket.id === selectedTicketId) || null,
+    [selectedTicketId, tickets],
+  );
 
-  const priorities = [
-    { value: 'low', label: '🟢 Low' },
-    { value: 'normal', label: '🔵 Normal' },
-    { value: 'high', label: '🟠 High' },
-    { value: 'urgent', label: '🔴 Urgent' },
-  ];
+  const setTimedMessage = useCallback((nextMessage) => {
+    setMessage(nextMessage);
+    setTimeout(() => setMessage(''), 3000);
+  }, []);
 
-  useEffect(() => {
-    if (token) {
-      fetchTickets();
-    }
-  }, [token]);
-
-  const fetchTickets = async () => {
+  const fetchTickets = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
-      const data = await apiRequest('/drivers/support/tickets', { token });
+      const data = await apiRequest('/drivers/support/tickets', {
+        token,
+        query: {
+          status_filter: filters.status === 'all' ? undefined : filters.status,
+          category: filters.category === 'all' ? undefined : filters.category,
+          priority: filters.priority === 'all' ? undefined : filters.priority,
+          q: searchQuery.trim() || undefined,
+        },
+      });
       setTickets(Array.isArray(data?.tickets) ? data.tickets : Array.isArray(data) ? data : []);
     } catch (err) {
       setError(err.message || 'Failed to load support tickets');
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters.category, filters.priority, filters.status, searchQuery, token]);
+
+  const fetchFaqs = useCallback(async () => {
+    try {
+      const data = await apiRequest('/drivers/support/faqs', {
+        token,
+        query: {
+          category: faqCategory === 'all' ? undefined : faqCategory,
+          q: faqSearch.trim() || undefined,
+        },
+      });
+      setFaqs(Array.isArray(data?.faqs) ? data.faqs : []);
+    } catch (err) {
+      setError(err.message || 'Failed to load help-center FAQs');
+    }
+  }, [faqCategory, faqSearch, token]);
+
+  useEffect(() => {
+    if (!token) return undefined;
+    const timer = setTimeout(() => {
+      fetchTickets().catch(() => null);
+      fetchFaqs().catch(() => null);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [fetchFaqs, fetchTickets, token]);
+
+  const uploadAttachment = useCallback(
+    async (target) => {
+      try {
+        const result = await DocumentPicker.getDocumentAsync({
+          type: ['application/pdf', 'image/*'],
+          copyToCacheDirectory: true,
+        });
+        if (result.canceled || !result.assets?.length) return;
+
+        const asset = result.assets[0];
+        if (asset.size && asset.size > 5 * 1024 * 1024) {
+          Alert.alert('File too large', 'Attachment must be less than 5MB.');
+          return;
+        }
+
+        setUploadingAttachment(true);
+        setError('');
+        const formDataPayload = new FormData();
+        formDataPayload.append('file', {
+          uri: asset.uri,
+          type: asset.mimeType || 'application/octet-stream',
+          name: asset.name || `support-${Date.now()}`,
+        });
+        const response = await apiRequest('/drivers/support/attachments', {
+          token,
+          method: 'POST',
+          body: formDataPayload,
+          isFormData: true,
+        });
+        const attachmentUrl = response?.attachment_url || response?.url;
+        if (!attachmentUrl) return;
+
+        if (target === 'reply') {
+          setReplyAttachments((previous) => [...previous, attachmentUrl].slice(0, 5));
+        } else {
+          setFormData((previous) => ({
+            ...previous,
+            attachment_urls: [...previous.attachment_urls, attachmentUrl].slice(0, 5),
+          }));
+        }
+        setTimedMessage('Attachment uploaded.');
+      } catch (err) {
+        setError(err.message || 'Failed to upload attachment');
+      } finally {
+        setUploadingAttachment(false);
+      }
+    },
+    [setTimedMessage, token],
+  );
 
   const createTicket = async () => {
-    if (!formData.subject || !formData.description) {
+    if (!formData.subject.trim() || !formData.description.trim()) {
       setError('Please fill in subject and description');
       return;
     }
@@ -78,25 +228,31 @@ export default function SupportTicketPanel({ token, loading: parentLoading = fal
     try {
       setLoading(true);
       setError('');
-      await apiRequest('/drivers/support/tickets', {
+      const response = await apiRequest('/drivers/support/tickets', {
         method: 'POST',
         token,
         body: {
-          subject: formData.subject,
-          description: formData.description,
+          subject: formData.subject.trim(),
+          description: formData.description.trim(),
           category: formData.category,
           priority: formData.priority,
+          attachment_urls: formData.attachment_urls,
         },
       });
-      setMessage('Support ticket created! We will respond shortly.');
+      setTimedMessage('Support ticket created. We will respond shortly.');
       setFormData({
         subject: '',
         description: '',
         category: 'general',
         priority: 'normal',
+        attachment_urls: [],
       });
       setShowCreateForm(false);
+      setActiveTab('tickets');
       await fetchTickets();
+      if (response?.ticket?.id) {
+        setSelectedTicketId(response.ticket.id);
+      }
     } catch (err) {
       setError(err.message || 'Failed to create ticket');
     } finally {
@@ -116,10 +272,11 @@ export default function SupportTicketPanel({ token, loading: parentLoading = fal
       await apiRequest(`/drivers/support/tickets/${ticketId}/reply`, {
         method: 'POST',
         token,
-        body: { message: replyText },
+        body: { message: replyText.trim(), attachment_urls: replyAttachments },
       });
-      setMessage('Reply added!');
+      setTimedMessage('Reply added. Support has been notified.');
       setReplyText('');
+      setReplyAttachments([]);
       await fetchTickets();
     } catch (err) {
       setError(err.message || 'Failed to add reply');
@@ -136,9 +293,9 @@ export default function SupportTicketPanel({ token, loading: parentLoading = fal
         method: 'PUT',
         token,
       });
-      setMessage('Ticket closed');
+      setTimedMessage('Ticket closed.');
       await fetchTickets();
-      setSelectedTicket(null);
+      setSelectedTicketId(null);
     } catch (err) {
       setError(err.message || 'Failed to close ticket');
     } finally {
@@ -146,288 +303,408 @@ export default function SupportTicketPanel({ token, loading: parentLoading = fal
     }
   };
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'open':
-        return COLORS.warning;
-      case 'in_progress':
-        return COLORS.info;
-      case 'resolved':
-        return COLORS.success;
-      case 'closed':
-        return COLORS.textMuted;
-      default:
-        return COLORS.textMuted;
+  const escalateTicket = async (ticketId) => {
+    if (!escalationReason.trim()) {
+      setError('Please enter an escalation reason');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError('');
+      await apiRequest(`/drivers/support/tickets/${ticketId}/escalate`, {
+        method: 'PUT',
+        token,
+        body: { reason: escalationReason.trim() },
+      });
+      setTimedMessage('Ticket escalated to senior support.');
+      setEscalationReason('');
+      await fetchTickets();
+    } catch (err) {
+      setError(err.message || 'Failed to escalate ticket');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const getCategoryLabel = (category) => {
-    return categories.find((c) => c.value === category)?.label || category;
+  const startContactSupport = (source = {}) => {
+    setFormData((previous) => ({
+      ...previous,
+      subject: source.subject || previous.subject,
+      description: source.description || previous.description,
+      category: source.category || previous.category || 'general',
+      priority: source.priority || previous.priority || 'normal',
+    }));
+    setShowCreateForm(true);
+    setActiveTab('tickets');
+    setSelectedTicketId(null);
   };
 
-  const getPriorityLabel = (priority) => {
-    return priorities.find((p) => p.value === priority)?.label || priority;
-  };
+  const renderCreateForm = () => (
+    <View style={styles.createForm}>
+      <Text style={styles.formTitle}>Create New Ticket</Text>
 
-  if (selectedTicket) {
-    const ticket = tickets.find((t) => t.id === selectedTicket);
-    if (!ticket) {
+      <Text style={styles.fieldLabel}>Subject</Text>
+      <VoiceTextInput
+        style={styles.input}
+        value={formData.subject}
+        onChangeText={(value) => setFormData({ ...formData, subject: value })}
+        placeholder="Brief summary of your issue"
+        placeholderTextColor={COLORS.textMuted}
+      />
+
+      <Text style={styles.fieldLabel}>Description</Text>
+      <VoiceTextInput
+        style={[styles.input, styles.descInput]}
+        value={formData.description}
+        onChangeText={(value) => setFormData({ ...formData, description: value })}
+        placeholder="Describe your issue in detail..."
+        placeholderTextColor={COLORS.textMuted}
+        multiline
+      />
+
+      <Text style={styles.fieldLabel}>Category</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
+        {TICKET_CATEGORIES.map((category) => (
+          <FilterChip
+            key={category.value}
+            label={category.label}
+            active={formData.category === category.value}
+            onPress={() => setFormData({ ...formData, category: category.value })}
+          />
+        ))}
+      </ScrollView>
+
+      <Text style={styles.fieldLabel}>Priority</Text>
+      <View style={styles.priorityButtons}>
+        {PRIORITIES.map((priority) => (
+          <FilterChip
+            key={priority.value}
+            label={priority.label}
+            active={formData.priority === priority.value}
+            onPress={() => setFormData({ ...formData, priority: priority.value })}
+          />
+        ))}
+      </View>
+
+      <View style={styles.attachmentRow}>
+        <TouchableOpacity
+          style={[styles.secondaryButton, uploadingAttachment && styles.disabled]}
+          onPress={() => uploadAttachment('create')}
+          disabled={uploadingAttachment}
+        >
+          <Text style={styles.secondaryButtonText}>{uploadingAttachment ? 'Uploading...' : 'Add attachment'}</Text>
+        </TouchableOpacity>
+        <Text style={styles.attachmentCount}>{formData.attachment_urls.length}/5 files</Text>
+      </View>
+      <AttachmentList attachments={formData.attachment_urls} />
+
+      <View style={styles.formButtons}>
+        <TouchableOpacity
+          style={[styles.submitButton, (parentLoading || loading) && styles.disabled]}
+          onPress={createTicket}
+          disabled={parentLoading || loading}
+        >
+          <Text style={styles.submitButtonText}>Create Ticket</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.cancelButton}
+          onPress={() => setShowCreateForm(false)}
+          disabled={parentLoading}
+        >
+          <Text style={styles.cancelButtonText}>Cancel</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
+  const renderTicketDetail = () => {
+    if (!selectedTicket) {
       return (
-        <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-          <TouchableOpacity style={styles.backButton} onPress={() => setSelectedTicket(null)}>
-            <Text style={styles.backButtonText}>Back to Tickets</Text>
-          </TouchableOpacity>
+        <View style={styles.emptyState}>
           <Text style={styles.emptyStateText}>Ticket not found. Refresh and try again.</Text>
-        </ScrollView>
+        </View>
       );
     }
+
     return (
-      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-        <TouchableOpacity style={styles.backButton} onPress={() => setSelectedTicket(null)}>
-          <Text style={styles.backButtonText}>← Back to Tickets</Text>
+      <View style={styles.ticketDetail}>
+        <TouchableOpacity style={styles.backButton} onPress={() => setSelectedTicketId(null)}>
+          <Text style={styles.backButtonText}>Back to Tickets</Text>
         </TouchableOpacity>
 
-        <View style={styles.ticketDetail}>
-          <View style={styles.ticketHeader}>
-            <View style={styles.ticketHeaderContent}>
-              <Text style={styles.ticketSubject}>{ticket.subject}</Text>
-              <Text style={[styles.ticketStatus, { color: getStatusColor(ticket.status) }]}>
-                {ticket.status.toUpperCase()}
-              </Text>
+        <View style={styles.ticketHeader}>
+          <View style={styles.ticketHeaderContent}>
+            <Text style={styles.ticketSubject}>{selectedTicket.subject}</Text>
+            <Text style={[styles.ticketStatus, { color: getStatusColor(selectedTicket.status) }]}>
+              {String(selectedTicket.status || '').toUpperCase()}
+            </Text>
+          </View>
+          <Text style={styles.ticketId}>#{selectedTicket.id?.toString()?.slice(-6) || 'N/A'}</Text>
+        </View>
+
+        <View style={styles.ticketMeta}>
+          <Text style={styles.metaItem}>{getLabel(TICKET_CATEGORIES, selectedTicket.category)}</Text>
+          <Text style={styles.metaItem}>{getLabel(PRIORITIES, selectedTicket.priority)}</Text>
+          <Text style={styles.metaItem}>{formatDate(selectedTicket.created_at)}</Text>
+          {selectedTicket.escalated ? <Text style={[styles.metaItem, styles.escalatedText]}>Escalated</Text> : null}
+        </View>
+
+        <View style={styles.ticketDescription}>
+          <Text style={styles.descriptionLabel}>Description</Text>
+          <Text style={styles.descriptionText}>{selectedTicket.description}</Text>
+          <AttachmentList attachments={selectedTicket.attachment_urls || []} />
+        </View>
+
+        {selectedTicket.messages?.length ? (
+          <View style={styles.messagesSection}>
+            <Text style={styles.messagesTitle}>Conversation</Text>
+            {selectedTicket.messages.map((msg) => (
+              <View key={msg.id || msg.timestamp} style={[styles.threadMessage, msg.from === 'support' && styles.supportMessage]}>
+                <Text style={styles.messageSender}>{msg.from === 'support' ? 'Support Team' : 'You'}</Text>
+                <Text style={styles.messageText}>{msg.text || msg.message_text}</Text>
+                <AttachmentList attachments={msg.attachment_urls || []} />
+                <Text style={styles.messageTime}>{formatDate(msg.timestamp || msg.created_at)}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
+        {selectedTicket.status !== 'closed' ? (
+          <View style={styles.replyForm}>
+            <Text style={styles.replyLabel}>Add Reply</Text>
+            <VoiceTextInput
+              style={[styles.input, styles.replyInput]}
+              value={replyText}
+              onChangeText={setReplyText}
+              placeholder="Type your message..."
+              placeholderTextColor={COLORS.textMuted}
+              multiline
+            />
+            <View style={styles.attachmentRow}>
+              <TouchableOpacity
+                style={[styles.secondaryButton, uploadingAttachment && styles.disabled]}
+                onPress={() => uploadAttachment('reply')}
+                disabled={uploadingAttachment}
+              >
+                <Text style={styles.secondaryButtonText}>{uploadingAttachment ? 'Uploading...' : 'Attach file'}</Text>
+              </TouchableOpacity>
+              <Text style={styles.attachmentCount}>{replyAttachments.length}/5 files</Text>
             </View>
-            <Text style={styles.ticketId}>#{ticket.id?.toString()?.slice(-6) || 'N/A'}</Text>
-          </View>
+            <AttachmentList attachments={replyAttachments} />
 
-          <View style={styles.ticketMeta}>
-            <Text style={styles.metaItem}>📁 {getCategoryLabel(ticket.category)}</Text>
-            <Text style={styles.metaItem}>⚡ {getPriorityLabel(ticket.priority)}</Text>
-            <Text style={styles.metaItem}>📅 {new Date(ticket.created_at).toLocaleDateString()}</Text>
-          </View>
-
-          <View style={styles.ticketDescription}>
-            <Text style={styles.descriptionLabel}>Description:</Text>
-            <Text style={styles.descriptionText}>{ticket.description}</Text>
-          </View>
-
-          {/* Messages/Replies */}
-          {ticket.messages && ticket.messages.length > 0 && (
-            <View style={styles.messagesSection}>
-              <Text style={styles.messagesTitle}>Messages:</Text>
-              {ticket.messages.map((msg, idx) => (
-                <View key={idx} style={[styles.message, msg.from === 'support' && styles.supportMessage]}>
-                  <Text style={styles.messageSender}>
-                    {msg.from === 'support' ? '💬 Support Team' : '👤 You'}
-                  </Text>
-                  <Text style={styles.messageText}>{msg.text}</Text>
-                  <Text style={styles.messageTime}>{new Date(msg.timestamp).toLocaleString()}</Text>
-                </View>
-              ))}
+            <View style={styles.replyButtons}>
+              <TouchableOpacity
+                style={[styles.replyButton, (parentLoading || loading) && styles.disabled]}
+                onPress={() => addReply(selectedTicket.id)}
+                disabled={parentLoading || loading}
+              >
+                <Text style={styles.replyButtonText}>Send Reply</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.closeButton, (parentLoading || loading) && styles.disabled]}
+                onPress={() => closeTicket(selectedTicket.id)}
+                disabled={parentLoading || loading}
+              >
+                <Text style={styles.closeButtonText}>Close Ticket</Text>
+              </TouchableOpacity>
             </View>
-          )}
 
-          {/* Reply Form */}
-          {ticket.status !== 'closed' && (
-            <View style={styles.replyForm}>
-              <Text style={styles.replyLabel}>Add Reply:</Text>
+            <View style={styles.escalationBox}>
+              <Text style={styles.replyLabel}>Escalate to senior support</Text>
               <VoiceTextInput
-                style={[styles.input, styles.replyInput]}
-                value={replyText}
-                onChangeText={setReplyText}
-                placeholder="Type your message..."
+                style={styles.input}
+                value={escalationReason}
+                onChangeText={setEscalationReason}
+                placeholder="Explain why this needs escalation"
                 placeholderTextColor={COLORS.textMuted}
                 multiline
               />
-              {error && <Text style={[styles.message, styles.error]}>{error}</Text>}
-              {message && <Text style={[styles.message, styles.success]}>{message}</Text>}
-              <View style={styles.replyButtons}>
-                <TouchableOpacity
-                  style={[styles.replyButton, parentLoading && styles.disabled]}
-                  onPress={() => addReply(ticket.id)}
-                  disabled={parentLoading}
-                >
-                  <Text style={styles.replyButtonText}>✓ Send Reply</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.closeButton, parentLoading && styles.disabled]}
-                  onPress={() => closeTicket(ticket.id)}
-                  disabled={parentLoading}
-                >
-                  <Text style={styles.closeButtonText}>✕ Close Ticket</Text>
-                </TouchableOpacity>
-              </View>
+              <TouchableOpacity
+                style={[styles.escalateButton, (parentLoading || loading) && styles.disabled]}
+                onPress={() => escalateTicket(selectedTicket.id)}
+                disabled={parentLoading || loading}
+              >
+                <Text style={styles.escalateButtonText}>Escalate Ticket</Text>
+              </TouchableOpacity>
             </View>
-          )}
-        </View>
-      </ScrollView>
-    );
-  }
-
-  if (loading && tickets.length === 0) {
-    return (
-      <View style={styles.container}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
+          </View>
+        ) : null}
       </View>
     );
-  }
+  };
 
-  return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <Text style={styles.title}>💬 Support Tickets</Text>
-      <Text style={styles.subtitle}>Get help from our support team</Text>
+  const renderTickets = () => (
+    <>
+      <View style={styles.searchBlock}>
+        <Text style={styles.fieldLabel}>Search tickets</Text>
+        <VoiceTextInput
+          style={styles.input}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder="Search by subject, ID, or description"
+          placeholderTextColor={COLORS.textMuted}
+        />
+      </View>
 
-      {error && <Text style={[styles.message, styles.error]}>{error}</Text>}
-      {message && <Text style={[styles.message, styles.success]}>{message}</Text>}
-
-      {/* Create Form */}
-      {showCreateForm ? (
-        <View style={styles.createForm}>
-          <Text style={styles.formTitle}>Create New Ticket</Text>
-
-          <Text style={styles.fieldLabel}>Subject*</Text>
-          <VoiceTextInput
-            style={styles.input}
-            value={formData.subject}
-            onChangeText={(value) => setFormData({ ...formData, subject: value })}
-            placeholder="Brief summary of your issue"
-            placeholderTextColor={COLORS.textMuted}
+      <Text style={styles.filterTitle}>Status</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
+        {STATUSES.map((status) => (
+          <FilterChip
+            key={status.value}
+            label={status.label}
+            active={filters.status === status.value}
+            onPress={() => setFilters((previous) => ({ ...previous, status: status.value }))}
           />
+        ))}
+      </ScrollView>
 
-          <Text style={styles.fieldLabel}>Description*</Text>
-          <VoiceTextInput
-            style={[styles.input, styles.descInput]}
-            value={formData.description}
-            onChangeText={(value) => setFormData({ ...formData, description: value })}
-            placeholder="Describe your issue in detail..."
-            placeholderTextColor={COLORS.textMuted}
-            multiline
+      <Text style={styles.filterTitle}>Category</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
+        {CATEGORIES.map((category) => (
+          <FilterChip
+            key={category.value}
+            label={category.label}
+            active={filters.category === category.value}
+            onPress={() => setFilters((previous) => ({ ...previous, category: category.value }))}
           />
+        ))}
+      </ScrollView>
 
-          <Text style={styles.fieldLabel}>Category</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
-            {categories.map((cat) => (
-              <TouchableOpacity
-                key={cat.value}
-                style={[
-                  styles.categoryButton,
-                  formData.category === cat.value && styles.categoryButtonActive,
-                ]}
-                onPress={() => setFormData({ ...formData, category: cat.value })}
-              >
-                <Text
-                  style={[
-                    styles.categoryButtonText,
-                    formData.category === cat.value && styles.categoryButtonTextActive,
-                  ]}
-                >
-                  {cat.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
+      <Text style={styles.filterTitle}>Priority</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
+        {[{ value: 'all', label: 'All' }, ...PRIORITIES].map((priority) => (
+          <FilterChip
+            key={priority.value}
+            label={priority.label}
+            active={filters.priority === priority.value}
+            onPress={() => setFilters((previous) => ({ ...previous, priority: priority.value }))}
+          />
+        ))}
+      </ScrollView>
 
-          <Text style={styles.fieldLabel}>Priority</Text>
-          <View style={styles.priorityButtons}>
-            {priorities.map((pri) => (
-              <TouchableOpacity
-                key={pri.value}
-                style={[
-                  styles.priorityButton,
-                  formData.priority === pri.value && styles.priorityButtonActive,
-                ]}
-                onPress={() => setFormData({ ...formData, priority: pri.value })}
-              >
-                <Text
-                  style={[
-                    styles.priorityButtonText,
-                    formData.priority === pri.value && styles.priorityButtonTextActive,
-                  ]}
-                >
-                  {pri.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <View style={styles.formButtons}>
-            <TouchableOpacity
-              style={[styles.submitButton, parentLoading && styles.disabled]}
-              onPress={createTicket}
-              disabled={parentLoading}
-            >
-              <Text style={styles.submitButtonText}>✓ Create Ticket</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.cancelButton}
-              onPress={() => setShowCreateForm(false)}
-              disabled={parentLoading}
-            >
-              <Text style={styles.cancelButtonText}>✕ Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      ) : (
-        <TouchableOpacity
-          style={styles.createButton}
-          onPress={() => setShowCreateForm(true)}
-          disabled={parentLoading}
-        >
-          <Text style={styles.createButtonText}>+ Create New Ticket</Text>
+      <View style={styles.topActions}>
+        <TouchableOpacity style={styles.createButton} onPress={() => setShowCreateForm(true)} disabled={parentLoading}>
+          <Text style={styles.createButtonText}>Create New Ticket</Text>
         </TouchableOpacity>
-      )}
+        <TouchableOpacity style={styles.secondaryButton} onPress={fetchTickets} disabled={loading}>
+          <Text style={styles.secondaryButtonText}>Refresh</Text>
+        </TouchableOpacity>
+      </View>
 
-      {/* Tickets List */}
-      {tickets.length === 0 ? (
+      {showCreateForm ? renderCreateForm() : null}
+
+      {loading && tickets.length === 0 ? (
+        <ActivityIndicator size="large" color={COLORS.primary} />
+      ) : tickets.length === 0 ? (
         <View style={styles.emptyState}>
-          <Text style={styles.emptyStateText}>No support tickets yet</Text>
+          <Text style={styles.emptyStateText}>No matching support tickets.</Text>
         </View>
       ) : (
         <View style={styles.ticketsList}>
           {tickets.map((ticket) => (
-            <TouchableOpacity
-              key={ticket.id}
-              style={styles.ticketCard}
-              onPress={() => setSelectedTicket(ticket.id)}
-            >
+            <TouchableOpacity key={ticket.id} style={styles.ticketCard} onPress={() => setSelectedTicketId(ticket.id)}>
               <View style={styles.ticketCardHeader}>
                 <View style={styles.ticketCardTitle}>
                   <Text style={styles.ticketCardSubject}>{ticket.subject}</Text>
                   <Text style={styles.ticketCardId}>#{ticket.id?.toString()?.slice(-6) || 'N/A'}</Text>
                 </View>
                 <Text style={[styles.statusBadge, { backgroundColor: getStatusColor(ticket.status) }]}>
-                  {ticket.status}
+                  {String(ticket.status || '').replace(/_/g, ' ')}
                 </Text>
               </View>
               <View style={styles.ticketCardMeta}>
-                <Text style={styles.metaText}>{getCategoryLabel(ticket.category)}</Text>
-                <Text style={styles.metaText}>•</Text>
-                <Text style={styles.metaText}>{getPriorityLabel(ticket.priority)}</Text>
-                <Text style={styles.metaText}>•</Text>
-                <Text style={styles.metaText}>{new Date(ticket.created_at).toLocaleDateString()}</Text>
+                <Text style={styles.metaText}>{getLabel(TICKET_CATEGORIES, ticket.category)}</Text>
+                <Text style={styles.metaText}>{getLabel(PRIORITIES, ticket.priority)}</Text>
+                <Text style={styles.metaText}>{formatDate(ticket.updated_at || ticket.created_at)}</Text>
               </View>
+              {ticket.message_count ? <Text style={styles.ticketHint}>{ticket.message_count} messages</Text> : null}
             </TouchableOpacity>
           ))}
         </View>
       )}
+    </>
+  );
+
+  const renderHelpCenter = () => (
+    <>
+      <View style={styles.helpHero}>
+        <Text style={styles.helpTitle}>Help Center</Text>
+        <Text style={styles.helpText}>Find answers first, then open or escalate a support ticket when you need the team.</Text>
+        <TouchableOpacity
+          style={styles.createButton}
+          onPress={() => startContactSupport({ subject: '', description: '', category: 'general' })}
+        >
+          <Text style={styles.createButtonText}>Contact Support</Text>
+        </TouchableOpacity>
+      </View>
+
+      <Text style={styles.fieldLabel}>Search FAQs</Text>
+      <VoiceTextInput
+        style={styles.input}
+        value={faqSearch}
+        onChangeText={setFaqSearch}
+        placeholder="Search help topics"
+        placeholderTextColor={COLORS.textMuted}
+      />
+
+      <Text style={styles.filterTitle}>FAQ Category</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
+        {CATEGORIES.map((category) => (
+          <FilterChip
+            key={category.value}
+            label={category.label}
+            active={faqCategory === category.value}
+            onPress={() => setFaqCategory(category.value)}
+          />
+        ))}
+      </ScrollView>
 
       <View style={styles.helpSection}>
-        <Text style={styles.helpTitle}>❓ Frequently Asked Questions</Text>
-        <View style={styles.faqItem}>
-          <Text style={styles.faqQuestion}>How long does it take to get a response?</Text>
-          <Text style={styles.faqAnswer}>
-            Most tickets are addressed within 24 hours. Urgent issues are handled first.
-          </Text>
-        </View>
-        <View style={styles.faqItem}>
-          <Text style={styles.faqQuestion}>Can I reopen a closed ticket?</Text>
-          <Text style={styles.faqAnswer}>Yes, create a new ticket and reference the previous one.</Text>
-        </View>
-        <View style={styles.faqItem}>
-          <Text style={styles.faqQuestion}>What if I'm not satisfied with the response?</Text>
-          <Text style={styles.faqAnswer}>
-            You can escalate to our senior support team in the ticket details.
-          </Text>
-        </View>
+        {faqs.length ? (
+          faqs.map((faq) => (
+            <View key={faq.id || faq.question} style={styles.faqItem}>
+              <Text style={styles.faqQuestion}>{faq.question}</Text>
+              <Text style={styles.faqAnswer}>{faq.answer}</Text>
+              <TouchableOpacity
+                style={styles.inlineAction}
+                onPress={() =>
+                  startContactSupport({
+                    subject: `Help with: ${faq.question}`,
+                    description: `I read this FAQ but still need help:\n\n${faq.question}`,
+                    category: faq.category || 'general',
+                  })
+                }
+              >
+                <Text style={styles.inlineActionText}>Still need help?</Text>
+              </TouchableOpacity>
+            </View>
+          ))
+        ) : (
+          <Text style={styles.emptyStateText}>No FAQs matched your search.</Text>
+        )}
       </View>
+    </>
+  );
+
+  return (
+    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      <Text style={styles.title}>Driver Support</Text>
+      <Text style={styles.subtitle}>FAQs, tickets, attachments, and escalation in one place.</Text>
+
+      {error ? <Text style={[styles.notice, styles.error]}>{error}</Text> : null}
+      {message ? <Text style={[styles.notice, styles.success]}>{message}</Text> : null}
+
+      <View style={styles.tabs}>
+        <TouchableOpacity style={[styles.tab, activeTab === 'help' && styles.tabActive]} onPress={() => setActiveTab('help')}>
+          <Text style={[styles.tabText, activeTab === 'help' && styles.tabTextActive]}>Help Center</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.tab, activeTab === 'tickets' && styles.tabActive]} onPress={() => setActiveTab('tickets')}>
+          <Text style={[styles.tabText, activeTab === 'tickets' && styles.tabTextActive]}>Tickets</Text>
+        </TouchableOpacity>
+      </View>
+
+      {selectedTicketId ? renderTicketDetail() : activeTab === 'help' ? renderHelpCenter() : renderTickets()}
     </ScrollView>
   );
 }
@@ -449,7 +726,7 @@ const styles = StyleSheet.create({
     color: COLORS.textMuted,
     marginBottom: 16,
   },
-  message: {
+  notice: {
     padding: 12,
     borderRadius: 8,
     marginBottom: 16,
@@ -463,39 +740,55 @@ const styles = StyleSheet.create({
     backgroundColor: '#E8F5E9',
     color: COLORS.success,
   },
-  createButton: {
-    backgroundColor: COLORS.primary,
+  tabs: {
+    flexDirection: 'row',
+    backgroundColor: COLORS.surface,
     borderRadius: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    padding: 4,
+    marginBottom: 16,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 10,
     alignItems: 'center',
-    marginBottom: 20,
-    ...SHADOWS.soft,
+    borderRadius: 8,
   },
-  createButtonText: {
+  tabActive: {
+    backgroundColor: COLORS.primary,
+  },
+  tabText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: COLORS.textMain,
+  },
+  tabTextActive: {
     color: '#fff',
-    fontSize: 14,
-    fontWeight: '700',
   },
-  createForm: {
+  helpHero: {
     backgroundColor: COLORS.surface,
     borderRadius: 12,
     padding: 16,
-    marginBottom: 20,
+    marginBottom: 16,
     ...SHADOWS.soft,
   },
-  formTitle: {
-    fontSize: 15,
-    fontWeight: '800',
+  helpTitle: {
+    fontSize: 16,
+    fontWeight: '900',
     color: COLORS.textMain,
-    marginBottom: 14,
+    marginBottom: 6,
+  },
+  helpText: {
+    color: COLORS.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 12,
   },
   fieldLabel: {
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '800',
     color: COLORS.textMain,
     marginBottom: 6,
-    marginTop: 10,
+    marginTop: 8,
   },
   input: {
     borderWidth: 1,
@@ -511,10 +804,17 @@ const styles = StyleSheet.create({
     minHeight: 80,
     textAlignVertical: 'top',
   },
-  categoryScroll: {
-    marginBottom: 14,
+  filterTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: COLORS.textMuted,
+    marginTop: 12,
+    marginBottom: 8,
   },
-  categoryButton: {
+  categoryScroll: {
+    marginBottom: 12,
+  },
+  filterChip: {
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 8,
@@ -523,17 +823,99 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
     marginRight: 8,
   },
-  categoryButtonActive: {
+  filterChipActive: {
     backgroundColor: COLORS.primary,
     borderColor: COLORS.primary,
   },
-  categoryButtonText: {
+  filterChipText: {
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '800',
     color: COLORS.textMain,
   },
-  categoryButtonTextActive: {
+  filterChipTextActive: {
     color: '#fff',
+  },
+  helpSection: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 8,
+    marginBottom: 20,
+    ...SHADOWS.soft,
+  },
+  faqItem: {
+    paddingBottom: 14,
+    marginBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  faqQuestion: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: COLORS.textMain,
+    marginBottom: 6,
+  },
+  faqAnswer: {
+    fontSize: 12,
+    color: COLORS.textMain,
+    lineHeight: 17,
+  },
+  inlineAction: {
+    marginTop: 8,
+  },
+  inlineActionText: {
+    color: COLORS.primary,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  searchBlock: {
+    marginBottom: 6,
+  },
+  topActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 16,
+  },
+  createButton: {
+    flex: 1,
+    backgroundColor: COLORS.primary,
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    ...SHADOWS.soft,
+  },
+  createButtonText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  secondaryButton: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  secondaryButtonText: {
+    color: COLORS.textMain,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  createForm: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    ...SHADOWS.soft,
+  },
+  formTitle: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: COLORS.textMain,
+    marginBottom: 8,
   },
   priorityButtons: {
     flexDirection: 'row',
@@ -541,25 +923,34 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 14,
   },
-  priorityButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.background,
+  attachmentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginTop: 10,
   },
-  priorityButtonActive: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
-  },
-  priorityButtonText: {
+  attachmentCount: {
+    color: COLORS.textMuted,
     fontSize: 12,
     fontWeight: '700',
-    color: COLORS.textMain,
   },
-  priorityButtonTextActive: {
-    color: '#fff',
+  attachmentsList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+  },
+  attachmentPill: {
+    backgroundColor: '#E3F2FD',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  attachmentPillText: {
+    color: COLORS.primary,
+    fontSize: 12,
+    fontWeight: '800',
   },
   formButtons: {
     flexDirection: 'row',
@@ -573,6 +964,11 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     alignItems: 'center',
   },
+  submitButtonText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '800',
+  },
   cancelButton: {
     flex: 1,
     backgroundColor: COLORS.background,
@@ -585,12 +981,7 @@ const styles = StyleSheet.create({
   cancelButtonText: {
     color: COLORS.textMain,
     fontSize: 13,
-    fontWeight: '700',
-  },
-  submitButtonText: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   disabled: {
     opacity: 0.5,
@@ -621,10 +1012,11 @@ const styles = StyleSheet.create({
   },
   ticketCardTitle: {
     flex: 1,
+    paddingRight: 10,
   },
   ticketCardSubject: {
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '800',
     color: COLORS.textMain,
     marginBottom: 4,
   },
@@ -638,31 +1030,38 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     color: '#fff',
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '800',
+    overflow: 'hidden',
+    textTransform: 'capitalize',
   },
   ticketCardMeta: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
+    flexWrap: 'wrap',
+    gap: 8,
   },
   metaText: {
     fontSize: 12,
     color: COLORS.textMuted,
   },
-  // Ticket Detail View
+  ticketHint: {
+    marginTop: 8,
+    fontSize: 12,
+    color: COLORS.textMuted,
+  },
   backButton: {
     paddingVertical: 10,
     marginBottom: 10,
   },
   backButtonText: {
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '800',
     color: COLORS.primary,
   },
   ticketDetail: {
     backgroundColor: COLORS.surface,
     borderRadius: 12,
     padding: 16,
+    marginBottom: 20,
     ...SHADOWS.soft,
   },
   ticketHeader: {
@@ -673,16 +1072,17 @@ const styles = StyleSheet.create({
   },
   ticketHeaderContent: {
     flex: 1,
+    paddingRight: 12,
   },
   ticketSubject: {
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: '900',
     color: COLORS.textMain,
     marginBottom: 6,
   },
   ticketStatus: {
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   ticketId: {
     fontSize: 12,
@@ -702,14 +1102,17 @@ const styles = StyleSheet.create({
   metaItem: {
     fontSize: 12,
     color: COLORS.textMain,
-    fontWeight: '600',
+    fontWeight: '700',
+  },
+  escalatedText: {
+    color: COLORS.error,
   },
   ticketDescription: {
     marginBottom: 14,
   },
   descriptionLabel: {
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '800',
     color: COLORS.textMain,
     marginBottom: 6,
   },
@@ -723,11 +1126,11 @@ const styles = StyleSheet.create({
   },
   messagesTitle: {
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '800',
     color: COLORS.textMain,
     marginBottom: 10,
   },
-  message: {
+  threadMessage: {
     backgroundColor: COLORS.background,
     borderRadius: 8,
     padding: 10,
@@ -741,7 +1144,7 @@ const styles = StyleSheet.create({
   },
   messageSender: {
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '800',
     color: COLORS.textMain,
     marginBottom: 4,
   },
@@ -763,7 +1166,7 @@ const styles = StyleSheet.create({
   },
   replyLabel: {
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '800',
     color: COLORS.textMain,
     marginBottom: 8,
   },
@@ -775,6 +1178,7 @@ const styles = StyleSheet.create({
   replyButtons: {
     flexDirection: 'row',
     gap: 10,
+    marginTop: 12,
   },
   replyButton: {
     flex: 1,
@@ -786,7 +1190,7 @@ const styles = StyleSheet.create({
   replyButtonText: {
     color: '#fff',
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   closeButton: {
     flex: 1,
@@ -798,34 +1202,24 @@ const styles = StyleSheet.create({
   closeButtonText: {
     color: '#fff',
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '800',
   },
-  helpSection: {
-    backgroundColor: '#E3F2FD',
-    borderRadius: 10,
-    padding: 14,
-    marginTop: 20,
-    borderLeftWidth: 4,
-    borderLeftColor: COLORS.info,
+  escalationBox: {
+    marginTop: 16,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
   },
-  helpTitle: {
+  escalateButton: {
+    backgroundColor: COLORS.warning,
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  escalateButtonText: {
+    color: '#fff',
     fontSize: 13,
     fontWeight: '800',
-    color: COLORS.textMain,
-    marginBottom: 10,
-  },
-  faqItem: {
-    marginBottom: 10,
-  },
-  faqQuestion: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: COLORS.textMain,
-    marginBottom: 4,
-  },
-  faqAnswer: {
-    fontSize: 12,
-    color: COLORS.textMain,
-    lineHeight: 16,
   },
 });

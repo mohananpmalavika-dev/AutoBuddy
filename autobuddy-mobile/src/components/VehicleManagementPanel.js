@@ -11,6 +11,21 @@ import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
 import VoiceTextInput from './VoiceTextInput';
 
+function normalizeVehicle(vehicle = {}) {
+  return {
+    id: vehicle.id,
+    make: vehicle.make || '',
+    model: vehicle.model || '',
+    year: Number(vehicle.year || new Date().getFullYear()),
+    color: vehicle.color || '',
+    license_plate: vehicle.license_plate || vehicle.licensePlate || '',
+    registration_number: vehicle.registration_number || vehicle.registrationNumber || '',
+    seating_capacity: Number(vehicle.seating_capacity || vehicle.seatingCapacity || 4),
+    vehicle_type: vehicle.vehicle_type || vehicle.vehicleType || 'auto',
+    is_active: Boolean(vehicle.is_active),
+  };
+}
+
 /**
  * VehicleManagementPanel - Driver vehicle details management
  * Add, edit, and manage vehicle information
@@ -19,6 +34,7 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
   const [vehicles, setVehicles] = useState([]);
   const [activeVehicle, setActiveVehicle] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [editingVehicleId, setEditingVehicleId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -29,57 +45,91 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
     model: '',
     year: new Date().getFullYear().toString(),
     color: '',
-    licensePlate: '',
-    registrationNumber: '',
-    seatingCapacity: '4',
-    vehicleType: 'sedan',
+    license_plate: '',
+    registration_number: '',
+    seating_capacity: '4',
+    vehicle_type: 'sedan',
   });
 
   const vehicleTypes = ['sedan', 'suv', 'hatchback', 'auto', 'van'];
 
-  useEffect(() => {
-    fetchVehicles();
-  }, []);
-
-  const fetchVehicles = async () => {
+  const fetchVehicles = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
-      try {
-        const data = await apiRequest('/drivers/vehicles', { token });
-        if (data && data.vehicles) {
-          setVehicles(data.vehicles);
-          const active = data.vehicles.find((v) => v.is_active);
-          setActiveVehicle(active || data.vehicles[0] || null);
-        }
-      } catch (err) {
-        console.log('Vehicles endpoint not yet implemented, using mock data');
-        const mockVehicles = [
-          {
-            id: 1,
-            make: 'Hyundai',
-            model: 'i20',
-            year: 2022,
-            color: 'Silver',
-            licensePlate: 'TN01AB1234',
-            registrationNumber: 'TN01AB1234',
-            seatingCapacity: 5,
-            vehicleType: 'hatchback',
-            is_active: true,
-          },
-        ];
-        setVehicles(mockVehicles);
-        setActiveVehicle(mockVehicles[0]);
-      }
+      const data = await apiRequest('/drivers/vehicles', { token });
+      const nextVehicles = Array.isArray(data?.vehicles) ? data.vehicles.map(normalizeVehicle) : [];
+      setVehicles(nextVehicles);
+      const active = nextVehicles.find((v) => v.is_active);
+      setActiveVehicle(active || nextVehicles[0] || null);
     } catch (err) {
       setError(err.message || 'Failed to load vehicles');
+      setVehicles([]);
+      setActiveVehicle(null);
     } finally {
       setLoading(false);
     }
+  }, [token]);
+
+  useEffect(() => {
+    Promise.resolve().then(fetchVehicles);
+  }, [fetchVehicles]);
+
+  const getEmptyFormData = () => ({
+    make: '',
+    model: '',
+    year: new Date().getFullYear().toString(),
+    color: '',
+    license_plate: '',
+    registration_number: '',
+    seating_capacity: '4',
+    vehicle_type: 'sedan',
+  });
+
+  const buildVehiclePayload = () => ({
+    make: formData.make,
+    model: formData.model,
+    year: Number(formData.year),
+    color: formData.color,
+    license_plate: formData.license_plate,
+    registration_number: formData.registration_number || null,
+    seating_capacity: Number(formData.seating_capacity),
+    vehicle_type: formData.vehicle_type,
+  });
+
+  const resetVehicleForm = () => {
+    setFormData(getEmptyFormData());
+    setEditingVehicleId(null);
+    setShowAddForm(false);
   };
 
-  const handleAddVehicle = async () => {
-    if (!formData.make || !formData.model || !formData.licensePlate) {
+  const startAddVehicle = () => {
+    setError('');
+    setMessage('');
+    setFormData(getEmptyFormData());
+    setEditingVehicleId(null);
+    setShowAddForm(true);
+  };
+
+  const startEditVehicle = (vehicle) => {
+    setError('');
+    setMessage('');
+    setFormData({
+      make: vehicle.make || '',
+      model: vehicle.model || '',
+      year: String(vehicle.year || new Date().getFullYear()),
+      color: vehicle.color || '',
+      license_plate: vehicle.license_plate || vehicle.licensePlate || '',
+      registration_number: vehicle.registration_number || vehicle.registrationNumber || '',
+      seating_capacity: String(vehicle.seating_capacity || vehicle.seatingCapacity || '4'),
+      vehicle_type: vehicle.vehicle_type || vehicle.vehicleType || 'sedan',
+    });
+    setEditingVehicleId(vehicle.id);
+    setShowAddForm(true);
+  };
+
+  const handleSubmitVehicle = async () => {
+    if (!formData.make || !formData.model || !formData.license_plate) {
       setError('Please fill in required fields: Make, Model, License Plate');
       return;
     }
@@ -87,31 +137,16 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
     try {
       setLoading(true);
       setError('');
-      const result = await apiRequest('/drivers/vehicles', {
-        method: 'POST',
+      await apiRequest(editingVehicleId ? `/drivers/vehicles/${editingVehicleId}` : '/drivers/vehicles', {
+        method: editingVehicleId ? 'PUT' : 'POST',
         token,
-        body: {
-          ...formData,
-          year: Number(formData.year),
-          seating_capacity: Number(formData.seatingCapacity),
-          vehicle_type: formData.vehicleType,
-        },
+        body: buildVehiclePayload(),
       });
-      setMessage('Vehicle added successfully!');
-      setFormData({
-        make: '',
-        model: '',
-        year: new Date().getFullYear().toString(),
-        color: '',
-        licensePlate: '',
-        registrationNumber: '',
-        seatingCapacity: '4',
-        vehicleType: 'sedan',
-      });
-      setShowAddForm(false);
+      setMessage(editingVehicleId ? 'Vehicle updated successfully!' : 'Vehicle added successfully!');
+      resetVehicleForm();
       await fetchVehicles();
     } catch (err) {
-      setError(err.message || 'Failed to add vehicle');
+      setError(err.message || (editingVehicleId ? 'Failed to update vehicle' : 'Failed to add vehicle'));
     } finally {
       setLoading(false);
     }
@@ -197,6 +232,15 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
               </Text>
             )}
           </View>
+          <View style={styles.activeVehicleActions}>
+            <TouchableOpacity
+              style={styles.editButton}
+              onPress={() => startEditVehicle(activeVehicle)}
+              disabled={parentLoading || loading}
+            >
+              <Text style={styles.editButtonText}>Edit</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
 
@@ -216,16 +260,23 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
                 </View>
                 <View style={styles.vehicleCardButtons}>
                   <TouchableOpacity
+                    style={styles.editButton}
+                    onPress={() => startEditVehicle(vehicle)}
+                    disabled={parentLoading || loading}
+                  >
+                    <Text style={styles.editButtonText}>Edit</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
                     style={styles.activateButton}
                     onPress={() => setActiveVehicleRequest(vehicle.id)}
-                    disabled={parentLoading}
+                    disabled={parentLoading || loading}
                   >
                     <Text style={styles.activateButtonText}>✓ Activate</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.deleteButton}
                     onPress={() => deleteVehicle(vehicle.id)}
-                    disabled={parentLoading}
+                    disabled={parentLoading || loading}
                   >
                     <Text style={styles.deleteButtonText}>🗑️ Remove</Text>
                   </TouchableOpacity>
@@ -239,7 +290,7 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
       {/* Add Vehicle Form */}
       {showAddForm ? (
         <View style={styles.addVehicleForm}>
-          <Text style={styles.formTitle}>Add New Vehicle</Text>
+          <Text style={styles.formTitle}>{editingVehicleId ? 'Edit Vehicle' : 'Add New Vehicle'}</Text>
 
           <Text style={styles.fieldLabel}>Make (e.g., Toyota, Hyundai)*</Text>
           <VoiceTextInput
@@ -281,8 +332,8 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
           <Text style={styles.fieldLabel}>License Plate*</Text>
           <VoiceTextInput
             style={styles.input}
-            value={formData.licensePlate}
-            onChangeText={(value) => updateFormData('licensePlate', value)}
+            value={formData.license_plate}
+            onChangeText={(value) => updateFormData('license_plate', value)}
             placeholder="MH01AB1234"
             placeholderTextColor={COLORS.textMuted}
           />
@@ -290,8 +341,8 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
           <Text style={styles.fieldLabel}>Registration Number</Text>
           <VoiceTextInput
             style={styles.input}
-            value={formData.registrationNumber}
-            onChangeText={(value) => updateFormData('registrationNumber', value)}
+            value={formData.registration_number}
+            onChangeText={(value) => updateFormData('registration_number', value)}
             placeholder="Vehicle registration number"
             placeholderTextColor={COLORS.textMuted}
           />
@@ -299,8 +350,8 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
           <Text style={styles.fieldLabel}>Seating Capacity</Text>
           <VoiceTextInput
             style={styles.input}
-            value={formData.seatingCapacity}
-            onChangeText={(value) => updateFormData('seatingCapacity', value)}
+            value={formData.seating_capacity}
+            onChangeText={(value) => updateFormData('seating_capacity', value)}
             keyboardType="number-pad"
             placeholder="4"
             placeholderTextColor={COLORS.textMuted}
@@ -313,14 +364,14 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
                 key={type}
                 style={[
                   styles.typeButton,
-                  formData.vehicleType === type && styles.typeButtonActive,
+                  formData.vehicle_type === type && styles.typeButtonActive,
                 ]}
-                onPress={() => updateFormData('vehicleType', type)}
+                onPress={() => updateFormData('vehicle_type', type)}
               >
                 <Text
                   style={[
                     styles.typeButtonText,
-                    formData.vehicleType === type && styles.typeButtonTextActive,
+                    formData.vehicle_type === type && styles.typeButtonTextActive,
                   ]}
                 >
                   {type}
@@ -331,16 +382,18 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
 
           <View style={styles.formButtons}>
             <TouchableOpacity
-              style={[styles.submitButton, parentLoading && styles.submitButtonDisabled]}
-              onPress={handleAddVehicle}
-              disabled={parentLoading}
+              style={[styles.submitButton, (parentLoading || loading) && styles.submitButtonDisabled]}
+              onPress={handleSubmitVehicle}
+              disabled={parentLoading || loading}
             >
-              <Text style={styles.submitButtonText}>✓ Add Vehicle</Text>
+              <Text style={styles.submitButtonText}>
+                {editingVehicleId ? 'Save Changes' : '✓ Add Vehicle'}
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.cancelButton}
-              onPress={() => setShowAddForm(false)}
-              disabled={parentLoading}
+              onPress={resetVehicleForm}
+              disabled={parentLoading || loading}
             >
               <Text style={styles.cancelButtonText}>✕ Cancel</Text>
             </TouchableOpacity>
@@ -349,8 +402,8 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
       ) : (
         <TouchableOpacity
           style={styles.addButton}
-          onPress={() => setShowAddForm(true)}
-          disabled={parentLoading}
+          onPress={startAddVehicle}
+          disabled={parentLoading || loading}
         >
           <Text style={styles.addButtonText}>+ Add Another Vehicle</Text>
         </TouchableOpacity>
@@ -429,6 +482,10 @@ const styles = StyleSheet.create({
     color: COLORS.textMain,
     lineHeight: 18,
   },
+  activeVehicleActions: {
+    flexDirection: 'row',
+    marginTop: 12,
+  },
   bold: {
     fontWeight: '700',
   },
@@ -472,6 +529,18 @@ const styles = StyleSheet.create({
   vehicleCardButtons: {
     flexDirection: 'row',
     gap: 8,
+  },
+  editButton: {
+    flex: 1,
+    backgroundColor: COLORS.primary,
+    borderRadius: 8,
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  editButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
   },
   activateButton: {
     flex: 1,

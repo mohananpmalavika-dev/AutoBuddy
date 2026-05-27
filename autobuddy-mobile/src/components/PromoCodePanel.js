@@ -18,7 +18,16 @@ function normalizePromo(promo) {
   };
 }
 
-export default function PromoCodePanel({ token, rideFare = 1, onDiscountApplied = () => {} }) {
+export default function PromoCodePanel({
+  token,
+  rideFare = 1,
+  onDiscountApplied = () => {},
+  embedded = false,
+  compact = false,
+  title = 'Apply Promo Code',
+  disabled = false,
+  disabledMessage = '',
+}) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [promoCode, setPromoCode] = useState('');
@@ -55,6 +64,11 @@ export default function PromoCodePanel({ token, rideFare = 1, onDiscountApplied 
       setValidationResult(null);
       return;
     }
+    if (disabled) {
+      setError(disabledMessage || 'Add pickup and drop to calculate fare before applying a promo.');
+      setValidationResult(null);
+      return;
+    }
 
     try {
       setError('');
@@ -86,7 +100,7 @@ export default function PromoCodePanel({ token, rideFare = 1, onDiscountApplied 
     } finally {
       setLoading(false);
     }
-  }, [promoCode, rideFare, token, onDiscountApplied]);
+  }, [disabled, disabledMessage, promoCode, rideFare, token, onDiscountApplied]);
 
   const removePromoCode = useCallback(() => {
     setPromoCode('');
@@ -100,10 +114,13 @@ export default function PromoCodePanel({ token, rideFare = 1, onDiscountApplied 
     setPromoCode(code);
   }, []);
 
+  const Container = embedded ? View : ScrollView;
+  const containerProps = embedded ? {} : { showsVerticalScrollIndicator: false };
+
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+    <Container style={[styles.container, embedded && styles.embeddedContainer]} {...containerProps}>
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Apply Promo Code</Text>
+        <Text style={styles.sectionTitle}>{title}</Text>
         <View style={styles.inputRow}>
           <VoiceTextInput
             style={styles.input}
@@ -111,15 +128,16 @@ export default function PromoCodePanel({ token, rideFare = 1, onDiscountApplied 
             onChangeText={setPromoCode}
             placeholder="Enter promo code"
             placeholderTextColor={COLORS.textMuted}
-            editable={!appliedCode}
+            editable={!appliedCode && !disabled}
           />
           <TouchableOpacity
-            style={[styles.button, appliedCode && styles.buttonDisabled]}
+            style={[styles.button, (appliedCode || disabled) && styles.buttonDisabled]}
             onPress={validatePromoCode}
-            disabled={loading || Boolean(appliedCode)}>
+            disabled={loading || Boolean(appliedCode) || disabled}>
             <Text style={styles.buttonText}>{loading ? '...' : 'Check'}</Text>
           </TouchableOpacity>
         </View>
+        {disabled && !!disabledMessage && <Text style={styles.helpText}>{disabledMessage}</Text>}
         {!!error && <Text style={styles.errorText}>{error}</Text>}
       </View>
 
@@ -152,7 +170,7 @@ export default function PromoCodePanel({ token, rideFare = 1, onDiscountApplied 
       {!appliedCode && promoCodes.length > 0 && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Available Offers</Text>
-          {promoCodes.slice(0, 5).map((promo) => (
+          {promoCodes.slice(0, compact ? 2 : 5).map((promo) => (
             <TouchableOpacity
               key={promo.id || promo.code}
               style={styles.promoCard}
@@ -172,18 +190,21 @@ export default function PromoCodePanel({ token, rideFare = 1, onDiscountApplied 
         </View>
       )}
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>How to use</Text>
-        <Text style={styles.helpText}>Enter a valid promo code above.</Text>
-        <Text style={styles.helpText}>Discount is stored for the next booking in this session.</Text>
-        <Text style={styles.helpText}>One code can be used per ride.</Text>
-      </View>
-    </ScrollView>
+      {!compact && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>How to use</Text>
+          <Text style={styles.helpText}>Enter a valid promo code above.</Text>
+          <Text style={styles.helpText}>Discount is stored for the next booking in this session.</Text>
+          <Text style={styles.helpText}>One code can be used per ride.</Text>
+        </View>
+      )}
+    </Container>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
+  embeddedContainer: { flex: 0, backgroundColor: 'transparent' },
   section: {
     padding: 12,
     marginBottom: 12,

@@ -10,106 +10,90 @@ import {
 import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
 
-/**
- * AnalyticsDashboard - Driver performance analytics
- * Metrics, trends, comparisons
- */
+const EMPTY_ANALYTICS = {
+  total_rides: 0,
+  total_earnings: 0,
+  average_rating: 0,
+  acceptance_rate: 0,
+  cancellation_rate: 0,
+  average_trip_distance: 0,
+  hours_online: 0,
+  peak_hours: [],
+  daily_trends: [],
+  weekly_comparison: {},
+  dispatch_attempts: { accepted: 0, rejected: 0, expired: 0, total: 0 },
+};
+
+const PERIODS = [
+  { value: 'day', label: 'Today' },
+  { value: 'week', label: 'This Week' },
+  { value: 'month', label: 'This Month' },
+  { value: 'year', label: 'This Year' },
+];
+
+function numberValue(value) {
+  const parsed = Number(value || 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function getPerformanceColor(value, maxValue = 100) {
+  const percentage = (numberValue(value) / Math.max(numberValue(maxValue), 1)) * 100;
+  if (percentage >= 80) return COLORS.success;
+  if (percentage >= 60) return COLORS.warning;
+  return COLORS.error;
+}
+
+function StatCard({ label, value, unit = '', color = null }) {
+  return (
+    <View style={[styles.statCard, { borderTopColor: color || COLORS.primary }]}>
+      <Text style={styles.statLabel}>{label}</Text>
+      <Text style={styles.statValue}>
+        {value}
+        {unit ? <Text style={styles.statUnit}>{unit}</Text> : null}
+      </Text>
+    </View>
+  );
+}
+
 export default function AnalyticsDashboard({ token, loading: parentLoading = false }) {
-  const [analytics, setAnalytics] = useState({
-    total_rides: 0,
-    total_earnings: 0,
-    average_rating: 0,
-    acceptance_rate: 0,
-    cancellation_rate: 0,
-    average_trip_distance: 0,
-    hours_online: 0,
-    peak_hours: [],
-    daily_trends: [],
-    weekly_comparison: {},
-  });
+  const [analytics, setAnalytics] = useState(EMPTY_ANALYTICS);
   const [period, setPeriod] = useState('week');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const periods = [
-    { value: 'day', label: 'Today' },
-    { value: 'week', label: 'This Week' },
-    { value: 'month', label: 'This Month' },
-    { value: 'year', label: 'This Year' },
-  ];
-
-  useEffect(() => {
-    fetchAnalytics();
-  }, [period]);
-
-  const fetchAnalytics = async () => {
+  const fetchAnalytics = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
-      try {
-        const data = await apiRequest(`/drivers/analytics?period=${period}`, { token });
-        if (data && data.analytics) {
-          setAnalytics(data.analytics);
-        }
-      } catch (err) {
-        console.log('Analytics endpoint not yet implemented, using mock data');
-        setAnalytics({
-          total_rides: 127,
-          total_earnings: 4250,
-          average_rating: 4.7,
-          acceptance_rate: 88,
-          cancellation_rate: 3,
-          average_trip_distance: 6.2,
-          hours_online: 42,
-          peak_hours: [
-            { hour: 8, count: 12 },
-            { hour: 9, count: 15 },
-            { hour: 17, count: 18 },
-            { hour: 18, count: 22 },
-            { hour: 19, count: 20 },
-          ],
-          daily_trends: [],
-          weekly_comparison: {
-            Monday: { rides: 18, earnings: 620, rating: 4.8 },
-            Tuesday: { rides: 22, earnings: 750, rating: 4.7 },
-            Wednesday: { rides: 20, earnings: 680, rating: 4.6 },
-            Thursday: { rides: 19, earnings: 640, rating: 4.8 },
-            Friday: { rides: 25, earnings: 850, rating: 4.7 },
-            Saturday: { rides: 23, earnings: 780, rating: 4.9 },
-          },
-        });
-      }
+      const data = await apiRequest('/drivers/analytics', {
+        token,
+        query: { period },
+      });
+      setAnalytics({ ...EMPTY_ANALYTICS, ...(data?.analytics || {}) });
     } catch (err) {
+      setAnalytics(EMPTY_ANALYTICS);
       setError(err.message || 'Failed to load analytics');
     } finally {
       setLoading(false);
     }
-  };
+  }, [period, token]);
 
-  const getPerformanceColor = (value, maxValue = 100) => {
-    const percentage = (value / maxValue) * 100;
-    if (percentage >= 80) return COLORS.success;
-    if (percentage >= 60) return COLORS.warning;
-    return COLORS.error;
-  };
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchAnalytics().catch(() => null);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [fetchAnalytics]);
 
-  const StatCard = ({ icon, label, value, unit = '', trend = null, color = null }) => (
-    <View style={[styles.statCard, { borderTopColor: color || COLORS.primary }]}>
-      <Text style={styles.statIcon}>{icon}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-      <Text style={styles.statValue}>
-        {value}
-        {unit && <Text style={styles.statUnit}>{unit}</Text>}
-      </Text>
-      {trend && (
-        <Text style={[styles.trend, trend.up ? styles.trendUp : styles.trendDown]}>
-          {trend.up ? '📈' : '📉'} {Math.abs(trend.value)}%
-        </Text>
-      )}
-    </View>
-  );
+  const totalRides = numberValue(analytics.total_rides);
+  const totalEarnings = numberValue(analytics.total_earnings);
+  const averageRating = numberValue(analytics.average_rating);
+  const acceptanceRate = numberValue(analytics.acceptance_rate);
+  const cancellationRate = numberValue(analytics.cancellation_rate);
+  const averageTripDistance = numberValue(analytics.average_trip_distance);
+  const hoursOnline = numberValue(analytics.hours_online);
 
-  if (loading && !analytics.total_rides) {
+  if (loading && !totalRides) {
     return (
       <View style={styles.container}>
         <ActivityIndicator size="large" color={COLORS.primary} />
@@ -119,184 +103,170 @@ export default function AnalyticsDashboard({ token, loading: parentLoading = fal
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <Text style={styles.title}>📊 Performance Analytics</Text>
-      <Text style={styles.subtitle}>Track your driving performance and earnings</Text>
+      <Text style={styles.title}>Performance Analytics</Text>
+      <Text style={styles.subtitle}>Real backend metrics from completed rides, dispatches, and online sessions</Text>
 
-      {error && <Text style={[styles.message, styles.error]}>{error}</Text>}
+      {error ? <Text style={[styles.message, styles.error]}>{error}</Text> : null}
 
-      {/* Period Selection */}
       <View style={styles.periodSelector}>
-        {periods.map((p) => (
+        {PERIODS.map((item) => (
           <TouchableOpacity
-            key={p.value}
-            style={[styles.periodButton, period === p.value && styles.periodButtonActive]}
-            onPress={() => setPeriod(p.value)}
+            key={item.value}
+            style={[styles.periodButton, period === item.value && styles.periodButtonActive]}
+            onPress={() => setPeriod(item.value)}
             disabled={parentLoading}
           >
-            <Text
-              style={[
-                styles.periodButtonText,
-                period === p.value && styles.periodButtonTextActive,
-              ]}
-            >
-              {p.label}
+            <Text style={[styles.periodButtonText, period === item.value && styles.periodButtonTextActive]}>
+              {item.label}
             </Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      {/* Key Metrics Grid */}
       <View style={styles.metricsGrid}>
+        <StatCard label="Total Rides" value={totalRides} color={COLORS.primary} />
+        <StatCard label="Earnings" value={`Rs ${totalEarnings.toFixed(0)}`} color={COLORS.success} />
         <StatCard
-          icon="🚗"
-          label="Total Rides"
-          value={analytics.total_rides}
-          color={COLORS.primary}
-        />
-        <StatCard
-          icon="💰"
-          label="Earnings"
-          value={`₹${analytics.total_earnings.toFixed(0)}`}
-          color={COLORS.success}
-        />
-        <StatCard
-          icon="⭐"
           label="Avg Rating"
-          value={analytics.average_rating.toFixed(1)}
+          value={averageRating.toFixed(1)}
           unit="/5"
-          color={getPerformanceColor(analytics.average_rating, 5)}
+          color={getPerformanceColor(averageRating, 5)}
         />
         <StatCard
-          icon="✓"
           label="Acceptance Rate"
-          value={analytics.acceptance_rate.toFixed(0)}
+          value={acceptanceRate.toFixed(0)}
           unit="%"
-          color={getPerformanceColor(analytics.acceptance_rate, 100)}
+          color={getPerformanceColor(acceptanceRate, 100)}
         />
       </View>
 
-      {/* Performance Metrics */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>📈 Performance Metrics</Text>
+        <Text style={styles.sectionTitle}>Performance Metrics</Text>
 
-        <View style={styles.metricRow}>
-          <View style={styles.metricInfo}>
-            <Text style={styles.metricLabel}>Cancellation Rate</Text>
-            <Text style={styles.metricNote}>Lower is better</Text>
-          </View>
-          <View style={styles.metricValue}>
-            <Text style={[styles.percentage, { color: getPerformanceColor(100 - analytics.cancellation_rate, 100) }]}>
-              {analytics.cancellation_rate.toFixed(1)}%
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.metricRow}>
-          <View style={styles.metricInfo}>
-            <Text style={styles.metricLabel}>Avg Trip Distance</Text>
-            <Text style={styles.metricNote}>Distance per ride</Text>
-          </View>
-          <View style={styles.metricValue}>
-            <Text style={styles.percentage}>{analytics.average_trip_distance.toFixed(1)} km</Text>
-          </View>
-        </View>
-
-        <View style={styles.metricRow}>
-          <View style={styles.metricInfo}>
-            <Text style={styles.metricLabel}>Hours Online</Text>
-            <Text style={styles.metricNote}>Time available for rides</Text>
-          </View>
-          <View style={styles.metricValue}>
-            <Text style={styles.percentage}>{analytics.hours_online.toFixed(1)} hrs</Text>
-          </View>
-        </View>
-
-        <View style={styles.metricRow}>
-          <View style={styles.metricInfo}>
-            <Text style={styles.metricLabel}>Rides per Hour</Text>
-            <Text style={styles.metricNote}>Efficiency metric</Text>
-          </View>
-          <View style={styles.metricValue}>
-            <Text style={styles.percentage}>
-              {(analytics.total_rides / Math.max(analytics.hours_online, 1)).toFixed(2)}
-            </Text>
-          </View>
-        </View>
+        <MetricRow
+          label="Cancellation Rate"
+          note="Lower is better"
+          value={`${cancellationRate.toFixed(1)}%`}
+          color={getPerformanceColor(100 - cancellationRate, 100)}
+        />
+        <MetricRow
+          label="Avg Trip Distance"
+          note="Distance per completed ride"
+          value={`${averageTripDistance.toFixed(1)} km`}
+        />
+        <MetricRow
+          label="Hours Online"
+          note="Tracked from availability changes"
+          value={`${hoursOnline.toFixed(1)} hrs`}
+        />
+        <MetricRow
+          label="Rides per Hour"
+          note="Completed rides divided by online hours"
+          value={(totalRides / Math.max(hoursOnline, 1)).toFixed(2)}
+        />
       </View>
 
-      {/* Peak Hours Analysis */}
-      {analytics.peak_hours && analytics.peak_hours.length > 0 && (
+      {analytics.dispatch_attempts ? (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>⏰ Peak Hours</Text>
-          <Text style={styles.peakHoursInfo}>
-            These are the hours when you typically get the most ride requests:
-          </Text>
+          <Text style={styles.sectionTitle}>Dispatch Attempts</Text>
+          <View style={styles.dispatchGrid}>
+            <DispatchPill label="Accepted" value={analytics.dispatch_attempts.accepted} />
+            <DispatchPill label="Rejected" value={analytics.dispatch_attempts.rejected} />
+            <DispatchPill label="Expired" value={analytics.dispatch_attempts.expired} />
+            <DispatchPill label="Total" value={analytics.dispatch_attempts.total} />
+          </View>
+        </View>
+      ) : null}
+
+      {analytics.peak_hours?.length > 0 ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Peak Hours</Text>
+          <Text style={styles.peakHoursInfo}>Hours with the most completed rides in this period.</Text>
           <View style={styles.peakHoursGrid}>
-            {analytics.peak_hours.map((hour, idx) => (
-              <View key={idx} style={styles.peakHourBadge}>
+            {analytics.peak_hours.map((hour) => (
+              <View key={`${hour.hour}-${hour.count}`} style={styles.peakHourBadge}>
                 <Text style={styles.peakHourText}>{hour.hour}:00</Text>
                 <Text style={styles.peakHourCount}>{hour.count} rides</Text>
               </View>
             ))}
           </View>
         </View>
-      )}
+      ) : null}
 
-      {/* Weekly Comparison */}
-      {analytics.weekly_comparison && Object.keys(analytics.weekly_comparison).length > 0 && (
+      {analytics.weekly_comparison && Object.keys(analytics.weekly_comparison).length > 0 ? (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>📅 Weekly Comparison</Text>
+          <Text style={styles.sectionTitle}>Recent Daily Comparison</Text>
           {Object.entries(analytics.weekly_comparison).map(([day, data]) => (
             <View key={day} style={styles.comparisonRow}>
               <Text style={styles.dayLabel}>{day}</Text>
               <View style={styles.comparisonValues}>
-                <View style={styles.comparisonValue}>
-                  <Text style={styles.comparisonLabel}>Rides</Text>
-                  <Text style={styles.comparisonNumber}>{data.rides}</Text>
-                </View>
-                <View style={styles.comparisonValue}>
-                  <Text style={styles.comparisonLabel}>₹</Text>
-                  <Text style={styles.comparisonNumber}>{data.earnings.toFixed(0)}</Text>
-                </View>
-                <View style={styles.comparisonValue}>
-                  <Text style={styles.comparisonLabel}>⭐</Text>
-                  <Text style={styles.comparisonNumber}>{data.rating.toFixed(1)}</Text>
-                </View>
+                <ComparisonValue label="Rides" value={numberValue(data.rides)} />
+                <ComparisonValue label="Rs" value={numberValue(data.earnings).toFixed(0)} />
+                <ComparisonValue label="Rating" value={numberValue(data.rating || averageRating).toFixed(1)} />
               </View>
             </View>
           ))}
         </View>
-      )}
+      ) : null}
 
-      {/* Tips Section */}
+      {!loading && !error && totalRides === 0 ? (
+        <View style={styles.emptySection}>
+          <Text style={styles.emptyTitle}>No completed rides for this period yet</Text>
+          <Text style={styles.emptyText}>
+            Analytics will update from completed bookings, dispatch responses, and availability sessions.
+          </Text>
+        </View>
+      ) : null}
+
       <View style={styles.tipsSection}>
-        <Text style={styles.tipsTitle}>💡 Performance Tips</Text>
-        <View style={styles.tip}>
-          <Text style={styles.tipTitle}>🎯 Improve Acceptance Rate</Text>
-          <Text style={styles.tipText}>
-            Higher acceptance rates improve your visibility. Try to accept more ride requests to earn better.
-          </Text>
-        </View>
-        <View style={styles.tip}>
-          <Text style={styles.tipTitle}>⭐ Maintain Rating</Text>
-          <Text style={styles.tipText}>
-            Better ratings lead to premium ride access. Keep your vehicle clean and provide friendly service.
-          </Text>
-        </View>
-        <View style={styles.tip}>
-          <Text style={styles.tipTitle}>🕐 Target Peak Hours</Text>
-          <Text style={styles.tipText}>
-            Go online during peak hours to maximize ride requests and earnings.
-          </Text>
-        </View>
-        <View style={styles.tip}>
-          <Text style={styles.tipTitle}>🚗 Optimize Distance</Text>
-          <Text style={styles.tipText}>
-            Plan routes efficiently to maximize earnings per kilometer driven.
-          </Text>
-        </View>
+        <Text style={styles.tipsTitle}>Performance Tips</Text>
+        <Tip title="Improve Acceptance Rate" text="Higher acceptance rates improve your visibility for matching." />
+        <Tip title="Maintain Rating" text="Better ratings can improve passenger trust and repeat demand." />
+        <Tip title="Target Peak Hours" text="Use your peak-hour data to plan when to stay online." />
+        <Tip title="Optimize Distance" text="Efficient routes help maximize earnings per kilometer." />
       </View>
     </ScrollView>
+  );
+}
+
+function MetricRow({ label, note, value, color = COLORS.textMain }) {
+  return (
+    <View style={styles.metricRow}>
+      <View style={styles.metricInfo}>
+        <Text style={styles.metricLabel}>{label}</Text>
+        <Text style={styles.metricNote}>{note}</Text>
+      </View>
+      <View style={styles.metricValue}>
+        <Text style={[styles.percentage, { color }]}>{value}</Text>
+      </View>
+    </View>
+  );
+}
+
+function DispatchPill({ label, value }) {
+  return (
+    <View style={styles.dispatchPill}>
+      <Text style={styles.dispatchLabel}>{label}</Text>
+      <Text style={styles.dispatchValue}>{numberValue(value)}</Text>
+    </View>
+  );
+}
+
+function ComparisonValue({ label, value }) {
+  return (
+    <View style={styles.comparisonValue}>
+      <Text style={styles.comparisonLabel}>{label}</Text>
+      <Text style={styles.comparisonNumber}>{value}</Text>
+    </View>
+  );
+}
+
+function Tip({ title, text }) {
+  return (
+    <View style={styles.tip}>
+      <Text style={styles.tipTitle}>{title}</Text>
+      <Text style={styles.tipText}>{text}</Text>
+    </View>
   );
 }
 
@@ -367,10 +337,6 @@ const styles = StyleSheet.create({
     borderTopWidth: 4,
     ...SHADOWS.soft,
   },
-  statIcon: {
-    fontSize: 24,
-    marginBottom: 6,
-  },
   statLabel: {
     fontSize: 12,
     color: COLORS.textMuted,
@@ -439,6 +405,28 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: COLORS.textMain,
   },
+  dispatchGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  dispatchPill: {
+    width: '48%',
+    backgroundColor: COLORS.surface,
+    borderRadius: 10,
+    padding: 12,
+    ...SHADOWS.soft,
+  },
+  dispatchLabel: {
+    fontSize: 12,
+    color: COLORS.textMuted,
+    marginBottom: 4,
+  },
+  dispatchValue: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: COLORS.textMain,
+  },
   peakHoursInfo: {
     fontSize: 12,
     color: COLORS.textMuted,
@@ -500,6 +488,24 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     color: COLORS.textMain,
+  },
+  emptySection: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 20,
+    ...SHADOWS.soft,
+  },
+  emptyTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: COLORS.textMain,
+    marginBottom: 6,
+  },
+  emptyText: {
+    fontSize: 12,
+    color: COLORS.textMuted,
+    lineHeight: 17,
   },
   tipsSection: {
     backgroundColor: '#FFF3E0',
