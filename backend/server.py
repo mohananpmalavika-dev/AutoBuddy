@@ -1043,6 +1043,12 @@ class DriverProfileCreate(BaseModel):
 class DriverLocationUpdate(BaseModel):
     location: Location
 
+class DriverTelemetryUpdate(BaseModel):
+    latitude: float
+    longitude: float
+    speed: float = 0.0
+    timestamp: Optional[int] = None
+
 class DriverAvailabilityUpdate(BaseModel):
     is_available: bool
 
@@ -4300,6 +4306,61 @@ async def update_driver_location(location_update: DriverLocationUpdate, current_
         )
 
     return {"message": "Location updated"}
+
+
+@api_router.post("/drivers/telemetry", status_code=status.HTTP_202_ACCEPTED)
+async def update_driver_telemetry(
+    payload: DriverTelemetryUpdate,
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user["role"] != UserRole.DRIVER:
+        raise HTTPException(status_code=403, detail="Only drivers can update telemetry")
+
+    latitude = float(payload.latitude)
+    longitude = float(payload.longitude)
+    if latitude < -90 or latitude > 90 or longitude < -180 or longitude > 180:
+        raise HTTPException(status_code=400, detail="Invalid telemetry coordinates")
+
+    speed_kmh = max(0.0, float(payload.speed or 0.0))
+    timestamp_value = int(payload.timestamp or int(time.time() * 1000))
+    if timestamp_value > 10_000_000_000:
+        recorded_at = datetime.utcfromtimestamp(timestamp_value / 1000.0)
+    else:
+        recorded_at = datetime.utcfromtimestamp(float(timestamp_value))
+
+    driver_id = str(current_user.get("id") or "").strip()
+    if not driver_id:
+        raise HTTPException(status_code=400, detail="Driver identity unavailable")
+
+    spatial_record = {
+        "driver_id": driver_id,
+        "location": {
+            "type": "Point",
+            "coordinates": [longitude, latitude],
+        },
+        "metrics": {
+            "velocity_kmh": speed_kmh,
+            "is_stationary": speed_kmh < 2.0,
+        },
+        "recorded_at": recorded_at,
+        "received_at": datetime.utcnow(),
+    }
+
+    if spatial_record["metrics"]["is_stationary"]:
+        await db.driver_status_cache.update_one(
+            {"driver_id": driver_id},
+            {"$set": spatial_record},
+            upsert=True,
+        )
+        processed_mode = "static_throttle"
+    else:
+        await db.driver_historical_logs.insert_one(spatial_record)
+        processed_mode = "dynamic_stream"
+
+    return {
+        "status": "telemetry_ingested",
+        "processed_mode": processed_mode,
+    }
 
 @api_router.put("/drivers/availability")
 async def update_driver_availability(availability: DriverAvailabilityUpdate, current_user: dict = Depends(get_current_user)):
@@ -9104,7 +9165,6 @@ async def shutdown_db_client():
         except Exception:
             pass
     client.close()
-
 
 
 

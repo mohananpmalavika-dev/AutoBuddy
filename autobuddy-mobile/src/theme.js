@@ -1,3 +1,26 @@
+const resolveDirectSunlightIndex = () => {
+  const envValue = Number(process.env.EXPO_PUBLIC_OUTDOOR_DIRECT_SUNLIGHT_INDEX);
+  if (Number.isFinite(envValue) && envValue >= 0) {
+    return envValue;
+  }
+  const hour = new Date().getHours();
+  // Midday fallback heuristic when explicit index is not provided.
+  return hour >= 11 && hour <= 15 ? 8 : 4;
+};
+
+export const OUTDOOR_PEAK_DIRECT_SUNLIGHT_INDEX = resolveDirectSunlightIndex();
+const APPLY_HIGH_CONTRAST_TEXT = OUTDOOR_PEAK_DIRECT_SUNLIGHT_INDEX >= 8;
+
+const TEXT_CONTRAST_OVERRIDES = APPLY_HIGH_CONTRAST_TEXT
+  ? {
+      text: '#000000',
+      textMain: '#000000',
+      muted: '#1F2937',
+      textMuted: '#1F2937',
+      primaryDark: '#003914',
+    }
+  : {};
+
 export const COLORS = {
   primary: '#0B7A3B',
   primaryDark: '#064E2A',
@@ -17,6 +40,7 @@ export const COLORS = {
   secondary: '#1B8A4B',
   overlaySoft: 'rgba(6, 78, 42, 0.06)',
   overlayStrong: 'rgba(6, 78, 42, 0.12)',
+  ...TEXT_CONTRAST_OVERRIDES,
 };
 
 export const SHADOWS = {

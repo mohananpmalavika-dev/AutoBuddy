@@ -7,13 +7,25 @@ import '@/global.css';
 
 import { Platform } from 'react-native';
 
+const resolveDirectSunlightIndex = () => {
+  const envValue = Number(process.env.EXPO_PUBLIC_OUTDOOR_DIRECT_SUNLIGHT_INDEX);
+  if (Number.isFinite(envValue) && envValue >= 0) {
+    return envValue;
+  }
+  const hour = new Date().getHours();
+  return hour >= 11 && hour <= 15 ? 8 : 4;
+};
+
+export const OutdoorPeakDirectSunlightIndex = resolveDirectSunlightIndex();
+const applyHighContrastText = OutdoorPeakDirectSunlightIndex >= 8;
+
 export const Colors = {
   light: {
     text: '#000000',
     background: '#ffffff',
     backgroundElement: '#F0F0F3',
     backgroundSelected: '#E0E1E6',
-    textSecondary: '#60646C',
+    textSecondary: applyHighContrastText ? '#1F2937' : '#60646C',
   },
   dark: {
     text: '#ffffff',

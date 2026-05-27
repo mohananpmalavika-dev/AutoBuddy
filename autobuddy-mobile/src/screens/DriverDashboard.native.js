@@ -4,8 +4,7 @@ import {
   ActivityIndicator,
   Alert,
   ScrollView,
-  StyleSheet, 
-  Switch,
+  StyleSheet,
   Text,
   TouchableOpacity,
   View,
@@ -50,6 +49,9 @@ const DASHBOARD_DRIVER_MENU_KEYS = new Set([PRIMARY_DRIVER_MENU_KEY]);
 const SECONDARY_DRIVER_MENU_OPTIONS = DRIVER_MENU_OPTIONS.filter(
   (menu) => !DASHBOARD_DRIVER_MENU_KEYS.has(menu.key),
 );
+const DRIVER_MOVING_TRACK_INTERVAL_MS = 5000;
+const DRIVER_IDLE_TRACK_INTERVAL_MS = 20000;
+const DRIVER_IDLE_SPEED_THRESHOLD_KMH = 2;
 
 export default function DriverDashboard({ token, user, onLogout, onProfilePress = undefined }) {
   const snapPoints = useMemo(() => ['26%', '55%'], []);
@@ -103,6 +105,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   const [spinWinStatus, setSpinWinStatus] = useState(null);
   const [spinWinLoading, setSpinWinLoading] = useState(false);
   const [spinningNow, setSpinningNow] = useState(false);
+  const [driverTrackingIntervalMs, setDriverTrackingIntervalMs] = useState(DRIVER_MOVING_TRACK_INTERVAL_MS);
   const liveLocationRideStatuses = useMemo(() => new Set(['accepted', 'driver_arrived', 'in_progress']), []);
   const activeRideStatus = String(activeRide?.status || '').toLowerCase();
   const activeRideId = String(activeRide?.id || '').trim() || null;
@@ -218,7 +221,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   }, []);
 
   const pushDriverLocation = useCallback(
-    async ({ locationOverride = null, fallbackLocation = null, silent = false } = {}) => {
+    async ({ locationOverride = null, fallbackLocation = null, speedKmhOverride = null, silent = false } = {}) => {
       if (Date.now() < locationSyncSuspendedUntilRef.current) {
         return null;
       }
@@ -256,7 +259,10 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
             latitude: locationToSend.latitude,
             longitude: locationToSend.longitude,
             heading: null,
-            speed: null,
+            speed:
+              Number.isFinite(Number(speedKmhOverride)) && Number(speedKmhOverride) >= 0
+                ? Number(speedKmhOverride)
+                : null,
             accuracy: null,
             address: locationToSend.address,
           });
@@ -711,10 +717,18 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
         subscription = await Location.watchPositionAsync(
           {
             accuracy: Location.Accuracy.High,
-            timeInterval: 4000,
-            distanceInterval: 8,
+            timeInterval: driverTrackingIntervalMs,
+            distanceInterval: driverTrackingIntervalMs <= DRIVER_MOVING_TRACK_INTERVAL_MS ? 5 : 15,
           },
           (position) => {
+            const speedMps = Number(position?.coords?.speed ?? 0);
+            const speedKmh = Number.isFinite(speedMps) && speedMps > 0 ? speedMps * 3.6 : 0;
+            const nextInterval =
+              speedKmh < DRIVER_IDLE_SPEED_THRESHOLD_KMH
+                ? DRIVER_IDLE_TRACK_INTERVAL_MS
+                : DRIVER_MOVING_TRACK_INTERVAL_MS;
+            setDriverTrackingIntervalMs((prev) => (prev === nextInterval ? prev : nextInterval));
+
             const nextLocation = normalizeLocation({
               latitude: position?.coords?.latitude,
               longitude: position?.coords?.longitude,
@@ -735,7 +749,11 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
 
             lastWatchedLocationRef.current = nextLocation;
             setDriverLocation(nextLocation);
-            pushDriverLocation({ locationOverride: nextLocation, silent: true }).catch(() => null);
+            pushDriverLocation({
+              locationOverride: nextLocation,
+              speedKmhOverride: speedKmh,
+              silent: true,
+            }).catch(() => null);
           },
         );
       } catch {
@@ -751,7 +769,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
         subscription.remove();
       }
     };
-  }, [normalizeLocation, pushDriverLocation, shouldSyncDriverLocation]);
+  }, [driverTrackingIntervalMs, normalizeLocation, pushDriverLocation, shouldSyncDriverLocation]);
 
   const toggleOnlineStatus = async (nextValue) => {
     if (loading || availabilitySyncPending) {
@@ -1005,15 +1023,20 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       </MapView>
 
       <View style={styles.topBar}>
-        <View style={styles.statusBadge}>
-          <View
-            style={[styles.statusDot, { backgroundColor: serverIsOnline ? COLORS.primary : COLORS.textMuted }]}
-          />
-          <View>
-            <Text style={styles.statusText}>{serverIsOnline ? 'Online & Ready' : 'Offline'}</Text>
-            <Text style={styles.statusSub}>{user?.name || 'Driver'}</Text>
+        <TouchableOpacity
+          style={[styles.statusBadgeButton, { backgroundColor: serverIsOnline ? '#E8F5E9' : '#F5F5F5', borderColor: serverIsOnline ? COLORS.primary : '#BDBDBD' }]}
+          onPress={() => toggleOnlineStatus()}
+          disabled={loading || availabilitySyncPending}
+        >
+          <View style={[styles.statusDot, { backgroundColor: availabilitySyncPending ? '#FFA500' : serverIsOnline ? COLORS.primary : COLORS.textMuted }]} />
+          <View style={styles.statusContent}>
+            <Text style={[styles.statusText, { color: serverIsOnline ? COLORS.primary : '#666' }]}>
+              {availabilitySyncPending ? 'Updating...' : (serverIsOnline ? 'ONLINE & READY' : 'OFFLINE')}
+            </Text>
+            <Text style={styles.statusSub}>{user?.name || 'Driver'} • Tap to toggle</Text>
           </View>
-        </View>
+          {availabilitySyncPending && <ActivityIndicator size="small" color="#FFA500" />}
+        </TouchableOpacity>
         <View style={styles.topActions}>
           <TouchableOpacity style={styles.refreshButton} onPress={refreshDriverData} disabled={loading}>
             <Text style={styles.refreshText}>Refresh</Text>
@@ -1026,13 +1049,6 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
           <TouchableOpacity style={styles.refreshButton} onPress={onLogout}>
             <Text style={styles.refreshText}>Logout</Text>
           </TouchableOpacity>
-          <Switch
-            trackColor={{ false: '#767577', true: COLORS.primaryDark }}
-            thumbColor={isOnline ? COLORS.primary : '#f4f3f4'}
-            onValueChange={toggleOnlineStatus}
-            value={isOnline}
-            disabled={loading || availabilitySyncPending}
-          />
         </View>
       </View>
 
@@ -1304,35 +1320,44 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
                 )}
                 {String(activeRide.status) === 'driver_arrived' && (
                   <>
-                    <Text style={styles.otpHint}>Ask passenger for OTP to start trip</Text>
-                    <VoiceTextInput
-                      value={rideStartOtp}
-                      onChangeText={setRideStartOtp}
-                      keyboardType="number-pad"
-                      placeholder="Enter passenger OTP"
-                      placeholderTextColor={COLORS.textMuted}
-                      style={styles.otpInput}
-                      maxLength={8}
-                    />
+                    <View style={styles.otpCard}>
+                      <Text style={styles.otpCardLabel}>🔐 PASSENGER OTP REQUIRED</Text>
+                      <Text style={styles.otpCardHint}>Ask passenger to share their pickup OTP</Text>
+                      <VoiceTextInput
+                        value={rideStartOtp}
+                        onChangeText={setRideStartOtp}
+                        keyboardType="number-pad"
+                        placeholder="0000"
+                        placeholderTextColor="#BDBDBD"
+                        style={styles.otpInputLarge}
+                        maxLength={8}
+                        autoFocus={true}
+                      />
+                      <Text style={styles.otpCardNote}>Enter the 4-8 digit code only</Text>
+                    </View>
                   </>
                 )}
                 {String(activeRide.status) === 'in_progress' && (
                   <>
-                    <Text style={styles.otpHint}>Enter passenger completion OTP (optional)</Text>
-                    <VoiceTextInput
-                      value={rideEndOtp}
-                      onChangeText={setRideEndOtp}
-                      keyboardType="number-pad"
-                      placeholder="Enter completion OTP"
-                      placeholderTextColor={COLORS.textMuted}
-                      style={styles.otpInput}
-                      maxLength={8}
-                    />
+                    <View style={styles.otpCard}>
+                      <Text style={styles.otpCardLabel}>🏁 COMPLETION OTP (Optional)</Text>
+                      <Text style={styles.otpCardHint}>Passenger drop-off OTP if available</Text>
+                      <VoiceTextInput
+                        value={rideEndOtp}
+                        onChangeText={setRideEndOtp}
+                        keyboardType="number-pad"
+                        placeholder="0000"
+                        placeholderTextColor="#BDBDBD"
+                        style={styles.otpInputLarge}
+                        maxLength={8}
+                      />
+                      <Text style={styles.otpCardNote}>Leave blank to complete without OTP</Text>
+                    </View>
                   </>
                 )}
                 {!!nextActionLabel && (
-                  <TouchableOpacity style={styles.acceptButton} onPress={moveRideToNextStatus} disabled={loading}>
-                    <Text style={styles.acceptText}>{nextActionLabel}</Text>
+                  <TouchableOpacity style={styles.nextActionButton} onPress={moveRideToNextStatus} disabled={loading}>
+                    <Text style={styles.nextActionButtonText}>{nextActionLabel}</Text>
                   </TouchableOpacity>
                 )}
                 <RideCommunicationCard
@@ -1367,33 +1392,52 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
                           req.dropoff ||
                           req.drop_location_details,
                         );
+                        const isBlocked = blockedPassengerIds.includes(req.passenger_id);
                         return (
-                          <View key={req.id} style={styles.requestCard}>
-                            <View style={styles.requestInfo}>
-                              <Text style={styles.passengerName}>{req.passenger_name}</Text>
-                              <Text style={styles.requestDetails}>
-                                {req.distance_km} km away | INR {req.estimated_fare}
-                              </Text>
+                          <View key={req.id} style={styles.requestCardNew}>
+                            <View style={styles.requestCardHeader}>
+                              <View style={styles.requestCardTitle}>
+                                <Text style={styles.passengerNameNew}>{req.passenger_name}</Text>
+                                <Text style={styles.requestCardId}>#{req.id?.toString()?.slice(-6) || 'N/A'}</Text>
+                              </View>
+                              <View style={styles.requestCardBadges}>
+                                <View style={styles.distanceBadge}>
+                                  <Text style={styles.distanceBadgeText}>{req.distance_km} km</Text>
+                                </View>
+                                <View style={styles.fareBadge}>
+                                  <Text style={styles.fareBadgeText}>₹{req.estimated_fare}</Text>
+                                </View>
+                              </View>
+                            </View>
+                            
+                            <View style={styles.requestCardLocations}>
                               {!!pickup && (
-                                <Text style={styles.requestDetails}>From: {pickup.address}</Text>
+                                <View style={styles.locationRow}>
+                                  <Text style={styles.locationLabel}>From:</Text>
+                                  <Text style={styles.requestLocationText}>{pickup.address}</Text>
+                                </View>
                               )}
                               {!!drop && (
-                                <Text style={styles.requestDetails}>To: {drop.address}</Text>
+                                <View style={styles.locationRow}>
+                                  <Text style={styles.locationLabel}>To:</Text>
+                                  <Text style={styles.requestLocationText}>{drop.address}</Text>
+                                </View>
                               )}
                             </View>
+
                             <View style={styles.requestButtonsRow}>
                               <TouchableOpacity
-                                style={styles.acceptButton}
+                                style={styles.acceptButtonNew}
                                 onPress={() => acceptRequest(req.id)}
                                 disabled={loading}>
-                                <Text style={styles.acceptText}>Accept</Text>
+                                <Text style={styles.acceptTextNew}>✓ Accept</Text>
                               </TouchableOpacity>
                               <TouchableOpacity
-                                style={styles.blockButton}
-                                onPress={() => toggleBlockedPassenger(req.passenger_id, blockedPassengerIds.includes(req.passenger_id))}
+                                style={[styles.blockButtonNew, isBlocked && styles.blockButtonActive]}
+                                onPress={() => toggleBlockedPassenger(req.passenger_id, isBlocked)}
                                 disabled={loading}>
-                                <Text style={styles.acceptText}>
-                                  {blockedPassengerIds.includes(req.passenger_id) ? 'Unblock' : 'Block'}
+                                <Text style={[styles.blockButtonTextNew, isBlocked && styles.blockButtonTextActive]}>
+                                  {isBlocked ? '✓ Blocked' : 'Block'}
                                 </Text>
                               </TouchableOpacity>
                             </View>
@@ -1436,9 +1480,21 @@ const styles = StyleSheet.create({
     ...SHADOWS.card,
   },
   statusBadge: { flexDirection: 'row', alignItems: 'center' },
+  statusBadgeButton: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    paddingHorizontal: 14, 
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 2,
+    gap: 10,
+    minWidth: 200,
+    ...SHADOWS.soft,
+  },
+  statusContent: { flex: 1 },
   statusDot: { width: 12, height: 12, borderRadius: 6, marginRight: 8 },
-  statusText: { fontSize: 16, fontWeight: '800', color: COLORS.textMain },
-  statusSub: { fontSize: 12, color: COLORS.textMuted },
+  statusText: { fontSize: 14, fontWeight: '900', color: COLORS.textMain },
+  statusSub: { fontSize: 11, color: COLORS.textMuted, marginTop: 2 },
   topActions: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
   refreshButton: {
     borderWidth: 1,
@@ -1543,6 +1599,49 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
     ...SHADOWS.soft,
   },
+  requestCardNew: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 14,
+    marginBottom: 12,
+    borderLeftWidth: 5,
+    borderLeftColor: COLORS.primary,
+    borderWidth: 1,
+    borderColor: '#E8F5E9',
+    padding: 14,
+    ...SHADOWS.soft,
+  },
+  requestCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 10,
+  },
+  requestCardTitle: { flex: 1, gap: 2 },
+  passengerNameNew: { fontSize: 18, fontWeight: '800', color: COLORS.primary },
+  requestCardId: { fontSize: 12, color: COLORS.textMuted, fontWeight: '600' },
+  requestCardBadges: { flexDirection: 'row', gap: 6 },
+  distanceBadge: {
+    backgroundColor: '#FFF3E0',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FFCC80',
+  },
+  distanceBadgeText: { fontSize: 12, fontWeight: '800', color: '#E65100' },
+  fareBadge: {
+    backgroundColor: '#E8F5E9',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#81C784',
+  },
+  fareBadgeText: { fontSize: 12, fontWeight: '800', color: COLORS.primary },
+  requestCardLocations: { marginBottom: 10, gap: 6 },
+  locationRow: { flexDirection: 'row', gap: 8 },
+  locationLabel: { fontSize: 12, fontWeight: '700', color: COLORS.textMuted, minWidth: 40 },
+  requestLocationText: { fontSize: 12, color: COLORS.textMain, flex: 1 },
   requestInfo: { marginBottom: 8 },
   requestButtonsRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   blockedRow: {
@@ -1565,6 +1664,60 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 9,
   },
+  otpCard: {
+    marginTop: 12,
+    marginBottom: 12,
+    backgroundColor: '#F0F7FF',
+    borderRadius: 12,
+    borderLeftWidth: 6,
+    borderLeftColor: '#1976D2',
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#BBDEFB',
+    ...SHADOWS.soft,
+  },
+  otpCardLabel: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#1565C0',
+    marginBottom: 4,
+  },
+  otpCardHint: {
+    fontSize: 12,
+    color: '#1976D2',
+    marginBottom: 12,
+    fontWeight: '500',
+  },
+  otpInputLarge: {
+    borderWidth: 2,
+    borderColor: '#1976D2',
+    borderRadius: 10,
+    backgroundColor: COLORS.surface,
+    color: COLORS.textMain,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    fontSize: 28,
+    fontWeight: '700',
+    letterSpacing: 4,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  otpCardNote: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+    fontStyle: 'italic',
+    textAlign: 'center',
+  },
+  nextActionButton: {
+    marginTop: 10,
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    ...SHADOWS.soft,
+  },
+  nextActionButtonText: { color: '#fff', fontWeight: '800', fontSize: 15 },
   acceptButton: {
     marginTop: 8,
     backgroundColor: COLORS.primary,
@@ -1572,6 +1725,15 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 8,
     alignSelf: 'flex-start',
+  },
+  acceptButtonNew: {
+    flex: 1,
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    ...SHADOWS.soft,
   },
   blockButton: {
     marginTop: 8,
@@ -1581,7 +1743,24 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignSelf: 'flex-start',
   },
+  blockButtonNew: {
+    backgroundColor: COLORS.background,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: 'center',
+    minWidth: 90,
+  },
+  blockButtonActive: {
+    backgroundColor: '#FFEBEE',
+    borderColor: COLORS.danger,
+  },
   acceptText: { color: '#fff', fontWeight: '700' },
+  acceptTextNew: { color: '#fff', fontWeight: '800', fontSize: 14 },
+  blockButtonTextNew: { color: COLORS.textMain, fontWeight: '700', fontSize: 13 },
+  blockButtonTextActive: { color: COLORS.danger, fontWeight: '800' },
   offlineState: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   offlineText: { color: COLORS.textMuted, fontSize: 15 },
   subscriptionPlanRow: {

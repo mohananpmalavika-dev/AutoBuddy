@@ -240,8 +240,11 @@ export function useDriverRealtimeTracking({
     if (!token || !enabled || !manageLocationWatch) {
       return undefined;
     }
-    startLocationWatch().catch(() => null);
+    const restartTimer = setTimeout(() => {
+      startLocationWatch().catch(() => null);
+    }, 0);
     return () => {
+      clearTimeout(restartTimer);
       if (locationSubRef.current) {
         locationSubRef.current.remove();
         locationSubRef.current = null;
