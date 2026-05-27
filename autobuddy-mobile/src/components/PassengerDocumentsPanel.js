@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -32,36 +32,25 @@ export default function PassengerDocumentsPanel({ token }) {
     { key: 'other', label: 'Other Documents', icon: '📄' },
   ];
 
-  useEffect(() => {
-    fetchDocuments();
-  }, []);
-
-  const fetchDocuments = async () => {
+  const fetchDocuments = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
-      try {
-        const data = await apiRequest('/passengers/documents', { token });
-        setDocuments(data?.documents || []);
-      } catch (err) {
-        console.log('Documents endpoint not yet implemented, using mock data');
-        const mockDocuments = [
-          {
-            id: '1',
-            type: 'address_proof',
-            filename: 'address_proof.pdf',
-            uploaded_at: new Date().toISOString(),
-            verified: true,
-          },
-        ];
-        setDocuments(mockDocuments);
-      }
+      const data = await apiRequest('/passengers/documents', { token });
+      setDocuments(data?.documents || []);
     } catch (err) {
       setError(err.message || 'Failed to load documents');
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchDocuments().catch(() => null);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [fetchDocuments]);
 
   const pickAndUploadDocument = async (docType) => {
     try {
@@ -97,38 +86,24 @@ export default function PassengerDocumentsPanel({ token }) {
         name: asset.name,
       });
 
-      try {
-        const response = await apiRequest('/passengers/documents/upload', {
-          token,
-          method: 'POST',
-          body: formData,
-          isFormData: true,
-        });
+      const response = await apiRequest('/passengers/documents/upload', {
+        token,
+        method: 'POST',
+        body: formData,
+        isFormData: true,
+      });
 
-        const newDoc = {
-          id: response?.id || `doc-${Date.now()}`,
-          type: docType,
-          filename: asset.name,
-          uploaded_at: new Date().toISOString(),
-          verified: false,
-        };
+      const newDoc = {
+        id: response?.id || `doc-${documents.length + 1}`,
+        type: response?.type || docType,
+        filename: response?.filename || asset.name,
+        uploaded_at: response?.uploaded_at || new Date().toISOString(),
+        verified: Boolean(response?.verified),
+      };
 
-        setDocuments([...documents, newDoc]);
-        setMessage('Document uploaded successfully. Pending verification.');
-        setTimeout(() => setMessage(''), 3000);
-      } catch (err) {
-        console.log('Document upload endpoint not yet implemented, saving locally');
-        const newDoc = {
-          id: `doc-${Date.now()}`,
-          type: docType,
-          filename: asset.name,
-          uploaded_at: new Date().toISOString(),
-          verified: false,
-        };
-        setDocuments([...documents, newDoc]);
-        setMessage('Document saved locally (sync pending)');
-        setTimeout(() => setMessage(''), 3000);
-      }
+      setDocuments([...documents, newDoc]);
+      setMessage('Document uploaded successfully. Pending verification.');
+      setTimeout(() => setMessage(''), 3000);
     } catch (err) {
       setError(err.message || 'Failed to upload document');
     }
@@ -142,14 +117,10 @@ export default function PassengerDocumentsPanel({ token }) {
         style: 'destructive',
         onPress: async () => {
           try {
-            try {
-              await apiRequest(`/passengers/documents/${docId}`, {
-                token,
-                method: 'DELETE',
-              });
-            } catch (err) {
-              console.log('Delete endpoint not ready');
-            }
+            await apiRequest(`/passengers/documents/${docId}`, {
+              token,
+              method: 'DELETE',
+            });
             setDocuments(documents.filter((d) => d.id !== docId));
             setMessage('Document deleted successfully');
             setTimeout(() => setMessage(''), 3000);

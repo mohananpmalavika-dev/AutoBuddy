@@ -145,7 +145,7 @@ export async function apiRequest(path, options = {}, legacyPath = undefined, leg
     path = legacyPath;
   }
 
-  const { method = 'GET', token, body, query, timeoutMs = 20000, _retry = false } = options;
+  const { method = 'GET', token, body, query, timeoutMs = 20000, _retry = false, isFormData = false } = options;
   const nowMs = Date.now();
   let normalizedPath = String(path || '');
   if (normalizedPath === '/api') {
@@ -191,15 +191,17 @@ export async function apiRequest(path, options = {}, legacyPath = undefined, leg
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
+    const hasBody = body !== undefined && body !== null;
+    const requestBody = isFormData || typeof body === 'string' ? body : hasBody ? JSON.stringify(body) : undefined;
     const response = await fetch(url.toString(), {
       method,
       signal: controller.signal,
       headers: {
         Accept: 'application/json',
-        ...(body ? { 'Content-Type': 'application/json' } : {}),
+        ...(hasBody && !isFormData ? { 'Content-Type': 'application/json' } : {}),
         ...(effectiveToken ? { Authorization: `Bearer ${effectiveToken}` } : {}),
       },
-      body: body ? JSON.stringify(body) : undefined,
+      body: requestBody,
     });
 
     const raw = await response.text();

@@ -12,20 +12,6 @@ import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
 import VoiceTextInput from './VoiceTextInput';
 
-function inferCardBrand(cardNumber) {
-  const digits = String(cardNumber || '').replace(/\D/g, '');
-  if (digits.startsWith('4')) {
-    return 'visa';
-  }
-  if (/^5[1-5]/.test(digits)) {
-    return 'mastercard';
-  }
-  if (/^3[47]/.test(digits)) {
-    return 'amex';
-  }
-  return 'card';
-}
-
 function getMethodLabel(method) {
   if (method.method_type === 'card') {
     return `${String(method.card_brand || 'card').toUpperCase()} card`;
@@ -53,14 +39,16 @@ export default function PaymentMethodsPanel({ token, onDefaultMethodChange = () 
   const [selectedForBookingId, setSelectedForBookingId] = useState('');
 
   const [paymentType, setPaymentType] = useState('card');
-  const [cardNumber, setCardNumber] = useState('');
+  const [cardLastFour, setCardLastFour] = useState('');
+  const [cardBrand, setCardBrand] = useState('card');
   const [expiryDate, setExpiryDate] = useState('');
   const [upiId, setUpiId] = useState('');
   const [isDefault, setIsDefault] = useState(false);
 
   const resetForm = useCallback(() => {
     setPaymentType('card');
-    setCardNumber('');
+    setCardLastFour('');
+    setCardBrand('card');
     setExpiryDate('');
     setUpiId('');
     setIsDefault(false);
@@ -108,9 +96,9 @@ export default function PaymentMethodsPanel({ token, onDefaultMethodChange = () 
 
   const addPaymentMethod = useCallback(async () => {
     if (paymentType === 'card') {
-      const digits = cardNumber.replace(/\D/g, '');
-      if (digits.length < 12 || !expiryDate) {
-        setError('Card number and expiry are required');
+      const lastFour = cardLastFour.replace(/\D/g, '');
+      if (lastFour.length !== 4 || !expiryDate) {
+        setError('Enter the card brand, last 4 digits, and expiry. Full card numbers are not stored here.');
         return;
       }
     } else if (paymentType === 'upi' && !upiId.trim()) {
@@ -121,13 +109,13 @@ export default function PaymentMethodsPanel({ token, onDefaultMethodChange = () 
     try {
       setError('');
       setLoading(true);
-      const digits = cardNumber.replace(/\D/g, '');
+      const lastFour = cardLastFour.replace(/\D/g, '');
       const payload =
         paymentType === 'card'
           ? {
               method_type: 'card',
-              card_last_four: digits.slice(-4),
-              card_brand: inferCardBrand(digits),
+              card_last_four: lastFour,
+              card_brand: cardBrand.trim() || 'card',
               card_expiry: expiryDate,
               is_default: isDefault,
             }
@@ -158,7 +146,7 @@ export default function PaymentMethodsPanel({ token, onDefaultMethodChange = () 
     } finally {
       setLoading(false);
     }
-  }, [paymentType, cardNumber, expiryDate, upiId, isDefault, token, onDefaultMethodChange, resetForm, fetchPaymentMethods]);
+  }, [paymentType, cardLastFour, cardBrand, expiryDate, upiId, isDefault, token, onDefaultMethodChange, resetForm, fetchPaymentMethods]);
 
   const deletePaymentMethod = useCallback(
     async (methodId) => {
@@ -207,14 +195,9 @@ export default function PaymentMethodsPanel({ token, onDefaultMethodChange = () 
     }
   }, [token, walletTopupAmount]);
 
-  const formatCardNumber = (text) => {
+  const formatCardLastFour = (text) => {
     const cleaned = text.replace(/\D/g, '');
-    const formatted =
-      cleaned
-        .slice(0, 16)
-        .match(/\d{1,4}/g)
-        ?.join(' ') || cleaned;
-    setCardNumber(formatted);
+    setCardLastFour(cleaned.slice(0, 4));
   };
 
   const formatExpiryDate = (text) => {
@@ -253,16 +236,26 @@ export default function PaymentMethodsPanel({ token, onDefaultMethodChange = () 
 
           {paymentType === 'card' && (
             <>
-              <Text style={styles.fieldLabel}>Card Number</Text>
+              <Text style={styles.fieldLabel}>Card Brand</Text>
               <VoiceTextInput
                 style={styles.input}
-                value={cardNumber}
-                onChangeText={formatCardNumber}
-                placeholder="1234 5678 9012 3456"
+                value={cardBrand}
+                onChangeText={(text) => setCardBrand(text.toLowerCase().replace(/[^a-z]/g, '').slice(0, 20))}
+                placeholder="visa, mastercard, rupay"
+                placeholderTextColor={COLORS.textMuted}
+              />
+
+              <Text style={styles.fieldLabel}>Last 4 Digits</Text>
+              <VoiceTextInput
+                style={styles.input}
+                value={cardLastFour}
+                onChangeText={formatCardLastFour}
+                placeholder="1234"
                 placeholderTextColor={COLORS.textMuted}
                 keyboardType="number-pad"
-                maxLength={19}
+                maxLength={4}
               />
+              <Text style={styles.helperText}>For safety, enter only tokenized card metadata. Never type the full card number here.</Text>
 
               <Text style={styles.fieldLabel}>Expiry (MM/YY)</Text>
               <VoiceTextInput
@@ -524,6 +517,7 @@ const styles = StyleSheet.create({
     color: COLORS.textMain,
     marginBottom: 12,
   },
+  helperText: { fontSize: 11, color: COLORS.textMuted, marginTop: -6, marginBottom: 12 },
   checkboxRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
   checkbox: {
     width: 20,

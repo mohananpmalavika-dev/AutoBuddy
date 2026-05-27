@@ -37,6 +37,7 @@ import PaymentMethodsPanel from '../components/PaymentMethodsPanel';
 import PassengerRatingsPanel from '../components/PassengerRatingsPanel';
 import PreferencesPanel from '../components/PreferencesPanel';
 import SavedPlacesPanel from '../components/SavedPlacesPanel';
+import SavedPlacesQuickSelect from '../components/SavedPlacesQuickSelect';
 import EmergencyContactsPanel from '../components/EmergencyContactsPanel';
 import AccessibilityPanel from '../components/AccessibilityPanel';
 import ScheduledRidesPanel from '../components/ScheduledRidesPanel';
@@ -1794,6 +1795,18 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                       </Text>
                     </TouchableOpacity>
                   </View>
+                  <SavedPlacesQuickSelect
+                    token={token}
+                    selectingFor="pickup"
+                    onSelectPlace={(place) => {
+                      const loc = {
+                        latitude: Number(place?.latitude),
+                        longitude: Number(place?.longitude),
+                        address: String(place?.address || place?.name || '').trim(),
+                      };
+                      setLocationForPoint('pickup', loc);
+                    }}
+                  />
                   <VoiceTextInput
                     style={styles.input}
                     value={pickupQuery}
@@ -1817,6 +1830,18 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
 
                 <View style={styles.selectedBlock}>
                   <Text style={styles.infoTitle}>{t.dropSearch}</Text>
+                  <SavedPlacesQuickSelect
+                    token={token}
+                    selectingFor="dropoff"
+                    onSelectPlace={(place) => {
+                      const loc = {
+                        latitude: Number(place?.latitude),
+                        longitude: Number(place?.longitude),
+                        address: String(place?.address || place?.name || '').trim(),
+                      };
+                      setLocationForPoint('dropoff', loc);
+                    }}
+                  />
                   <VoiceTextInput
                     style={styles.input}
                     value={dropoffQuery}

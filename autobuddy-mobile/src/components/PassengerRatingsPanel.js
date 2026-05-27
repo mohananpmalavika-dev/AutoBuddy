@@ -26,16 +26,18 @@ function RatingStars({ current, onSelect }) {
   );
 }
 
-export default function PassengerRatingsPanel({ token }) {
+export default function PassengerRatingsPanel({ token, initialRideId = null, onRatingComplete = null }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
   const [ratings, setRatings] = useState([]);
   const [showSubmitForm, setShowSubmitForm] = useState(false);
   const [editingRatingId, setEditingRatingId] = useState(null);
   const [pastRides, setPastRides] = useState([]);
-  const [selectedRideId, setSelectedRideId] = useState(null);
+  const [selectedRideId, setSelectedRideId] = useState(initialRideId);
   const [score, setScore] = useState(0);
   const [feedback, setFeedback] = useState('');
+  const [filterStatus, setFilterStatus] = useState('unrated'); // unrated, rated, all
 
   const ratedBookingIds = useMemo(
     () => new Set(ratings.map((rating) => rating.booking_id).filter(Boolean)),
@@ -93,6 +95,30 @@ export default function PassengerRatingsPanel({ token }) {
     () => pastRides.filter((ride) => !ratedBookingIds.has(ride.id)).slice(0, 10),
     [pastRides, ratedBookingIds],
   );
+
+  const handleOpenRatingForm = useCallback((rideId) => {
+    const ride = pastRides.find((r) => r.id === rideId);
+    if (ride) {
+      setSelectedRideId(rideId);
+      setShowSubmitForm(true);
+      setEditingRatingId(null);
+      setScore(0);
+      setFeedback('');
+      setError('');
+    }
+  }, [pastRides]);
+
+  const handleEditRating = useCallback((rating) => {
+    const ride = pastRides.find((r) => r.id === rating.booking_id);
+    if (ride) {
+      setEditingRatingId(rating.id);
+      setSelectedRideId(rating.booking_id);
+      setScore(rating.score || 0);
+      setFeedback(rating.feedback || '');
+      setShowSubmitForm(true);
+      setError('');
+    }
+  }, [pastRides]);
 
   const submitRating = useCallback(async () => {
     const selectedRide = pastRides.find((ride) => ride.id === selectedRideId);

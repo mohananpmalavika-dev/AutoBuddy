@@ -15,6 +15,12 @@ const LANGUAGE_OPTIONS = [
   { label: 'Malayalam', value: 'ml' },
 ];
 
+const DRIVER_GENDER_OPTIONS = [
+  { label: 'Any', value: 'any' },
+  { label: 'Male', value: 'male' },
+  { label: 'Female', value: 'female' },
+];
+
 function PreferenceToggle({ label, field, value, saving, onToggle }) {
   return (
     <TouchableOpacity
@@ -176,6 +182,39 @@ export default function PreferencesPanel({ token, onPreferencesChange = () => {}
       </View>
 
       <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Ride Preferences</Text>
+        <PreferenceToggle
+          label="AC Preferred"
+          field="ac_preferred"
+          value={prefs.ac_preferred}
+          saving={saving}
+          onToggle={updatePreference}
+        />
+        <PreferenceToggle
+          label="Music Preferred"
+          field="music_preferred"
+          value={prefs.music_preferred}
+          saving={saving}
+          onToggle={updatePreference}
+        />
+        <PreferenceToggle
+          label="Quiet Ride"
+          field="quiet_ride"
+          value={prefs.quiet_ride}
+          saving={saving}
+          onToggle={updatePreference}
+        />
+        <PreferenceSelect
+          label="Preferred Driver Gender"
+          field="driver_gender_preference"
+          value={prefs.driver_gender_preference || 'any'}
+          options={DRIVER_GENDER_OPTIONS}
+          saving={saving}
+          onSelect={updatePreference}
+        />
+      </View>
+
+      <View style={styles.section}>
         <Text style={styles.sectionTitle}>Privacy and Locale</Text>
         <PreferenceSelect
           label="Language"
@@ -203,6 +242,77 @@ export default function PreferencesPanel({ token, onPreferencesChange = () => {}
           label="Usage Analytics"
           field="analytics_enabled"
           value={prefs.analytics_enabled}
+          saving={saving}
+          onToggle={updatePreference}
+        />
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Accessibility</Text>
+        <PreferenceToggle
+          label="Wheelchair Accessible"
+          field="wheelchair_access"
+          value={prefs.wheelchair_access}
+          saving={saving}
+          onToggle={updatePreference}
+        />
+        <PreferenceToggle
+          label="Audio Navigation"
+          field="audio_navigation"
+          value={prefs.audio_navigation}
+          saving={saving}
+          onToggle={updatePreference}
+        />
+        <PreferenceToggle
+          label="Large Text"
+          field="text_large"
+          value={prefs.text_large}
+          saving={saving}
+          onToggle={updatePreference}
+        />
+        <PreferenceToggle
+          label="High Contrast Mode"
+          field="high_contrast"
+          value={prefs.high_contrast}
+          saving={saving}
+          onToggle={updatePreference}
+        />
+        <PreferenceToggle
+          label="Reduce Motion"
+          field="reduce_motion"
+          value={prefs.reduce_motion}
+          saving={saving}
+          onToggle={updatePreference}
+        />
+        <PreferenceToggle
+          label="Screen Reader Support"
+          field="screen_reader"
+          value={prefs.screen_reader}
+          saving={saving}
+          onToggle={updatePreference}
+        />
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Notification Details</Text>
+        <PreferenceToggle
+          label="Ride Status Updates"
+          field="ride_status_notifications"
+          value={prefs.ride_status_notifications}
+          saving={saving}
+          onToggle={updatePreference}
+        />
+        <PreferenceToggle
+          label="Driver Arrival Alerts"
+          field="driver_arrival_notification"
+          value={prefs.driver_arrival_notification}
+          saving={saving}
+          onToggle={updatePreference}
+        />
+        <PreferenceToggle
+          label="Surge Pricing Alerts"
+          field="surge_pricing_notification"
+          value={prefs.surge_pricing_notification}
           saving={saving}
           onToggle={updatePreference}
         />

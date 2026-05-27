@@ -1,7 +1,7 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Request, Response
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Request, Response, UploadFile, File, Form
 from fastapi.exceptions import RequestValidationError
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -100,6 +100,10 @@ def _normalize_redis_url(raw_redis_url: str) -> tuple[str, bool]:
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 settings = get_settings()
+UPLOADS_DIR = ROOT_DIR / "uploads"
+PASSENGER_PROFILE_PHOTO_DIR = UPLOADS_DIR / "passenger_profile_photos"
+PASSENGER_DOCUMENTS_DIR = UPLOADS_DIR / "passenger_documents"
+SUPPORT_ATTACHMENTS_DIR = UPLOADS_DIR / "support_attachments"
 
 # MongoDB connection
 mongo_url = settings.mongo_url
@@ -616,6 +620,22 @@ async def seed_admin():
         except OperationFailure:
             pass
         try:
+            await db.passenger_profiles.create_index("user_id", unique=True)
+        except OperationFailure:
+            pass
+        try:
+            await db.passenger_kyc.create_index("user_id", unique=True)
+        except OperationFailure:
+            pass
+        try:
+            await db.passenger_documents.create_index([("user_id", 1), ("uploaded_at", -1)])
+        except OperationFailure:
+            pass
+        try:
+            await db.support_attachments.create_index([("user_id", 1), ("created_at", -1)])
+        except OperationFailure:
+            pass
+        try:
             await db.passenger_favorite_drivers.create_index([("passenger_id", 1), ("driver_id", 1)], unique=True)
         except OperationFailure:
             pass
@@ -1116,6 +1136,52 @@ class PhoneChangeVerifyRequest(BaseModel):
 class PhoneChangeReviewRequest(BaseModel):
     status: Literal["approved", "rejected"]
     reject_reason: Optional[str] = Field(default=None, max_length=200)
+
+class PassengerProfileUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    name: Optional[str] = Field(default=None, min_length=2, max_length=80)
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = Field(default=None, pattern=PHONE_PATTERN)
+
+    @field_validator("name")
+    @classmethod
+    def validate_optional_name(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        cleaned = str(value or "").strip()
+        if not NAME_REGEX.match(cleaned):
+            raise ValueError("Name should contain only letters and spaces")
+        return cleaned
+
+    @field_validator("phone")
+    @classmethod
+    def validate_optional_phone(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        cleaned = str(value or "").strip()
+        if not PHONE_REGEX.match(cleaned):
+            raise ValueError("Invalid Indian mobile number")
+        return cleaned
+
+class PassengerProfilePreferencesUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    preferred_language: Optional[str] = Field(default=None, min_length=2, max_length=12)
+    notifications_enabled: Optional[bool] = None
+    email_notifications: Optional[bool] = None
+    ride_sharing_enabled: Optional[bool] = None
+
+class PassengerKYCVerifyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    document_type: Literal["aadhar", "pan", "license", "passport"]
+    document_number: str = Field(min_length=4, max_length=40)
+
+class PassengerSubscriptionUpgradeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    plan_key: str = Field(min_length=2, max_length=40)
+
+class SupportTicketStatusUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    status: Literal["open", "in_progress", "waiting_for_user", "resolved", "closed"]
 
 class OtpSendResponse(BaseModel):
     message: str
@@ -4056,6 +4122,70 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         created_at=current_user["created_at"]
     )
 
+def require_passenger(current_user: Dict[str, Any]) -> None:
+    if current_user.get("role") != UserRole.PASSENGER:
+        raise HTTPException(status_code=403, detail="Only passengers can access this feature")
+
+def safe_upload_filename(original_name: str, prefix: str) -> str:
+    suffix = Path(str(original_name or "upload")).suffix.lower()
+    if suffix not in {".jpg", ".jpeg", ".png", ".webp", ".pdf"}:
+        suffix = ".bin"
+    safe_prefix = re.sub(r"[^a-zA-Z0-9_-]+", "-", prefix).strip("-") or "upload"
+    return f"{safe_prefix}-{uuid.uuid4().hex}{suffix}"
+
+def mask_document_number(document_number: str) -> str:
+    cleaned = re.sub(r"\s+", "", str(document_number or ""))
+    if len(cleaned) <= 4:
+        return "*" * len(cleaned)
+    return f"{'*' * max(0, len(cleaned) - 4)}{cleaned[-4:]}"
+
+def without_mongo_id(document: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not document:
+        return {}
+    result = dict(document)
+    result.pop("_id", None)
+    return result
+
+async def build_passenger_profile_response(user: Dict[str, Any]) -> Dict[str, Any]:
+    profile = without_mongo_id(await db.passenger_profiles.find_one({"user_id": user["id"]}))
+    total_rides = await db.bookings.count_documents({"passenger_id": user["id"]})
+    completed_rides = await db.bookings.count_documents(
+        {"passenger_id": user["id"], "status": BookingStatus.COMPLETED}
+    )
+    return {
+        "id": user.get("id"),
+        "name": user.get("name"),
+        "email": user.get("email"),
+        "phone": user.get("phone"),
+        "profile_photo": profile.get("profile_photo"),
+        "rating": float(profile.get("rating", 5.0) or 5.0),
+        "total_rides": int(profile.get("total_rides", total_rides) or total_rides),
+        "completed_rides": completed_rides,
+        "account_status": user.get("account_status", "active"),
+        "preferred_language": profile.get("preferred_language", "en"),
+        "notifications_enabled": bool(profile.get("notifications_enabled", True)),
+        "email_notifications": bool(profile.get("email_notifications", True)),
+        "ride_sharing_enabled": bool(profile.get("ride_sharing_enabled", False)),
+        "created_at": user.get("created_at"),
+        "updated_at": profile.get("updated_at") or user.get("updated_at"),
+    }
+
+async def save_upload_file(upload: UploadFile, target_dir: Path, prefix: str, max_bytes: int = 5 * 1024 * 1024) -> Dict[str, Any]:
+    target_dir.mkdir(parents=True, exist_ok=True)
+    contents = await upload.read()
+    if len(contents) > max_bytes:
+        raise HTTPException(status_code=400, detail="File size must be less than 5MB")
+    filename = safe_upload_filename(upload.filename or "upload", prefix)
+    target_path = target_dir / filename
+    target_path.write_bytes(contents)
+    return {
+        "filename": filename,
+        "original_filename": upload.filename or filename,
+        "content_type": upload.content_type or "application/octet-stream",
+        "size": len(contents),
+        "path": str(target_path),
+    }
+
 @api_router.get("/users/profile")
 async def get_user_profile(current_user: dict = Depends(get_current_user)):
     user = await db.users.find_one({"id": current_user["id"]})
@@ -4078,6 +4208,325 @@ async def get_user_profile(current_user: dict = Depends(get_current_user)):
         "created_at": user.get("created_at"),
         "pending_phone_change": pending_change.get("new_phone") if pending_change else None,
     }
+
+@api_router.get("/passengers/profile")
+async def get_passenger_profile(current_user: dict = Depends(get_current_user)):
+    require_passenger(current_user)
+    user = await db.users.find_one({"id": current_user["id"]})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"profile": await build_passenger_profile_response(user)}
+
+@api_router.post("/passengers/profile/update")
+async def update_passenger_profile(
+    payload: PassengerProfileUpdate,
+    current_user: dict = Depends(get_current_user),
+):
+    require_passenger(current_user)
+    update_data = payload.model_dump(exclude_unset=True)
+    if not update_data:
+        user = await db.users.find_one({"id": current_user["id"]})
+        return {"profile": await build_passenger_profile_response(user or current_user)}
+
+    if "email" in update_data:
+        existing = await db.users.find_one({"email": update_data["email"], "id": {"$ne": current_user["id"]}})
+        if existing:
+            raise HTTPException(status_code=400, detail="Email already registered")
+    if "phone" in update_data:
+        existing = await db.users.find_one({"phone": update_data["phone"], "id": {"$ne": current_user["id"]}})
+        if existing:
+            raise HTTPException(status_code=400, detail="Phone number already registered")
+
+    now = datetime.utcnow()
+    await db.users.update_one({"id": current_user["id"]}, {"$set": {**update_data, "updated_at": now}})
+    await db.passenger_profiles.update_one(
+        {"user_id": current_user["id"]},
+        {"$set": {"updated_at": now}, "$setOnInsert": {"user_id": current_user["id"], "created_at": now}},
+        upsert=True,
+    )
+    user = await db.users.find_one({"id": current_user["id"]})
+    return {"profile": await build_passenger_profile_response(user)}
+
+@api_router.post("/passengers/profile/preferences")
+async def update_passenger_profile_preferences(
+    payload: PassengerProfilePreferencesUpdate,
+    current_user: dict = Depends(get_current_user),
+):
+    require_passenger(current_user)
+    update_data = payload.model_dump(exclude_unset=True)
+    now = datetime.utcnow()
+    await db.passenger_profiles.update_one(
+        {"user_id": current_user["id"]},
+        {
+            "$set": {**update_data, "updated_at": now},
+            "$setOnInsert": {"user_id": current_user["id"], "created_at": now},
+        },
+        upsert=True,
+    )
+    user = await db.users.find_one({"id": current_user["id"]})
+    return {"profile": await build_passenger_profile_response(user or current_user)}
+
+@api_router.post("/passengers/profile/photo")
+async def upload_passenger_profile_photo(
+    request: Request,
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
+    require_passenger(current_user)
+    saved = await save_upload_file(file, PASSENGER_PROFILE_PHOTO_DIR, current_user["id"])
+    photo_url = f"{str(request.base_url).rstrip('/')}/api/passengers/profile/photo/{saved['filename']}"
+    now = datetime.utcnow()
+    await db.passenger_profiles.update_one(
+        {"user_id": current_user["id"]},
+        {
+            "$set": {
+                "profile_photo": photo_url,
+                "profile_photo_filename": saved["filename"],
+                "updated_at": now,
+            },
+            "$setOnInsert": {"user_id": current_user["id"], "created_at": now},
+        },
+        upsert=True,
+    )
+    return {"profile_photo": photo_url}
+
+@api_router.get("/passengers/profile/photo/{filename}")
+async def get_passenger_profile_photo(filename: str):
+    safe_name = Path(filename).name
+    target = PASSENGER_PROFILE_PHOTO_DIR / safe_name
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="Profile photo not found")
+    return FileResponse(target)
+
+@api_router.delete("/passengers/profile/delete")
+async def request_passenger_account_deletion(current_user: dict = Depends(get_current_user)):
+    require_passenger(current_user)
+    now = datetime.utcnow()
+    await db.account_deletion_requests.update_one(
+        {"user_id": current_user["id"], "status": "pending"},
+        {
+            "$set": {"updated_at": now},
+            "$setOnInsert": {
+                "id": str(uuid.uuid4()),
+                "user_id": current_user["id"],
+                "status": "pending",
+                "created_at": now,
+            },
+        },
+        upsert=True,
+    )
+    return {"success": True, "message": "Account deletion request submitted for review"}
+
+@api_router.get("/passengers/kyc/status")
+async def get_passenger_kyc_status(current_user: dict = Depends(get_current_user)):
+    require_passenger(current_user)
+    kyc = without_mongo_id(await db.passenger_kyc.find_one({"user_id": current_user["id"]}))
+    if not kyc:
+        return {
+            "is_verified": False,
+            "verification_level": "unverified",
+            "document_type": "",
+            "document_number": "",
+            "verification_date": None,
+            "expiry_date": None,
+        }
+    return {
+        "is_verified": bool(kyc.get("is_verified", False)),
+        "verification_level": kyc.get("verification_level", "pending"),
+        "document_type": kyc.get("document_type", ""),
+        "document_number": kyc.get("document_number_masked", ""),
+        "verification_date": kyc.get("verification_date"),
+        "expiry_date": kyc.get("expiry_date"),
+        "submitted_at": kyc.get("submitted_at"),
+        "reject_reason": kyc.get("reject_reason"),
+    }
+
+@api_router.post("/passengers/kyc/verify")
+async def submit_passenger_kyc(
+    payload: PassengerKYCVerifyRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    require_passenger(current_user)
+    now = datetime.utcnow()
+    encrypted_number = fernet.encrypt(payload.document_number.encode("utf-8")).decode("utf-8")
+    await db.passenger_kyc.update_one(
+        {"user_id": current_user["id"]},
+        {
+            "$set": {
+                "document_type": payload.document_type,
+                "document_number_encrypted": encrypted_number,
+                "document_number_masked": mask_document_number(payload.document_number),
+                "is_verified": False,
+                "verification_level": "pending",
+                "submitted_at": now,
+                "updated_at": now,
+                "reject_reason": None,
+            },
+            "$setOnInsert": {"id": str(uuid.uuid4()), "user_id": current_user["id"], "created_at": now},
+        },
+        upsert=True,
+    )
+    return await get_passenger_kyc_status(current_user)
+
+@api_router.get("/passengers/documents")
+async def get_passenger_documents(current_user: dict = Depends(get_current_user)):
+    require_passenger(current_user)
+    documents = await db.passenger_documents.find({"user_id": current_user["id"]}).sort("uploaded_at", -1).to_list(100)
+    return {"documents": [without_mongo_id(document) for document in documents]}
+
+@api_router.post("/passengers/documents/upload")
+async def upload_passenger_document(
+    request: Request,
+    document_type: str = Form(...),
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
+    require_passenger(current_user)
+    doc_type = re.sub(r"[^a-zA-Z0-9_-]+", "_", document_type).strip("_") or "other"
+    saved = await save_upload_file(file, PASSENGER_DOCUMENTS_DIR / current_user["id"], doc_type)
+    now = datetime.utcnow()
+    document = {
+        "id": f"doc-{uuid.uuid4()}",
+        "user_id": current_user["id"],
+        "type": doc_type,
+        "filename": saved["original_filename"],
+        "stored_filename": saved["filename"],
+        "content_type": saved["content_type"],
+        "size": saved["size"],
+        "download_url": f"{str(request.base_url).rstrip('/')}/api/passengers/documents/{saved['filename']}/download",
+        "uploaded_at": now,
+        "verified": False,
+        "verification_status": "pending",
+    }
+    await db.passenger_documents.insert_one(document)
+    return without_mongo_id(document)
+
+@api_router.get("/passengers/documents/{filename}/download")
+async def download_passenger_document(filename: str, current_user: dict = Depends(get_current_user)):
+    require_passenger(current_user)
+    document = await db.passenger_documents.find_one({"user_id": current_user["id"], "stored_filename": Path(filename).name})
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    target = PASSENGER_DOCUMENTS_DIR / current_user["id"] / document["stored_filename"]
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="Document file not found")
+    return FileResponse(target, filename=document.get("filename") or document["stored_filename"])
+
+@api_router.delete("/passengers/documents/{document_id}")
+async def delete_passenger_document(document_id: str, current_user: dict = Depends(get_current_user)):
+    require_passenger(current_user)
+    document = await db.passenger_documents.find_one({"user_id": current_user["id"], "id": document_id})
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    await db.passenger_documents.delete_one({"user_id": current_user["id"], "id": document_id})
+    stored_filename = document.get("stored_filename")
+    if stored_filename:
+        target = PASSENGER_DOCUMENTS_DIR / current_user["id"] / Path(stored_filename).name
+        if target.exists() and target.is_file():
+            target.unlink()
+    return {"success": True, "message": "Document deleted"}
+
+@api_router.get("/passengers/receipts")
+async def get_passenger_receipts(period: str = "all", current_user: dict = Depends(get_current_user)):
+    require_passenger(current_user)
+    query: Dict[str, Any] = {"passenger_id": current_user["id"]}
+    now = datetime.utcnow()
+    if period == "month":
+        query["created_at"] = {"$gte": now - timedelta(days=31)}
+    elif period == "quarter":
+        query["created_at"] = {"$gte": now - timedelta(days=92)}
+    elif period == "year":
+        query["created_at"] = {"$gte": now - timedelta(days=366)}
+
+    bookings = await db.bookings.find(query).sort("created_at", -1).to_list(200)
+    driver_ids = [booking.get("driver_id") for booking in bookings if booking.get("driver_id")]
+    users = {user["id"]: user for user in await db.users.find({"id": {"$in": driver_ids}}).to_list(None)} if driver_ids else {}
+    receipts = []
+    for booking in bookings:
+        fare = round(float(booking.get("final_fare") or booking.get("estimated_fare") or 0), 2)
+        distance_km = round(float(booking.get("actual_distance_km") or booking.get("distance_km") or 0), 2)
+        taxes = round(fare * 0.05, 2) if fare else 0.0
+        base_fare = min(fare, 25.0) if fare else 0.0
+        distance_fare = max(0.0, round(fare - base_fare - taxes, 2))
+        driver = users.get(booking.get("driver_id"))
+        created_at = booking.get("trip_completed_at") or booking.get("updated_at") or booking.get("created_at") or now
+        receipts.append(
+            {
+                "id": f"RCP-{str(booking.get('id', ''))[:8].upper()}",
+                "booking_id": booking.get("id"),
+                "date": created_at,
+                "from": (booking.get("pickup_location") or {}).get("address") or "Pickup",
+                "to": (booking.get("drop_location") or {}).get("address") or "Drop",
+                "driver_name": driver.get("name") if driver else "Driver",
+                "distance_km": distance_km,
+                "duration_minutes": int(booking.get("duration_minutes") or booking.get("eta_minutes") or 0),
+                "base_fare": base_fare,
+                "distance_fare": distance_fare,
+                "surge_multiplier": float(booking.get("surge_multiplier") or 1.0),
+                "taxes": taxes,
+                "discount": float(booking.get("discount") or 0),
+                "total": fare,
+                "payment_method": str(booking.get("payment_method") or "cash").upper(),
+                "payment_status": "completed" if booking.get("status") == BookingStatus.COMPLETED else str(booking.get("status") or "pending"),
+            }
+        )
+    return {"receipts": receipts}
+
+@api_router.post("/passengers/support/attachments")
+async def upload_support_attachment(
+    request: Request,
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
+    require_passenger(current_user)
+    saved = await save_upload_file(file, SUPPORT_ATTACHMENTS_DIR / current_user["id"], "support")
+    attachment_url = f"{str(request.base_url).rstrip('/')}/api/passengers/support/attachments/{saved['filename']}"
+    await db.support_attachments.insert_one(
+        {
+            "id": f"att-{uuid.uuid4()}",
+            "user_id": current_user["id"],
+            "stored_filename": saved["filename"],
+            "filename": saved["original_filename"],
+            "content_type": saved["content_type"],
+            "size": saved["size"],
+            "url": attachment_url,
+            "created_at": datetime.utcnow(),
+        }
+    )
+    return {"attachment_url": attachment_url, "filename": saved["original_filename"]}
+
+@api_router.get("/passengers/support/attachments/{filename}")
+async def download_support_attachment(filename: str, current_user: dict = Depends(get_current_user)):
+    require_passenger(current_user)
+    attachment = await db.support_attachments.find_one(
+        {"user_id": current_user["id"], "stored_filename": Path(filename).name}
+    )
+    if not attachment:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    target = SUPPORT_ATTACHMENTS_DIR / current_user["id"] / attachment["stored_filename"]
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="Attachment file not found")
+    return FileResponse(target, filename=attachment.get("filename") or attachment["stored_filename"])
+
+@api_router.post("/passengers/subscription/cancel")
+async def cancel_passenger_subscription(current_user: dict = Depends(get_current_user)):
+    require_passenger(current_user)
+    now = datetime.utcnow()
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {
+            "$set": {
+                "subscription.plan_type": None,
+                "subscription.is_active": False,
+                "subscription.activated_by_admin": False,
+                "subscription.cancelled_at": now,
+                "subscription.activation_note": "Cancelled by passenger",
+            }
+        },
+    )
+    refreshed = await db.users.find_one({"id": current_user["id"]})
+    config = await get_subscription_config()
+    return {"message": "Subscription cancelled", "subscription": serialize_subscription_for_response(refreshed, config)}
 
 @api_router.put("/users/change-password")
 async def change_user_password(
@@ -9681,12 +10130,6 @@ async def shutdown_db_client():
         except Exception:
             pass
     client.close()
-
-
-
-
-
-
 
 
 

@@ -44,45 +44,29 @@ export default function PassengerProfilePanel({ token, loading: parentLoading = 
   const [message, setMessage] = useState('');
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
-  useEffect(() => {
-    fetchProfile();
-  }, []);
-
-  const fetchProfile = async () => {
+  const fetchProfile = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
-      try {
-        const data = await apiRequest('/passengers/profile', { token });
-        const profileData = data?.profile || data;
-        if (profileData) {
-          setProfile(profileData);
-          setTempProfile(profileData);
-        }
-      } catch (err) {
-        console.log('Passenger profile endpoint not yet implemented, using mock data');
-        const mockProfile = {
-          name: 'Passenger Name',
-          email: 'passenger@autobuddy.com',
-          phone: '+91 9876543210',
-          profile_photo: null,
-          rating: 4.6,
-          total_rides: 42,
-          account_status: 'active',
-          preferred_language: 'en',
-          notifications_enabled: true,
-          email_notifications: true,
-          ride_sharing_enabled: false,
-        };
-        setProfile(mockProfile);
-        setTempProfile(mockProfile);
+      const data = await apiRequest('/passengers/profile', { token });
+      const profileData = data?.profile || data;
+      if (profileData) {
+        setProfile(profileData);
+        setTempProfile(profileData);
       }
     } catch (err) {
       setError(err.message || 'Failed to load profile');
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchProfile().catch(() => null);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [fetchProfile]);
 
   const pickImage = async () => {
     try {
@@ -121,23 +105,16 @@ export default function PassengerProfilePanel({ token, loading: parentLoading = 
         name: `profile-${Date.now()}.jpg`,
       });
 
-      try {
-        const response = await apiRequest('/passengers/profile/photo', {
-          token,
-          method: 'POST',
-          body: formData,
-          isFormData: true,
-        });
+      const response = await apiRequest('/passengers/profile/photo', {
+        token,
+        method: 'POST',
+        body: formData,
+        isFormData: true,
+      });
 
-        if (response && response.profile_photo) {
-          setProfile({ ...profile, profile_photo: response.profile_photo });
-          setMessage('Profile photo updated successfully');
-          setTimeout(() => setMessage(''), 3000);
-        }
-      } catch (err) {
-        console.log('Profile photo upload not yet implemented, saving locally');
-        setProfile({ ...profile, profile_photo: asset.uri });
-        setMessage('Photo saved locally (sync pending)');
+      if (response && response.profile_photo) {
+        setProfile({ ...profile, profile_photo: response.profile_photo });
+        setMessage('Profile photo updated successfully');
         setTimeout(() => setMessage(''), 3000);
       }
     } catch (err) {
@@ -158,24 +135,18 @@ export default function PassengerProfilePanel({ token, loading: parentLoading = 
         phone: tempProfile.phone,
       };
 
-      try {
-        const response = await apiRequest('/passengers/profile/update', {
-          token,
-          method: 'POST',
-          body: JSON.stringify(updateData),
-        });
+      const response = await apiRequest('/passengers/profile/update', {
+        token,
+        method: 'POST',
+        body: updateData,
+      });
 
-        setProfile(tempProfile);
-        setEditMode({ ...editMode, personalInfo: false });
-        setMessage('Personal info updated successfully');
-        setTimeout(() => setMessage(''), 3000);
-      } catch (err) {
-        console.log('Update endpoint not ready, saving locally');
-        setProfile(tempProfile);
-        setEditMode({ ...editMode, personalInfo: false });
-        setMessage('Changes saved locally (sync pending)');
-        setTimeout(() => setMessage(''), 3000);
-      }
+      const nextProfile = response?.profile || tempProfile;
+      setProfile(nextProfile);
+      setTempProfile(nextProfile);
+      setEditMode({ ...editMode, personalInfo: false });
+      setMessage('Personal info updated successfully');
+      setTimeout(() => setMessage(''), 3000);
     } catch (err) {
       setError(err.message || 'Failed to update profile');
     } finally {
@@ -195,24 +166,18 @@ export default function PassengerProfilePanel({ token, loading: parentLoading = 
         ride_sharing_enabled: tempProfile.ride_sharing_enabled,
       };
 
-      try {
-        const response = await apiRequest('/passengers/profile/preferences', {
-          token,
-          method: 'POST',
-          body: JSON.stringify(updateData),
-        });
+      const response = await apiRequest('/passengers/profile/preferences', {
+        token,
+        method: 'POST',
+        body: updateData,
+      });
 
-        setProfile(tempProfile);
-        setEditMode({ ...editMode, preferences: false });
-        setMessage('Preferences updated successfully');
-        setTimeout(() => setMessage(''), 3000);
-      } catch (err) {
-        console.log('Preferences endpoint not ready, saving locally');
-        setProfile(tempProfile);
-        setEditMode({ ...editMode, preferences: false });
-        setMessage('Preferences saved locally (sync pending)');
-        setTimeout(() => setMessage(''), 3000);
-      }
+      const nextProfile = response?.profile || tempProfile;
+      setProfile(nextProfile);
+      setTempProfile(nextProfile);
+      setEditMode({ ...editMode, preferences: false });
+      setMessage('Preferences updated successfully');
+      setTimeout(() => setMessage(''), 3000);
     } catch (err) {
       setError(err.message || 'Failed to update preferences');
     } finally {
@@ -244,17 +209,11 @@ export default function PassengerProfilePanel({ token, loading: parentLoading = 
                   onPress: async () => {
                     try {
                       setLoading(true);
-                      try {
-                        await apiRequest('/passengers/profile/delete', {
-                          token,
-                          method: 'DELETE',
-                        });
-                        setMessage('Account deleted successfully');
-                        // Trigger logout
-                      } catch (err) {
-                        console.log('Delete endpoint not ready');
-                        setMessage('Account deletion request received');
-                      }
+                      await apiRequest('/passengers/profile/delete', {
+                        token,
+                        method: 'DELETE',
+                      });
+                      setMessage('Account deletion request received');
                     } catch (err) {
                       setError(err.message || 'Failed to delete account');
                     } finally {

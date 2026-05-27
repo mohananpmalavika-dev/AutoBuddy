@@ -1,7 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   ScrollView,
   Share,
@@ -21,76 +20,45 @@ export default function ReceiptsPanel({ token }) {
   const [receipts, setReceipts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
-  const [selectedReceipt, setSelectedReceipt] = useState(null);
   const [filterPeriod, setFilterPeriod] = useState('all'); // all, month, quarter, year
 
-  useEffect(() => {
-    fetchReceipts();
-  }, [filterPeriod]);
-
-  const fetchReceipts = async () => {
+  const fetchReceipts = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
-      try {
-        const data = await apiRequest(`/passengers/receipts?period=${filterPeriod}`, { token });
-        setReceipts(data?.receipts || []);
-      } catch (err) {
-        console.log('Receipts endpoint not yet implemented, using mock data');
-        const mockReceipts = [
-          {
-            id: 'RCP-20260528-001',
-            booking_id: 'BK-12345',
-            date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-            from: 'Kochi, Kerala',
-            to: 'Ernakulathappan, Kerala',
-            driver_name: 'Rajesh Kumar',
-            distance_km: 12.5,
-            duration_minutes: 28,
-            base_fare: 150,
-            distance_fare: 125,
-            surge_multiplier: 1.0,
-            taxes: 44,
-            discount: 20,
-            total: 299,
-            payment_method: 'Wallet',
-            payment_status: 'completed',
-          },
-          {
-            id: 'RCP-20260527-001',
-            booking_id: 'BK-12344',
-            date: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
-            from: 'Cochin Airport',
-            to: 'Kochi City Center',
-            driver_name: 'Aravind Nair',
-            distance_km: 28.2,
-            duration_minutes: 52,
-            base_fare: 100,
-            distance_fare: 282,
-            surge_multiplier: 1.2,
-            taxes: 91.8,
-            discount: 0,
-            total: 656.88,
-            payment_method: 'Credit Card',
-            payment_status: 'completed',
-          },
-        ];
-        setReceipts(mockReceipts);
-      }
+      const data = await apiRequest(`/passengers/receipts?period=${filterPeriod}`, { token });
+      setReceipts(data?.receipts || []);
     } catch (err) {
       setError(err.message || 'Failed to load receipts');
     } finally {
       setLoading(false);
     }
-  };
+  }, [filterPeriod, token]);
 
-  const downloadReceipt = async (receiptId) => {
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchReceipts().catch(() => null);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [fetchReceipts]);
+
+  const downloadReceipt = async (receipt) => {
     try {
-      Alert.alert('Download Receipt', 'Receipt download will be available soon. Check your email for receipt.');
-      // Future implementation for PDF download
+      await Share.share({
+        title: `AutoBuddy Receipt - ${receipt.id}`,
+        message: [
+          `AutoBuddy Receipt #${receipt.id}`,
+          `Booking: ${receipt.booking_id}`,
+          `Ride: ${receipt.from} -> ${receipt.to}`,
+          `Date: ${new Date(receipt.date).toLocaleString()}`,
+          `Driver: ${receipt.driver_name}`,
+          `Distance: ${receipt.distance_km} km`,
+          `Total: INR ${receipt.total}`,
+          `Payment: ${receipt.payment_method} (${receipt.payment_status})`,
+        ].join('\n'),
+      });
     } catch (err) {
-      setError(err.message || 'Failed to download receipt');
+      setError(err.message || 'Failed to export receipt');
     }
   };
 
@@ -189,9 +157,9 @@ export default function ReceiptsPanel({ token }) {
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.actionButton, { flex: 1 }]}
-          onPress={() => downloadReceipt(item.id)}
+          onPress={() => downloadReceipt(item)}
         >
-          <Text style={styles.actionButtonText}>Download</Text>
+          <Text style={styles.actionButtonText}>Export</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -211,8 +179,6 @@ export default function ReceiptsPanel({ token }) {
   return (
     <ScrollView style={styles.container}>
       {error && <Text style={styles.errorText}>{error}</Text>}
-      {message && <Text style={styles.messageText}>{message}</Text>}
-
       {/* Summary Cards */}
       {receipts.length > 0 && (
         <View style={styles.summaryRow}>
@@ -373,5 +339,4 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 16, fontWeight: 'bold', color: COLORS.text, marginBottom: 8 },
   infoText: { fontSize: 12, color: COLORS.text, lineHeight: 18, marginBottom: 4 },
   errorText: { color: '#F44336', fontSize: 12, marginBottom: 12, fontWeight: '600' },
-  messageText: { color: '#4CAF50', fontSize: 12, marginBottom: 12, fontWeight: '600' },
 });

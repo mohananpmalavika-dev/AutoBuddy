@@ -24,7 +24,7 @@ from app.schemas.features_schemas import (
     EmergencyContactCreate, EmergencyContactResponse,
     PromoCodeResponse, PromoCodeValidateRequest,
     SupportTicketCreate, SupportTicketResponse, TicketMessageCreate, TicketMessageResponse,
-    AccessibilitySettingsUpdate, AccessibilitySettingsResponse
+    SupportTicketStatusUpdate, AccessibilitySettingsUpdate, AccessibilitySettingsResponse
 )
 from app.core.auth import get_current_passenger
 from app.db.database import get_db
@@ -665,6 +665,35 @@ def add_ticket_message(
     db.refresh(ticket_msg)
     
     return ticket_msg
+
+
+@router.patch("/support/tickets/{ticket_id}/status", response_model=SupportTicketResponse)
+def update_support_ticket_status(
+    ticket_id: str,
+    status_update: SupportTicketStatusUpdate,
+    current_passenger: dict = Depends(get_current_passenger),
+    db: Session = Depends(get_db)
+):
+    """Allow a passenger to close or reopen their own support ticket"""
+    allowed_statuses = {"open", "in_progress", "waiting_for_user", "resolved", "closed"}
+    if status_update.status not in allowed_statuses:
+        raise HTTPException(status_code=400, detail="Invalid ticket status")
+
+    ticket = db.query(SupportTicket).filter(
+        SupportTicket.id == ticket_id,
+        SupportTicket.passenger_id == current_passenger["id"]
+    ).first()
+
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Support ticket not found")
+
+    ticket.status = status_update.status
+    ticket.updated_at = datetime.utcnow()
+    if status_update.status in {"resolved", "closed"}:
+        ticket.resolved_at = ticket.updated_at
+    db.commit()
+    db.refresh(ticket)
+    return ticket
 
 
 # ============================================================================

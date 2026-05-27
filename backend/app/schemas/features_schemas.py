@@ -16,12 +16,12 @@ from enum import Enum
 class RatingCreate(BaseModel):
     driver_id: str
     booking_id: Optional[str] = None
-    score: int = Field(..., ge=1, le=9)
+    score: int = Field(..., ge=1, le=5)
     feedback: Optional[str] = None
 
 
 class RatingUpdate(BaseModel):
-    score: Optional[int] = Field(default=None, ge=1, le=9)
+    score: Optional[int] = Field(default=None, ge=1, le=5)
     feedback: Optional[str] = None
 
 
@@ -298,6 +298,10 @@ class SupportTicketCreate(BaseModel):
     description: str
     category: str  # "booking", "payment", "driver", "safety", "other"
     priority: Optional[str] = "normal"  # "low", "normal", "high", "urgent"
+
+
+class SupportTicketStatusUpdate(BaseModel):
+    status: str
 
 
 class SupportTicketResponse(BaseModel):

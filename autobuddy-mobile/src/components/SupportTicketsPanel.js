@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   ScrollView,
   StyleSheet,
   Text,
@@ -8,6 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
 import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
 import VoiceTextInput from './VoiceTextInput';
@@ -28,6 +30,7 @@ export default function SupportTicketsPanel({ token }) {
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState('medium');
   const [createAttachmentUrl, setCreateAttachmentUrl] = useState('');
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
 
   const categories = useMemo(
     () => [
@@ -125,7 +128,7 @@ export default function SupportTicketsPanel({ token }) {
     } finally {
       setLoading(false);
     }
-  }, [token, category, subject, description, priority]);
+  }, [token, category, subject, description, priority, createAttachmentUrl]);
 
   const addMessage = useCallback(async () => {
     if (!newMessage.trim() || !selectedTicket) {
@@ -154,7 +157,75 @@ export default function SupportTicketsPanel({ token }) {
     } finally {
       setLoading(false);
     }
-  }, [token, selectedTicket, newMessage]);
+  }, [token, selectedTicket, newMessage, messageAttachmentUrl]);
+
+  const uploadAttachment = useCallback(
+    async (target) => {
+      try {
+        const result = await DocumentPicker.getDocumentAsync({
+          type: ['image/*', 'application/pdf', 'text/plain'],
+        });
+        if (result.canceled) {
+          return;
+        }
+        const asset = result.assets?.[0];
+        if (!asset) {
+          return;
+        }
+        if (asset.size > 5 * 1024 * 1024) {
+          Alert.alert('File too large', 'Attachment must be less than 5MB.');
+          return;
+        }
+        setUploadingAttachment(true);
+        const formData = new FormData();
+        formData.append('file', {
+          uri: asset.uri,
+          type: asset.mimeType || 'application/octet-stream',
+          name: asset.name || `attachment-${Date.now()}`,
+        });
+        const response = await apiRequest('/passengers/support/attachments', {
+          token,
+          method: 'POST',
+          body: formData,
+          isFormData: true,
+        });
+        if (target === 'create') {
+          setCreateAttachmentUrl(response?.attachment_url || '');
+        } else {
+          setMessageAttachmentUrl(response?.attachment_url || '');
+        }
+      } catch (err) {
+        setError(err.message || 'Failed to upload attachment');
+      } finally {
+        setUploadingAttachment(false);
+      }
+    },
+    [token],
+  );
+
+  const updateTicketStatus = useCallback(
+    async (status) => {
+      if (!selectedTicket) {
+        return;
+      }
+      try {
+        setLoading(true);
+        const response = await apiRequest(`/v1/passengers/support/tickets/${selectedTicket.id}/status`, {
+          method: 'PATCH',
+          token,
+          body: { status },
+        });
+        const updatedTicket = response?.data || response || { ...selectedTicket, status };
+        setSelectedTicket(updatedTicket);
+        setTickets((prev) => prev.map((ticket) => (ticket.id === selectedTicket.id ? updatedTicket : ticket)));
+      } catch (err) {
+        setError(err.message || 'Failed to update ticket');
+      } finally {
+        setLoading(false);
+      }
+    },
+    [selectedTicket, token],
+  );
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -193,6 +264,14 @@ export default function SupportTicketsPanel({ token }) {
           <Text style={styles.createdDate}>
             Created: {new Date(selectedTicket.created_at).toLocaleString()}
           </Text>
+          <TouchableOpacity
+            style={styles.statusActionButton}
+            onPress={() => updateTicketStatus(selectedTicket.status === 'closed' ? 'open' : 'closed')}
+            disabled={loading}>
+            <Text style={styles.statusActionText}>
+              {selectedTicket.status === 'closed' ? 'Reopen ticket' : 'Close ticket'}
+            </Text>
+          </TouchableOpacity>
 
           {/* Messages */}
           <View style={styles.messagesSection}>
@@ -240,6 +319,12 @@ export default function SupportTicketsPanel({ token }) {
                 placeholder="Attachment URL (optional)"
                 placeholderTextColor={COLORS.textMuted}
               />
+              <TouchableOpacity
+                style={styles.attachButton}
+                onPress={() => uploadAttachment('message')}
+                disabled={uploadingAttachment}>
+                <Text style={styles.attachButtonText}>{uploadingAttachment ? '...' : 'Attach'}</Text>
+              </TouchableOpacity>
               <TouchableOpacity style={styles.sendButton} onPress={addMessage} disabled={loading}>
                 <Text style={styles.sendButtonText}>Send</Text>
               </TouchableOpacity>
@@ -346,9 +431,17 @@ export default function SupportTicketsPanel({ token }) {
             style={styles.input}
             value={createAttachmentUrl}
             onChangeText={setCreateAttachmentUrl}
-            placeholder="https://example.com/screenshot.png"
+            placeholder="Upload a file or paste a URL"
             placeholderTextColor={COLORS.textMuted}
           />
+          <TouchableOpacity
+            style={styles.uploadButton}
+            onPress={() => uploadAttachment('create')}
+            disabled={uploadingAttachment}>
+            <Text style={styles.uploadButtonText}>
+              {uploadingAttachment ? 'Uploading...' : 'Upload Attachment'}
+            </Text>
+          </TouchableOpacity>
 
           {/* Priority */}
           <Text style={styles.fieldLabel}>Priority</Text>
@@ -451,6 +544,16 @@ const styles = StyleSheet.create({
   },
   ticketDescription: { fontSize: 13, color: COLORS.textMain, lineHeight: 18, marginBottom: 12 },
   createdDate: { fontSize: 11, color: COLORS.textMuted, marginBottom: 20 },
+  statusActionButton: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    marginBottom: 12,
+  },
+  statusActionText: { color: COLORS.primary, fontWeight: '700', fontSize: 12 },
   messagesSection: { marginTop: 20 },
   messagesTitle: { fontSize: 13, fontWeight: '700', color: COLORS.textMain, marginBottom: 10 },
   noMessagesText: { fontSize: 12, color: COLORS.textMuted, textAlign: 'center', paddingVertical: 20 },
@@ -490,6 +593,15 @@ const styles = StyleSheet.create({
     color: COLORS.textMain,
     minHeight: 40,
   },
+  attachButton: {
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    paddingHorizontal: 10,
+    minHeight: 40,
+    borderRadius: 8,
+    justifyContent: 'center',
+  },
+  attachButtonText: { color: COLORS.primary, fontWeight: '700', fontSize: 11 },
   sendButton: { backgroundColor: COLORS.primary, paddingHorizontal: 16, borderRadius: 8, justifyContent: 'center' },
   sendButtonText: { color: '#FFFFFF', fontWeight: '700', fontSize: 12 },
   formSection: { padding: 12, backgroundColor: '#FFFFFF', margin: 12, borderRadius: 10, ...SHADOWS.soft },
@@ -517,6 +629,16 @@ const styles = StyleSheet.create({
     color: COLORS.textMain,
     marginBottom: 14,
   },
+  uploadButton: {
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+    marginTop: -6,
+    marginBottom: 14,
+  },
+  uploadButtonText: { color: COLORS.primary, fontWeight: '700', fontSize: 12 },
   textArea: { height: 80, textAlignVertical: 'top' },
   priorityRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
   priorityChip: {

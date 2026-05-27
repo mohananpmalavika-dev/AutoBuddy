@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { apiRequest } from '../lib/api';
+import { formatScheduleInputFromDate, validateScheduledPickup } from '../lib/scheduling';
 import { COLORS, SHADOWS } from '../theme';
+import ScheduledPickupPicker from './ScheduledPickupPicker';
 
 const RECURRENCE_OPTIONS = ['none', 'daily', 'weekly', 'monthly'];
 
@@ -14,6 +16,7 @@ export default function ScheduledRidesPanel({ token }) {
     pickup_location: '',
     dropoff_location: '',
     scheduled_time: '',
+    scheduled_timezone: 'local',
     recurrence_pattern: 'none',
   });
   const [error, setError] = useState('');
@@ -46,9 +49,9 @@ export default function ScheduledRidesPanel({ token }) {
       Alert.alert('Error', 'Please fill all fields');
       return;
     }
-    const parsedDate = new Date(formData.scheduled_time.replace(' ', 'T'));
-    if (Number.isNaN(parsedDate.getTime())) {
-      Alert.alert('Error', 'Use a valid date/time, for example 2026-05-31 08:30');
+    const scheduleValidation = validateScheduledPickup(formData.scheduled_time, formData.scheduled_timezone);
+    if (!scheduleValidation.valid) {
+      Alert.alert('Error', scheduleValidation.message);
       return;
     }
     try {
@@ -58,7 +61,7 @@ export default function ScheduledRidesPanel({ token }) {
         body: {
           pickup_location: formData.pickup_location.trim(),
           dropoff_location: formData.dropoff_location.trim(),
-          scheduled_time: parsedDate.toISOString(),
+          scheduled_time: scheduleValidation.iso,
           ride_type: 'normal',
           recurring: formData.recurrence_pattern !== 'none',
           recurrence_pattern: formData.recurrence_pattern === 'none' ? null : formData.recurrence_pattern,
@@ -68,6 +71,7 @@ export default function ScheduledRidesPanel({ token }) {
         pickup_location: '',
         dropoff_location: '',
         scheduled_time: '',
+        scheduled_timezone: 'local',
         recurrence_pattern: 'none',
       });
       setShowForm(false);
@@ -86,9 +90,9 @@ export default function ScheduledRidesPanel({ token }) {
       Alert.alert('Error', 'Please fill all fields');
       return;
     }
-    const parsedDate = new Date(formData.scheduled_time.replace(' ', 'T'));
-    if (Number.isNaN(parsedDate.getTime())) {
-      Alert.alert('Error', 'Use a valid date/time, for example 2026-05-31 08:30');
+    const scheduleValidation = validateScheduledPickup(formData.scheduled_time, formData.scheduled_timezone);
+    if (!scheduleValidation.valid) {
+      Alert.alert('Error', scheduleValidation.message);
       return;
     }
     try {
@@ -98,7 +102,7 @@ export default function ScheduledRidesPanel({ token }) {
         body: {
           pickup_location: formData.pickup_location.trim(),
           dropoff_location: formData.dropoff_location.trim(),
-          scheduled_time: parsedDate.toISOString(),
+          scheduled_time: scheduleValidation.iso,
           ride_type: 'normal',
           recurring: formData.recurrence_pattern !== 'none',
           recurrence_pattern: formData.recurrence_pattern === 'none' ? null : formData.recurrence_pattern,
@@ -108,6 +112,7 @@ export default function ScheduledRidesPanel({ token }) {
         pickup_location: '',
         dropoff_location: '',
         scheduled_time: '',
+        scheduled_timezone: 'local',
         recurrence_pattern: 'none',
       });
       setShowForm(false);
@@ -218,7 +223,8 @@ export default function ScheduledRidesPanel({ token }) {
                         setFormData({
                           pickup_location: String(item.pickup_location || ''),
                           dropoff_location: String(item.dropoff_location || ''),
-                          scheduled_time: new Date(item.scheduled_time).toISOString().slice(0, 16).replace('T', ' '),
+                          scheduled_time: formatScheduleInputFromDate(new Date(item.scheduled_time), 'local'),
+                          scheduled_timezone: 'local',
                           recurrence_pattern: item.recurring ? String(item.recurrence_pattern || 'weekly') : 'none',
                         });
                         setShowForm(true);
@@ -259,12 +265,12 @@ export default function ScheduledRidesPanel({ token }) {
                 onChangeText={(text) => setFormData({ ...formData, dropoff_location: text })}
                 placeholderTextColor="#AAA"
               />
-              <TextInput
-                style={styles.input}
-                placeholder="Date & Time (e.g., 2026-05-31 08:30)"
+              <ScheduledPickupPicker
                 value={formData.scheduled_time}
-                onChangeText={(text) => setFormData({ ...formData, scheduled_time: text })}
-                placeholderTextColor="#AAA"
+                onChangeText={(text) => setFormData((prev) => ({ ...prev, scheduled_time: text }))}
+                timezone={formData.scheduled_timezone}
+                onTimezoneChange={(timezone) => setFormData((prev) => ({ ...prev, scheduled_timezone: timezone }))}
+                inputStyle={styles.input}
               />
 
               <Text style={styles.label}>Recurring</Text>

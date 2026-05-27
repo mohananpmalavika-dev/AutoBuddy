@@ -1,7 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   ScrollView,
   StyleSheet,
   Text,
@@ -36,40 +35,29 @@ export default function PassengerKYCPanel({ token }) {
   const [message, setMessage] = useState('');
   const [verifying, setVerifying] = useState(false);
 
-  useEffect(() => {
-    fetchKYCStatus();
-  }, []);
-
-  const fetchKYCStatus = async () => {
+  const fetchKYCStatus = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
-      try {
-        const data = await apiRequest('/passengers/kyc/status', { token });
-        setKycStatus(data || kycStatus);
-        setKycForm({
-          document_type: data?.document_type || '',
-          document_number: data?.document_number || '',
-        });
-      } catch (err) {
-        console.log('KYC status endpoint not yet implemented, using mock data');
-        const mockStatus = {
-          is_verified: false,
-          verification_level: 'basic',
-          document_type: 'aadhar',
-          document_number: '****-****-1234',
-          verification_date: null,
-          expiry_date: null,
-        };
-        setKycStatus(mockStatus);
-        setKycForm({ document_type: mockStatus.document_type, document_number: '' });
-      }
+      const data = await apiRequest('/passengers/kyc/status', { token });
+      setKycStatus((prev) => data || prev);
+      setKycForm({
+        document_type: data?.document_type || '',
+        document_number: '',
+      });
     } catch (err) {
       setError(err.message || 'Failed to load KYC status');
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchKYCStatus().catch(() => null);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [fetchKYCStatus]);
 
   const handleSubmitKYC = async () => {
     if (!kycForm.document_type || !kycForm.document_number) {
@@ -81,22 +69,15 @@ export default function PassengerKYCPanel({ token }) {
       setVerifying(true);
       setError('');
 
-      try {
-        const response = await apiRequest('/passengers/kyc/verify', {
-          token,
-          method: 'POST',
-          body: JSON.stringify(kycForm),
-        });
+      const response = await apiRequest('/passengers/kyc/verify', {
+        token,
+        method: 'POST',
+        body: kycForm,
+      });
 
-        setKycStatus(response || kycForm);
-        setMessage('KYC verification submitted successfully. Please wait for confirmation.');
-        setTimeout(() => setMessage(''), 4000);
-      } catch (err) {
-        console.log('KYC verification endpoint not yet implemented');
-        setKycStatus({ ...kycStatus, ...kycForm, verification_level: 'pending' });
-        setMessage('KYC verification request submitted. Pending review.');
-        setTimeout(() => setMessage(''), 4000);
-      }
+      setKycStatus(response || kycForm);
+      setMessage('KYC verification submitted successfully. Please wait for confirmation.');
+      setTimeout(() => setMessage(''), 4000);
     } catch (err) {
       setError(err.message || 'Failed to submit KYC');
     } finally {
@@ -188,7 +169,7 @@ export default function PassengerKYCPanel({ token }) {
         <Text style={styles.descriptionText}>Accepted Documents:</Text>
         <Text style={styles.descriptionText}>• Aadhar Card (Indian national ID)</Text>
         <Text style={styles.descriptionText}>• PAN Card (Tax identification)</Text>
-        <Text style={styles.descriptionText}>• Driver's License</Text>
+        <Text style={styles.descriptionText}>• Driver License</Text>
         <Text style={styles.descriptionText}>• Passport</Text>
       </View>
 

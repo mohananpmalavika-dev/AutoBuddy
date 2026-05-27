@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { apiRequest } from '../lib/api';
+import { getPlaceLocation, searchPlaces } from '../lib/places';
 import { COLORS, SHADOWS } from '../theme';
 
 export default function SavedPlacesPanel({ token, onUsePlace = () => {} }) {
@@ -26,6 +27,9 @@ export default function SavedPlacesPanel({ token, onUsePlace = () => {} }) {
     is_primary: false,
   });
   const [error, setError] = useState('');
+  const [placeQuery, setPlaceQuery] = useState('');
+  const [placeSuggestions, setPlaceSuggestions] = useState([]);
+  const [searchingPlaces, setSearchingPlaces] = useState(false);
 
   const fetchPlaces = useCallback(async () => {
     try {
@@ -59,6 +63,8 @@ export default function SavedPlacesPanel({ token, onUsePlace = () => {} }) {
       longitude: '',
       is_primary: false,
     });
+    setPlaceQuery('');
+    setPlaceSuggestions([]);
     setEditingPlaceId(null);
     setShowForm(false);
   }, []);
@@ -103,6 +109,43 @@ export default function SavedPlacesPanel({ token, onUsePlace = () => {} }) {
       Alert.alert('Error', err.message || 'Failed to save place');
     }
   }, [editingPlaceId, fetchPlaces, formData, resetForm, token]);
+
+  const searchPlaceSuggestions = useCallback(async () => {
+    if (placeQuery.trim().length < 3) {
+      setError('Enter at least 3 characters to search places');
+      return;
+    }
+    try {
+      setSearchingPlaces(true);
+      setError('');
+      const suggestions = await searchPlaces(placeQuery, { countryCode: 'in' });
+      setPlaceSuggestions(suggestions.slice(0, 5));
+    } catch (err) {
+      setError(err.message || 'Failed to search places');
+    } finally {
+      setSearchingPlaces(false);
+    }
+  }, [placeQuery]);
+
+  const selectPlaceSuggestion = useCallback(async (suggestion) => {
+    try {
+      setSearchingPlaces(true);
+      setError('');
+      const location = await getPlaceLocation(suggestion.placeId);
+      setFormData((prev) => ({
+        ...prev,
+        address: location.address || suggestion.description || prev.address,
+        latitude: location.latitude === undefined ? prev.latitude : String(location.latitude),
+        longitude: location.longitude === undefined ? prev.longitude : String(location.longitude),
+      }));
+      setPlaceQuery(suggestion.description || location.address || '');
+      setPlaceSuggestions([]);
+    } catch (err) {
+      setError(err.message || 'Failed to select place');
+    } finally {
+      setSearchingPlaces(false);
+    }
+  }, []);
 
   const deletePlace = useCallback(
     async (placeId) => {
@@ -189,6 +232,8 @@ export default function SavedPlacesPanel({ token, onUsePlace = () => {} }) {
                             : String(item.longitude),
                         is_primary: Boolean(item.is_primary),
                       });
+                      setPlaceQuery(String(item.address || ''));
+                      setPlaceSuggestions([]);
                       setShowForm(true);
                     }}>
                     <Text style={styles.editBtnText}>Edit</Text>
@@ -227,10 +272,33 @@ export default function SavedPlacesPanel({ token, onUsePlace = () => {} }) {
                 style={[styles.input, styles.addressInput]}
                 placeholder="Full address"
                 value={formData.address}
-                onChangeText={(text) => setFormData({ ...formData, address: text })}
+                onChangeText={(text) => {
+                  setFormData({ ...formData, address: text });
+                  setPlaceQuery(text);
+                }}
                 multiline
                 placeholderTextColor="#AAA"
               />
+              <View style={styles.searchRow}>
+                <TextInput
+                  style={[styles.input, styles.searchInput]}
+                  placeholder="Search address or landmark"
+                  value={placeQuery}
+                  onChangeText={setPlaceQuery}
+                  placeholderTextColor="#AAA"
+                />
+                <TouchableOpacity style={styles.searchButton} onPress={searchPlaceSuggestions} disabled={searchingPlaces}>
+                  <Text style={styles.searchButtonText}>{searchingPlaces ? '...' : 'Search'}</Text>
+                </TouchableOpacity>
+              </View>
+              {placeSuggestions.map((suggestion) => (
+                <TouchableOpacity
+                  key={suggestion.placeId || suggestion.description}
+                  style={styles.suggestionRow}
+                  onPress={() => selectPlaceSuggestion(suggestion)}>
+                  <Text style={styles.suggestionText}>{suggestion.description}</Text>
+                </TouchableOpacity>
+              ))}
               <View style={styles.coordinateRow}>
                 <TextInput
                   style={[styles.input, styles.coordinateInput]}
@@ -333,6 +401,25 @@ const styles = StyleSheet.create({
     color: COLORS.textMain,
   },
   addressInput: { minHeight: 80, textAlignVertical: 'top' },
+  searchRow: { flexDirection: 'row', gap: 8 },
+  searchInput: { flex: 1 },
+  searchButton: {
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: COLORS.primary,
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  searchButtonText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
+  suggestionRow: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 8,
+    backgroundColor: '#F9FFF9',
+  },
+  suggestionText: { color: COLORS.textMain, fontSize: 12, fontWeight: '600' },
   coordinateRow: { flexDirection: 'row', gap: 8 },
   coordinateInput: { flex: 1 },
   typeRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
