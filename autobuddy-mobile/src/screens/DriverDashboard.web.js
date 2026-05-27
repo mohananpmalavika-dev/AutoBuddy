@@ -986,7 +986,30 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
         return;
       }
       
-      setError(`Failed to update status: ${err?.message || 'Unknown error'}`);
+      // More informative error message
+      const statusCode = err?.status || 0;
+      const errMsg = String(err?.message || '').toLowerCase();
+      let errorDisplay = 'Failed to update status.';
+      
+      if (statusCode === 404) {
+        errorDisplay = 'Availability endpoint not found. Please retry.';
+      } else if (statusCode === 401) {
+        errorDisplay = 'Your session expired. Please log in again.';
+      } else if (statusCode === 429) {
+        errorDisplay = 'Too many requests. Please wait a moment.';
+      } else if (statusCode === 503) {
+        errorDisplay = 'Server is temporarily busy. Retrying...';
+      } else if (statusCode >= 500) {
+        errorDisplay = `Server error (${statusCode}). Please retry in a moment.`;
+      } else if (statusCode >= 400) {
+        errorDisplay = `Request error: ${err?.message || 'Invalid request'}`;
+      } else if (errMsg.includes('network') || errMsg.includes('failed to fetch')) {
+        errorDisplay = 'Network connection issue. Please check your internet.';
+      } else {
+        errorDisplay = err?.message || 'Failed to update availability status.';
+      }
+      
+      setError(errorDisplay);
       setMessage('');
       
       // Try to fetch current state from server
