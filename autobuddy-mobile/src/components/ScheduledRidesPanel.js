@@ -6,18 +6,29 @@ import { COLORS, SHADOWS } from '../theme';
 import ScheduledPickupPicker from './ScheduledPickupPicker';
 
 const RECURRENCE_OPTIONS = ['none', 'daily', 'weekly', 'monthly'];
+const REMINDER_OPTIONS = [
+  { label: 'None', value: null },
+  { label: '15 mins before', value: 15 },
+  { label: '30 mins before', value: 30 },
+  { label: '1 hour before', value: 60 },
+  { label: '2 hours before', value: 120 },
+];
+const FILTER_OPTIONS = ['upcoming', 'past', 'cancelled', 'all'];
 
 export default function ScheduledRidesPanel({ token }) {
   const [loading, setLoading] = useState(false);
   const [rides, setRides] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingRideId, setEditingRideId] = useState(null);
+  const [filterStatus, setFilterStatus] = useState('upcoming');
   const [formData, setFormData] = useState({
     pickup_location: '',
     dropoff_location: '',
     scheduled_time: '',
     scheduled_timezone: 'local',
     recurrence_pattern: 'none',
+    reminder_minutes: 30,
+    ride_notes: '',
   });
   const [error, setError] = useState('');
 
@@ -46,7 +57,7 @@ export default function ScheduledRidesPanel({ token }) {
 
   const scheduleRide = useCallback(async () => {
     if (!formData.pickup_location.trim() || !formData.dropoff_location.trim() || !formData.scheduled_time.trim()) {
-      Alert.alert('Error', 'Please fill all fields');
+      Alert.alert('Error', 'Please fill all required fields');
       return;
     }
     const scheduleValidation = validateScheduledPickup(formData.scheduled_time, formData.scheduled_timezone);
@@ -65,6 +76,8 @@ export default function ScheduledRidesPanel({ token }) {
           ride_type: 'normal',
           recurring: formData.recurrence_pattern !== 'none',
           recurrence_pattern: formData.recurrence_pattern === 'none' ? null : formData.recurrence_pattern,
+          reminder_minutes: formData.reminder_minutes,
+          ride_notes: formData.ride_notes.trim() || null,
         },
       });
       setFormData({
@@ -73,6 +86,8 @@ export default function ScheduledRidesPanel({ token }) {
         scheduled_time: '',
         scheduled_timezone: 'local',
         recurrence_pattern: 'none',
+        reminder_minutes: 30,
+        ride_notes: '',
       });
       setShowForm(false);
       setEditingRideId(null);
@@ -87,7 +102,7 @@ export default function ScheduledRidesPanel({ token }) {
       return;
     }
     if (!formData.pickup_location.trim() || !formData.dropoff_location.trim() || !formData.scheduled_time.trim()) {
-      Alert.alert('Error', 'Please fill all fields');
+      Alert.alert('Error', 'Please fill all required fields');
       return;
     }
     const scheduleValidation = validateScheduledPickup(formData.scheduled_time, formData.scheduled_timezone);
@@ -106,6 +121,8 @@ export default function ScheduledRidesPanel({ token }) {
           ride_type: 'normal',
           recurring: formData.recurrence_pattern !== 'none',
           recurrence_pattern: formData.recurrence_pattern === 'none' ? null : formData.recurrence_pattern,
+          reminder_minutes: formData.reminder_minutes,
+          ride_notes: formData.ride_notes.trim() || null,
         },
       });
       setFormData({
@@ -114,6 +131,8 @@ export default function ScheduledRidesPanel({ token }) {
         scheduled_time: '',
         scheduled_timezone: 'local',
         recurrence_pattern: 'none',
+        reminder_minutes: 30,
+        ride_notes: '',
       });
       setShowForm(false);
       setEditingRideId(null);
@@ -165,26 +184,74 @@ export default function ScheduledRidesPanel({ token }) {
     return labels[recurrencePattern] || recurrencePattern;
   };
 
+  const getReminderLabel = (minutes) => {
+    if (!minutes) return 'No reminder';
+    if (minutes === 15) return '15 mins before';
+    if (minutes === 30) return '30 mins before';
+    if (minutes === 60) return '1 hour before';
+    if (minutes === 120) return '2 hours before';
+    return `${minutes} mins before`;
+  };
+
+  const getFilteredRides = useCallback(() => {
+    const now = new Date();
+    return rides.filter((ride) => {
+      const rideTime = new Date(ride.scheduled_time);
+      switch (filterStatus) {
+        case 'upcoming':
+          return ride.status === 'scheduled' && rideTime > now;
+        case 'past':
+          return (ride.status === 'completed' || (ride.status === 'scheduled' && rideTime <= now));
+        case 'cancelled':
+          return ride.status === 'cancelled';
+        case 'all':
+        default:
+          return true;
+      }
+    });
+  }, [rides, filterStatus]);
+
   if (loading && rides.length === 0) {
     return <ActivityIndicator size="large" color={COLORS.primary} style={styles.loader} />;
   }
 
+  const filteredRides = getFilteredRides();
+
   return (
     <View style={styles.container}>
       {!!error && <Text style={styles.errorText}>{error}</Text>}
-      {rides.length === 0 && !showForm ? (
+
+      {/* Filter Chips */}
+      <View style={styles.filterRow}>
+        {FILTER_OPTIONS.map((option) => (
+          <TouchableOpacity
+            key={option}
+            style={[styles.filterChip, filterStatus === option && styles.filterChipActive]}
+            onPress={() => setFilterStatus(option)}>
+            <Text style={[styles.filterChipText, filterStatus === option && styles.filterChipTextActive]}>
+              {option === 'all' ? 'All' : option.charAt(0).toUpperCase() + option.slice(1)}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {filteredRides.length === 0 && !showForm ? (
         <View style={styles.emptyState}>
           <Text style={styles.emptyIcon}>Later</Text>
-          <Text style={styles.emptyTitle}>No Scheduled Rides</Text>
-          <Text style={styles.emptyText}>Plan ahead by scheduling your rides in advance</Text>
-          <TouchableOpacity style={styles.addButton} onPress={() => setShowForm(true)}>
-            <Text style={styles.addButtonText}>Schedule a Ride</Text>
-          </TouchableOpacity>
+          <Text style={styles.emptyTitle}>No {filterStatus === 'all' ? 'Scheduled Rides' : filterStatus + ' Rides'}</Text>
+          <Text style={styles.emptyText}>
+            {filterStatus === 'upcoming' ? 'Plan ahead by scheduling your rides in advance' : 'Nothing to show for this filter'}
+          </Text>
+          {filterStatus === 'upcoming' && (
+            <TouchableOpacity style={styles.addButton} onPress={() => setShowForm(true)}>
+              <Text style={styles.addButtonText}>Schedule a Ride</Text>
+            </TouchableOpacity>
+          )}
         </View>
       ) : (
         <>
           <FlatList
-            data={rides}
+            data={filteredRides}
             keyExtractor={(item) => String(item.id)}
             scrollEnabled={false}
             renderItem={({ item }) => (
@@ -213,6 +280,20 @@ export default function ScheduledRidesPanel({ token }) {
                       <Text style={styles.metaValue}>{getRecurringLabel(item.recurrence_pattern, item.recurring)}</Text>
                     </View>
                   </View>
+
+                  <View style={styles.metaRow}>
+                    <View style={styles.metaItem}>
+                      <Text style={styles.metaLabel}>Reminder</Text>
+                      <Text style={styles.metaValue}>{getReminderLabel(item.reminder_minutes)}</Text>
+                    </View>
+                  </View>
+
+                  {item.ride_notes && (
+                    <View style={styles.notesBlock}>
+                      <Text style={styles.notesLabel}>Notes</Text>
+                      <Text style={styles.notesText}>{item.ride_notes}</Text>
+                    </View>
+                  )}
                 </View>
 
                 {item.status === 'scheduled' && (
@@ -226,6 +307,8 @@ export default function ScheduledRidesPanel({ token }) {
                           scheduled_time: formatScheduleInputFromDate(new Date(item.scheduled_time), 'local'),
                           scheduled_timezone: 'local',
                           recurrence_pattern: item.recurring ? String(item.recurrence_pattern || 'weekly') : 'none',
+                          reminder_minutes: item.reminder_minutes || 30,
+                          ride_notes: String(item.ride_notes || ''),
                         });
                         setShowForm(true);
                       }}
@@ -286,6 +369,30 @@ export default function ScheduledRidesPanel({ token }) {
                   </TouchableOpacity>
                 ))}
               </View>
+
+              <Text style={styles.label}>Reminder</Text>
+              <View style={styles.reminderOptions}>
+                {REMINDER_OPTIONS.map((option) => (
+                  <TouchableOpacity
+                    key={String(option.value)}
+                    style={[styles.optionChip, formData.reminder_minutes === option.value && styles.optionChipActive]}
+                    onPress={() => setFormData({ ...formData, reminder_minutes: option.value })}>
+                    <Text style={[styles.optionChipText, formData.reminder_minutes === option.value && styles.optionChipTextActive]}>
+                      {option.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <TextInput
+                style={[styles.input, styles.notesInput]}
+                placeholder="Add special instructions or notes (optional)"
+                value={formData.ride_notes}
+                onChangeText={(text) => setFormData({ ...formData, ride_notes: text })}
+                placeholderTextColor="#AAA"
+                multiline
+                numberOfLines={3}
+              />
 
               <View style={styles.formActions}>
                 <TouchableOpacity
@@ -396,4 +503,21 @@ const styles = StyleSheet.create({
     ...SHADOWS.soft,
   },
   addButtonText: { fontSize: 14, fontWeight: '600', color: '#FFFFFF' },
+  filterRow: { flexDirection: 'row', gap: 6, marginBottom: 12, paddingHorizontal: 4 },
+  filterChip: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 6,
+    backgroundColor: '#FFFFFF',
+  },
+  filterChipActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  filterChipText: { fontSize: 12, color: COLORS.textMain, fontWeight: '600' },
+  filterChipTextActive: { color: '#FFFFFF' },
+  notesBlock: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#EFEFEF' },
+  notesLabel: { fontSize: 11, fontWeight: '700', color: COLORS.textMuted, marginBottom: 4 },
+  notesText: { fontSize: 12, color: COLORS.textMain, lineHeight: 18 },
+  notesInput: { minHeight: 80, paddingTop: 10, textAlignVertical: 'top' },
+  reminderOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 12 },
 });

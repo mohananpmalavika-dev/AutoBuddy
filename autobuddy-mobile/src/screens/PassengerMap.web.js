@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   SafeAreaView,
   ScrollView,
@@ -19,6 +20,7 @@ import {
   searchPlaces,
 } from '../lib/places';
 import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme';
+import { AccessibilityProvider } from '../hooks/useAccessibility';
 import RideCommunicationCard from '../components/RideCommunicationCard';
 import WebCommandBar from '../components/WebCommandBar';
 import VoiceTextInput from '../components/VoiceTextInput';
@@ -40,6 +42,7 @@ import SavedPlacesPanel from '../components/SavedPlacesPanel';
 import SavedPlacesQuickSelect from '../components/SavedPlacesQuickSelect';
 import EmergencyContactsPanel from '../components/EmergencyContactsPanel';
 import AccessibilityPanel from '../components/AccessibilityPanel';
+import AccessibilityQuickAccess from '../components/AccessibilityQuickAccess';
 import ScheduledRidesPanel from '../components/ScheduledRidesPanel';
 import PassengerProfilePanel from '../components/PassengerProfilePanel';
 import PassengerKYCPanel from '../components/PassengerKYCPanel';
@@ -103,6 +106,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const pickupSearchRequestRef = useRef(0);
   const dropSearchRequestRef = useRef(0);
   const driverAddressCacheRef = useRef(new Map());
+  const pickupAddressRequestRef = useRef(0);
+  const dropAddressRequestRef = useRef(0);
   const socketRef = useRef(null);
   const passengerPollInFlightRef = useRef(false);
   const passengerPollCycleRef = useRef(0);
@@ -334,6 +339,49 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const formatCoordinateAddress = useCallback(
     (latitude, longitude) => `Lat ${Number(latitude).toFixed(6)}, Lng ${Number(longitude).toFixed(6)}`,
     [],
+  );
+  const buildLocationFromCoordinate = useCallback(
+    (coordinate) => {
+      const latitude = Number(Number(coordinate.latitude).toFixed(6));
+      const longitude = Number(Number(coordinate.longitude).toFixed(6));
+      return { latitude, longitude, address: formatCoordinateAddress(latitude, longitude) };
+    },
+    [formatCoordinateAddress],
+  );
+  const resolveReadableAddress = useCallback(
+    async (latitude, longitude) => {
+      if (placesConfigured) {
+        const address = await reverseGeocodeLocation(latitude, longitude).catch(() => null);
+        if (address) {
+          return address;
+        }
+      }
+      return formatCoordinateAddress(latitude, longitude);
+    },
+    [formatCoordinateAddress, placesConfigured],
+  );
+  const resolveAddressForPoint = useCallback(
+    async (point, coordinate) => {
+      const next = buildLocationFromCoordinate(coordinate);
+      const requestRef = point === 'pickup' ? pickupAddressRequestRef : dropAddressRequestRef;
+      const requestId = requestRef.current + 1;
+      requestRef.current = requestId;
+
+      const address = await resolveReadableAddress(next.latitude, next.longitude);
+      if (requestRef.current !== requestId) {
+        return;
+      }
+
+      const hydratedLocation = { ...next, address };
+      if (point === 'pickup') {
+        setPickupLocation(hydratedLocation);
+        setPickupQuery(address);
+      } else {
+        setDropoffLocation(hydratedLocation);
+        setDropoffQuery(address);
+      }
+    },
+    [buildLocationFromCoordinate, resolveReadableAddress],
   );
   const driverLiveLocationLabel = useMemo(() => {
     if (!liveDriverLocation) {
@@ -721,6 +769,38 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     setMessage(t.openingEmergencyContactsForRide || 'Opening emergency contacts for this ride.');
   }, [handleMenuSelection, t]);
 
+  const activateRideSos = useCallback(async () => {
+    if (!activeBooking?.id) {
+      setError('SOS is available once an active ride is loaded.');
+      return;
+    }
+    setError('');
+    setMessage('Activating SOS...');
+    triggerA11yFeedback('Activating SOS');
+    const response = await keralaSafety.activateSos(
+      'Passenger SOS from active ride screen',
+      'active_ride_quick_access',
+    );
+    if (response) {
+      const police = response?.kerala_emergency_numbers?.police || '112';
+      setMessage(`SOS activated. Emergency escalation started. Police: ${police}`);
+      triggerA11yFeedback('SOS activated. Emergency escalation started.');
+    } else {
+      setError('Could not activate SOS. Try Safety panel or call emergency number 112.');
+    }
+  }, [activeBooking?.id, keralaSafety, triggerA11yFeedback]);
+
+  const confirmRideSos = useCallback(() => {
+    Alert.alert(
+      'Activate SOS?',
+      'This will start emergency escalation for this ride and share your latest location if available.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Activate SOS', style: 'destructive', onPress: activateRideSos },
+      ],
+    );
+  }, [activateRideSos]);
+
   const handleUseSavedPlace = useCallback(
     async (place) => {
       const latitude = Number(place?.latitude);
@@ -859,7 +939,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       resolveAddressForPoint('dropoff', coordinate).catch(() => null);
       return;
     }
-  }, [selectingPoint, t]);
+  }, [resolveAddressForPoint, selectingPoint, t]);
 
   const handleMarkerDragEnd = useCallback((markerKey, coordinate) => {
     const nextLocation = {
@@ -871,7 +951,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     setLocationForPoint(markerKey, nextLocation);
     setMessage(markerKey === 'pickup' ? 'Pickup moved' : 'Drop moved');
     resolveAddressForPoint(markerKey, coordinate).catch(() => null);
-  }, [t]);
+  }, [resolveAddressForPoint]);
 
   const autofillPickupFromCurrentLocation = useCallback(async ({ silent = false } = {}) => {
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
@@ -1563,9 +1643,10 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
-        <WebCommandBar />
+    <AccessibilityProvider settings={passengerAccessibility}>
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.container}>
+          <WebCommandBar />
         <View style={styles.mapContainer}>
           <WebGoogleLiveMap
             apiKey={googleMapsWebKey}
@@ -1602,6 +1683,10 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               onPress={() => setShowNotificationCenter(true)}
               unreadCount={unreadCount}
               style={styles.headerButton}
+            />
+            <AccessibilityQuickAccess
+              token={token}
+              onSettingsChange={handleAccessibilityChange}
             />
             <TouchableOpacity onPress={handleProfilePress} style={styles.profileButton}>
               <Text style={styles.profileText}>{t.profile}</Text>
@@ -2301,19 +2386,32 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                       <View style={styles.rideEmergencyCard}>
                         <View style={styles.rideEmergencyCopy}>
                           <Text style={styles.rideEmergencyTitle}>
-                            {t.emergencyDuringRide || 'Emergency during this ride'}
+                            {t.sosQuickAccess || 'SOS quick access'}
                           </Text>
                           <Text style={styles.rideEmergencyText}>
-                            {t.openEmergencyFromActiveBooking || 'Open emergency contacts from this active booking.'}
+                            {t.sosQuickAccessHint || 'Tap to confirm SOS, or long-press SOS Now to activate immediately.'}
                           </Text>
                         </View>
-                        <TouchableOpacity
-                          style={styles.rideEmergencyButton}
-                          onPress={openRideEmergencyPanel}
-                          accessibilityRole="button"
-                          accessibilityLabel={t.emergencyDuringRide || 'Emergency during this ride'}>
-                          <Text style={styles.rideEmergencyButtonText}>{t.open || 'Open'}</Text>
-                        </TouchableOpacity>
+                        <View style={styles.rideEmergencyActions}>
+                          <TouchableOpacity
+                            style={[styles.rideEmergencyButton, keralaSafety.busy && styles.rideEmergencyButtonDisabled]}
+                            onPress={confirmRideSos}
+                            onLongPress={activateRideSos}
+                            disabled={keralaSafety.busy}
+                            accessibilityRole="button"
+                            accessibilityLabel={t.activateSosForRide || 'Activate SOS for this ride'}>
+                            <Text style={styles.rideEmergencyButtonText}>
+                              {keralaSafety.busy ? (t.sending || 'Sending...') : (t.sosNow || 'SOS Now')}
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.rideEmergencySecondaryButton}
+                            onPress={openRideEmergencyPanel}
+                            accessibilityRole="button"
+                            accessibilityLabel={t.openEmergencyContacts || 'Open emergency contacts'}>
+                            <Text style={styles.rideEmergencySecondaryText}>{t.contacts || 'Contacts'}</Text>
+                          </TouchableOpacity>
+                        </View>
                       </View>
                       {canCancelActiveBooking ? (
                         <TouchableOpacity onPress={cancelBooking} style={styles.cancelButton} disabled={loading}>
@@ -2421,7 +2519,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           </View>
         )}
       </View>
-    </SafeAreaView>
+      </SafeAreaView>
+    </AccessibilityProvider>
   );
 }
 
@@ -2829,10 +2928,32 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 14,
     paddingVertical: 10,
+    alignItems: 'center',
+  },
+  rideEmergencyButtonDisabled: {
+    opacity: 0.65,
   },
   rideEmergencyButtonText: {
     color: '#fff',
     fontWeight: '800',
+  },
+  rideEmergencyActions: {
+    gap: 8,
+    minWidth: 92,
+  },
+  rideEmergencySecondaryButton: {
+    borderWidth: 1,
+    borderColor: '#C62828',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  rideEmergencySecondaryText: {
+    color: '#C62828',
+    fontWeight: '800',
+    fontSize: 12,
   },
   cancelButton: {
     marginTop: 10,

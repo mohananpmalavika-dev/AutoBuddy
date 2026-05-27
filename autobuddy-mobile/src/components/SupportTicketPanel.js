@@ -51,22 +51,17 @@ export default function SupportTicketPanel({ token, loading: parentLoading = fal
   ];
 
   useEffect(() => {
-    fetchTickets();
-  }, []);
+    if (token) {
+      fetchTickets();
+    }
+  }, [token]);
 
   const fetchTickets = async () => {
     try {
       setLoading(true);
       setError('');
-      try {
-        const data = await apiRequest('/drivers/support/tickets', { token });
-        if (data && data.tickets) {
-          setTickets(data.tickets);
-        }
-      } catch (err) {
-        console.log('Support tickets endpoint not yet implemented, using empty list');
-        setTickets([]);
-      }
+      const data = await apiRequest('/drivers/support/tickets', { token });
+      setTickets(Array.isArray(data?.tickets) ? data.tickets : Array.isArray(data) ? data : []);
     } catch (err) {
       setError(err.message || 'Failed to load support tickets');
     } finally {
@@ -83,7 +78,7 @@ export default function SupportTicketPanel({ token, loading: parentLoading = fal
     try {
       setLoading(true);
       setError('');
-      const result = await apiRequest('/drivers/support/tickets', {
+      await apiRequest('/drivers/support/tickets', {
         method: 'POST',
         token,
         body: {
@@ -126,7 +121,6 @@ export default function SupportTicketPanel({ token, loading: parentLoading = fal
       setMessage('Reply added!');
       setReplyText('');
       await fetchTickets();
-      setSelectedTicket(null);
     } catch (err) {
       setError(err.message || 'Failed to add reply');
     } finally {
@@ -177,6 +171,16 @@ export default function SupportTicketPanel({ token, loading: parentLoading = fal
 
   if (selectedTicket) {
     const ticket = tickets.find((t) => t.id === selectedTicket);
+    if (!ticket) {
+      return (
+        <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+          <TouchableOpacity style={styles.backButton} onPress={() => setSelectedTicket(null)}>
+            <Text style={styles.backButtonText}>Back to Tickets</Text>
+          </TouchableOpacity>
+          <Text style={styles.emptyStateText}>Ticket not found. Refresh and try again.</Text>
+        </ScrollView>
+      );
+    }
     return (
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
         <TouchableOpacity style={styles.backButton} onPress={() => setSelectedTicket(null)}>

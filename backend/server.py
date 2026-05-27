@@ -636,6 +636,11 @@ async def seed_admin():
         except OperationFailure:
             pass
         try:
+            await db.driver_support_tickets.create_index([("driver_id", 1), ("updated_at", -1)])
+            await db.driver_support_tickets.create_index("status")
+        except OperationFailure:
+            pass
+        try:
             await db.passenger_favorite_drivers.create_index([("passenger_id", 1), ("driver_id", 1)], unique=True)
         except OperationFailure:
             pass
@@ -1182,6 +1187,17 @@ class PassengerSubscriptionUpgradeRequest(BaseModel):
 class SupportTicketStatusUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     status: Literal["open", "in_progress", "waiting_for_user", "resolved", "closed"]
+
+class DriverSupportTicketCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    subject: str = Field(min_length=3, max_length=140)
+    description: str = Field(min_length=5, max_length=2000)
+    category: str = Field(default="general", min_length=2, max_length=40)
+    priority: Literal["low", "normal", "high", "urgent"] = "normal"
+
+class DriverSupportTicketReply(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    message: str = Field(min_length=1, max_length=2000)
 
 class OtpSendResponse(BaseModel):
     message: str
@@ -5163,6 +5179,119 @@ async def submit_driver_fare_calculator_reset_request(
         upsert=True,
     )
     return {"message": "Reset request submitted for admin approval", "status": "pending"}
+
+def serialize_driver_support_ticket(ticket: Dict[str, Any]) -> Dict[str, Any]:
+    result = dict(ticket or {})
+    result.pop("_id", None)
+    result["messages"] = [
+        {key: value for key, value in dict(message or {}).items() if key != "_id"}
+        for message in result.get("messages", [])
+    ]
+    result["message_count"] = len(result["messages"])
+    return result
+
+def require_driver_user(current_user: Dict[str, Any]) -> None:
+    if current_user["role"] != UserRole.DRIVER:
+        raise HTTPException(status_code=403, detail="Only drivers can access this")
+
+@api_router.get("/drivers/support/tickets")
+async def get_driver_support_tickets(
+    status_filter: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    require_driver_user(current_user)
+    query: Dict[str, Any] = {"driver_id": current_user["id"]}
+    if status_filter:
+        query["status"] = status_filter
+    tickets = await db.driver_support_tickets.find(query).sort("updated_at", -1).to_list(100)
+    return {"tickets": [serialize_driver_support_ticket(ticket) for ticket in tickets]}
+
+@api_router.post("/drivers/support/tickets")
+async def create_driver_support_ticket(
+    payload: DriverSupportTicketCreate,
+    current_user: dict = Depends(get_current_user),
+):
+    require_driver_user(current_user)
+    now = datetime.utcnow()
+    category = re.sub(r"[^a-zA-Z0-9_-]+", "_", payload.category).strip("_").lower() or "general"
+    ticket = {
+        "id": f"drv-ticket-{uuid.uuid4()}",
+        "driver_id": current_user["id"],
+        "driver_name": current_user.get("name", "Driver"),
+        "subject": payload.subject,
+        "description": payload.description,
+        "category": category,
+        "priority": payload.priority,
+        "status": "open",
+        "assigned_to": None,
+        "messages": [
+            {
+                "id": f"msg-{uuid.uuid4()}",
+                "from": "driver",
+                "sender_type": "driver",
+                "sender_id": current_user["id"],
+                "sender_name": current_user.get("name", "Driver"),
+                "text": payload.description,
+                "message_text": payload.description,
+                "timestamp": now,
+                "created_at": now,
+            }
+        ],
+        "created_at": now,
+        "updated_at": now,
+        "resolved_at": None,
+    }
+    await db.driver_support_tickets.insert_one(ticket)
+    return {"message": "Support ticket created", "ticket": serialize_driver_support_ticket(ticket)}
+
+@api_router.post("/drivers/support/tickets/{ticket_id}/reply")
+async def reply_to_driver_support_ticket(
+    ticket_id: str,
+    payload: DriverSupportTicketReply,
+    current_user: dict = Depends(get_current_user),
+):
+    require_driver_user(current_user)
+    ticket = await db.driver_support_tickets.find_one({"id": ticket_id, "driver_id": current_user["id"]})
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Support ticket not found")
+    if ticket.get("status") == "closed":
+        raise HTTPException(status_code=400, detail="Closed tickets cannot accept replies")
+
+    now = datetime.utcnow()
+    message = {
+        "id": f"msg-{uuid.uuid4()}",
+        "from": "driver",
+        "sender_type": "driver",
+        "sender_id": current_user["id"],
+        "sender_name": current_user.get("name", "Driver"),
+        "text": payload.message,
+        "message_text": payload.message,
+        "timestamp": now,
+        "created_at": now,
+    }
+    await db.driver_support_tickets.update_one(
+        {"id": ticket_id, "driver_id": current_user["id"]},
+        {
+            "$push": {"messages": message},
+            "$set": {"updated_at": now, "status": "open"},
+        },
+    )
+    return {"message": "Reply added", "reply": message}
+
+@api_router.put("/drivers/support/tickets/{ticket_id}/close")
+async def close_driver_support_ticket(
+    ticket_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    require_driver_user(current_user)
+    now = datetime.utcnow()
+    result = await db.driver_support_tickets.update_one(
+        {"id": ticket_id, "driver_id": current_user["id"]},
+        {"$set": {"status": "closed", "updated_at": now, "resolved_at": now}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Support ticket not found")
+    return {"message": "Ticket closed", "status": "closed"}
 
 @api_router.get("/places/autocomplete")
 async def places_autocomplete(
@@ -10130,9 +10259,6 @@ async def shutdown_db_client():
         except Exception:
             pass
     client.close()
-
-
-
 
 
 

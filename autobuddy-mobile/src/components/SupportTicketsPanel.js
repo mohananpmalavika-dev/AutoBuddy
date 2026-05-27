@@ -44,6 +44,56 @@ export default function SupportTicketsPanel({ token }) {
     []
   );
 
+  const helpTopics = useMemo(
+    () => [
+      {
+        key: 'ride_issue',
+        title: 'Ride issue',
+        summary: 'Driver, pickup, cancellation, or trip quality',
+        category: 'driver_behavior',
+        subject: 'Ride issue',
+      },
+      {
+        key: 'fare_payment',
+        title: 'Fare or payment',
+        summary: 'Incorrect fare, promo code, receipt, or payment method',
+        category: 'pricing',
+        subject: 'Fare or payment issue',
+      },
+      {
+        key: 'lost_item',
+        title: 'Lost item',
+        summary: 'Report something left behind after a ride',
+        category: 'lost_item',
+        subject: 'Lost item report',
+      },
+      {
+        key: 'safety',
+        title: 'Safety concern',
+        summary: 'Urgent concerns are prioritized by support',
+        category: 'safety',
+        subject: 'Safety concern',
+      },
+      {
+        key: 'app_bug',
+        title: 'App problem',
+        summary: 'Login, booking, maps, notifications, or app errors',
+        category: 'app_bug',
+        subject: 'App problem',
+      },
+    ],
+    [],
+  );
+
+  const openCreateFromTopic = useCallback((topic) => {
+    setCategory(topic.category);
+    setSubject(topic.subject);
+    setDescription('');
+    setPriority(topic.category === 'safety' ? 'high' : 'medium');
+    setShowCreateForm(true);
+    setSelectedTicket(null);
+  }, []);
+
   const fetchTickets = useCallback(async () => {
     try {
       setLoading(true);
@@ -341,6 +391,31 @@ export default function SupportTicketsPanel({ token }) {
 
       {!showCreateForm ? (
         <>
+          <View style={styles.helpCenter}>
+            <View style={styles.helpCenterHeader}>
+              <View>
+                <Text style={styles.helpCenterTitle}>Help Center</Text>
+                <Text style={styles.helpCenterSubtitle}>Choose a topic or open an existing thread</Text>
+              </View>
+              <View style={styles.openTicketsPill}>
+                <Text style={styles.openTicketsText}>
+                  {tickets.filter((ticket) => ticket.status !== 'closed').length} open
+                </Text>
+              </View>
+            </View>
+            <View style={styles.topicGrid}>
+              {helpTopics.map((topic) => (
+                <TouchableOpacity
+                  key={topic.key}
+                  style={styles.topicCard}
+                  onPress={() => openCreateFromTopic(topic)}>
+                  <Text style={styles.topicTitle}>{topic.title}</Text>
+                  <Text style={styles.topicSummary}>{topic.summary}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
           {/* Create Button */}
           <TouchableOpacity
             style={styles.createButton}
@@ -492,6 +567,46 @@ export default function SupportTicketsPanel({ token }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
+  helpCenter: {
+    margin: 12,
+    padding: 14,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    ...SHADOWS.soft,
+  },
+  helpCenterHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginBottom: 12,
+  },
+  helpCenterTitle: { fontSize: 16, fontWeight: '800', color: COLORS.textMain },
+  helpCenterSubtitle: { fontSize: 12, color: COLORS.textMuted, marginTop: 4 },
+  openTicketsPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: '#E8F5E9',
+    borderWidth: 1,
+    borderColor: '#C8E6C9',
+  },
+  openTicketsText: { color: '#1B5E20', fontSize: 11, fontWeight: '800' },
+  topicGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  topicCard: {
+    flexBasis: '48%',
+    flexGrow: 1,
+    minWidth: 140,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#D7E2DA',
+    backgroundColor: '#F8FBF9',
+  },
+  topicTitle: { color: COLORS.textMain, fontSize: 13, fontWeight: '800', marginBottom: 4 },
+  topicSummary: { color: COLORS.textMuted, fontSize: 11, lineHeight: 15 },
   createButton: {
     margin: 12,
     padding: 12,

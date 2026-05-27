@@ -31,6 +31,7 @@ import { useKeralaSafety } from '../hooks/useKeralaSafety';
 import RideCard from '../components/RideCard';
 import DriverTabBar from '../components/DriverTabBar';
 import EarningsPanel from '../components/EarningsPanel';
+import SupportTicketPanel from '../components/SupportTicketPanel';
 import DriverProfile from './DriverProfile';
 
 const STATUS_FLOW = ['accepted', 'driver_arrived', 'in_progress', 'completed'];
@@ -1552,6 +1553,12 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
             </>
           )}
 
+          {activeTab === 'support' && (
+            <View style={styles.earningsCard}>
+              <SupportTicketPanel token={token} loading={loading} />
+            </View>
+          )}
+
           {/* Actions Tab */}
           {activeTab === 'actions' && (
             <>
@@ -1574,6 +1581,9 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.actionButton} onPress={() => setActiveTab('trust')}>
                   <Text style={styles.actionButtonText}>Trust & KYC</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.actionButton} onPress={() => setActiveTab('support')}>
+                  <Text style={styles.actionButtonText}>Support Tickets</Text>
                 </TouchableOpacity>
               </View>
             </>

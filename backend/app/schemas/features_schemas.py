@@ -78,14 +78,33 @@ class PreferencesUpdate(BaseModel):
     email_notifications: Optional[bool] = None
     sms_notifications: Optional[bool] = None
     promotional_offers: Optional[bool] = None
+    ride_status_notifications: Optional[bool] = None
+    driver_arrival_notification: Optional[bool] = None
+    surge_pricing_notification: Optional[bool] = None
     default_payment_method: Optional[str] = None
     save_card_details: Optional[bool] = None
     biometric_payment: Optional[bool] = None
+    ac_preferred: Optional[bool] = None
+    music_preferred: Optional[bool] = None
+    quiet_ride: Optional[bool] = None
+    pet_friendly: Optional[bool] = None
+    luggage_assistance: Optional[bool] = None
+    driver_gender_preference: Optional[str] = None
+    prefer_high_rated_drivers: Optional[bool] = None
+    prefer_favorite_drivers: Optional[bool] = None
+    avoid_previously_blocked_drivers: Optional[bool] = None
     profile_public: Optional[bool] = None
     share_location_with_driver: Optional[bool] = None
     analytics_enabled: Optional[bool] = None
     language: Optional[str] = None
     timezone: Optional[str] = None
+    wheelchair_access: Optional[bool] = None
+    audio_navigation: Optional[bool] = None
+    text_large: Optional[bool] = None
+    high_contrast: Optional[bool] = None
+    reduce_motion: Optional[bool] = None
+    screen_reader: Optional[bool] = None
+    haptic_feedback: Optional[bool] = None
 
 
 class PreferencesResponse(BaseModel):
@@ -95,14 +114,33 @@ class PreferencesResponse(BaseModel):
     email_notifications: bool
     sms_notifications: bool
     promotional_offers: bool
+    ride_status_notifications: bool = True
+    driver_arrival_notification: bool = True
+    surge_pricing_notification: bool = True
     default_payment_method: str
     save_card_details: bool
     biometric_payment: bool
+    ac_preferred: bool = False
+    music_preferred: bool = False
+    quiet_ride: bool = False
+    pet_friendly: bool = False
+    luggage_assistance: bool = False
+    driver_gender_preference: str = "any"
+    prefer_high_rated_drivers: bool = True
+    prefer_favorite_drivers: bool = False
+    avoid_previously_blocked_drivers: bool = True
     profile_public: bool
     share_location_with_driver: bool
     analytics_enabled: bool
     language: str
     timezone: Optional[str]
+    wheelchair_access: bool = False
+    audio_navigation: bool = False
+    text_large: bool = False
+    high_contrast: bool = False
+    reduce_motion: bool = False
+    screen_reader: bool = False
+    haptic_feedback: bool = True
     
     class Config:
         from_attributes = True

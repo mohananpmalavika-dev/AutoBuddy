@@ -31,6 +31,42 @@ from app.db.database import get_db
 
 router = APIRouter(prefix="/api/v1/passengers", tags=["passenger-features"])
 
+PREFERENCE_EXTRA_DEFAULTS = {
+    "ride_status_notifications": True,
+    "driver_arrival_notification": True,
+    "surge_pricing_notification": True,
+    "ac_preferred": False,
+    "music_preferred": False,
+    "quiet_ride": False,
+    "pet_friendly": False,
+    "luggage_assistance": False,
+    "driver_gender_preference": "any",
+    "prefer_high_rated_drivers": True,
+    "prefer_favorite_drivers": False,
+    "avoid_previously_blocked_drivers": True,
+    "wheelchair_access": False,
+    "audio_navigation": False,
+    "text_large": False,
+    "high_contrast": False,
+    "reduce_motion": False,
+    "screen_reader": False,
+    "haptic_feedback": True,
+}
+
+
+def serialize_preferences(prefs: PassengerPreferences) -> dict:
+    """Return DB-backed preference columns plus flexible passenger settings."""
+    data = prefs.to_dict()
+    extra_settings = prefs.additional_settings or {}
+    if not isinstance(extra_settings, dict):
+        extra_settings = {}
+    return {
+        **PREFERENCE_EXTRA_DEFAULTS,
+        **data,
+        **extra_settings,
+        "timezone": data.get("timezone") or extra_settings.get("timezone") or "local",
+    }
+
 
 # ============================================================================
 # Feature #2: Ratings
@@ -253,7 +289,7 @@ def get_preferences(
         db.commit()
         db.refresh(prefs)
     
-    return prefs
+    return serialize_preferences(prefs)
 
 
 @router.patch("/preferences", response_model=PreferencesResponse)
@@ -273,15 +309,18 @@ def update_preferences(
         )
         db.add(prefs)
     
-    # Update only provided fields
     update_data = prefs_update.dict(exclude_unset=True)
+    additional_settings = dict(prefs.additional_settings or {})
     for field, value in update_data.items():
         if hasattr(prefs, field):
             setattr(prefs, field, value)
+        else:
+            additional_settings[field] = value
+    prefs.additional_settings = additional_settings
     
     db.commit()
     db.refresh(prefs)
-    return prefs
+    return serialize_preferences(prefs)
 
 
 # ============================================================================

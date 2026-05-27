@@ -1005,6 +1005,42 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     setMessage('Opening emergency contacts for this ride.');
   }, [handleMenuSelection]);
 
+  const activateRideSos = useCallback(async () => {
+    if (!activeBooking?.id) {
+      setError('SOS is available once an active ride is loaded.');
+      return;
+    }
+    setError('');
+    setMessage('Activating SOS...');
+    try {
+      Vibration.vibrate([0, 120, 80, 120]);
+    } catch {
+      // Best-effort haptic feedback.
+    }
+    const response = await keralaSafety.activateSos(
+      'Passenger SOS from active ride screen',
+      'active_ride_quick_access',
+    );
+    if (response) {
+      const police = response?.kerala_emergency_numbers?.police || '112';
+      setMessage(`SOS activated. Emergency escalation started. Police: ${police}`);
+      triggerA11yFeedback('SOS activated. Emergency escalation started.');
+    } else {
+      setError('Could not activate SOS. Try Safety panel or call emergency number 112.');
+    }
+  }, [activeBooking?.id, keralaSafety, triggerA11yFeedback]);
+
+  const confirmRideSos = useCallback(() => {
+    Alert.alert(
+      'Activate SOS?',
+      'This will start emergency escalation for this ride and share your latest location if available.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Activate SOS', style: 'destructive', onPress: activateRideSos },
+      ],
+    );
+  }, [activateRideSos]);
+
   useEffect(() => {
     if (autoPickupInitializedRef.current || pickupLocation) {
       return;
@@ -1742,18 +1778,31 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                   <Text style={styles.infoText}>Fare: INR {activeBooking.estimated_fare}</Text>
                   <View style={styles.rideEmergencyCard}>
                     <View style={styles.rideEmergencyCopy}>
-                      <Text style={styles.rideEmergencyTitle}>Emergency during this ride</Text>
+                      <Text style={styles.rideEmergencyTitle}>SOS quick access</Text>
                       <Text style={styles.rideEmergencyText}>
-                        Open emergency contacts from this active booking.
+                        Tap to confirm SOS, or long-press SOS Now to activate immediately.
                       </Text>
                     </View>
-                    <TouchableOpacity
-                      style={styles.rideEmergencyButton}
-                      onPress={openRideEmergencyPanel}
-                      accessibilityRole="button"
-                      accessibilityLabel="Emergency during this ride">
-                      <Text style={styles.rideEmergencyButtonText}>Open</Text>
-                    </TouchableOpacity>
+                    <View style={styles.rideEmergencyActions}>
+                      <TouchableOpacity
+                        style={[styles.rideEmergencyButton, keralaSafety.busy && styles.rideEmergencyButtonDisabled]}
+                        onPress={confirmRideSos}
+                        onLongPress={activateRideSos}
+                        disabled={keralaSafety.busy}
+                        accessibilityRole="button"
+                        accessibilityLabel="Activate SOS for this ride">
+                        <Text style={styles.rideEmergencyButtonText}>
+                          {keralaSafety.busy ? 'Sending...' : 'SOS Now'}
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.rideEmergencySecondaryButton}
+                        onPress={openRideEmergencyPanel}
+                        accessibilityRole="button"
+                        accessibilityLabel="Open emergency contacts">
+                        <Text style={styles.rideEmergencySecondaryText}>Contacts</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                   {activeBookingStatus === 'driver_arrived' && !!activeRideStartOtp && (
                     <View style={[styles.infoBlock, { backgroundColor: COLORS.secondary, borderRadius: 8, padding: 12, marginVertical: 8 }]}>
@@ -2385,10 +2434,32 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 14,
     paddingVertical: 10,
+    alignItems: 'center',
+  },
+  rideEmergencyButtonDisabled: {
+    opacity: 0.65,
   },
   rideEmergencyButtonText: {
     color: '#fff',
     fontWeight: '800',
+  },
+  rideEmergencyActions: {
+    gap: 8,
+    minWidth: 92,
+  },
+  rideEmergencySecondaryButton: {
+    borderWidth: 1,
+    borderColor: COLORS.danger,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  rideEmergencySecondaryText: {
+    color: COLORS.danger,
+    fontWeight: '800',
+    fontSize: 12,
   },
   cancelButton: {
     marginTop: 10,
