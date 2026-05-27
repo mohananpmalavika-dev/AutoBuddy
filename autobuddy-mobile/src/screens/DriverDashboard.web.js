@@ -928,8 +928,8 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     if (loading || availabilitySyncPending) {
       return;
     }
-    const next = typeof nextValue === 'boolean' ? nextValue : !isOnline;
-    if (next === isOnline && !pendingAvailabilitySyncRef.current) {
+    const next = typeof nextValue === 'boolean' ? nextValue : !serverIsOnline;
+    if (next === serverIsOnline && !pendingAvailabilitySyncRef.current) {
       return;
     }
     const requestId = availabilityToggleRequestIdRef.current + 1;
