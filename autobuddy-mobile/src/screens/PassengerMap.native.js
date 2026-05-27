@@ -44,6 +44,8 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
   const autoPickupInitializedRef = useRef(false);
   const bookingStatusRef = useRef({ bookingId: null, status: null });
   const driverAddressCacheRef = useRef(new Map());
+  const passengerPollInFlightRef = useRef(false);
+  const passengerPollCycleRef = useRef(0);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -62,6 +64,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
   const [fare, setFare] = useState(null);
   const [nearbyDrivers, setNearbyDrivers] = useState([]);
   const [favoriteDriverIds, setFavoriteDriverIds] = useState([]);
+  const [blockedDriverIds, setBlockedDriverIds] = useState([]);
   const [selectedDriverId, setSelectedDriverId] = useState('');
   const [fareExpectationInput, setFareExpectationInput] = useState('');
   const [optedOutDriverIds, setOptedOutDriverIds] = useState([]);
@@ -388,51 +391,43 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
   useEffect(() => {
     let unmounted = false;
     const refreshSilently = async () => {
+      if (unmounted || passengerPollInFlightRef.current) {
+        return;
+      }
+      passengerPollInFlightRef.current = true;
+      passengerPollCycleRef.current += 1;
+      const cycle = passengerPollCycleRef.current;
+      const includeBookings = activePassengerMenu === 'history' || cycle % 3 === 0;
       try {
         const [active, bookings] = await Promise.all([
           apiRequest('/bookings/active', { token }).catch(() => null),
-          apiRequest('/bookings', { token }).catch(() => []),
+          includeBookings ? apiRequest('/bookings', { token }).catch(() => []) : Promise.resolve(null),
         ]);
         if (unmounted) {
           return;
         }
         setActiveBooking(active || null);
-        setPassengerBookings(Array.isArray(bookings) ? bookings : []);
+        if (includeBookings) {
+          setPassengerBookings(Array.isArray(bookings) ? bookings : []);
+        }
       } catch {
         // Keep last known state on silent refresh failures.
+      } finally {
+        passengerPollInFlightRef.current = false;
       }
     };
 
     refreshSilently();
-    const timer = setInterval(refreshSilently, 5000);
+    const timer = setInterval(refreshSilently, 12000);
     return () => {
       unmounted = true;
       clearInterval(timer);
     };
-  }, [token]);
-
-  useEffect(() => {
-    if (!activeBooking?.id || !isDriverLiveSharing) {
-      return undefined;
-    }
-    let cancelled = false;
-    const refreshLiveDriverLocation = async () => {
-      const active = await apiRequest('/bookings/active', { token }).catch(() => null);
-      if (!cancelled) {
-        setActiveBooking(active || null);
-      }
-    };
-    refreshLiveDriverLocation();
-    const timer = setInterval(refreshLiveDriverLocation, 2500);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [activeBooking?.id, isDriverLiveSharing, token]);
+  }, [activePassengerMenu, token]);
 
   useEffect(() => {
     const bookingId = activeBooking?.id || null;
-    const status = String(activeBooking?.status || '').toLowerCase() || null;
+    const status = String(activeBookingStatus || '').toLowerCase() || null;
     if (!bookingId || !status) {
       bookingStatusRef.current = { bookingId: null, status: null };
       return;
@@ -459,7 +454,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
     if (status === 'completed') {
       notifyWithVoice('Trip Completed', 'Your trip has ended.');
     }
-  }, [activeBooking?.id, activeBooking?.status, notifyWithVoice]);
+  }, [activeBooking?.id, activeBookingStatus, notifyWithVoice]);
 
   const confirmCreateParallelBooking = () =>
     new Promise((resolve) => {
@@ -628,85 +623,84 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
     }
   }, []);
 
+  const refreshDriverDiscovery = useCallback(async ({ silent = false } = {}) => {
+    if (!pickupLocation || !dropoffLocation) {
+      setFare(null);
+      setNearbyDrivers([]);
+      setSelectedDriverId('');
+      return;
+    }
+    try {
+      setAutoFetchingTripData(true);
+      const [estimate, drivers, favorites, blocked] = await Promise.all([
+        apiRequest('/fare/estimate', {
+          method: 'POST',
+          body: {
+            pickup_location: pickupLocation,
+            drop_location: dropoffLocation,
+          },
+        }),
+        apiRequest('/drivers/nearby', {
+          token,
+          query: {
+            latitude: pickupLocation.latitude,
+            longitude: pickupLocation.longitude,
+            drop_latitude: dropoffLocation.latitude,
+            drop_longitude: dropoffLocation.longitude,
+            radius_km: 6,
+          },
+        }),
+        apiRequest('/passengers/favorite-drivers', {
+          token,
+          query: {
+            latitude: pickupLocation.latitude,
+            longitude: pickupLocation.longitude,
+          },
+        }).catch(() => []),
+        apiRequest('/passengers/blocked-drivers', { token }).catch(() => ({ driver_ids: [] })),
+      ]);
+
+      setFare(estimate || null);
+      const favoritesList = Array.isArray(favorites) ? favorites : [];
+      const favoriteIds = favoritesList.map((item) => item.driver_id).filter(Boolean);
+      setFavoriteDriverIds(favoriteIds);
+      const blockedIds = Array.isArray(blocked?.driver_ids) ? blocked.driver_ids : [];
+      setBlockedDriverIds(blockedIds);
+
+      const nearbyList = (Array.isArray(drivers) ? drivers : []).map((driver) => ({
+        ...driver,
+        is_favorite: favoriteIds.includes(driver.driver_id),
+        source: 'nearby',
+      })).filter((driver) => !blockedIds.includes(driver.driver_id));
+      const nearbyIds = new Set(nearbyList.map((item) => item.driver_id));
+      const favoriteFallback = favoritesList
+        .filter((driver) => driver?.driver_id && !nearbyIds.has(driver.driver_id) && !blockedIds.includes(driver.driver_id))
+        .map((driver) => ({ ...driver, source: 'favorite_fallback', is_favorite: true }));
+
+      const merged = [...nearbyList, ...favoriteFallback];
+      setNearbyDrivers(merged);
+      setSelectedDriverId((previousSelectedId) =>
+        previousSelectedId && !merged.some((item) => item.driver_id === previousSelectedId)
+          ? ''
+          : previousSelectedId,
+      );
+    } catch (err) {
+      if (!silent) {
+        setError(err.message || 'Could not auto-calculate fare or drivers.');
+      }
+    } finally {
+      setAutoFetchingTripData(false);
+    }
+  }, [dropoffLocation, pickupLocation, token]);
+
   useEffect(() => {
-    let cancelled = false;
-    const timer = setTimeout(async () => {
-      if (!pickupLocation || !dropoffLocation) {
-        if (!cancelled) {
-          setFare(null);
-          setNearbyDrivers([]);
-          setSelectedDriverId('');
-        }
-        return;
-      }
-      try {
-        setAutoFetchingTripData(true);
-        const [estimate, drivers, favorites] = await Promise.all([
-          apiRequest('/fare/estimate', {
-            method: 'POST',
-            body: {
-              pickup_location: pickupLocation,
-              drop_location: dropoffLocation,
-            },
-          }),
-          apiRequest('/drivers/nearby', {
-            query: {
-              latitude: pickupLocation.latitude,
-              longitude: pickupLocation.longitude,
-              drop_latitude: dropoffLocation.latitude,
-              drop_longitude: dropoffLocation.longitude,
-              radius_km: 6,
-            },
-          }),
-          apiRequest('/passengers/favorite-drivers', {
-            token,
-            query: {
-              latitude: pickupLocation.latitude,
-              longitude: pickupLocation.longitude,
-            },
-          }).catch(() => []),
-        ]);
-        if (cancelled) {
-          return;
-        }
-
-        setFare(estimate || null);
-        const favoritesList = Array.isArray(favorites) ? favorites : [];
-        const favoriteIds = favoritesList.map((item) => item.driver_id).filter(Boolean);
-        setFavoriteDriverIds(favoriteIds);
-
-        const nearbyList = (Array.isArray(drivers) ? drivers : []).map((driver) => ({
-          ...driver,
-          is_favorite: favoriteIds.includes(driver.driver_id),
-          source: 'nearby',
-        }));
-        const nearbyIds = new Set(nearbyList.map((item) => item.driver_id));
-        const favoriteFallback = favoritesList
-          .filter((driver) => driver?.driver_id && !nearbyIds.has(driver.driver_id))
-          .map((driver) => ({ ...driver, source: 'favorite_fallback', is_favorite: true }));
-
-        const merged = [...nearbyList, ...favoriteFallback];
-        setNearbyDrivers(merged);
-        setSelectedDriverId((previousSelectedId) =>
-          previousSelectedId && !merged.some((item) => item.driver_id === previousSelectedId)
-            ? ''
-            : previousSelectedId,
-        );
-      } catch (err) {
-        if (!cancelled) {
-          setError(err.message || 'Could not auto-calculate fare or drivers.');
-        }
-      } finally {
-        if (!cancelled) {
-          setAutoFetchingTripData(false);
-        }
-      }
+    const timer = setTimeout(() => {
+      refreshDriverDiscovery({ silent: false }).catch(() => null);
     }, 450);
     return () => {
-      cancelled = true;
       clearTimeout(timer);
     };
-  }, [pickupLocation, dropoffLocation, token]);
+  }, [refreshDriverDiscovery]);
 
   useEffect(() => {
     if (selectedDriverId && !visibleDrivers.some((item) => item.driver_id === selectedDriverId)) {
@@ -749,7 +743,22 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
       isFavorite ? 'Removed favorite driver.' : 'Driver marked as favorite.',
     );
     if (done && pickupLocation && dropoffLocation) {
-      setPickupLocation((prev) => (prev ? { ...prev } : prev));
+      await refreshDriverDiscovery({ silent: true });
+    }
+  };
+
+  const toggleBlockedDriver = async (driverId, isBlocked) => {
+    const done = await callApi(
+      () =>
+        apiRequest(`/passengers/blocked-drivers/${driverId}`, {
+          method: 'PUT',
+          token,
+          body: { is_blocked: !isBlocked },
+        }),
+      isBlocked ? 'Driver unblocked.' : 'Driver blocked.',
+    );
+    if (done && pickupLocation && dropoffLocation) {
+      await refreshDriverDiscovery({ silent: true });
     }
   };
 
@@ -789,14 +798,17 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
       allowParallel = true;
     }
 
+    const effectiveRideProduct = isScheduledMode ? 'scheduled' : 'normal';
     const booking = await callApi(() =>
-      apiRequest('/bookings', {
+      apiRequest('/bookings/advanced', {
         method: 'POST',
         token,
         body: {
           pickup_location: pickupLocation,
           drop_location: dropoffLocation,
           payment_method: 'cash',
+          ride_product: effectiveRideProduct,
+          passenger_count: 1,
           allow_parallel: allowParallel,
           selected_driver_id: selectedDriverId || undefined,
           scheduled_for: scheduledForIso,
@@ -883,6 +895,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
   const refreshPassengerDashboard = async () => {
     await refreshActiveBooking();
     await refreshPassengerBookings({ silent: true });
+    await refreshDriverDiscovery({ silent: true });
   };
 
   useEffect(() => {
@@ -1233,6 +1246,13 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                             {favoriteDriverIds.includes(driver.driver_id) ? 'Unfavorite' : 'Favorite'}
                           </Text>
                         </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.driverChip}
+                          onPress={() => toggleBlockedDriver(driver.driver_id, blockedDriverIds.includes(driver.driver_id))}>
+                          <Text style={styles.driverChipText}>
+                            {blockedDriverIds.includes(driver.driver_id) ? 'Unblock' : 'Block'}
+                          </Text>
+                        </TouchableOpacity>
                         <TouchableOpacity style={styles.driverChip} onPress={() => optOutDriver(driver.driver_id)}>
                           <Text style={styles.driverChipText}>Opt Out</Text>
                         </TouchableOpacity>
@@ -1248,6 +1268,20 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
               ) : (
                 <View style={styles.infoBlock}>
                   <Text style={styles.infoText}>No nearby drivers yet. Create a booking first.</Text>
+                </View>
+              )}
+
+              {blockedDriverIds.length > 0 && (
+                <View style={styles.infoBlock}>
+                  <Text style={styles.infoTitle}>Blocked Drivers</Text>
+                  {blockedDriverIds.slice(0, 8).map((driverId) => (
+                    <View key={driverId} style={styles.blockedRow}>
+                      <Text style={styles.infoText}>{driverId}</Text>
+                      <TouchableOpacity style={styles.driverChip} onPress={() => toggleBlockedDriver(driverId, true)}>
+                        <Text style={styles.driverChipText}>Unblock</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
                 </View>
               )}
             </>
@@ -1747,6 +1781,13 @@ const styles = StyleSheet.create({
   },
   driverChipTextSelected: {
     color: COLORS.primaryDark,
+  },
+  blockedRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
   },
   infoTitle: { color: COLORS.textMain, fontWeight: '700', marginBottom: 4 },
   infoText: { color: COLORS.textMuted, marginBottom: 2 },
