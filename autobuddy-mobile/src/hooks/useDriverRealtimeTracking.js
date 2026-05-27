@@ -13,6 +13,9 @@ const HEARTBEAT_MS = Math.max(
   5000,
   Number(process.env.EXPO_PUBLIC_REALTIME_HEARTBEAT_SECONDS || 15) * 1000,
 );
+const MOVING_INTERVAL_MS = 5000;
+const IDLE_INTERVAL_MS = 20000;
+const IDLE_SPEED_THRESHOLD_KMH = 2;
 
 export function useDriverRealtimeTracking({
   token,
@@ -24,18 +27,63 @@ export function useDriverRealtimeTracking({
   const locationSubRef = useRef(null);
   const heartbeatTimerRef = useRef(null);
   const lastLocationRef = useRef(null);
+  const telemetryTimerRef = useRef(null);
+  const hasRequestedBgPermRef = useRef(false);
 
   const [connected, setConnected] = useState(false);
   const [trackingError, setTrackingError] = useState('');
+  const [currentSpeed, setCurrentSpeed] = useState(0);
+  const [trackingInterval, setTrackingInterval] = useState(MOVING_INTERVAL_MS);
+
+  const updateAdaptiveIntervalFromKmh = useCallback((speedKmh) => {
+    const next = speedKmh < IDLE_SPEED_THRESHOLD_KMH ? IDLE_INTERVAL_MS : MOVING_INTERVAL_MS;
+    setTrackingInterval((prev) => (prev === next ? prev : next));
+  }, []);
+
+  const emitTelemetry = useCallback(
+    async ({ latitude, longitude, speedKmh, timestamp }) => {
+      if (!enabled || !token) {
+        return;
+      }
+      try {
+        await apiRequest('/drivers/telemetry', {
+          method: 'POST',
+          token,
+          body: {
+            latitude,
+            longitude,
+            speed: speedKmh,
+            timestamp,
+          },
+        });
+      } catch {
+        // Keep realtime stream resilient even when telemetry ingestion fails.
+      }
+    },
+    [enabled, token],
+  );
 
   const emitSocketLocationUpdate = useCallback((payload) => {
     if (!payload) {
       return;
     }
+    const speedKmh = Number(payload.speed ?? 0);
+    const normalizedSpeed = Number.isFinite(speedKmh) ? Math.max(0, speedKmh) : 0;
+    setCurrentSpeed(normalizedSpeed);
+    updateAdaptiveIntervalFromKmh(normalizedSpeed);
     if (socketRef.current?.connected) {
       socketRef.current.emit('driver_location_update', payload);
     }
-  }, []);
+    clearTimeout(telemetryTimerRef.current);
+    telemetryTimerRef.current = setTimeout(() => {
+      emitTelemetry({
+        latitude: Number(payload.latitude),
+        longitude: Number(payload.longitude),
+        speedKmh: normalizedSpeed,
+        timestamp: Date.now(),
+      }).catch(() => null);
+    }, 0);
+  }, [emitTelemetry, updateAdaptiveIntervalFromKmh]);
 
   const emitLocation = useCallback(
     async (location) => {
@@ -49,7 +97,10 @@ export function useDriverRealtimeTracking({
         latitude: coords.latitude,
         longitude: coords.longitude,
         heading: coords.heading ?? null,
-        speed: coords.speed ?? null,
+        speed:
+          Number.isFinite(Number(coords.speed))
+            ? Number(coords.speed) * 3.6
+            : 0,
         accuracy: coords.accuracy ?? null,
       };
 
@@ -73,8 +124,15 @@ export function useDriverRealtimeTracking({
       } catch {
         // Socket still handles live tracking; REST retry can be added later.
       }
+
+      await emitTelemetry({
+        latitude: Number(payload.latitude),
+        longitude: Number(payload.longitude),
+        speedKmh: Number(payload.speed || 0),
+        timestamp: Date.now(),
+      });
     },
-    [activeRideId, emitSocketLocationUpdate, enabled, token],
+    [activeRideId, emitSocketLocationUpdate, emitTelemetry, enabled, token],
   );
 
   const startLocationWatch = useCallback(async () => {
@@ -88,14 +146,17 @@ export function useDriverRealtimeTracking({
       return;
     }
 
-    const bg = await Location.requestBackgroundPermissionsAsync();
-    if (bg.status !== 'granted') {
-      setTrackingError('Background location not granted. Live tracking works only while app is open.');
-    } else if (Platform.OS !== 'web' && activeRideId) {
-      await startBackgroundDriverTracking({
-        token,
-        activeRideId,
-      });
+    if (!hasRequestedBgPermRef.current) {
+      hasRequestedBgPermRef.current = true;
+      const bg = await Location.requestBackgroundPermissionsAsync();
+      if (bg.status !== 'granted') {
+        setTrackingError('Background location not granted. Live tracking works only while app is open.');
+      } else if (Platform.OS !== 'web' && activeRideId) {
+        await startBackgroundDriverTracking({
+          token,
+          activeRideId,
+        });
+      }
     }
 
     const current = await Location.getCurrentPositionAsync({
@@ -106,12 +167,12 @@ export function useDriverRealtimeTracking({
     locationSubRef.current = await Location.watchPositionAsync(
       {
         accuracy: Location.Accuracy.High,
-        timeInterval: 5000,
-        distanceInterval: 10,
+        timeInterval: trackingInterval,
+        distanceInterval: trackingInterval === MOVING_INTERVAL_MS ? 5 : 15,
       },
       emitLocation,
     );
-  }, [activeRideId, emitLocation, manageLocationWatch, token]);
+  }, [activeRideId, emitLocation, manageLocationWatch, token, trackingInterval]);
 
   useEffect(() => {
     if (!token || !enabled) {
@@ -130,7 +191,6 @@ export function useDriverRealtimeTracking({
       if (lastLocationRef.current) {
         socket.emit('driver_location_update', lastLocationRef.current);
       }
-      startLocationWatch().catch(() => null);
     };
 
     const handleDisconnect = () => {
@@ -159,6 +219,7 @@ export function useDriverRealtimeTracking({
 
     return () => {
       stopBackgroundDriverTracking().catch(() => null);
+      clearTimeout(telemetryTimerRef.current);
       if (activeRideId) {
         socket.emit('leave_ride_room', { booking_id: activeRideId });
       }
@@ -173,11 +234,26 @@ export function useDriverRealtimeTracking({
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [token, enabled, activeRideId, startLocationWatch]);
+  }, [token, enabled, activeRideId, manageLocationWatch, startLocationWatch]);
+
+  useEffect(() => {
+    if (!token || !enabled || !manageLocationWatch) {
+      return undefined;
+    }
+    startLocationWatch().catch(() => null);
+    return () => {
+      if (locationSubRef.current) {
+        locationSubRef.current.remove();
+        locationSubRef.current = null;
+      }
+    };
+  }, [token, enabled, manageLocationWatch, trackingInterval, startLocationWatch]);
 
   return {
     connected,
     trackingError,
+    currentSpeed,
+    trackingInterval,
     emitSocketLocationUpdate,
     emitLocation,
   };

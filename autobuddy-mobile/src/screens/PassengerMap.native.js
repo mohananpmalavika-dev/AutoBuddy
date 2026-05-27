@@ -14,7 +14,7 @@ import MapView, { Marker } from 'react-native-maps';
 
 import { apiRequest } from '../lib/api';
 import {
-  getPlaceLocation,
+  getPlaceLocation, 
   isPlacesConfigured,
   reverseGeocodeLocation,
   searchPlaces,
