@@ -23,6 +23,7 @@ import { COLORS, SHADOWS } from '../theme';
 import RevenueCard from '../components/RevenueCard';
 import RideCommunicationCard from '../components/RideCommunicationCard';
 import VoiceTextInput from '../components/VoiceTextInput';
+import BookingConfirmationCard from '../components/BookingConfirmationCard';
 import { usePassengerRideRealtime } from '../hooks/usePassengerRideRealtime';
 
 const PASSENGER_MENU_OPTIONS = [
@@ -75,6 +76,8 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
   const [mapError, setMapError] = useState('');
   const [activePassengerMenu, setActivePassengerMenu] = useState(PRIMARY_PASSENGER_MENU_KEY);
   const [showPassengerMenus, setShowPassengerMenus] = useState(false);
+  const [bookingJustCreated, setBookingJustCreated] = useState(false);
+  const [locationSearchModalVisible, setLocationSearchModalVisible] = useState(false);
   const mapRef = useRef(null);
   const [driverLiveAddress, setDriverLiveAddress] = useState('');
   const pickupAddressRequestRef = useRef(0);
@@ -817,6 +820,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
     );
     if (booking) {
       setActiveBooking(booking);
+      setBookingJustCreated(true);
       setMessage(isScheduledMode ? 'Scheduled ride request created.' : 'Ride request created.');
       refreshPassengerBookings({ silent: true });
     }
@@ -1004,6 +1008,15 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
           {autoFetchingTripData && <ActivityIndicator color={COLORS.primary} style={styles.loader} />}
           {!!error && <Text style={styles.error}>{error}</Text>}
           {!!message && <Text style={styles.message}>{message}</Text>}
+
+          {/* Booking confirmation card - shows after successful booking */}
+          {bookingJustCreated && activeBooking && (
+            <BookingConfirmationCard
+              booking={activeBooking}
+              onDismiss={() => setBookingJustCreated(false)}
+              autoDismissMs={5000}
+            />
+          )}
           <View style={styles.dashboardTopRow}>
             <TouchableOpacity
               style={[
