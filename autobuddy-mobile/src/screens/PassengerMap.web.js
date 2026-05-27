@@ -943,9 +943,9 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
 
   const confirmCreateParallelBooking = () => {
     if (typeof window === 'undefined' || typeof window.confirm !== 'function') {
-      return true;
+      return Promise.resolve(true);
     }
-    return window.confirm(t.confirmParallelBooking);
+    return Promise.resolve(window.confirm(t.confirmParallelBooking));
   };
 
   const refreshDriverDiscovery = useCallback(async ({ silent = false } = {}) => {
@@ -1107,7 +1107,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
     const existingActive = await apiRequest('/bookings/active', { token }).catch(() => null);
     let allowParallel = false;
     if (existingActive) {
-      const shouldCreateAnother = confirmCreateParallelBooking();
+      const shouldCreateAnother = await confirmCreateParallelBooking();
       if (!shouldCreateAnother) {
         setMessage(t.keepingExistingBooking);
         return;
@@ -1178,6 +1178,13 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
     }
     if (!canCancelActiveBooking) {
       setError(t.rideCannotBeCancelledAfterAccept);
+      return;
+    }
+    const confirmed = window.confirm(
+      `${t.confirmCancelBooking}\n\nPickup: ${normalizeLocation(activeBooking.pickup_location)?.address || 'Unknown'}\nDrop: ${normalizeLocation(activeBooking.drop_location || activeBooking.dropoff_location)?.address || 'Unknown'}`,
+    );
+    if (!confirmed) {
+      setMessage(t.cancellationAborted);
       return;
     }
     const cancelled = await callApi(() =>
@@ -1767,16 +1774,27 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                           {t.driverLiveLocation}: {driverLiveLocationLabel}
                         </Text>
                       )}
-                      {activeBookingStatus === 'driver_arrived' && !!activeRideStartOtp && (
-                        <Text style={styles.otpShareText}>
-                          {t.shareOtpWithDriver}: {activeRideStartOtp}
-                        </Text>
-                      )}
-                      {activeBookingStatus === 'in_progress' && !!activeRideEndOtp && (
-                        <Text style={styles.otpShareText}>
-                          {t.shareCompletionOtpWithDriver}: {activeRideEndOtp}
-                        </Text>
-                      )}
+                      {(activeBookingStatus === 'driver_arrived' && !!activeRideStartOtp) || (activeBookingStatus === 'in_progress' && !!activeRideEndOtp) ? (
+                        <View style={[styles.infoBlock, { backgroundColor: COLORS.secondary, borderRadius: 8, padding: 12, marginVertical: 8 }]}>
+                          <Text style={[styles.infoTitle, { fontSize: 14, marginBottom: 6 }]}>
+                            {activeBookingStatus === 'driver_arrived' ? t.shareOtpWithDriver : t.shareCompletionOtpWithDriver}
+                          </Text>
+                          <Text style={[styles.infoText, { fontSize: 20, fontWeight: 'bold', letterSpacing: 2 }]}>
+                            {activeBookingStatus === 'driver_arrived' ? activeRideStartOtp : activeRideEndOtp}
+                          </Text>
+                          <TouchableOpacity
+                            onPress={() => {
+                              const otpValue = activeBookingStatus === 'driver_arrived' ? activeRideStartOtp : activeRideEndOtp;
+                              if (navigator.clipboard) {
+                                navigator.clipboard.writeText(otpValue);
+                                setMessage(t.otpCopied || 'OTP copied to clipboard');
+                              }
+                            }}
+                            style={styles.actionButtonMuted}>
+                            <Text style={styles.actionText}>{t.copy || 'Copy'}</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : null}
                       <Text style={styles.infoText}>{t.fareLabel}: INR {activeBooking.estimated_fare}</Text>
                       {Number(activeBooking.pickup_surcharge || 0) > 0 && (
                         <Text style={styles.infoText}>

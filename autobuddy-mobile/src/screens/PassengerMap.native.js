@@ -467,11 +467,11 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
       };
 
       Alert.alert(
-        'Request already in progress',
-        'One booking is already in progress. Do you want to add another?',
+        'Active Ride in Progress',
+        'You already have an active ride booking.\n\nDo you want to create another ride request?',
         [
-          { text: 'No', style: 'cancel', onPress: () => decide(false) },
-          { text: 'Yes, add another', onPress: () => decide(true) },
+          { text: 'Keep Current Ride', style: 'cancel', onPress: () => decide(false) },
+          { text: 'Add Another Ride', style: 'default', onPress: () => decide(true) },
         ],
         {
           cancelable: true,
@@ -830,14 +830,31 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
       setError('Ride cannot be cancelled after the driver has accepted.');
       return;
     }
-    const cancelled = await callApi(() =>
-      apiRequest(`/bookings/${activeBooking.id}/cancel`, { method: 'PUT', token }),
-    );
-    if (cancelled) {
-      setMessage('Booking cancelled.');
-      await refreshActiveBooking();
-      await refreshPassengerBookings({ silent: true });
-    }
+    const pickupAddr = normalizeLocation(pickupLocation)?.address || 'Pickup location';
+    const dropAddr = normalizeLocation(dropoffLocation)?.address || 'Drop location';
+    return new Promise((resolve) => {
+      Alert.alert(
+        'Confirm Cancellation',
+        `Are you sure you want to cancel this ride?\n\nFrom: ${pickupAddr}\nTo: ${dropAddr}`,
+        [
+          { text: 'Keep Ride', style: 'cancel', onPress: () => {
+            setMessage('Cancellation aborted.');
+            resolve(false);
+          } },
+          { text: 'Cancel Ride', style: 'destructive', onPress: async () => {
+            const cancelled = await callApi(() =>
+              apiRequest(`/bookings/${activeBooking.id}/cancel`, { method: 'PUT', token }),
+            );
+            if (cancelled) {
+              setMessage('Booking cancelled.');
+              await refreshActiveBooking();
+              await refreshPassengerBookings({ silent: true });
+            }
+            resolve(cancelled ? true : false);
+          } },
+        ],
+      );
+    });
   };
 
   const handleMapPress = (event) => {
@@ -1357,6 +1374,22 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                     </Text>
                   )}
                   <Text style={styles.infoText}>Fare: INR {activeBooking.estimated_fare}</Text>
+                  {activeBookingStatus === 'driver_arrived' && !!activeRideStartOtp && (
+                    <View style={[styles.infoBlock, { backgroundColor: COLORS.secondary, borderRadius: 8, padding: 12, marginVertical: 8 }]}>
+                      <Text style={[styles.infoTitle, { fontSize: 14, marginBottom: 6 }]}>Share OTP with Driver</Text>
+                      <Text style={[styles.infoText, { fontSize: 22, fontWeight: 'bold', letterSpacing: 3, textAlign: 'center' }]}>
+                        {activeRideStartOtp}
+                      </Text>
+                    </View>
+                  )}
+                  {activeBookingStatus === 'in_progress' && !!activeRideEndOtp && (
+                    <View style={[styles.infoBlock, { backgroundColor: COLORS.secondary, borderRadius: 8, padding: 12, marginVertical: 8 }]}>
+                      <Text style={[styles.infoTitle, { fontSize: 14, marginBottom: 6 }]}>Completion OTP</Text>
+                      <Text style={[styles.infoText, { fontSize: 22, fontWeight: 'bold', letterSpacing: 3, textAlign: 'center' }]}>
+                        {activeRideEndOtp}
+                      </Text>
+                    </View>
+                  )}
                   {canCancelActiveBooking ? (
                     <TouchableOpacity onPress={cancelBooking} style={styles.cancelButton} disabled={loading}>
                       <Text style={styles.cancelText}>Cancel Booking</Text>
