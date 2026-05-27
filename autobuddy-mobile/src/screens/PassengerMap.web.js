@@ -26,6 +26,8 @@ import KeralaSafetyCard from '../components/KeralaSafetyCard';
 import RevenueCard from '../components/RevenueCard';
 import RideProductsGrid from '../components/RideProductsGrid';
 import WebGoogleLiveMap from '../components/WebGoogleLiveMap';
+import LocationSearchModal from '../components/LocationSearchModal';
+import BookingConfirmationCard from '../components/BookingConfirmationCard';
 import {
   FadeSlideView,
   GlassCard,
@@ -109,6 +111,9 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
   const [showPassengerMenus, setShowPassengerMenus] = useState(false);
   const [driverLiveAddress, setDriverLiveAddress] = useState('');
   const [activePassengerMenu, setActivePassengerMenu] = useState(PRIMARY_PASSENGER_MENU_KEY);
+  const [bookingJustCreated, setBookingJustCreated] = useState(false);
+  const [locationSearchModalVisible, setLocationSearchModalVisible] = useState(false);
+  const [locationSearchModalType, setLocationSearchModalType] = useState(null); // 'pickup' or 'dropoff'
   const [rideProductAvailability, setRideProductAvailability] = useState({
     enabled_products: ['normal'],
     pickup_district: null,
@@ -1167,6 +1172,7 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
     );
     if (booking) {
       setActiveBooking(booking);
+      setBookingJustCreated(true);
       setMessage(isScheduledMode ? t.scheduledRideRequestCreated : t.rideRequestCreated);
       refreshPassengerBookings({ silent: true });
     }
@@ -1273,6 +1279,15 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
             {autoFetchingTripData && <ActivityIndicator color={COLORS.primary} style={styles.loader} />}
             {!!error && <Text style={styles.error}>{error}</Text>}
             {!!message && <Text style={styles.message}>{message}</Text>}
+
+            {/* Booking confirmation card - shows after successful booking */}
+            {bookingJustCreated && activeBooking && (
+              <BookingConfirmationCard
+                booking={activeBooking}
+                onDismiss={() => setBookingJustCreated(false)}
+                autoDismissMs={5000}
+              />
+            )}
 
             <View style={styles.dashboardTopRow}>
               <TouchableOpacity
@@ -1473,6 +1488,61 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                     labels={rideProductLabels}
                     onSelect={setRideProduct}
                   />
+
+                  {/* PHASE 1 FIX: Inline driver selection (max 5) - Reduces taps from 6-7 to 2 */}
+                  {pickupLocation && dropoffLocation && visibleDrivers.length > 0 && (
+                    <View style={[styles.infoBlock, { backgroundColor: '#F0F7F5', borderLeftWidth: 3, borderLeftColor: COLORS.primary }]}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <Text style={styles.infoTitle}>
+                          {t.drivers || 'Available Drivers'} ({visibleDrivers.length})
+                        </Text>
+                        {visibleDrivers.length > 3 && (
+                          <TouchableOpacity
+                            style={styles.driverChip}
+                            onPress={() => setActivePassengerMenu('drivers')}>
+                            <Text style={styles.driverChipText}>View All</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                      {visibleDrivers.slice(0, 5).map((driver) => (
+                        <TouchableOpacity
+                          key={driver.driver_id}
+                          style={[
+                            styles.inlineDriverRow,
+                            selectedDriverId === driver.driver_id && styles.inlineDriverRowSelected,
+                          ]}
+                          onPress={() =>
+                            setSelectedDriverId((prev) => (prev === driver.driver_id ? '' : driver.driver_id))
+                          }>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.driverNameText}>{driver.name}</Text>
+                            <Text style={styles.infoText}>
+                              {Number(driver.distance_km || 0).toFixed(2)} km | ⭐ {driver.rating}
+                            </Text>
+                            <Text style={styles.infoText}>
+                              ₹{estimateDriverFare(driver).toFixed(2)}
+                            </Text>
+                          </View>
+                          <TouchableOpacity
+                            style={[
+                              styles.driverSelectChip,
+                              selectedDriverId === driver.driver_id && styles.driverSelectChipSelected,
+                            ]}
+                            onPress={() =>
+                              setSelectedDriverId((prev) => (prev === driver.driver_id ? '' : driver.driver_id))
+                            }>
+                            <Text style={[
+                              styles.driverChipText,
+                              selectedDriverId === driver.driver_id && styles.driverChipTextSelected,
+                            ]}>
+                              {selectedDriverId === driver.driver_id ? '✓' : 'Select'}
+                            </Text>
+                          </TouchableOpacity>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+
                   {isScheduledBookingMode && (
                     <>
                       <Text style={styles.infoText}>{t.setPickupTime}</Text>
@@ -1504,33 +1574,43 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
                     placeholderTextColor={COLORS.textMuted}
                   />
 
+                  {/* PHASE 1 FIX: Highlight corporate code field */}
                   {effectiveRideProduct === 'corporate' && (
-                    <VoiceTextInput
-                      style={styles.input}
-                      value={corporateCode}
-                      onChangeText={setCorporateCode}
-                      placeholder={t.corporateCodePlaceholder}
-                      placeholderTextColor={COLORS.textMuted}
-                    />
-                  )}
-
-                  {effectiveRideProduct === 'airport' && (
-                    <>
+                    <View style={{ backgroundColor: '#FFF3E0', borderLeftWidth: 3, borderLeftColor: '#FF9800', paddingLeft: 8, paddingRight: 8, paddingVertical: 6, borderRadius: 4, marginVertical: 8 }}>
+                      <Text style={{ fontSize: 11, color: '#E65100', fontWeight: '600', marginBottom: 4 }}>
+                        ⚠️ CORPORATE CODE REQUIRED
+                      </Text>
                       <VoiceTextInput
                         style={styles.input}
+                        value={corporateCode}
+                        onChangeText={setCorporateCode}
+                        placeholder={t.corporateCodePlaceholder}
+                        placeholderTextColor={COLORS.textMuted}
+                      />
+                    </View>
+                  )}
+
+                  {/* PHASE 1 FIX: Highlight airport fields */}
+                  {effectiveRideProduct === 'airport' && (
+                    <View style={{ backgroundColor: '#FFF3E0', borderLeftWidth: 3, borderLeftColor: '#FF9800', paddingLeft: 8, paddingRight: 8, paddingVertical: 8, borderRadius: 4, marginVertical: 8 }}>
+                      <Text style={{ fontSize: 11, color: '#E65100', fontWeight: '600', marginBottom: 6 }}>
+                        ⚠️ AIRPORT DETAILS REQUIRED
+                      </Text>
+                      <VoiceTextInput
+                        style={[styles.input, { marginBottom: 6 }]}
                         value={flightNumber}
                         onChangeText={setFlightNumber}
-                        placeholder={t.flightNumberPlaceholder}
+                        placeholder={t.flightNumberPlaceholder || 'Flight Number (e.g., AI123)'}
                         placeholderTextColor={COLORS.textMuted}
                       />
                       <VoiceTextInput
                         style={styles.input}
                         value={airportTerminal}
                         onChangeText={setAirportTerminal}
-                        placeholder={t.airportTerminalPlaceholder}
+                        placeholder={t.airportTerminalPlaceholder || 'Terminal (e.g., T1, T2)'}
                         placeholderTextColor={COLORS.textMuted}
                       />
-                    </>
+                    </View>
                   )}
 
                   {effectiveRideProduct === 'intercity' && (
@@ -2203,6 +2283,35 @@ const styles = StyleSheet.create({
   },
   driverChipTextSelected: {
     color: COLORS.primaryDark,
+  },
+  inlineDriverRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    marginVertical: 4,
+    borderRadius: 6,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  inlineDriverRowSelected: {
+    backgroundColor: '#E8F5E9',
+    borderColor: COLORS.primary,
+    borderWidth: 2,
+  },
+  driverSelectChip: {
+    borderWidth: 1,
+    borderColor: '#CBD9D0',
+    borderRadius: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: '#F6FAF7',
+  },
+  driverSelectChipSelected: {
+    borderColor: COLORS.primary,
+    backgroundColor: '#D5ECD8',
   },
   infoTitle: { color: '#202020', fontWeight: '700', marginBottom: 4 },
   infoText: { color: '#666666', marginBottom: 2 },
