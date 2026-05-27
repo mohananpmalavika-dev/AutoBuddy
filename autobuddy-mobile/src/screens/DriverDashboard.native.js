@@ -52,6 +52,49 @@ const STATUS_FLOW = ['accepted', 'driver_arrived', 'in_progress', 'completed'];
 const DRIVER_MOVING_TRACK_INTERVAL_MS = 5000;
 const DRIVER_IDLE_TRACK_INTERVAL_MS = 20000;
 const DRIVER_IDLE_SPEED_THRESHOLD_KMH = 2;
+const AVAILABILITY_RETRY_WINDOW_MS = 300000;
+
+function isRetriableAvailabilityError(err) {
+  const status = Number(err?.status || 0);
+  const errText = String(err?.message || '').toLowerCase();
+  return (
+    status === 429 ||
+    status === 503 ||
+    errText.includes('temporarily unavailable') ||
+    errText.includes('service unavailable') ||
+    errText.includes('network timeout') ||
+    errText.includes('network request failed') ||
+    errText.includes('failed to fetch')
+  );
+}
+
+function getAvailabilityErrorMessage(err) {
+  const statusCode = Number(err?.status || 0);
+  const errMsg = String(err?.message || '').toLowerCase();
+
+  if (statusCode === 404) {
+    return 'Availability endpoint not found. Please retry.';
+  }
+  if (statusCode === 401) {
+    return 'Your session expired. Please log in again.';
+  }
+  if (statusCode === 429) {
+    return 'Too many requests. Retrying automatically...';
+  }
+  if (statusCode === 503) {
+    return 'Server is temporarily busy. Retrying automatically...';
+  }
+  if (statusCode >= 500) {
+    return `Server error (${statusCode}). Please retry in a moment.`;
+  }
+  if (statusCode >= 400) {
+    return `Request error: ${err?.message || 'Invalid request'}`;
+  }
+  if (errMsg.includes('network') || errMsg.includes('failed to fetch')) {
+    return 'Network connection issue. Retrying automatically...';
+  }
+  return err?.message || 'Failed to update availability status.';
+}
 
 export default function DriverDashboard({ token, user, onLogout, onProfilePress = undefined }) {
   const snapPoints = useMemo(() => ['26%', '55%'], []);
@@ -323,7 +366,9 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       pendingAvailabilitySyncRef.current = null;
       setAvailabilitySyncPending(false);
       availabilityUiOverrideUntilRef.current = Date.now() + 15000;
+      setServerIsOnline(savedStatus);
       setIsOnline(savedStatus);
+      setError('');
       if (savedStatus) {
         await pushDriverLocation({
           fallbackLocation: updated?.current_location || driverLocation,
@@ -332,28 +377,22 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       }
       setMessage(savedStatus ? 'You are online and discoverable.' : 'You are offline.');
     } catch (err) {
-      const status = Number(err?.status || 0);
-      const errText = String(err?.message || '').toLowerCase();
-      const retriable =
-        status === 429 ||
-        status === 503 ||
-        errText.includes('temporarily unavailable') ||
-        errText.includes('service unavailable') ||
-        errText.includes('network timeout') ||
-        errText.includes('network request failed') ||
-        errText.includes('failed to fetch');
-      if (retriable) {
+      if (isRetriableAvailabilityError(err)) {
         pendingAvailabilitySyncRef.current = {
           desired: !!pending.desired,
           attempts: Number(pending.attempts || 0) + 1,
           lastAttemptAt: Date.now(),
         };
-        availabilityUiOverrideUntilRef.current = Date.now() + 300000;
+        availabilityUiOverrideUntilRef.current = Date.now() + AVAILABILITY_RETRY_WINDOW_MS;
         setAvailabilitySyncPending(true);
         setIsOnline(!!pending.desired);
+        setError(getAvailabilityErrorMessage(err));
+        setMessage('Availability sync queued. Retrying automatically.');
       } else {
         pendingAvailabilitySyncRef.current = null;
         setAvailabilitySyncPending(false);
+        setError(getAvailabilityErrorMessage(err));
+        setMessage('');
       }
     } finally {
       availabilityRetryInFlightRef.current = false;
@@ -839,6 +878,11 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     
     // Immediately show optimistic UI
     availabilityUiOverrideUntilRef.current = Date.now() + 15000;
+    pendingAvailabilitySyncRef.current = {
+      desired: next,
+      attempts: 0,
+      lastAttemptAt: Date.now(),
+    };
     setIsOnline(next);
     setAvailabilitySyncPending(true);
     setError('');
@@ -886,35 +930,26 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
         await refreshDriverDataSilently({ includeProfile: false });
       }
     } catch (err) {
-      // On error, revert to server state
       if (requestId !== availabilityToggleRequestIdRef.current) {
         return;
       }
-      
-      // More informative error message
-      const statusCode = err?.status || 0;
-      const errMsg = String(err?.message || '').toLowerCase();
-      let errorDisplay = 'Failed to update status.';
-      
-      if (statusCode === 404) {
-        errorDisplay = 'Availability endpoint not found. Please retry.';
-      } else if (statusCode === 401) {
-        errorDisplay = 'Your session expired. Please log in again.';
-      } else if (statusCode === 429) {
-        errorDisplay = 'Too many requests. Please wait a moment.';
-      } else if (statusCode === 503) {
-        errorDisplay = 'Server is temporarily busy. Retrying...';
-      } else if (statusCode >= 500) {
-        errorDisplay = `Server error (${statusCode}). Please retry in a moment.`;
-      } else if (statusCode >= 400) {
-        errorDisplay = `Request error: ${err?.message || 'Invalid request'}`;
-      } else if (errMsg.includes('network') || errMsg.includes('failed to fetch')) {
-        errorDisplay = 'Network connection issue. Please check your internet.';
-      } else {
-        errorDisplay = err?.message || 'Failed to update availability status.';
+
+      const errorDisplay = getAvailabilityErrorMessage(err);
+      setError(errorDisplay);
+
+      if (isRetriableAvailabilityError(err)) {
+        pendingAvailabilitySyncRef.current = {
+          desired: next,
+          attempts: 1,
+          lastAttemptAt: Date.now(),
+        };
+        availabilityUiOverrideUntilRef.current = Date.now() + AVAILABILITY_RETRY_WINDOW_MS;
+        setIsOnline(next);
+        setAvailabilitySyncPending(true);
+        setMessage('Availability sync queued. Retrying automatically.');
+        return;
       }
       
-      setError(errorDisplay);
       setMessage('');
       
       // Try to fetch current state from server
