@@ -28,7 +28,6 @@ import RideProductsGrid from '../components/RideProductsGrid';
 import WebGoogleLiveMap from '../components/WebGoogleLiveMap';
 import LocationSearchModal from '../components/LocationSearchModal';
 import BookingConfirmationCard from '../components/BookingConfirmationCard';
-import InteractiveMap from '../components/InteractiveMap';
 import {
   FadeSlideView,
   GlassCard,
@@ -113,7 +112,6 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
   const [driverLiveAddress, setDriverLiveAddress] = useState('');
   const [activePassengerMenu, setActivePassengerMenu] = useState(PRIMARY_PASSENGER_MENU_KEY);
   const [bookingJustCreated, setBookingJustCreated] = useState(false);
-  const [showInteractiveMap, setShowInteractiveMap] = useState(true);
   const [locationSearchModalVisible, setLocationSearchModalVisible] = useState(false);
   const [locationSearchModalType, setLocationSearchModalType] = useState(null); // 'pickup' or 'dropoff'
   const [rideProductAvailability, setRideProductAvailability] = useState({
@@ -1415,45 +1413,8 @@ export default function PassengerMap({ token, user, onLogout, onProfilePress = u
 
             {activePassengerMenu === 'ride' && (
               <>
-                {/* PHASE 2: Interactive Map for faster location selection - 67% time reduction */}
-                {showInteractiveMap && (
-                  <View style={styles.infoBlock}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                      <Text style={styles.infoTitle}>📍 {t.selectLocationsMap || 'Select Locations on Map'}</Text>
-                      <TouchableOpacity
-                        onPress={() => setShowInteractiveMap(false)}
-                        style={{ paddingVertical: 4, paddingHorizontal: 8 }}>
-                        <Text style={{ color: COLORS.primary, fontSize: 12, fontWeight: '500' }}>
-                          {t.hide || 'Hide'}
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                    <InteractiveMap
-                      apiKey={googleMapsWebKey}
-                      pickupLocation={pickupLocation}
-                      dropoffLocation={dropoffLocation}
-                      selectingPoint={!pickupLocation ? 'pickup' : !dropoffLocation ? 'dropoff' : null}
-                      onLocationSelect={(point, location) => {
-                        setLocationForPoint(point, location);
-                      }}
-                      center={
-                        pickupLocation || dropoffLocation
-                          ? { lat: (pickupLocation || dropoffLocation).latitude, lng: (pickupLocation || dropoffLocation).longitude }
-                          : DEFAULT_CITY_LOCATION
-                      }
-                    />
-                  </View>
-                )}
-
-                {!pickupLocation || !dropoffLocation ? (
-                  <TouchableOpacity
-                    onPress={() => setShowInteractiveMap(true)}
-                    style={{ paddingVertical: 8, paddingHorizontal: 12, marginBottom: 8 }}>
-                    <Text style={{ color: COLORS.primary, fontSize: 12, fontWeight: '500' }}>
-                      {t.showMap || 'Show Interactive Map'}
-                    </Text>
-                  </TouchableOpacity>
-                ) : null}
+                {/* PHASE 3A: Simplified UI - removed redundant InteractiveMap component */}
+                {/* Use top WebGoogleLiveMap for visual reference, text search below for location selection */}
 
                 <View style={styles.selectedBlock}>
                   <View style={styles.pickupLabelRow}>
