@@ -148,10 +148,13 @@ def get_settings() -> Settings:
     default_allowed_origins = _resolve_default_allowed_origins(environment)
     mongo_url = _get_mongo_url()
     if not mongo_url:
-        raise RuntimeError(
-            "MONGO_URL must be configured via environment. "
-            "DATABASE_URL is supported as a fallback alias."
-        )
+        if environment == "production":
+            raise RuntimeError(
+                "MONGO_URL must be configured via environment in production. "
+                "DATABASE_URL is supported as a fallback alias."
+            )
+        # For development, use a default MongoDB URL or in-memory fallback
+        mongo_url = os.environ.get("MONGO_URL_DEV", "mongodb://localhost:27017/autobuddy_dev")
     allowed_origins = build_allowed_origins(
         os.environ.get("ALLOWED_ORIGINS", default_allowed_origins)
     )
