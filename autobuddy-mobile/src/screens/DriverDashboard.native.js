@@ -3,6 +3,7 @@ import {
   AccessibilityInfo,
   ActivityIndicator,
   Alert,
+  Linking,
   ScrollView,
   StyleSheet,
   Text,
@@ -10,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import * as Location from 'expo-location';
+import * as WebBrowser from 'expo-web-browser';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import BottomSheet from '@gorhom/bottom-sheet';
 
@@ -944,6 +946,21 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     }
   };
 
+  const rejectRequest = async (bookingId) => {
+    const rejected = await runAction(
+      () =>
+        apiRequest(`/bookings/${bookingId}/reject`, {
+          method: 'PUT',
+          token,
+        }),
+      'Ride request declined.',
+    );
+    if (rejected) {
+      setPendingRequests((prev) => (Array.isArray(prev) ? prev.filter((item) => item?.id !== bookingId) : prev));
+      await refreshDriverDataSilently();
+    }
+  };
+
   const toggleBlockedPassenger = async (passengerId, isBlocked) => {
     const done = await runAction(
       () =>
@@ -1063,6 +1080,73 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     return map[String(activeRide.status)] || null;
   }, [activeRide]);
 
+  const focusRideCommunication = useCallback(() => {
+    if (!activeRideId) {
+      return;
+    }
+    setExpandedRideCard(true);
+    setMessage('Use the In-App Call & Chat panel below to message the passenger.');
+  }, [activeRideId]);
+
+  const openActiveRideCall = useCallback(async () => {
+    if (!activeRideId) {
+      return;
+    }
+    const payload = await runAction(() => apiRequest(`/bookings/${activeRideId}/call-room`, { token }));
+    const roomUrl = String(payload?.room_url || '').trim();
+    if (!roomUrl) {
+      setError('Call room URL unavailable.');
+      return;
+    }
+    try {
+      await WebBrowser.openBrowserAsync(roomUrl);
+    } catch {
+      await Linking.openURL(roomUrl);
+    }
+  }, [activeRideId, runAction, token]);
+
+  const focusActiveRideRoute = useCallback(() => {
+    if (!activeRide) {
+      return;
+    }
+    const pickup = normalizeLocation(activeRide.pickup_location || activeRide.pickup || activeRide.pickup_location_details);
+    const drop = normalizeLocation(activeRide.dropoff_location || activeRide.dropoff || activeRide.dropoff_location_details);
+    const destination = navigatingToDrop ? (drop || pickup) : (pickup || drop);
+    if (!destination) {
+      setError('Ride location unavailable.');
+      return;
+    }
+
+    const routeCoords = [driverLocation, destination]
+      .filter(Boolean)
+      .map((location) => ({
+        latitude: location.latitude,
+        longitude: location.longitude,
+      }));
+
+    try {
+      if (mapRef.current?.fitToCoordinates && routeCoords.length >= 2) {
+        mapRef.current.fitToCoordinates(routeCoords, {
+          edgePadding: { top: 80, right: 60, bottom: 320, left: 60 },
+          animated: true,
+        });
+      } else {
+        mapRef.current?.animateToRegion(
+          {
+            latitude: destination.latitude,
+            longitude: destination.longitude,
+            latitudeDelta: 0.02,
+            longitudeDelta: 0.02,
+          },
+          500,
+        );
+      }
+      setMessage(navigatingToDrop ? 'Map focused on drop-off route.' : 'Map focused on pickup route.');
+    } catch {
+      setError('Could not focus ride route on map.');
+    }
+  }, [activeRide, driverLocation, navigatingToDrop, normalizeLocation]);
+
   return (
     <View style={styles.container}>
       <MapView
@@ -1163,12 +1247,12 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
               <RideCard
                 ride={activeRide}
                 driverLocation={driverLocation}
-                onAccept={() => {}}
-                onDecline={() => {}}
-                onComplete={() => {}}
-                onMessage={() => {}}
-                onCall={() => {}}
-                onMapPress={() => {}}
+                onAccept={() => activeRide?.id && acceptRequest(activeRide.id)}
+                onDecline={() => activeRide?.id && rejectRequest(activeRide.id)}
+                onComplete={moveRideToNextStatus}
+                onMessage={focusRideCommunication}
+                onCall={openActiveRideCall}
+                onMapPress={focusActiveRideRoute}
                 loading={loading}
                 expanded={expandedRideCard}
                 onToggleExpand={setExpandedRideCard}
@@ -1305,6 +1389,12 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
                               onPress={() => acceptRequest(req.id)}
                               disabled={loading}>
                               <Text style={styles.acceptTextNew}>✓ Accept</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={styles.declineButtonNew}
+                              onPress={() => rejectRequest(req.id)}
+                              disabled={loading}>
+                              <Text style={styles.declineButtonTextNew}>Decline</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
                               style={[styles.blockButtonNew, isBlocked && styles.blockButtonActive]}
@@ -1798,6 +1888,17 @@ const styles = StyleSheet.create({
   },
   acceptText: { color: '#fff', fontWeight: '700' },
   acceptTextNew: { color: '#fff', fontWeight: '800', fontSize: 14 },
+  declineButtonNew: {
+    backgroundColor: '#FFF5F5',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.danger,
+    alignItems: 'center',
+    minWidth: 90,
+  },
+  declineButtonTextNew: { color: COLORS.danger, fontWeight: '800', fontSize: 13 },
   blockButtonTextNew: { color: COLORS.textMain, fontWeight: '700', fontSize: 13 },
   blockButtonTextActive: { color: COLORS.danger, fontWeight: '800' },
   offlineState: { flex: 1, justifyContent: 'center', alignItems: 'center' },

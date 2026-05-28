@@ -1085,6 +1085,21 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     }
   };
 
+  const rejectRequest = async (bookingId) => {
+    const rejected = await runAction(
+      () =>
+        apiRequest(`/bookings/${bookingId}/reject`, {
+          method: 'PUT',
+          token,
+        }),
+      'Ride request declined.',
+    );
+    if (rejected) {
+      setPendingRequests((prev) => (Array.isArray(prev) ? prev.filter((item) => item?.id !== bookingId) : prev));
+      await refreshDriverDataSilently();
+    }
+  };
+
   const toggleBlockedPassenger = async (passengerId, isBlocked) => {
     const done = await runAction(
       () =>
@@ -1184,6 +1199,49 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     return map[String(activeRide.status)] || null;
   }, [activeRide]);
 
+  const focusRideCommunication = useCallback(() => {
+    if (!activeRideId) {
+      return;
+    }
+    setExpandedRideCard(true);
+    setMessage('Use the In-App Call & Chat panel below to message the passenger.');
+  }, [activeRideId]);
+
+  const openActiveRideCall = useCallback(async () => {
+    if (!activeRideId) {
+      return;
+    }
+    const payload = await runAction(() => apiRequest(`/bookings/${activeRideId}/call-room`, { token }));
+    const roomUrl = String(payload?.room_url || '').trim();
+    if (!roomUrl) {
+      setError('Call room URL unavailable.');
+      return;
+    }
+    if (typeof window !== 'undefined' && typeof window.open === 'function') {
+      window.open(roomUrl, '_blank', 'noopener,noreferrer');
+    } else {
+      setMessage(`Call room ready: ${roomUrl}`);
+    }
+  }, [activeRideId, runAction, token]);
+
+  const openActiveRideMap = useCallback(() => {
+    const origin = mapState.routeOrigin || mapState.driverPlace || mapState.pickup;
+    const destination = mapState.routeDestination || mapState.drop || mapState.pickup;
+    if (!destination) {
+      setError('Ride location unavailable.');
+      return;
+    }
+
+    const mapsUrl = origin
+      ? `https://www.google.com/maps/dir/?api=1&origin=${origin.latitude},${origin.longitude}&destination=${destination.latitude},${destination.longitude}&travelmode=driving`
+      : `https://www.google.com/maps/search/?api=1&query=${destination.latitude},${destination.longitude}`;
+    if (typeof window !== 'undefined' && typeof window.open === 'function') {
+      window.open(mapsUrl, '_blank', 'noopener,noreferrer');
+    } else {
+      setMessage(`Route ready: ${mapsUrl}`);
+    }
+  }, [mapState]);
+
   const handleProfilePress = useCallback(() => {
     if (typeof onProfilePress === 'function') {
       onProfilePress();
@@ -1271,12 +1329,12 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
               <RideCard
                 ride={activeRide}
                 driverLocation={driverLocation}
-                onAccept={() => {}}
-                onDecline={() => {}}
-                onComplete={() => {}}
-                onMessage={() => {}}
-                onCall={() => {}}
-                onMapPress={() => {}}
+                onAccept={() => activeRide?.id && acceptRequest(activeRide.id)}
+                onDecline={() => activeRide?.id && rejectRequest(activeRide.id)}
+                onComplete={moveRideToNextStatus}
+                onMessage={focusRideCommunication}
+                onCall={openActiveRideCall}
+                onMapPress={openActiveRideMap}
                 loading={loading}
                 expanded={expandedRideCard}
                 onToggleExpand={setExpandedRideCard}
@@ -1423,6 +1481,12 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
                               onPress={() => acceptRequest(req.id)}
                               disabled={loading}>
                               <Text style={styles.acceptTextNew}>✓ Accept</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={styles.declineButtonNew}
+                              onPress={() => rejectRequest(req.id)}
+                              disabled={loading}>
+                              <Text style={styles.declineButtonTextNew}>Decline</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
                               style={[styles.blockButtonNew, isBlocked && styles.blockButtonActive]}
@@ -1973,6 +2037,17 @@ const styles = StyleSheet.create({
   blockButtonTextActive: { color: '#D32F2F', fontWeight: '800' },
   acceptText: { color: '#fff', fontWeight: '700' },
   acceptTextNew: { color: '#fff', fontWeight: '800', fontSize: 14 },
+  declineButtonNew: {
+    backgroundColor: '#FFF5F5',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#D32F2F',
+    alignItems: 'center',
+    minWidth: 90,
+  },
+  declineButtonTextNew: { color: '#D32F2F', fontWeight: '800', fontSize: 13 },
   actionText: { color: '#fff', fontWeight: '700' },
   offlineText: { color: '#666666', fontSize: 15, marginTop: 12 },
   subscriptionPlanRow: {
