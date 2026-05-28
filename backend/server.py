@@ -281,7 +281,7 @@ sio = socketio.AsyncServer(
     logger=False,
     engineio_logger=False
 )
-socket_app = socketio.ASGIApp(sio, socketio_path="socket.io")
+socket_app = socketio.ASGIApp(sio, socketio_path="/ws/socket.io")
 
 driver_health_monitor_task: Optional[asyncio.Task] = None
 ride_dispatch_worker_task: Optional[asyncio.Task] = None
