@@ -55,6 +55,16 @@ export function useRidePooling({ token, driverId }) {
       const payload = response?.data || response;
       if (payload) {
         setPoolAnalytics(payload);
+        try {
+          const opportunitiesResponse = await apiRequest(`/drivers-tier3/pooling/opportunities`, {
+            method: 'GET',
+            token,
+          });
+          const opportunitiesPayload = opportunitiesResponse?.data || opportunitiesResponse;
+          setPoolOpportunities(opportunitiesPayload?.opportunities || []);
+        } catch (opportunityErr) {
+          console.warn('Pooling opportunities error:', opportunityErr);
+        }
         return payload;
       }
     } catch (err) {
@@ -76,12 +86,15 @@ export function useRidePooling({ token, driverId }) {
         body: { pool_id: poolId },
       });
 
-      return response?.data || response;
+      const payload = response?.data || response;
+      setPoolOpportunities(prev => prev.filter(pool => pool.pool_id !== poolId));
+      await loadPoolingAnalytics();
+      return payload;
     } catch (err) {
       setError(`Failed to accept pool: ${err.message}`);
       console.warn('Accept pool error:', err);
     }
-  }, [token]);
+  }, [loadPoolingAnalytics, token]);
 
   return {
     poolOpportunities,

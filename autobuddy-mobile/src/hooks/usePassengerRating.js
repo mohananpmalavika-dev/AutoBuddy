@@ -25,15 +25,16 @@ export function usePassengerRating({ token }) {
       setError('');
 
       try {
-        const response = await apiRequest(`/passengers/${passengerId}/ratings`, {
+        const response = await apiRequest(`/drivers-tier2/passengers/${passengerId}/ratings`, {
           method: 'GET',
           token,
         });
+        const payload = response?.data || response;
 
         const ratingData = {
-          averageRating: response.data.average_rating || 3.5,
-          totalRatings: response.data.total_ratings || 0,
-          recentReviews: response.data.recent_reviews || [],
+          averageRating: payload?.average_rating || 3.5,
+          totalRatings: payload?.total_ratings || 0,
+          recentReviews: payload?.recent_reviews || [],
         };
 
         // Cache the result

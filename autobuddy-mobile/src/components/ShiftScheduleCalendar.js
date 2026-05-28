@@ -53,7 +53,7 @@ export function ShiftScheduleCalendar({ isVisible, onClose, token, driverId }) {
         <ScrollView style={styles.content}>
           {/* Weekly Summary */}
           <View style={styles.summaryCard}>
-            <Text style={styles.cardTitle}>📅 Weekly Summary</Text>
+            <Text style={styles.cardTitle}>Weekly Summary</Text>
             <View style={styles.summaryGrid}>
               <View style={styles.summaryItem}>
                 <Text style={styles.summaryLabel}>Total Hours</Text>
@@ -72,7 +72,7 @@ export function ShiftScheduleCalendar({ isVisible, onClose, token, driverId }) {
 
           {/* Weekly Calendar */}
           <View style={styles.calendarSection}>
-            <Text style={styles.sectionTitle}>📋 Weekly Schedule</Text>
+            <Text style={styles.sectionTitle}>Weekly Schedule</Text>
             {DAYS.map((day, index) => {
               const daySchedule = schedules.find(s => s.day_of_week === index);
               return (
@@ -108,13 +108,13 @@ export function ShiftScheduleCalendar({ isVisible, onClose, token, driverId }) {
                           setShowScheduleForm(true);
                         }}
                       >
-                        <Text style={styles.editButtonText}>✏️ Edit</Text>
+                        <Text style={styles.editButtonText}>Edit</Text>
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={styles.deleteButton}
                         onPress={() => handleDeleteSchedule(daySchedule.id)}
                       >
-                        <Text style={styles.deleteButtonText}>🗑️ Delete</Text>
+                        <Text style={styles.deleteButtonText}>Delete</Text>
                       </TouchableOpacity>
                     </View>
                   )}
@@ -125,10 +125,10 @@ export function ShiftScheduleCalendar({ isVisible, onClose, token, driverId }) {
 
           {/* Tips */}
           <View style={styles.tipsCard}>
-            <Text style={styles.tipsTitle}>💡 Pro Tips</Text>
-            <Text style={styles.tipsText}>• Set consistent schedules to maximize earnings</Text>
-            <Text style={styles.tipsText}>• Peak hours (7-9am, 5-7pm) offer better rates</Text>
-            <Text style={styles.tipsText}>• Update your schedule weekly for best results</Text>
+            <Text style={styles.tipsTitle}>Tips</Text>
+            <Text style={styles.tipsText}>Set consistent schedules to maximize earnings.</Text>
+            <Text style={styles.tipsText}>Peak hours (7-9am, 5-7pm) offer better rates.</Text>
+            <Text style={styles.tipsText}>Update your schedule weekly for best results.</Text>
           </View>
         </ScrollView>
 

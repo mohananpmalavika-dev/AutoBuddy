@@ -1,10 +1,17 @@
 import React, { useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Modal, Alert } from 'react-native';
+import { Alert, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useRidePooling } from '../hooks/useRidePooling';
 import { theme } from '../theme';
 
 export function RidePoolingPanel({ isVisible, onClose, token, driverId }) {
-  const { poolAnalytics, poolOpportunities, loadPoolingAnalytics } = useRidePooling({ token, driverId });
+  const {
+    error,
+    isLoading,
+    poolAnalytics,
+    poolOpportunities,
+    loadPoolingAnalytics,
+    acceptPoolingOffer,
+  } = useRidePooling({ token, driverId });
 
   useEffect(() => {
     if (isVisible) {
@@ -12,33 +19,42 @@ export function RidePoolingPanel({ isVisible, onClose, token, driverId }) {
     }
   }, [isVisible, loadPoolingAnalytics]);
 
-  const handleAcceptPool = (poolId) => {
-    Alert.alert('Pool Accepted', `Ride pool ${poolId} has been accepted. You'll earn extra incentives!`);
+  const handleAcceptPool = async (poolId) => {
+    const result = await acceptPoolingOffer(poolId);
+    if (result?.status === 'accepted') {
+      Alert.alert('Pool submitted', 'Pooling request accepted and sent for dispatch review.');
+      return;
+    }
+    Alert.alert('Pool failed', 'Could not accept this pool. Please try again.');
   };
 
   const handlePreviewPool = (pool) => {
     Alert.alert(
       'Pool Details',
-      `${pool.passengers_count} passengers, ${pool.potential_matches} possible matches, Rs ${pool.estimated_savings} estimated savings.`,
+      `${pool.passengers_count} passengers, ${pool.potential_matches} possible matches, Rs. ${pool.estimated_savings} estimated savings.`
     );
   };
+
+  const earningsIncrease =
+    poolAnalytics?.earnings_without_pooling > 0
+      ? ((poolAnalytics.earnings_with_pooling / poolAnalytics.earnings_without_pooling - 1) * 100).toFixed(1)
+      : '0.0';
 
   return (
     <Modal visible={isVisible} animationType="slide" transparent>
       <View style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity onPress={onClose} style={styles.backButton}>
-            <Text style={styles.backText}>← Back</Text>
+            <Text style={styles.backText}>Back</Text>
           </TouchableOpacity>
           <Text style={styles.title}>Ride Pooling</Text>
-          <View style={{ width: 60 }} />
+          <View style={styles.headerSpacer} />
         </View>
 
         <ScrollView style={styles.content}>
-          {/* Analytics Summary */}
           {poolAnalytics && (
             <View style={styles.analyticsCard}>
-              <Text style={styles.cardTitle}>📊 Pooling Analytics</Text>
+              <Text style={styles.cardTitle}>Pooling Analytics</Text>
               <View style={styles.statGrid}>
                 <View style={styles.stat}>
                   <Text style={styles.statLabel}>Pools Detected</Text>
@@ -50,39 +66,36 @@ export function RidePoolingPanel({ isVisible, onClose, token, driverId }) {
                 </View>
                 <View style={styles.stat}>
                   <Text style={styles.statLabel}>Potential Savings</Text>
-                  <Text style={styles.statValue}>₹{poolAnalytics.potential_savings}</Text>
+                  <Text style={styles.statValue}>Rs. {poolAnalytics.potential_savings}</Text>
                 </View>
                 <View style={styles.stat}>
                   <Text style={styles.statLabel}>Earnings Increase</Text>
-                  <Text style={styles.statValue}>{((poolAnalytics.earnings_with_pooling / poolAnalytics.earnings_without_pooling - 1) * 100).toFixed(1)}%</Text>
+                  <Text style={styles.statValue}>{earningsIncrease}%</Text>
                 </View>
               </View>
             </View>
           )}
 
-          {/* Pool Opportunities */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>🔍 Available Pools</Text>
+            <Text style={styles.sectionTitle}>Available Pools</Text>
+            {error ? <Text style={styles.errorText}>{error}</Text> : null}
             {poolOpportunities.length === 0 ? (
               <View style={styles.emptyState}>
-                <Text style={styles.emptyText}>No active pooling opportunities</Text>
-                <Text style={styles.emptySubtext}>Check back later for matches</Text>
+                <Text style={styles.emptyText}>{isLoading ? 'Loading pools...' : 'No active pooling opportunities'}</Text>
+                <Text style={styles.emptySubtext}>Matching pools appear here after route checks.</Text>
               </View>
             ) : (
-              poolOpportunities.map((pool, index) => (
-                <TouchableOpacity key={index} style={styles.poolCard} onPress={() => handlePreviewPool(pool)}>
+              poolOpportunities.map((pool) => (
+                <TouchableOpacity key={pool.pool_id} style={styles.poolCard} onPress={() => handlePreviewPool(pool)}>
                   <View style={styles.poolHeader}>
-                    <Text style={styles.poolTitle}>Pool {pool.pool_id.split('_')[1]}</Text>
-                    <Text style={styles.poolSavings}>Save ₹{pool.estimated_savings}</Text>
+                    <Text style={styles.poolTitle}>Pool {String(pool.pool_id || '').slice(0, 8)}</Text>
+                    <Text style={styles.poolSavings}>Save Rs. {pool.estimated_savings}</Text>
                   </View>
                   <View style={styles.poolInfo}>
-                    <Text style={styles.poolText}>👥 {pool.passengers_count} passengers total</Text>
-                    <Text style={styles.poolText}>🎯 {pool.potential_matches} potential matches</Text>
+                    <Text style={styles.poolText}>{pool.passengers_count} passengers total</Text>
+                    <Text style={styles.poolText}>{pool.potential_matches} potential matches</Text>
                   </View>
-                  <TouchableOpacity
-                    style={styles.acceptButton}
-                    onPress={() => handleAcceptPool(pool.pool_id)}
-                  >
+                  <TouchableOpacity style={styles.acceptButton} onPress={() => handleAcceptPool(pool.pool_id)}>
                     <Text style={styles.acceptButtonText}>Accept Pool</Text>
                   </TouchableOpacity>
                 </TouchableOpacity>
@@ -90,12 +103,10 @@ export function RidePoolingPanel({ isVisible, onClose, token, driverId }) {
             )}
           </View>
 
-          {/* Tips */}
           <View style={styles.tipsCard}>
-            <Text style={styles.tipsTitle}>💡 Pro Tips</Text>
-            <Text style={styles.tipsText}>• Accept more pools to build trust and earn bonuses</Text>
-            <Text style={styles.tipsText}>• Pooling increases efficiency by 20-40%</Text>
-            <Text style={styles.tipsText}>• Best pooling opportunities during peak hours</Text>
+            <Text style={styles.tipsTitle}>Tips</Text>
+            <Text style={styles.tipsText}>Accept more pools to build trust and earn bonuses.</Text>
+            <Text style={styles.tipsText}>Pooling works best during peak hours.</Text>
           </View>
         </ScrollView>
       </View>
@@ -131,6 +142,9 @@ const styles = StyleSheet.create({
     color: theme.COLORS.PRIMARY,
     fontWeight: '500',
   },
+  headerSpacer: {
+    width: 60,
+  },
   content: {
     flex: 1,
     padding: 16,
@@ -144,20 +158,20 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 12,
+    fontWeight: '700',
     color: theme.COLORS.TEXT,
+    marginBottom: 12,
   },
   statGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 12,
   },
   stat: {
-    width: '48%',
+    flexBasis: '47%',
     backgroundColor: theme.COLORS.BACKGROUND,
+    borderRadius: 8,
     padding: 12,
-    borderRadius: 6,
   },
   statLabel: {
     fontSize: 12,
@@ -170,88 +184,92 @@ const styles = StyleSheet.create({
     color: theme.COLORS.PRIMARY,
   },
   section: {
-    marginBottom: 20,
+    marginBottom: 16,
   },
   sectionTitle: {
     fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 12,
+    fontWeight: '700',
     color: theme.COLORS.TEXT,
+    marginBottom: 12,
+  },
+  errorText: {
+    color: '#D32F2F',
+    fontSize: 13,
+    marginBottom: 8,
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'white',
+    borderRadius: 8,
+    padding: 32,
+    ...theme.SHADOWS.small,
+  },
+  emptyText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: theme.COLORS.TEXT,
+    marginBottom: 8,
+  },
+  emptySubtext: {
+    fontSize: 13,
+    color: theme.COLORS.TEXT_SECONDARY,
   },
   poolCard: {
     backgroundColor: 'white',
     borderRadius: 8,
-    padding: 12,
-    marginBottom: 10,
-    borderLeftWidth: 4,
-    borderLeftColor: theme.COLORS.SUCCESS,
+    padding: 16,
+    marginBottom: 12,
     ...theme.SHADOWS.small,
   },
   poolHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    alignItems: 'center',
+    marginBottom: 12,
   },
   poolTitle: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: '700',
     color: theme.COLORS.TEXT,
   },
   poolSavings: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: theme.COLORS.SUCCESS,
+    color: '#2E7D32',
+    fontWeight: '700',
   },
   poolInfo: {
-    marginBottom: 10,
+    marginBottom: 12,
+    gap: 4,
   },
   poolText: {
     fontSize: 13,
     color: theme.COLORS.TEXT_SECONDARY,
-    marginBottom: 4,
   },
   acceptButton: {
     backgroundColor: theme.COLORS.PRIMARY,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
     borderRadius: 6,
+    paddingVertical: 10,
     alignItems: 'center',
   },
   acceptButtonText: {
     color: 'white',
-    fontWeight: '600',
-    fontSize: 12,
-  },
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: 40,
-  },
-  emptyText: {
-    fontSize: 14,
-    color: theme.COLORS.TEXT,
-    fontWeight: '500',
-    marginBottom: 4,
-  },
-  emptySubtext: {
-    fontSize: 12,
-    color: theme.COLORS.TEXT_SECONDARY,
+    fontWeight: '700',
   },
   tipsCard: {
     backgroundColor: '#FFF9E6',
     borderRadius: 8,
-    padding: 12,
-    borderLeftWidth: 4,
-    borderLeftColor: '#FFB800',
+    padding: 16,
+    marginBottom: 24,
   },
   tipsTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#333',
+    fontSize: 15,
+    fontWeight: '700',
+    color: theme.COLORS.TEXT,
     marginBottom: 8,
   },
   tipsText: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 4,
+    fontSize: 13,
+    color: theme.COLORS.TEXT_SECONDARY,
+    marginBottom: 6,
   },
 });

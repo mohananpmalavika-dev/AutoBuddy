@@ -50,7 +50,18 @@ from app.routers.tier1_driver_features import router as modular_tier1_router
 from app.routers.tier2_driver_features import router as modular_tier2_router
 from app.routers.tier3_polish_features import router as modular_tier3_router
 from app.routers.admin import router as modular_admin_router
-from app.db.database import get_feature_database_status
+from app.routers.health import router as modular_health_router
+from app.routers.scheduled_rides import router as modular_scheduled_rides_router
+from app.routers.vehicles import router as modular_vehicles_router
+from app.routers.support_tickets import router as modular_support_tickets_router
+from app.db.database import SessionLocal, get_feature_database_status
+from app.db.tier2_models import (
+    DriverPaymentMethod,
+    EarningTarget,
+    PayoutScheduleConfig,
+    RideFilterPreferences,
+    VehicleMaintenance,
+)
 from app.services.ai_dispatch import build_demand_heatmap, heat_cell as dispatch_heat_cell
 from app.services.revenue_service import (
     apply_referral_signup,
@@ -86,6 +97,18 @@ try:
     import redis.asyncio as redis_async
 except Exception:  # pragma: no cover - optional dependency in local/dev
     redis_async = None
+
+# Production logging and error tracking
+from app.utils.logging_config import (
+    configure_logging as configure_structured_logging,
+    StructuredLogger,
+    set_request_context,
+    clear_request_context,
+    LogCategory,
+    PerformanceMonitor
+)
+from app.utils.sentry_config import SentryConfig, set_sentry_context, clear_sentry_context
+from app.middleware.rate_limiting import RateLimitingMiddleware
 
 try:
     import boto3
@@ -286,6 +309,10 @@ app.state.settings = settings
 app.state.mongo_client = client
 app.state.db = db
 app.state.redis_client = redis_client
+
+# Add rate limiting middleware (before Sentry to properly track rate-limited requests)
+app.add_middleware(RateLimitingMiddleware)
+
 if SENTRY_DSN and sentry_sdk:
     sentry_sdk.init(
         dsn=SENTRY_DSN,
@@ -371,6 +398,11 @@ class JsonLogFormatter(logging.Formatter):
 
 
 def configure_logging() -> None:
+    # Initialize Sentry first (if configured)
+    environment = "production" if IS_PRODUCTION_ENV else "development"
+    sentry_initialized = SentryConfig.initialize(environment=environment)
+    
+    # Configure structured logging
     root = logging.getLogger()
     level = os.environ.get("LOG_LEVEL", "INFO").upper()
     use_json_logs = os.environ.get("LOG_JSON", "1" if IS_PRODUCTION_ENV else "0").strip().lower() in {
@@ -392,6 +424,9 @@ def configure_logging() -> None:
         )
     root.addHandler(handler)
     root.setLevel(level)
+    
+    # Log initialization
+    root.info(f"Logging initialized - level={level}, json_logs={use_json_logs}, sentry={sentry_initialized}")
 
 
 configure_logging()
@@ -1504,6 +1539,16 @@ class DriverFareCalculatorResetRequest(BaseModel):
 class DriverWithdrawalRequest(BaseModel):
     amount: float = Field(gt=0.0)
     method: str = Field(default="bank_transfer", min_length=2, max_length=40)
+
+class DriverWithdrawalReview(BaseModel):
+    status: Literal["approved", "processing", "paid", "rejected", "failed"]
+    admin_note: Optional[str] = Field(default=None, max_length=500)
+    failure_reason: Optional[str] = Field(default=None, max_length=500)
+    payout_reference: Optional[str] = Field(default=None, max_length=120)
+
+class DriverBankReview(BaseModel):
+    status: Literal["verified", "rejected", "failed"]
+    reject_reason: Optional[str] = Field(default=None, max_length=300)
 
 class DriverEarningsReportRequest(BaseModel):
     format: Literal["json", "pdf"] = "json"
@@ -3819,15 +3864,26 @@ async def find_best_driver_for_booking(
             query["user_id"] = {"$nin": list(blocked_set)}
 
     candidates = await db.drivers.find(query).to_list(250)
+    filter_preferences = load_driver_ride_filter_preferences([str(driver.get("user_id") or "") for driver in candidates])
 
     scored: List[Dict[str, Any]] = []
     for driver in candidates:
+        driver_id = str(driver.get("user_id") or "").strip()
         live_location = await get_effective_driver_location(driver)
         if not live_location:
             continue
         try:
             metrics = compute_driver_match_score({**driver, "current_location": live_location}, pickup)
         except Exception:
+            continue
+        filter_reasons = driver_ride_filter_rejection_reasons(
+            filter_preferences.get(driver_id),
+            {"pickup_location": pickup.dict() if hasattr(pickup, "dict") else pickup},
+            driver_distance_km=metrics.get("distance_km"),
+            passenger_rating=None,
+            now=get_ist_now(),
+        )
+        if filter_reasons:
             continue
         if metrics["distance_km"] <= max_radius:
             scored.append({**driver, "current_location": live_location, **metrics})
@@ -3875,15 +3931,26 @@ async def find_nearest_drivers_for_booking(
         elif blocked_set:
             query["user_id"] = {"$nin": list(blocked_set)}
     candidates = await db.drivers.find(query).to_list(250)
+    filter_preferences = load_driver_ride_filter_preferences([str(driver.get("user_id") or "") for driver in candidates])
 
     scored: List[Dict[str, Any]] = []
     for driver in candidates:
+        driver_id = str(driver.get("user_id") or "").strip()
         live_location = await get_effective_driver_location(driver)
         if not live_location:
             continue
         try:
             distance = calculate_distance(pickup, Location(**live_location))
         except Exception:
+            continue
+        filter_reasons = driver_ride_filter_rejection_reasons(
+            filter_preferences.get(driver_id),
+            {"pickup_location": pickup.dict() if hasattr(pickup, "dict") else pickup},
+            driver_distance_km=distance,
+            passenger_rating=None,
+            now=get_ist_now(),
+        )
+        if filter_reasons:
             continue
         if distance <= max_radius:
             scored.append({**driver, "current_location": live_location, "distance_km": distance})
@@ -4208,6 +4275,130 @@ async def detect_dispatch_fraud(passenger_id: str, pickup_location: Dict[str, An
     }
 
 
+def load_driver_ride_filter_preferences(driver_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+    cleaned_ids = [str(driver_id or "").strip() for driver_id in driver_ids if str(driver_id or "").strip()]
+    if not cleaned_ids:
+        return {}
+    session = SessionLocal()
+    try:
+        rows = (
+            session.query(RideFilterPreferences)
+            .filter(
+                RideFilterPreferences.driver_id.in_(list(set(cleaned_ids))),
+                RideFilterPreferences.auto_decline_enabled.is_(True),
+            )
+            .all()
+        )
+        return {str(row.driver_id): row.to_dict() for row in rows}
+    except Exception as exc:
+        logger.warning("Driver ride filters unavailable; continuing without auto-decline filters: %s", exc)
+        return {}
+    finally:
+        session.close()
+
+
+def parse_hhmm_minutes(value: Any) -> Optional[int]:
+    match = re.match(r"^\s*(\d{1,2}):(\d{2})", str(value or ""))
+    if not match:
+        return None
+    hour = int(match.group(1))
+    minute = int(match.group(2))
+    if hour > 23 or minute > 59:
+        return None
+    return hour * 60 + minute
+
+
+def is_time_in_restricted_window(restriction: Any, now: datetime) -> bool:
+    if not isinstance(restriction, dict):
+        return False
+    start = parse_hhmm_minutes(restriction.get("start"))
+    end = parse_hhmm_minutes(restriction.get("end"))
+    if start is None or end is None or start == end:
+        return False
+    current = now.hour * 60 + now.minute
+    return start <= current < end if start < end else current >= start or current < end
+
+
+def booking_pickup_search_text(booking: Dict[str, Any]) -> str:
+    pickup = booking.get("pickup_location") or {}
+    if hasattr(pickup, "dict"):
+        pickup = pickup.dict()
+    if not isinstance(pickup, dict):
+        return ""
+    values = [
+        pickup.get("address"),
+        pickup.get("formatted_address"),
+        pickup.get("name"),
+        pickup.get("area"),
+        pickup.get("locality"),
+        pickup.get("city"),
+        pickup.get("label"),
+    ]
+    return " ".join(str(value or "").lower() for value in values)
+
+
+def driver_ride_filter_rejection_reasons(
+    preferences: Optional[Dict[str, Any]],
+    booking: Dict[str, Any],
+    *,
+    driver_distance_km: Optional[float],
+    passenger_rating: Optional[float],
+    now: Optional[datetime] = None,
+) -> List[str]:
+    if not preferences or not preferences.get("auto_decline_enabled", True):
+        return []
+
+    reasons: List[str] = []
+    max_distance = preferences.get("max_pickup_distance_km")
+    if max_distance is not None and driver_distance_km is not None:
+        try:
+            if float(driver_distance_km) > float(max_distance):
+                reasons.append("pickup_too_far")
+        except (TypeError, ValueError):
+            pass
+
+    min_rating = preferences.get("min_passenger_rating")
+    if min_rating is not None and passenger_rating is not None:
+        try:
+            if float(passenger_rating) < float(min_rating):
+                reasons.append("passenger_rating_below_filter")
+        except (TypeError, ValueError):
+            pass
+
+    pickup_text = booking_pickup_search_text(booking)
+    blocked_areas = [
+        str(area or "").strip().lower()
+        for area in preferences.get("blocked_pickup_areas") or preferences.get("blocked_areas") or []
+    ]
+    if pickup_text and any(area and area in pickup_text for area in blocked_areas):
+        reasons.append("blocked_pickup_area")
+
+    allowed_areas = [
+        str(area or "").strip().lower()
+        for area in preferences.get("allowed_pickup_areas") or preferences.get("allowed_areas") or []
+    ]
+    if pickup_text and allowed_areas and not any(area and area in pickup_text for area in allowed_areas):
+        reasons.append("outside_allowed_pickup_areas")
+
+    if is_time_in_restricted_window(preferences.get("time_slot_restrictions"), now or get_ist_now()):
+        reasons.append("restricted_time_slot")
+
+    return reasons
+
+
+async def get_user_rating_summary(user_id: str) -> Dict[str, Any]:
+    cleaned_id = str(user_id or "").strip()
+    if not cleaned_id:
+        return {"average_rating": 5.0, "total_ratings": 0}
+    ratings = await db.ratings.find({"to_user_id": cleaned_id}, {"_id": 0, "rating": 1}).to_list(500)
+    values = [safe_float(item.get("rating"), 0.0) for item in ratings if safe_float(item.get("rating"), 0.0) > 0]
+    if values:
+        return {"average_rating": round(sum(values) / len(values), 2), "total_ratings": len(values)}
+    user = await db.users.find_one({"id": cleaned_id}, {"_id": 0, "rating": 1, "average_rating": 1})
+    fallback_rating = safe_float((user or {}).get("average_rating"), safe_float((user or {}).get("rating"), 5.0))
+    return {"average_rating": round(fallback_rating or 5.0, 2), "total_ratings": 0}
+
+
 async def intelligent_find_drivers_for_booking(
     booking: Dict[str, Any],
     limit: int = 5,
@@ -4244,8 +4435,12 @@ async def intelligent_find_drivers_for_booking(
     if blocked_set:
         query["user_id"] = {"$nin": list(blocked_set)}
     drivers = await db.drivers.find(query).to_list(500)
+    filter_preferences = load_driver_ride_filter_preferences([str(driver.get("user_id") or "") for driver in drivers])
+    passenger_rating_summary = await get_user_rating_summary(passenger_id)
+    passenger_rating = safe_float(passenger_rating_summary.get("average_rating"), 5.0)
 
     ranked: List[Dict[str, Any]] = []
+    filtered_out: List[Dict[str, Any]] = []
     for driver in drivers:
         driver_id = str(driver.get("user_id") or "").strip()
         if not driver_id or driver_id in blocked_set:
@@ -4257,6 +4452,16 @@ async def intelligent_find_drivers_for_booking(
             continue
         distance_km = km_between(pickup, live_location)
         if not math.isfinite(distance_km) or distance_km > max_radius_km:
+            continue
+        filter_reasons = driver_ride_filter_rejection_reasons(
+            filter_preferences.get(driver_id),
+            booking,
+            driver_distance_km=distance_km,
+            passenger_rating=passenger_rating,
+            now=get_ist_now(),
+        )
+        if filter_reasons:
+            filtered_out.append({"driver_id": driver_id, "reasons": filter_reasons})
             continue
         stats = await get_driver_stats(driver_id)
         last_assigned = driver.get("last_assigned_at")
@@ -4305,6 +4510,8 @@ async def intelligent_find_drivers_for_booking(
             "fraud_risk": fraud,
             "ranked_drivers": ranked[:20],
             "selected_driver_ids": [item["driver_id"] for item in selected],
+            "filtered_driver_ids": filtered_out[:50],
+            "passenger_rating": passenger_rating,
             "created_at": get_ist_now(),
         }
     )
@@ -8115,6 +8322,36 @@ async def get_pending_requests(current_user: dict = Depends(get_current_user)):
         for booking in pending
         if (not bool(booking.get("women_only_required"))) or driver_gender == "female"
     ]
+
+    filter_preferences = load_driver_ride_filter_preferences([current_user["id"]]).get(current_user["id"])
+    if filter_preferences:
+        driver_profile = await db.drivers.find_one({"user_id": current_user["id"]}, {"_id": 0}) or {}
+        live_location = await get_effective_driver_location(driver_profile)
+        passenger_rating_cache: Dict[str, float] = {}
+        filtered_pending = []
+        for booking in pending:
+            passenger_id = str(booking.get("passenger_id") or "")
+            if passenger_id not in passenger_rating_cache:
+                passenger_rating_cache[passenger_id] = safe_float(
+                    (await get_user_rating_summary(passenger_id)).get("average_rating"),
+                    5.0,
+                )
+            pickup_distance = None
+            if live_location and booking.get("pickup_location"):
+                try:
+                    pickup_distance = calculate_distance(Location(**booking["pickup_location"]), Location(**live_location))
+                except Exception:
+                    pickup_distance = None
+            filter_reasons = driver_ride_filter_rejection_reasons(
+                filter_preferences,
+                booking,
+                driver_distance_km=pickup_distance,
+                passenger_rating=passenger_rating_cache.get(passenger_id),
+                now=get_ist_now(),
+            )
+            if not filter_reasons:
+                filtered_pending.append(booking)
+        pending = filtered_pending
     
     # Batch fetch all passengers
     passenger_ids = list(set([b["passenger_id"] for b in pending]))
@@ -8492,6 +8729,204 @@ async def request_driver_withdrawal(
         "payout_eta": payout_eta,
         "withdrawal": serialize_driver_withdrawal(request_doc),
     }
+
+
+@api_router.get("/admin/drivers/bank/pending")
+async def get_pending_driver_bank_reviews(current_user: dict = Depends(get_current_user)):
+    if current_user["role"] != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    rows = await db.drivers.find(
+        {"bank_verification_status": {"$in": ["pending_verification", "pending"]}},
+        {"_id": 0, "bank_account_encrypted": 0},
+    ).sort("bank_submitted_at", -1).to_list(200)
+    driver_ids = [row.get("user_id") for row in rows if row.get("user_id")]
+    users = {
+        user["id"]: user
+        for user in await db.users.find({"id": {"$in": driver_ids}}, {"_id": 0, "id": 1, "name": 1, "phone": 1, "email": 1}).to_list(None)
+    } if driver_ids else {}
+
+    return {
+        "requests": [
+            {
+                "driver_id": row.get("user_id"),
+                "driver_name": (users.get(row.get("user_id")) or {}).get("name") or "Driver",
+                "driver_phone": (users.get(row.get("user_id")) or {}).get("phone") or "",
+                "driver_email": (users.get(row.get("user_id")) or {}).get("email") or "",
+                "bank_name": row.get("bank_name") or "",
+                "bank_account_masked": row.get("bank_account_masked") or "",
+                "bank_ifsc": row.get("bank_ifsc") or "",
+                "status": row.get("bank_verification_status") or "pending_verification",
+                "submitted_at": row.get("bank_submitted_at") or row.get("bank_updated_at"),
+            }
+            for row in rows
+        ],
+        "total": len(rows),
+    }
+
+
+@api_router.put("/admin/drivers/bank/{driver_id}")
+async def review_driver_bank_details(
+    driver_id: str,
+    review: DriverBankReview,
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user["role"] != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if review.status in {"rejected", "failed"} and not review.reject_reason:
+        raise HTTPException(status_code=400, detail="Reject reason is required")
+
+    existing = await db.drivers.find_one({"user_id": driver_id}, {"_id": 0, "bank_verification_status": 1})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Driver profile not found")
+
+    now = get_ist_now()
+    update_fields = {
+        "bank_verification_status": review.status,
+        "bank_reviewed_by": current_user["id"],
+        "bank_reviewed_at": now,
+        "bank_reject_reason": review.reject_reason if review.status in {"rejected", "failed"} else None,
+        "updated_at": now,
+    }
+    await db.drivers.update_one({"user_id": driver_id}, {"$set": update_fields})
+    await notify_user(
+        driver_id,
+        "Payout bank details reviewed",
+        "Your payout bank details were verified." if review.status == "verified" else "Your payout bank details need changes.",
+        {
+            "type": "driver_bank_review",
+            "status": review.status,
+            "reject_reason": review.reject_reason,
+            "severity": "success" if review.status == "verified" else "warning",
+        },
+    )
+    return {"message": "Driver bank review updated", "driver_id": driver_id, "status": review.status}
+
+
+@api_router.get("/admin/driver-withdrawals")
+async def get_admin_driver_withdrawals(
+    status_filter: Optional[str] = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user["role"] != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    query: Dict[str, Any] = {}
+    if status_filter:
+        query["status"] = status_filter
+    rows = await db.driver_withdrawal_requests.find(query, {"_id": 0}).sort("created_at", -1).to_list(limit)
+    driver_ids = [row.get("driver_id") for row in rows if row.get("driver_id")]
+    users = {
+        user["id"]: user
+        for user in await db.users.find({"id": {"$in": driver_ids}}, {"_id": 0, "id": 1, "name": 1, "phone": 1, "email": 1}).to_list(None)
+    } if driver_ids else {}
+    profiles = {
+        row["user_id"]: row
+        for row in await db.drivers.find({"user_id": {"$in": driver_ids}}, {"_id": 0, "user_id": 1, "bank_name": 1, "bank_account_masked": 1, "bank_ifsc": 1, "bank_verification_status": 1}).to_list(None)
+    } if driver_ids else {}
+
+    withdrawals = []
+    for row in rows:
+        driver_id = row.get("driver_id")
+        user = users.get(driver_id) or {}
+        profile = profiles.get(driver_id) or {}
+        withdrawals.append(
+            {
+                **serialize_driver_withdrawal(row),
+                "driver_id": driver_id,
+                "driver_name": user.get("name") or "Driver",
+                "driver_phone": user.get("phone") or "",
+                "driver_email": user.get("email") or "",
+                "bank_name": profile.get("bank_name") or "",
+                "bank_account_masked": profile.get("bank_account_masked") or row.get("bank_account_masked") or "",
+                "bank_ifsc": profile.get("bank_ifsc") or "",
+                "bank_verification_status": profile.get("bank_verification_status") or row.get("bank_verification_status"),
+            }
+        )
+
+    return {"withdrawals": withdrawals, "total": len(withdrawals)}
+
+
+@api_router.put("/admin/driver-withdrawals/{withdrawal_id}")
+async def review_driver_withdrawal(
+    withdrawal_id: str,
+    review: DriverWithdrawalReview,
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user["role"] != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if review.status in {"rejected", "failed"} and not review.failure_reason and not review.admin_note:
+        raise HTTPException(status_code=400, detail="A rejection or failure reason is required")
+
+    withdrawal = await db.driver_withdrawal_requests.find_one({"id": withdrawal_id}, {"_id": 0})
+    if not withdrawal:
+        raise HTTPException(status_code=404, detail="Withdrawal request not found")
+
+    current_status = str(withdrawal.get("status") or "pending").lower()
+    terminal_statuses = {"paid", "rejected", "failed", "cancelled"}
+    if current_status in terminal_statuses and review.status != current_status:
+        raise HTTPException(status_code=400, detail="Terminal withdrawal requests cannot be changed")
+
+    now = get_ist_now()
+    amount = round(safe_float(withdrawal.get("amount"), 0.0), 2)
+    driver_id = str(withdrawal.get("driver_id") or "")
+    update_fields: Dict[str, Any] = {
+        "status": review.status,
+        "approval_status": review.status,
+        "updated_at": now,
+        "reviewed_by": current_user["id"],
+        "reviewed_at": now,
+        "admin_note": review.admin_note,
+        "failure_reason": review.failure_reason if review.status in {"rejected", "failed"} else None,
+        "payout_reference": review.payout_reference,
+    }
+    if review.status == "paid":
+        update_fields["processed_at"] = now
+    if review.status in {"rejected", "failed"}:
+        update_fields["processed_at"] = now
+
+    wallet_inc: Dict[str, float] = {}
+    if current_status not in terminal_statuses:
+        if review.status == "paid":
+            wallet_inc["pending_withdrawal"] = -amount
+        elif review.status in {"rejected", "failed"}:
+            wallet_inc["pending_withdrawal"] = -amount
+            wallet_inc["balance"] = amount
+    if wallet_inc and driver_id:
+        await db.driver_wallets.update_one(
+            {"driver_id": driver_id},
+            {"$inc": wallet_inc, "$set": {"updated_at": now}},
+        )
+
+    history_entry = {
+        "status": review.status,
+        "at": now,
+        "by": current_user["id"],
+        "note": review.admin_note or review.failure_reason or "",
+        "payout_reference": review.payout_reference,
+    }
+    await db.driver_withdrawal_requests.update_one(
+        {"id": withdrawal_id},
+        {"$set": update_fields, "$push": {"status_history": history_entry}},
+    )
+
+    if driver_id:
+        await notify_user(
+            driver_id,
+            "Withdrawal updated",
+            f"Your withdrawal request is now {review.status}.",
+            {
+                "type": "driver_withdrawal_review",
+                "withdrawal_id": withdrawal_id,
+                "status": review.status,
+                "amount": amount,
+                "severity": "success" if review.status == "paid" else "warning" if review.status in {"rejected", "failed"} else "info",
+            },
+        )
+
+    updated = await db.driver_withdrawal_requests.find_one({"id": withdrawal_id}, {"_id": 0})
+    return {"message": "Withdrawal updated", "withdrawal": serialize_driver_withdrawal(updated or {**withdrawal, **update_fields})}
 
 # ==================== BOOKING ENDPOINTS ====================
 @api_router.post("/bookings", response_model=BookingResponse)
@@ -9859,6 +10294,69 @@ async def get_driver_menu_badges(request: Request, current_user: dict = Depends(
     if active_sos_count > 0:
         safety_issues.append("recent_sos_alert")
 
+    tier_tool_badges: Dict[str, Dict[str, Any]] = {
+        "filters": {"count": 0, "issues": []},
+        "targets": {"count": 0, "issues": []},
+        "paymethods": {"count": 0, "issues": []},
+        "payout": {"count": 0, "issues": []},
+        "maintenance": {"count": 0, "issues": []},
+    }
+    feature_session = SessionLocal()
+    try:
+        filters = feature_session.query(RideFilterPreferences).filter_by(driver_id=driver_id).first()
+        if not filters:
+            tier_tool_badges["filters"]["count"] = 1
+            tier_tool_badges["filters"]["issues"].append("filters_not_configured")
+
+        active_target_count = (
+            feature_session.query(EarningTarget)
+            .filter(EarningTarget.driver_id == driver_id, EarningTarget.status.in_(["active", "pending"]))
+            .count()
+        )
+        if active_target_count == 0:
+            tier_tool_badges["targets"]["count"] = 1
+            tier_tool_badges["targets"]["issues"].append("no_active_earning_target")
+
+        methods = (
+            feature_session.query(DriverPaymentMethod)
+            .filter(DriverPaymentMethod.driver_id == driver_id, DriverPaymentMethod.is_active.is_(True))
+            .all()
+        )
+        pending_method_count = len([method for method in methods if str(method.verification_status or "").lower() != "verified"])
+        if not methods:
+            tier_tool_badges["paymethods"]["issues"].append("no_payout_method")
+        if pending_method_count:
+            tier_tool_badges["paymethods"]["issues"].append("payout_method_pending")
+        tier_tool_badges["paymethods"]["count"] = (1 if not methods else 0) + pending_method_count
+
+        payout_schedule = feature_session.query(PayoutScheduleConfig).filter_by(driver_id=driver_id, is_active=True).first()
+        if not payout_schedule:
+            tier_tool_badges["payout"]["count"] += 1
+            tier_tool_badges["payout"]["issues"].append("payout_schedule_not_configured")
+
+        due_cutoff = get_ist_now().date() + timedelta(days=14)
+        due_maintenance_count = (
+            feature_session.query(VehicleMaintenance)
+            .filter(
+                VehicleMaintenance.driver_id == driver_id,
+                VehicleMaintenance.next_due_date.isnot(None),
+                VehicleMaintenance.next_due_date <= due_cutoff,
+            )
+            .count()
+        )
+        if due_maintenance_count:
+            tier_tool_badges["maintenance"]["count"] += int(due_maintenance_count)
+            tier_tool_badges["maintenance"]["issues"].append("maintenance_due")
+    except Exception as exc:
+        logger.warning("Driver feature badges unavailable: %s", exc)
+    finally:
+        feature_session.close()
+
+    detected_pool_count = await db.driver_ride_pools.count_documents({"driver_id": driver_id, "status": {"$in": ["detected", "pending_dispatch"]}})
+    tax_report_count = await db.driver_tax_reports.count_documents({"driver_id": driver_id})
+    shift_schedule_count = await db.driver_shift_schedules.count_documents({"driver_id": driver_id})
+    completed_ride_count_for_badges = await db.bookings.count_documents({"driver_id": driver_id, "status": BookingStatus.COMPLETED})
+
     return {
         "documents": {
             "count": len(reminders) + len(rejected_documents) + len(missing_documents),
@@ -9886,6 +10384,12 @@ async def get_driver_menu_badges(request: Request, current_user: dict = Depends(
             "bank_verification_status": payout_overview.get("bank_verification_status"),
             "withdrawal_blocker": payout_overview.get("withdrawal_blocker"),
         },
+        "payout": {
+            "count": int(tier_tool_badges["payout"]["count"]) + int(pending_withdrawal_count),
+            "issues": tier_tool_badges["payout"]["issues"],
+            "pending_withdrawal_count": int(pending_withdrawal_count),
+        },
+        "paymethods": tier_tool_badges["paymethods"],
         "subscription": subscription_badge,
         "vehicle": {
             "count": len(vehicle_issues),
@@ -9893,6 +10397,7 @@ async def get_driver_menu_badges(request: Request, current_user: dict = Depends(
             "vehicle_count": len(vehicles),
             "active_vehicle_id": active_vehicle.get("id") if active_vehicle else None,
         },
+        "maintenance": tier_tool_badges["maintenance"],
         "profile": {
             "count": len(profile_issues),
             "issues": profile_issues,
@@ -9907,6 +10412,26 @@ async def get_driver_menu_badges(request: Request, current_user: dict = Depends(
             "issues": safety_issues,
             "trusted_contact_count": int(trusted_contact_count),
             "recent_sos_count": int(active_sos_count),
+        },
+        "filters": tier_tool_badges["filters"],
+        "targets": tier_tool_badges["targets"],
+        "pooling": {
+            "count": int(detected_pool_count),
+            "pending_pool_count": int(detected_pool_count),
+        },
+        "taxreports": {
+            "count": 1 if tax_report_count == 0 else 0,
+            "report_count": int(tax_report_count),
+            "issues": ["no_tax_report"] if tax_report_count == 0 else [],
+        },
+        "shifts": {
+            "count": 1 if shift_schedule_count == 0 else 0,
+            "schedule_count": int(shift_schedule_count),
+            "issues": ["no_shift_schedule"] if shift_schedule_count == 0 else [],
+        },
+        "badges": {
+            "count": 1 if completed_ride_count_for_badges >= 100 else 0,
+            "completed_rides": int(completed_ride_count_for_badges),
         },
     }
 
@@ -13990,6 +14515,10 @@ app.include_router(modular_tier1_router)
 app.include_router(modular_tier2_router)
 app.include_router(modular_tier3_router)
 app.include_router(modular_admin_router)
+app.include_router(modular_health_router)
+app.include_router(modular_scheduled_rides_router)
+app.include_router(modular_vehicles_router)
+app.include_router(modular_support_tickets_router)
 app.include_router(api_router)
 app.mount("/ws", socket_app)
 

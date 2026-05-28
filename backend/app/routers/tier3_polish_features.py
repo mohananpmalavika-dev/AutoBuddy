@@ -11,8 +11,9 @@ from datetime import datetime
 from math import atan2, cos, radians, sin, sqrt
 from typing import Any, Dict, List, Optional
 import uuid
+import json
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
 from app.routers.auth import verify_token
@@ -351,6 +352,7 @@ async def detect_pooling_opportunity(
 
     pool_id = str(uuid.uuid4())
     estimated_savings = round(sum(item["estimated_fare"] for item in matches) * 0.1, 2)
+    estimated_base_fare = round(sum(item["estimated_fare"] for item in matches), 2)
     doc = {
         "id": pool_id,
         "pool_id": pool_id,
@@ -362,6 +364,7 @@ async def detect_pooling_opportunity(
         "potential_matches": len(matches),
         "pooling_available": bool(matches),
         "estimated_savings": estimated_savings,
+        "estimated_base_fare": estimated_base_fare,
         "passengers_count": len(matches) + 1,
         "status": "detected",
         "created_at": _now(),
@@ -372,6 +375,7 @@ async def detect_pooling_opportunity(
         "potential_matches": len(matches),
         "pooling_available": bool(matches),
         "estimated_savings": estimated_savings,
+        "estimated_base_fare": estimated_base_fare,
         "passengers_count": len(matches) + 1,
     }
 
@@ -384,16 +388,34 @@ async def get_pooling_analytics(request: Request, user_data: dict = Depends(veri
     driver_id = _driver_id(user_data)
     pools = await db.driver_ride_pools.find({"driver_id": driver_id}, {"_id": 0}).to_list(None)
     accepted = [pool for pool in pools if pool.get("status") == "accepted"]
+    def base_fare(pool: Dict[str, Any]) -> float:
+        if pool.get("estimated_base_fare") is not None:
+            return float(pool.get("estimated_base_fare") or 0)
+        return sum(float(item.get("estimated_fare") or 0) for item in pool.get("matches") or [])
     potential_savings = sum(float(pool.get("estimated_savings") or 0) for pool in pools)
-    accepted_earnings = sum(float(pool.get("estimated_savings") or 0) for pool in accepted)
+    accepted_base = sum(base_fare(pool) for pool in accepted)
+    accepted_earnings = accepted_base + sum(float(pool.get("estimated_savings") or 0) for pool in accepted)
     return {
         "total_pools_detected": len(pools),
         "pools_accepted": len(accepted),
         "acceptance_rate": round((len(accepted) / len(pools)) * 100, 2) if pools else 0.0,
         "potential_savings": round(potential_savings, 2),
         "earnings_with_pooling": round(accepted_earnings, 2),
-        "earnings_without_pooling": 0.0,
+        "earnings_without_pooling": round(accepted_base, 2),
     }
+
+
+@router.get("/pooling/opportunities", response_model=dict)
+async def get_pooling_opportunities(request: Request, limit: int = 20, user_data: dict = Depends(verify_token)):
+    db = _mongo(request)
+    if db is None:
+        raise HTTPException(status_code=503, detail="Feature database unavailable")
+    driver_id = _driver_id(user_data)
+    rows = await db.driver_ride_pools.find(
+        {"driver_id": driver_id, "status": {"$in": ["detected", "pending_dispatch"]}},
+        {"_id": 0},
+    ).sort("created_at", -1).limit(max(1, min(limit, 50))).to_list(max(1, min(limit, 50)))
+    return {"opportunities": rows, "total": len(rows)}
 
 
 @router.post("/pooling/accept")
@@ -406,13 +428,38 @@ async def accept_pooling_offer(
     if db is None:
         raise HTTPException(status_code=503, detail="Feature database unavailable")
     driver_id = _driver_id(user_data)
+    pool = await db.driver_ride_pools.find_one({"pool_id": payload.pool_id, "driver_id": driver_id}, {"_id": 0})
+    if not pool:
+        raise HTTPException(status_code=404, detail="Pooling offer not found")
+    match_ids = [item.get("booking_id") for item in pool.get("matches") or [] if item.get("booking_id")]
     result = await db.driver_ride_pools.update_one(
         {"pool_id": payload.pool_id, "driver_id": driver_id},
-        {"$set": {"status": "accepted", "accepted_at": _now()}},
+        {"$set": {"status": "accepted", "accepted_at": _now(), "dispatch_status": "pending_dispatch_review"}},
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Pooling offer not found")
-    return {"status": "accepted", "pool_id": payload.pool_id, "confirmed_at": _now().isoformat()}
+    matched_booking_count = 0
+    if match_ids:
+        update = await db.bookings.update_many(
+            {"id": {"$in": match_ids}, "driver_id": {"$in": [None, ""]}},
+            {
+                "$set": {
+                    "pool_id": payload.pool_id,
+                    "pooling_status": "driver_accepted_pool",
+                    "pooled_driver_id": driver_id,
+                    "updated_at": _now(),
+                },
+                "$addToSet": {"candidate_driver_ids": driver_id},
+            },
+        )
+        matched_booking_count = int(update.modified_count)
+    return {
+        "status": "accepted",
+        "dispatch_status": "pending_dispatch_review",
+        "pool_id": payload.pool_id,
+        "matched_booking_count": matched_booking_count,
+        "confirmed_at": _now().isoformat(),
+    }
 
 
 @router.post("/tax-reports/generate", response_model=TaxReportResponse)
@@ -481,6 +528,23 @@ async def download_tax_report(report_id: str, request: Request, user_data: dict 
         "filename": f"tax-report-{report_id}.json",
         "expires_in_hours": 24,
     }
+
+
+@router.get("/tax-reports/download/{report_id}")
+async def get_tax_report_file(report_id: str, request: Request, user_data: dict = Depends(verify_token)):
+    db = _mongo(request)
+    if db is None:
+        raise HTTPException(status_code=503, detail="Feature database unavailable")
+    driver_id = _driver_id(user_data)
+    report = await db.driver_tax_reports.find_one({"report_id": report_id, "driver_id": driver_id}, {"_id": 0})
+    if not report:
+        raise HTTPException(status_code=404, detail="Tax report not found")
+    filename = f"tax-report-{report_id}.json"
+    return Response(
+        content=json.dumps(_clean_doc(report), default=str, indent=2),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/favorite-passengers", response_model=FavoritePassengerResponse)

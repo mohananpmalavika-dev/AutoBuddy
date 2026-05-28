@@ -20,11 +20,11 @@ export function BadgesAchievementsWidget({ isVisible, onClose, token, driverId }
   const completionPercentage = getBadgeCompletionPercentage();
 
   const badgeIcons = {
-    safety: '🛡️',
-    performance: '⭐',
-    consistency: '📊',
-    customer_service: '❤️',
-    milestone: '🎯',
+    safety: 'S',
+    performance: 'P',
+    consistency: 'C',
+    customer_service: 'CS',
+    milestone: 'M',
   };
 
   return (
@@ -32,7 +32,7 @@ export function BadgesAchievementsWidget({ isVisible, onClose, token, driverId }
       <View style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity onPress={onClose} style={styles.backButton}>
-            <Text style={styles.backText}>← Back</Text>
+            <Text style={styles.backText}>Back</Text>
           </TouchableOpacity>
           <Text style={styles.title}>Achievements</Text>
           <View style={{ width: 60 }} />
@@ -57,7 +57,7 @@ export function BadgesAchievementsWidget({ isVisible, onClose, token, driverId }
             onPress={() => setActiveTab('earned')}
           >
             <Text style={[styles.tabText, activeTab === 'earned' && styles.tabTextActive]}>
-              🏆 Earned ({earnedBadges.length})
+              Earned ({earnedBadges.length})
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -65,7 +65,7 @@ export function BadgesAchievementsWidget({ isVisible, onClose, token, driverId }
             onPress={() => setActiveTab('progress')}
           >
             <Text style={[styles.tabText, activeTab === 'progress' && styles.tabTextActive]}>
-              ⏳ In Progress ({inProgressBadges.length})
+              In Progress ({inProgressBadges.length})
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -73,7 +73,7 @@ export function BadgesAchievementsWidget({ isVisible, onClose, token, driverId }
             onPress={() => setActiveTab('leaderboard')}
           >
             <Text style={[styles.tabText, activeTab === 'leaderboard' && styles.tabTextActive]}>
-              🎯 Leaderboard
+              Leaderboard
             </Text>
           </TouchableOpacity>
         </View>
@@ -84,7 +84,7 @@ export function BadgesAchievementsWidget({ isVisible, onClose, token, driverId }
             <View>
               {earnedBadges.length === 0 ? (
                 <View style={styles.emptyState}>
-                  <Text style={styles.emptyText}>🎯 No badges earned yet</Text>
+                  <Text style={styles.emptyText}>No badges earned yet</Text>
                   <Text style={styles.emptySubtext}>Complete driver activities to earn badges</Text>
                 </View>
               ) : (
@@ -95,7 +95,7 @@ export function BadgesAchievementsWidget({ isVisible, onClose, token, driverId }
                       style={styles.badgeCard}
                       onPress={() => setSelectedBadge(badge)}
                     >
-                      <Text style={styles.badgeIcon}>{badgeIcons[badge.badge_type] || '⭐'}</Text>
+                      <Text style={styles.badgeIcon}>{badgeIcons[badge.badge_type] || 'B'}</Text>
                       <Text style={styles.badgeName}>{badge.badge_name}</Text>
                       <Text style={styles.badgeDate}>
                         {new Date(badge.earned_at).toLocaleDateString()}
@@ -112,7 +112,7 @@ export function BadgesAchievementsWidget({ isVisible, onClose, token, driverId }
             <View>
               {inProgressBadges.length === 0 ? (
                 <View style={styles.emptyState}>
-                  <Text style={styles.emptyText}>✨ All badges unlocked!</Text>
+                  <Text style={styles.emptyText}>All badges unlocked!</Text>
                   <Text style={styles.emptySubtext}>You have completed all badge requirements</Text>
                 </View>
               ) : (
@@ -122,7 +122,7 @@ export function BadgesAchievementsWidget({ isVisible, onClose, token, driverId }
                       <View style={styles.progressHeader}>
                         <View>
                           <Text style={styles.progressBadgeName}>
-                            {badgeIcons[badge.badge_type] || '⭐'} {badge.badge_name}
+                            {badgeIcons[badge.badge_type] || 'B'} {badge.badge_name}
                           </Text>
                           <Text style={styles.progressDescription}>{badge.description}</Text>
                         </View>
@@ -147,7 +147,7 @@ export function BadgesAchievementsWidget({ isVisible, onClose, token, driverId }
             <View>
               {leaderboard.length === 0 ? (
                 <View style={styles.emptyState}>
-                  <Text style={styles.emptyText}>📊 Loading leaderboard...</Text>
+                  <Text style={styles.emptyText}>Loading leaderboard...</Text>
                 </View>
               ) : (
                 <View style={styles.leaderboardList}>
@@ -155,7 +155,7 @@ export function BadgesAchievementsWidget({ isVisible, onClose, token, driverId }
                     <View key={index} style={[styles.leaderboardRow, index === 0 && styles.leaderboardRowFirst]}>
                       <View style={styles.leaderboardRank}>
                         <Text style={styles.leaderboardRankText}>
-                          {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${entry.rank}`}
+                          {index === 0 ? '#1' : index === 1 ? '#2' : index === 2 ? '#3' : `#${entry.rank}`}
                         </Text>
                       </View>
                       <View style={styles.leaderboardInfo}>
@@ -179,7 +179,7 @@ export function BadgesAchievementsWidget({ isVisible, onClose, token, driverId }
             <View style={styles.detailContainer}>
               <View style={styles.detailHeader}>
                 <TouchableOpacity onPress={() => setSelectedBadge(null)}>
-                  <Text style={styles.detailBackText}>← Back</Text>
+                  <Text style={styles.detailBackText}>Back</Text>
                 </TouchableOpacity>
                 <Text style={styles.detailTitle}>Badge Details</Text>
                 <View style={{ width: 60 }} />
@@ -187,7 +187,7 @@ export function BadgesAchievementsWidget({ isVisible, onClose, token, driverId }
 
               <View style={styles.detailContent}>
                 <View style={styles.detailCard}>
-                  <Text style={styles.detailBadgeIcon}>{badgeIcons[selectedBadge.badge_type] || '⭐'}</Text>
+                  <Text style={styles.detailBadgeIcon}>{badgeIcons[selectedBadge.badge_type] || 'B'}</Text>
                   <Text style={styles.detailBadgeName}>{selectedBadge.badge_name}</Text>
                   <Text style={styles.detailBadgeType}>{selectedBadge.badge_type}</Text>
 
@@ -208,7 +208,7 @@ export function BadgesAchievementsWidget({ isVisible, onClose, token, driverId }
                     </View>
                     <View style={styles.detailStat}>
                       <Text style={styles.detailStatLabel}>Bonus Earnings</Text>
-                      <Text style={styles.detailStatValue}>₹{selectedBadge.reward_bonus || 0}</Text>
+                      <Text style={styles.detailStatValue}>Rs. {selectedBadge.reward_bonus || 0}</Text>
                     </View>
                   </View>
 
@@ -220,7 +220,7 @@ export function BadgesAchievementsWidget({ isVisible, onClose, token, driverId }
                   </View>
 
                   <TouchableOpacity style={styles.shareButton}>
-                    <Text style={styles.shareButtonText}>📤 Share Achievement</Text>
+                    <Text style={styles.shareButtonText}>Share Achievement</Text>
                   </TouchableOpacity>
                 </View>
               </View>

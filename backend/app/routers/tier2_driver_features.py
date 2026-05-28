@@ -4,11 +4,12 @@ Implements: Auto-decline filters, Passenger ratings, Vehicle maintenance,
 Earning targets, and Payment/payout management
 """
 
-from fastapi import APIRouter, HTTPException, Depends, status, Query
+from fastapi import APIRouter, HTTPException, Depends, status, Query, Request
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List, Dict, Any, Literal
 from datetime import datetime, timedelta, time
 import uuid
+import re
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
@@ -97,7 +98,7 @@ class EarningTargetResponse(EarningTargetRequest):
     updated_at: Optional[datetime] = None
 
 class PaymentMethodRequest(BaseModel):
-    method_type: Literal["bank_transfer", "upi", "wallet", "razorpay"] = "bank_transfer"
+    method_type: Literal["bank_transfer", "upi", "wallet", "razorpay"] = "upi"
     account_holder_name: Optional[str] = None
     account_number: Optional[str] = None
     ifsc_code: Optional[str] = None
@@ -225,17 +226,171 @@ def _schedule_values(config: PayoutScheduleConfigRequest) -> Dict[str, Any]:
 
 def _validate_payment_method(method: PaymentMethodRequest) -> None:
     if method.method_type == "bank_transfer":
-        missing = [
-            label for label, value in {
-                "account_holder_name": method.account_holder_name,
-                "account_number": method.account_number,
-                "ifsc_code": method.ifsc_code,
-            }.items() if not str(value or "").strip()
-        ]
-        if missing:
-            raise HTTPException(status_code=422, detail=f"Missing bank transfer fields: {', '.join(missing)}")
+        raise HTTPException(
+            status_code=400,
+            detail="Submit bank payout details through driver profile bank verification.",
+        )
     if method.method_type == "upi" and not str(method.upi_id or "").strip():
         raise HTTPException(status_code=422, detail="upi_id is required for UPI payout methods")
+
+
+def _mongo_db(request: Request):
+    return getattr(getattr(request, "app", None), "state", None) and getattr(request.app.state, "db", None)
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _serialize_driver_withdrawal(row: Dict[str, Any]) -> Dict[str, Any]:
+    status_value = str(row.get("status") or "pending").strip().lower()
+    created_at = row.get("created_at")
+    payout_eta = row.get("payout_eta") or row.get("estimated_payout_at")
+    if not payout_eta and status_value in {"pending", "approved", "processing"} and isinstance(created_at, datetime):
+        payout_eta = created_at + timedelta(days=2)
+
+    return {
+        "id": row.get("id"),
+        "driver_id": row.get("driver_id"),
+        "amount": round(_safe_float(row.get("amount"), 0.0), 2),
+        "payment_method_id": row.get("payment_method_id") or row.get("method") or "bank_transfer",
+        "method": row.get("method") or "bank_transfer",
+        "status": status_value,
+        "transaction_id": row.get("payout_reference") or row.get("transaction_id"),
+        "failure_reason": row.get("failure_reason") or row.get("rejection_reason") or row.get("reject_reason"),
+        "admin_note": row.get("admin_note") or row.get("review_note"),
+        "processed_at": row.get("processed_at"),
+        "payout_eta": payout_eta,
+        "bank_account_masked": row.get("bank_account_masked") or row.get("account_masked"),
+        "created_at": created_at,
+        "updated_at": row.get("updated_at"),
+    }
+
+
+def _withdrawal_blocker(bank_status: str, wallet_balance: float) -> Optional[str]:
+    normalized_status = str(bank_status or "not_submitted").strip().lower()
+    if normalized_status != "verified":
+        if normalized_status == "pending_verification":
+            return "Bank details are pending verification before payouts can be requested."
+        if normalized_status in {"rejected", "failed"}:
+            return "Bank verification failed. Update payout bank details before requesting a payout."
+        return "Add and verify payout bank details before requesting a payout."
+    if wallet_balance <= 0:
+        return "No available wallet balance to withdraw."
+    return None
+
+
+def _location_lat_lng(value: Any) -> Optional[tuple[float, float]]:
+    if not isinstance(value, dict):
+        return None
+    lat = value.get("latitude", value.get("lat"))
+    lng = value.get("longitude", value.get("lng"))
+    try:
+        return float(lat), float(lng)
+    except (TypeError, ValueError):
+        return None
+
+
+def _distance_km(a: Any, b: Any) -> Optional[float]:
+    from math import atan2, cos, radians, sin, sqrt
+
+    left = _location_lat_lng(a)
+    right = _location_lat_lng(b)
+    if not left or not right:
+        return None
+    lat1, lng1 = left
+    lat2, lng2 = right
+    radius_km = 6371.0
+    dlat = radians(lat2 - lat1)
+    dlng = radians(lng2 - lng1)
+    arc = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlng / 2) ** 2
+    return radius_km * 2 * atan2(sqrt(arc), sqrt(1 - arc))
+
+
+def _pickup_text(booking: Dict[str, Any]) -> str:
+    pickup = booking.get("pickup_location") or {}
+    if not isinstance(pickup, dict):
+        return ""
+    return " ".join(
+        str(pickup.get(key) or "").lower()
+        for key in ("address", "formatted_address", "name", "area", "locality", "city", "label")
+    )
+
+
+def _parse_minutes(value: Any) -> Optional[int]:
+    match = re.match(r"^\s*(\d{1,2}):(\d{2})", str(value or ""))
+    if not match:
+        return None
+    hour = int(match.group(1))
+    minute = int(match.group(2))
+    if hour > 23 or minute > 59:
+        return None
+    return hour * 60 + minute
+
+
+def _restricted_now(restriction: Any) -> bool:
+    if not isinstance(restriction, dict):
+        return False
+    start = _parse_minutes(restriction.get("start"))
+    end = _parse_minutes(restriction.get("end"))
+    if start is None or end is None or start == end:
+        return False
+    now = get_ist_now()
+    current = now.hour * 60 + now.minute
+    return start <= current < end if start < end else current >= start or current < end
+
+
+def _filter_rejection_reasons(
+    preferences: RideFilterPreferences,
+    booking: Dict[str, Any],
+    *,
+    pickup_distance_km: Optional[float],
+    passenger_rating: Optional[float],
+) -> List[str]:
+    reasons: List[str] = []
+    if preferences.max_pickup_distance_km is not None and pickup_distance_km is not None:
+        if float(pickup_distance_km) > float(preferences.max_pickup_distance_km):
+            reasons.append("pickup_too_far")
+    if preferences.min_passenger_rating is not None and passenger_rating is not None:
+        if float(passenger_rating) < float(preferences.min_passenger_rating):
+            reasons.append("passenger_rating_below_filter")
+    pickup_text = _pickup_text(booking)
+    blocked = [str(area or "").strip().lower() for area in preferences.blocked_pickup_areas or []]
+    if pickup_text and any(area and area in pickup_text for area in blocked):
+        reasons.append("blocked_pickup_area")
+    allowed = [str(area or "").strip().lower() for area in preferences.allowed_pickup_areas or []]
+    if pickup_text and allowed and not any(area and area in pickup_text for area in allowed):
+        reasons.append("outside_allowed_pickup_areas")
+    if _restricted_now(preferences.time_slot_restrictions):
+        reasons.append("restricted_time_slot")
+    return reasons
+
+
+async def _passenger_rating_summary(mongo_db, passenger_id: str) -> Dict[str, Any]:
+    if mongo_db is None or not passenger_id:
+        return {"average_rating": 5.0, "total_ratings": 0, "recent_reviews": []}
+    rows = await mongo_db.ratings.find({"to_user_id": passenger_id}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    values = [_safe_float(row.get("rating"), 0.0) for row in rows if _safe_float(row.get("rating"), 0.0) > 0]
+    if not values:
+        user = await mongo_db.users.find_one({"id": passenger_id}, {"_id": 0, "rating": 1, "average_rating": 1})
+        fallback = _safe_float((user or {}).get("average_rating"), _safe_float((user or {}).get("rating"), 5.0))
+        return {"average_rating": round(fallback or 5.0, 2), "total_ratings": 0, "recent_reviews": []}
+    return {
+        "average_rating": round(sum(values) / len(values), 2),
+        "total_ratings": len(values),
+        "recent_reviews": [
+            {
+                "rating": row.get("rating"),
+                "comment": row.get("comment") or row.get("review") or "",
+                "date": row.get("created_at") or row.get("updated_at"),
+            }
+            for row in rows[:5]
+        ],
+    }
+
 
 # =====================
 # RIDE FILTER ENDPOINTS
@@ -282,6 +437,7 @@ async def get_ride_filters(
 @router.post("/rides/{ride_id}/auto-decide")
 async def apply_ride_filters_to_request(
     ride_id: str,
+    request: Request,
     user_data: dict = Depends(verify_token),
     db: Session = Depends(get_db)
 ):
@@ -294,13 +450,31 @@ async def apply_ride_filters_to_request(
     preferences = db.query(RideFilterPreferences).filter_by(driver_id=driver_id).first()
     if not preferences or not preferences.auto_decline_enabled:
         return {"should_accept": True, "reason": "Auto-decline disabled"}
-    
-    # In production, this would fetch actual ride details and passenger info
-    # For now, return structure for frontend to handle
+
+    mongo_db = _mongo_db(request)
+    if mongo_db is None:
+        raise HTTPException(status_code=503, detail="Booking database unavailable")
+    booking = await mongo_db.bookings.find_one({"id": ride_id}, {"_id": 0})
+    if not booking:
+        raise HTTPException(status_code=404, detail="Ride not found")
+
+    driver_profile = await mongo_db.drivers.find_one({"user_id": driver_id}, {"_id": 0}) or {}
+    pickup_distance = _distance_km(booking.get("pickup_location"), driver_profile.get("current_location"))
+    passenger_summary = await _passenger_rating_summary(mongo_db, str(booking.get("passenger_id") or ""))
+    rejection_reasons = _filter_rejection_reasons(
+        preferences,
+        booking,
+        pickup_distance_km=pickup_distance,
+        passenger_rating=_safe_float(passenger_summary.get("average_rating"), 5.0),
+    )
     return {
-        "should_accept": True,
+        "should_accept": not rejection_reasons,
+        "should_decline": bool(rejection_reasons),
         "filters_applied": True,
-        "matching_rules": []
+        "matching_rules": preferences.to_dict(),
+        "rejection_reasons": rejection_reasons,
+        "pickup_distance_km": round(pickup_distance, 2) if pickup_distance is not None else None,
+        "passenger_rating": passenger_summary.get("average_rating"),
     }
 
 # =====================
@@ -719,60 +893,104 @@ async def get_payout_schedule(
 
 @router.get("/payouts/history", response_model=Dict[str, Any])
 async def get_payout_history(
+    request: Request,
     limit: int = Query(30, ge=1, le=100),
     status_filter: Optional[str] = Query(None),
     user_data: dict = Depends(verify_token),
-    db: Session = Depends(get_db)
 ):
-    """Get payout history"""
+    """Get payout history from the real driver withdrawal ledger."""
     driver_id = _driver_id(user_data)
-    
-    query = db.query(PayoutHistory).filter_by(driver_id=driver_id)
+
+    mongo = _mongo_db(request)
+    if mongo is None:
+        raise HTTPException(status_code=503, detail="Payout ledger is unavailable")
+
+    query: Dict[str, Any] = {"driver_id": driver_id}
     if status_filter:
-        query = query.filter_by(status=status_filter)
-    
-    payouts = query.order_by(desc(PayoutHistory.created_at)).limit(limit).all()
-    
+        query["status"] = str(status_filter).strip().lower()
+
+    rows = await mongo.driver_withdrawal_requests.find(query, {"_id": 0}).sort("created_at", -1).to_list(limit)
+    payouts = [_serialize_driver_withdrawal(row) for row in rows]
+
     return {
-        "payouts": [p.to_dict() for p in payouts],
-        "total": len(payouts)
+        "payouts": payouts,
+        "total": len(payouts),
     }
 
 @router.post("/payouts/request", response_model=Dict[str, Any])
 async def request_manual_payout(
-    request: PayoutRequestRequest,
+    payload: PayoutRequestRequest,
+    request: Request,
     user_data: dict = Depends(verify_token),
-    db: Session = Depends(get_db)
 ):
-    """Request manual payout to payment method"""
+    """Request a manual payout through the verified bank withdrawal flow."""
     driver_id = _driver_id(user_data)
-    
-    # Verify payment method exists
-    method = db.query(DriverPaymentMethod).filter_by(
-        id=request.payment_method_id,
-        driver_id=driver_id
-    ).first()
-    
-    if not method:
-        raise HTTPException(status_code=404, detail="Payment method not found")
-    
-    # Create payout record
-    payout = PayoutHistory(
-        id=_new_id(),
-        driver_id=driver_id,
-        amount=request.amount,
-        payment_method_id=str(request.payment_method_id),
-        status="pending"
+
+    mongo = _mongo_db(request)
+    if mongo is None:
+        raise HTTPException(status_code=503, detail="Payout ledger is unavailable")
+
+    amount = round(_safe_float(payload.amount, 0.0), 2)
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Payout amount must be greater than zero")
+
+    wallet = await mongo.driver_wallets.find_one({"driver_id": driver_id}, {"_id": 0}) or {}
+    wallet_balance = round(_safe_float(wallet.get("balance"), 0.0), 2)
+    profile = await mongo.drivers.find_one({"user_id": driver_id}, {"_id": 0}) or {}
+    bank_status = str(profile.get("bank_verification_status") or "not_submitted")
+    blocker = _withdrawal_blocker(bank_status, wallet_balance)
+    if blocker:
+        raise HTTPException(status_code=400, detail=blocker)
+    if amount > wallet_balance:
+        raise HTTPException(status_code=400, detail="Payout amount exceeds wallet balance")
+
+    now = get_ist_now()
+    payout_id = _new_id()
+    payout_eta = now + timedelta(days=2)
+
+    update_result = await mongo.driver_wallets.update_one(
+        {"driver_id": driver_id, "balance": {"$gte": amount}},
+        {
+            "$inc": {"balance": -amount, "pending_withdrawal": amount},
+            "$set": {"updated_at": now},
+            "$setOnInsert": {"created_at": now},
+        },
+        upsert=False,
     )
-    db.add(payout)
-    db.commit()
-    db.refresh(payout)
-    
+    if update_result.modified_count == 0:
+        raise HTTPException(status_code=400, detail="Wallet balance changed. Refresh and try again.")
+
+    payout = {
+        "id": payout_id,
+        "driver_id": driver_id,
+        "amount": amount,
+        "method": "bank_transfer",
+        "payment_method_id": payload.payment_method_id,
+        "status": "pending",
+        "approval_status": "pending_admin_review",
+        "bank_verification_status": bank_status,
+        "bank_account_masked": profile.get("bank_account_masked") or "",
+        "payout_eta": payout_eta,
+        "failure_reason": None,
+        "status_history": [
+            {
+                "status": "pending",
+                "at": now,
+                "note": "Submitted for admin payout review",
+            }
+        ],
+        "created_at": now,
+        "updated_at": now,
+    }
+    await mongo.driver_withdrawal_requests.insert_one(payout)
+
     return {
-        "payout_id": payout.id,
-        "status": payout.status,
-        "amount": payout.amount,
-        "created_at": payout.created_at
+        "payout_id": payout_id,
+        "withdrawal_id": payout_id,
+        "status": "pending",
+        "amount": amount,
+        "payout_eta": payout_eta,
+        "payout": _serialize_driver_withdrawal(payout),
     }
 
 # =====================
@@ -782,36 +1000,36 @@ async def request_manual_payout(
 @router.get("/passengers/{passenger_id}/ratings", response_model=PassengerRatingResponse)
 async def get_passenger_rating(
     passenger_id: str,
+    request: Request,
     user_data: dict = Depends(verify_token),
     db: Session = Depends(get_db)
 ):
     """Get passenger average rating and recent reviews"""
-    # In production, this would query actual passenger ratings from ride history
-    # For now, return stub response
+    mongo_db = _mongo_db(request)
+    summary = await _passenger_rating_summary(mongo_db, passenger_id)
     return {
         "passenger_id": passenger_id,
-        "average_rating": 4.5,
-        "total_ratings": 42,
-        "recent_reviews": [
-            {"rating": 5, "comment": "Great ride!", "date": get_ist_now().isoformat()},
-            {"rating": 4, "comment": "Good driver", "date": (get_ist_now() - timedelta(days=1)).isoformat()}
-        ]
+        "average_rating": summary["average_rating"],
+        "total_ratings": summary["total_ratings"],
+        "recent_reviews": summary["recent_reviews"],
     }
 
 @router.get("/passengers/{passenger_id}/reviews", response_model=Dict[str, Any])
 async def get_passenger_reviews(
     passenger_id: str,
+    request: Request,
     limit: int = Query(10, ge=1, le=50),
     user_data: dict = Depends(verify_token),
     db: Session = Depends(get_db)
 ):
     """Get passenger reviews and ratings"""
-    # In production, query from ride feedback history
+    mongo_db = _mongo_db(request)
+    summary = await _passenger_rating_summary(mongo_db, passenger_id)
     return {
         "passenger_id": passenger_id,
-        "reviews": [],
-        "average_rating": 4.5,
-        "total_count": 0
+        "reviews": summary["recent_reviews"][:limit],
+        "average_rating": summary["average_rating"],
+        "total_count": summary["total_ratings"],
     }
 
 @router.get("/health/tier2")

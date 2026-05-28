@@ -14,7 +14,6 @@ const INITIAL_FORM = {
 
 const METHOD_OPTIONS = [
   { value: 'upi', label: 'UPI' },
-  { value: 'bank_transfer', label: 'Bank' },
   { value: 'wallet', label: 'Wallet' },
 ];
 
@@ -139,7 +138,7 @@ export default function DriverPaymentMethodsPanel({ token, driverId, isVisible, 
           {paymentMethods.length === 0 ? (
             <View style={styles.emptyCard}>
               <Text style={styles.emptyTitle}>No payout method added</Text>
-              <Text style={styles.emptyText}>Add UPI or bank details before configuring automatic payouts.</Text>
+              <Text style={styles.emptyText}>Add a UPI or wallet payout method before configuring payout preferences.</Text>
             </View>
           ) : (
             paymentMethods.map((method) => (

@@ -74,7 +74,7 @@ export function FavoritePassengersPanel({ isVisible, onClose, token, driverId })
                     <Text style={styles.passengerId}>ID: {passenger.passenger_id}</Text>
                   </View>
                   <View style={[styles.ratingBadge, { backgroundColor: passenger.rating >= 4.5 ? '#4CAF50' : passenger.rating >= 3.5 ? '#FF9800' : '#D32F2F' }]}>
-                    <Text style={styles.ratingText}>★ {passenger.rating}</Text>
+                    <Text style={styles.ratingText}>Rating {passenger.rating}</Text>
                   </View>
                 </View>
 
@@ -85,7 +85,7 @@ export function FavoritePassengersPanel({ isVisible, onClose, token, driverId })
                   </View>
                   <View style={styles.stat}>
                     <Text style={styles.statLabel}>Total Earnings</Text>
-                    <Text style={styles.statValue}>₹{passenger.total_earnings || 0}</Text>
+                    <Text style={styles.statValue}>Rs. {passenger.total_earnings || 0}</Text>
                   </View>
                   <View style={styles.stat}>
                     <Text style={styles.statLabel}>Since</Text>
@@ -102,13 +102,13 @@ export function FavoritePassengersPanel({ isVisible, onClose, token, driverId })
 
                 <View style={styles.actions}>
                   <TouchableOpacity style={styles.editButton}>
-                    <Text style={styles.actionButtonText}>✏️ Edit</Text>
+                    <Text style={styles.actionButtonText}>Edit</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.removeButton}
                     onPress={() => handleRemoveFavorite(passenger.passenger_id)}
                   >
-                    <Text style={styles.removeButtonText}>🗑️ Remove</Text>
+                    <Text style={styles.removeButtonText}>Remove</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -151,7 +151,7 @@ export function FavoritePassengersPanel({ isVisible, onClose, token, driverId })
                       onPress={() => setRating(r)}
                     >
                       <Text style={[styles.ratingButtonText, rating === r && styles.ratingButtonTextActive]}>
-                        {'★'.repeat(r)}
+                        {`${r}`}
                       </Text>
                     </TouchableOpacity>
                   ))}

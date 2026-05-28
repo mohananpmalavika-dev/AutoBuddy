@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc, and_, func
 import uuid
 import asyncio
+import os
+import httpx
 
 # Import models
 from app.db.tier1_models import (
@@ -21,6 +23,8 @@ from app.db.database import get_db
 
 # Import dependencies
 from app.routers.auth import verify_token
+
+EMERGENCY_WEBHOOK_URL = os.environ.get("EMERGENCY_WEBHOOK_URL", "").strip()
 
 
 async def get_driver_id_from_token(user_data: dict = Depends(verify_token)) -> str:
@@ -286,7 +290,7 @@ async def _broadcast_driver_location(request: Request, driver_id: str, location:
         await sio.emit("driver_location", payload, room=_user_room(passenger_id))
 
 
-async def _notify_sos(request: Request, sos: SOSAlert, *, cancelled: bool = False) -> None:
+async def _notify_sos(request: Request, sos: SOSAlert, *, cancelled: bool = False) -> bool:
     mongo_db = _mongo_db(request)
     sio = _socket_server(request)
     event_name = "sos_alert_cancelled" if cancelled else "sos_alert"
@@ -303,6 +307,14 @@ async def _notify_sos(request: Request, sos: SOSAlert, *, cancelled: bool = Fals
         "address": sos.address,
         "timestamp": get_ist_now().isoformat(),
     }
+    external_notified = False
+    if EMERGENCY_WEBHOOK_URL and not cancelled:
+        try:
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                response = await client.post(EMERGENCY_WEBHOOK_URL, json=payload)
+                external_notified = response.status_code < 400
+        except Exception:
+            external_notified = False
 
     booking = await _active_booking(mongo_db, sos.driver_id, sos.ride_id)
     recipient_ids: set[str] = set()
@@ -331,7 +343,7 @@ async def _notify_sos(request: Request, sos: SOSAlert, *, cancelled: bool = Fals
             await mongo_db.notifications.insert_many(notification_docs)
 
     if sio is None:
-        return
+        return external_notified
     booking_id = str(sos.ride_id or "").strip()
     if booking_id:
         await sio.emit(event_name, payload, room=_ride_room(booking_id))
@@ -340,6 +352,7 @@ async def _notify_sos(request: Request, sos: SOSAlert, *, cancelled: bool = Fals
         if recipient_id:
             await sio.emit(event_name, payload, room=_user_room(recipient_id))
             await sio.emit("in_app_notification", {"title": title, "body": body, "data": payload}, room=_user_room(recipient_id))
+    return external_notified
 
 
 def _expense_total(db: Session, ride_id: str, driver_id: str) -> float:
@@ -557,7 +570,12 @@ async def post_sos_alert(
         # Update cooldown
         last_sos_time[driver_id] = get_ist_now()
         
-        await _notify_sos(request, db_sos)
+        authorities_notified = await _notify_sos(request, db_sos)
+        if authorities_notified:
+            db_sos.authorities_notified = True
+            db_sos.updated_at = get_ist_now()
+            db.commit()
+            db.refresh(db_sos)
         
         return SOSAlertResponse(**db_sos.to_dict())
     

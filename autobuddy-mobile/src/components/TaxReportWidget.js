@@ -44,15 +44,15 @@ export function TaxReportWidget({ isVisible, onClose, token, driverId }) {
         <ScrollView style={styles.content}>
           {/* Tax Summary */}
           <View style={styles.summaryCard}>
-            <Text style={styles.cardTitle}>📊 Tax Summary</Text>
+            <Text style={styles.cardTitle}>Tax Summary</Text>
             <View style={styles.summaryGrid}>
               <View style={styles.summaryItem}>
                 <Text style={styles.summaryLabel}>Total Earnings</Text>
-                <Text style={styles.summaryValue}>₹{taxSummary.totalEarnings.toFixed(2)}</Text>
+                <Text style={styles.summaryValue}>Rs. {taxSummary.totalEarnings.toFixed(2)}</Text>
               </View>
               <View style={styles.summaryItem}>
                 <Text style={styles.summaryLabel}>Tax Liability</Text>
-                <Text style={[styles.summaryValue, { color: '#D32F2F' }]}>₹{taxSummary.totalTaxLiability.toFixed(2)}</Text>
+                <Text style={[styles.summaryValue, { color: '#D32F2F' }]}>Rs. {taxSummary.totalTaxLiability.toFixed(2)}</Text>
               </View>
               <View style={styles.summaryItem}>
                 <Text style={styles.summaryLabel}>Avg Tax Rate</Text>
@@ -60,14 +60,14 @@ export function TaxReportWidget({ isVisible, onClose, token, driverId }) {
               </View>
               <View style={styles.summaryItem}>
                 <Text style={styles.summaryLabel}>Deductible</Text>
-                <Text style={[styles.summaryValue, { color: '#4CAF50' }]}>₹{taxSummary.deductibleExpenses.toFixed(2)}</Text>
+                <Text style={[styles.summaryValue, { color: '#4CAF50' }]}>Rs. {taxSummary.deductibleExpenses.toFixed(2)}</Text>
               </View>
             </View>
           </View>
 
           {/* Generate Report */}
           <View style={styles.generateSection}>
-            <Text style={styles.sectionTitle}>📅 Generate Report</Text>
+            <Text style={styles.sectionTitle}>Generate Report</Text>
             <View style={styles.typeSelector}>
               {['monthly', 'quarterly', 'annual'].map(type => (
                 <TouchableOpacity
@@ -88,7 +88,7 @@ export function TaxReportWidget({ isVisible, onClose, token, driverId }) {
 
           {/* Report History */}
           <View style={styles.historySection}>
-            <Text style={styles.sectionTitle}>📋 Report History</Text>
+            <Text style={styles.sectionTitle}>Report History</Text>
             {taxReports.length === 0 ? (
               <View style={styles.emptyState}>
                 <Text style={styles.emptyText}>No tax reports generated yet</Text>
@@ -108,18 +108,18 @@ export function TaxReportWidget({ isVisible, onClose, token, driverId }) {
                   <View style={styles.reportDetails}>
                     <View style={styles.reportRow}>
                       <Text style={styles.reportLabel}>Gross Earnings:</Text>
-                      <Text style={styles.reportValue}>₹{report.gross_earnings.toFixed(2)}</Text>
+                      <Text style={styles.reportValue}>Rs. {report.gross_earnings.toFixed(2)}</Text>
                     </View>
                     <View style={styles.reportRow}>
                       <Text style={styles.reportLabel}>Tax Liability:</Text>
-                      <Text style={styles.reportValue}>₹{report.tax_liability.toFixed(2)}</Text>
+                      <Text style={styles.reportValue}>Rs. {report.tax_liability.toFixed(2)}</Text>
                     </View>
                   </View>
                   <TouchableOpacity
                     style={styles.downloadButton}
                     onPress={() => handleDownloadReport(report.report_id)}
                   >
-                    <Text style={styles.downloadButtonText}>📥 Download PDF</Text>
+                    <Text style={styles.downloadButtonText}>Download JSON</Text>
                   </TouchableOpacity>
                 </View>
               ))
@@ -128,10 +128,10 @@ export function TaxReportWidget({ isVisible, onClose, token, driverId }) {
 
           {/* Tips */}
           <View style={styles.tipsCard}>
-            <Text style={styles.tipsTitle}>💡 Tips</Text>
-            <Text style={styles.tipsText}>• Keep records of vehicle maintenance for deductions</Text>
-            <Text style={styles.tipsText}>• Download reports for tax filing</Text>
-            <Text style={styles.tipsText}>• Monthly reports help track earnings trends</Text>
+            <Text style={styles.tipsTitle}>Tips</Text>
+            <Text style={styles.tipsText}>Keep records of vehicle maintenance for deductions.</Text>
+            <Text style={styles.tipsText}>Download JSON reports for tax filing records.</Text>
+            <Text style={styles.tipsText}>Monthly reports help track earnings trends.</Text>
           </View>
         </ScrollView>
       </View>

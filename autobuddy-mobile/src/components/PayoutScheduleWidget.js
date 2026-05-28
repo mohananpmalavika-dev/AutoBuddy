@@ -122,7 +122,7 @@ const PayoutScheduleWidget = ({ token, driverId, isVisible, onClose }) => {
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={onClose}>
-            <Text style={styles.headerButton}>← Back</Text>
+            <Text style={styles.headerButton}>Back</Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Payout Schedule</Text>
           <TouchableOpacity onPress={openConfigForm}>
@@ -142,7 +142,7 @@ const PayoutScheduleWidget = ({ token, driverId, isVisible, onClose }) => {
                   Minimum Balance
                 </Text>
                 <Text style={styles.infoValue}>
-                  ₹{payoutSchedule.minimum_balance_threshold}
+                  Rs. {payoutSchedule.minimum_balance_threshold}
                 </Text>
               </>
             )}
@@ -153,10 +153,10 @@ const PayoutScheduleWidget = ({ token, driverId, isVisible, onClose }) => {
             <Text style={styles.sectionTitle}>Schedule Types</Text>
             
             {[
-              { type: 'daily', icon: '📅', desc: 'Automatic payout every day' },
-              { type: 'weekly', icon: '📊', desc: 'Payout once per week' },
-              { type: 'monthly', icon: '📈', desc: 'Payout once per month' },
-              { type: 'manual', icon: '👆', desc: 'Request payout on demand' },
+              { type: 'daily', icon: 'D', desc: 'Preferred daily payout review' },
+              { type: 'weekly', icon: 'W', desc: 'Preferred weekly payout review' },
+              { type: 'monthly', icon: 'M', desc: 'Preferred monthly payout review' },
+              { type: 'manual', icon: 'O', desc: 'Request payout on demand' },
             ].map((schedule) => (
               <View key={schedule.type} style={styles.scheduleOption}>
                 <Text style={styles.scheduleIcon}>{schedule.icon}</Text>
@@ -172,10 +172,10 @@ const PayoutScheduleWidget = ({ token, driverId, isVisible, onClose }) => {
 
           {/* Tips */}
           <View style={styles.tipsCard}>
-            <Text style={styles.tipsTitle}>💡 Pro Tips</Text>
-            <Text style={styles.tipText}>• Set minimum balance to avoid transfers with low balances</Text>
-            <Text style={styles.tipText}>• Daily payouts help with cash flow management</Text>
-            <Text style={styles.tipText}>• Weekend transfers may take 1-2 extra business days</Text>
+            <Text style={styles.tipsTitle}>Payout Notes</Text>
+            <Text style={styles.tipText}>Set a minimum balance to avoid low-value transfers.</Text>
+            <Text style={styles.tipText}>Actual withdrawals still require verified bank details and admin processing.</Text>
+            <Text style={styles.tipText}>Admin payout processing may take 1-2 extra business days.</Text>
           </View>
 
           {error && <Text style={styles.error}>{error}</Text>}
@@ -209,7 +209,7 @@ const PayoutScheduleWidget = ({ token, driverId, isVisible, onClose }) => {
                         String(scheduleConfig.payment_method_id) === String(method.id) && 
                         styles.methodOptionTextActive
                       ]}>
-                        {method.account_holder_name} (...{method.account_number?.slice(-4)})
+                        {method.upi_id || method.account_holder_name || method.method_type}
                       </Text>
                     </TouchableOpacity>
                   )) : (
@@ -281,7 +281,7 @@ const PayoutScheduleWidget = ({ token, driverId, isVisible, onClose }) => {
 
               {/* Minimum Balance */}
               <View style={styles.formGroup}>
-                <Text style={styles.formLabel}>Minimum Balance (₹)</Text>
+                <Text style={styles.formLabel}>Minimum Balance (Rs.)</Text>
                 <TextInput
                   style={styles.formInput}
                   placeholder="1000"

@@ -4,6 +4,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as Sentry from '@sentry/react-native';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
+import NotificationPanel from '@/components/NotificationPanel';
 
 // Feature Context Providers
 import { NotificationProvider } from '@/contexts/NotificationContext';
@@ -47,6 +48,7 @@ export default function TabLayout() {
                           <AccessibilityProvider>
                             <AnimatedSplashOverlay />
                             <Slot />
+                            <NotificationPanel />
                           </AccessibilityProvider>
                         </SupportProvider>
                       </PromoCodesProvider>

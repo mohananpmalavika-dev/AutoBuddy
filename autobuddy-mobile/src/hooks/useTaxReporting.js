@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { apiRequest } from '../lib/api';
+import { API_BASE_URL, apiRequest } from '../lib/api';
 
 export function useTaxReporting({ token, driverId }) {
   const [taxReports, setTaxReports] = useState([]);
@@ -66,7 +66,7 @@ export function useTaxReporting({ token, driverId }) {
     }
   }, [token, driverId]);
 
-  // Download tax report PDF
+  // Download tax report JSON export
   const downloadTaxReport = useCallback(async (reportId) => {
     if (!token) return null;
 
@@ -78,7 +78,11 @@ export function useTaxReporting({ token, driverId }) {
 
       const payload = response?.data || response;
       if (payload) {
-        return payload.download_url;
+        const url = payload.download_url;
+        if (typeof url === 'string' && url.startsWith('/')) {
+          return `${API_BASE_URL.replace(/\/api$/, '')}${url}`;
+        }
+        return url;
       }
     } catch (err) {
       setError(`Failed to download report: ${err.message}`);

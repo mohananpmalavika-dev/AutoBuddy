@@ -43,6 +43,42 @@ export const COLORS = {
   ...TEXT_CONTRAST_OVERRIDES,
 };
 
+const LEGACY_COLORS = {
+  PRIMARY: COLORS.primary,
+  SECONDARY: COLORS.secondary,
+  SUCCESS: COLORS.success,
+  WARNING: COLORS.warning,
+  DANGER: COLORS.danger,
+  ERROR: COLORS.danger,
+  BACKGROUND: COLORS.background,
+  SURFACE: COLORS.surface,
+  CARD: COLORS.card,
+  TEXT: COLORS.textMain,
+  TEXT_SECONDARY: COLORS.textMuted,
+  TEXT_MUTED: COLORS.textMuted,
+  LIGHT_GRAY: COLORS.border,
+  BORDER: COLORS.border,
+  OVERLAY_SOFT: COLORS.overlaySoft,
+  OVERLAY_STRONG: COLORS.overlayStrong,
+  white: '#FFFFFF',
+  black: '#102018',
+  grey1: '#F4F7F5',
+  grey2: '#DDE5DF',
+  grey3: '#B8C4BD',
+  grey4: '#8B9891',
+  grey5: '#6B756F',
+};
+
+export const theme = {
+  COLORS: {
+    ...COLORS,
+    ...LEGACY_COLORS,
+  },
+  SHADOWS: {},
+  RADIUS: {},
+  TYPOGRAPHY: {},
+};
+
 export const SHADOWS = {
   card: {
     shadowColor: '#0A3D22',
@@ -94,3 +130,7 @@ export const TYPOGRAPHY = {
     lineHeight: 21,
   },
 };
+
+theme.SHADOWS = SHADOWS;
+theme.RADIUS = RADIUS;
+theme.TYPOGRAPHY = TYPOGRAPHY;
