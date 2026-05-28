@@ -36,7 +36,8 @@ import AnalyticsDashboard from '../components/AnalyticsDashboard';
 import RideHistoryPanel from '../components/RideHistoryPanel';
 import NotificationCenter from '../components/NotificationCenter';
 import ScheduledRidesPanel from '../components/ScheduledRidesPanel';
-import { NotificationProvider, useNotifications } from '../contexts/NotificationContext';
+import { useNotifications } from '../contexts/NotificationContext';
+import { usePreferences } from '../contexts/PreferencesContext';
 import { DRIVER_QUICK_ACTIONS } from '../constants/driverQuickActions';
 import { useKeralaSafety } from '../hooks/useKeralaSafety';
 import { useDriverRealtimeTracking } from '../hooks/useDriverRealtimeTracking';
@@ -63,7 +64,18 @@ const DEFAULT_DRIVER_LOCATION = {
 };
 
 const DEFAULT_DRIVER_SETTINGS = {
+  push_notifications: true,
+  email_notifications: true,
+  sms_alerts: true,
+  sound_enabled: true,
+  vibration_enabled: true,
+  quiet_hours_enabled: false,
+  quiet_hours_start: '22:00',
+  quiet_hours_end: '08:00',
+  language: 'en',
+  theme: 'light',
   share_location: true,
+  accept_promo: true,
 };
 
 const STATUS_FLOW = ['accepted', 'driver_arrived', 'in_progress', 'completed'];
@@ -133,8 +145,6 @@ function getAvailabilityErrorMessage(err) {
 
 function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefined }) {
   const snapPoints = useMemo(() => ['26%', '55%'], []);
-  useNotificationManager(token, user?.id);
-  const { unreadCount } = useNotifications();
   const refreshInFlightRef = useRef(false);
   const initialLocationSyncAttemptedRef = useRef(false);
   const lastWatchedLocationRef = useRef(null);
@@ -166,6 +176,9 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   const [availabilitySyncPending, setAvailabilitySyncPending] = useState(false);
   const [menuBadges, setMenuBadges] = useState({});
   const [driverSettings, setDriverSettings] = useState(DEFAULT_DRIVER_SETTINGS);
+  useNotificationManager(token, user?.id, driverSettings);
+  const { unreadCount } = useNotifications();
+  const { updatePreference } = usePreferences();
   const [driverLocation, setDriverLocation] = useState(DEFAULT_DRIVER_LOCATION);
   const [pendingRequests, setPendingRequests] = useState([]);
   const [upcomingRides, setUpcomingRides] = useState(null);
@@ -236,6 +249,22 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       (Array.isArray(upcomingRides?.assigned_rides) ? upcomingRides.assigned_rides.length : 0)
     );
   }, [upcomingRides]);
+  useEffect(() => {
+    updatePreference('language', driverSettings.language || DEFAULT_DRIVER_SETTINGS.language);
+    updatePreference('notifications.bookingUpdates', driverSettings.push_notifications !== false);
+    updatePreference('notifications.promotions', driverSettings.accept_promo !== false);
+    updatePreference('notifications.sound', driverSettings.sound_enabled !== false);
+    updatePreference('notifications.vibration', driverSettings.vibration_enabled !== false);
+    updatePreference('privacy.shareLocation', driverSettings.share_location !== false);
+  }, [
+    driverSettings.accept_promo,
+    driverSettings.language,
+    driverSettings.push_notifications,
+    driverSettings.share_location,
+    driverSettings.sound_enabled,
+    driverSettings.vibration_enabled,
+    updatePreference,
+  ]);
   const keralaSafety = useKeralaSafety({
     token,
     userName: user?.name,
@@ -1510,6 +1539,99 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     }
   }, [activeRide, driverLocation, navigatingToDrop, normalizeLocation]);
 
+  const resumeScheduledRide = useCallback((ride) => {
+    if (!ride?.id) {
+      return;
+    }
+    setActiveRide((prev) => (prev?.id === ride.id ? { ...prev, ...ride } : ride));
+    setActiveTab('requests');
+    setExpandedRideCard(true);
+    setMessage('Scheduled ride controls opened.');
+  }, []);
+
+  const openScheduledRideNavigation = useCallback(async (ride) => {
+    const pickup = normalizeLocation(ride?.pickup_location || ride?.pickup || ride?.pickup_location_details);
+    const drop = normalizeLocation(
+      ride?.drop_location ||
+        ride?.dropoff_location ||
+        ride?.dropoff ||
+        ride?.drop_location_details,
+    );
+    const destination = String(ride?.status || '').toLowerCase() === 'in_progress' ? (drop || pickup) : (pickup || drop);
+    if (!destination) {
+      setError('Scheduled ride location unavailable.');
+      return;
+    }
+    const origin = driverLocation
+      ? `&origin=${driverLocation.latitude},${driverLocation.longitude}`
+      : '';
+    const mapsUrl =
+      `https://www.google.com/maps/dir/?api=1${origin}&destination=${destination.latitude},${destination.longitude}&travelmode=driving`;
+    try {
+      await Linking.openURL(mapsUrl);
+    } catch {
+      setError('Could not open scheduled ride navigation.');
+    }
+  }, [driverLocation, normalizeLocation]);
+
+  const callScheduledPassenger = useCallback(async (ride) => {
+    const rideId = String(ride?.id || '').trim();
+    if (!rideId) {
+      return;
+    }
+    const payload = await runAction(() => apiRequest(`/bookings/${rideId}/call-room`, { token }));
+    const roomUrl = String(payload?.room_url || '').trim();
+    if (!roomUrl) {
+      setError('Call room URL unavailable.');
+      return;
+    }
+    try {
+      await WebBrowser.openBrowserAsync(roomUrl);
+    } catch {
+      await Linking.openURL(roomUrl);
+    }
+  }, [runAction, token]);
+
+  const cancelScheduledRide = useCallback((ride) => {
+    const rideId = String(ride?.id || '').trim();
+    if (!rideId) {
+      return;
+    }
+    Alert.alert(
+      'Cancel Scheduled Ride?',
+      'This will cancel the assigned scheduled ride and notify the passenger.',
+      [
+        { text: 'Keep Ride', style: 'cancel' },
+        {
+          text: 'Cancel Ride',
+          style: 'destructive',
+          onPress: async () => {
+            const cancelled = await runAction(
+              () =>
+                apiRequest(`/bookings/${rideId}/cancel`, {
+                  method: 'PUT',
+                  token,
+                }),
+              'Scheduled ride cancelled.',
+            );
+            if (cancelled) {
+              if (activeRideId === rideId) {
+                setActiveRide(null);
+              }
+              await refreshDriverDataSilently({ includeProfile: true, includeMeta: true });
+            }
+          },
+        },
+      ],
+    );
+  }, [activeRideId, refreshDriverDataSilently, runAction, token]);
+
+  const openScheduledRideSupport = useCallback((ride) => {
+    setSupportLaunchAction('contact');
+    setActiveTab('support');
+    setMessage(`Support opened for scheduled ride ${String(ride?.id || '').slice(0, 12) || 'ride'}.`);
+  }, []);
+
   const handleStickyNextAction = () => {
     if (activeRideStatus === 'driver_arrived' && !String(rideStartOtp || '').trim()) {
       setActiveTab('requests');
@@ -1641,7 +1763,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
             <Text style={[styles.statusText, { color: displayIsOnline ? COLORS.primary : '#666' }]}>
               {availabilitySyncPending ? (displayIsOnline ? 'GOING ONLINE...' : 'GOING OFFLINE...') : (displayIsOnline ? 'ONLINE & READY' : 'OFFLINE')}
             </Text>
-            <Text style={styles.statusSub}>{user?.name || 'Driver'} • Tap to toggle</Text>
+            <Text style={styles.statusSub}>{user?.name || 'Driver'} - Tap to toggle</Text>
           </View>
           {availabilitySyncPending && <ActivityIndicator size="small" color="#FFA500" />}
         </TouchableOpacity>
@@ -1739,7 +1861,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                     {String(activeRide.status) === 'driver_arrived' && (
                       <>
                         <View style={styles.otpCard}>
-                          <Text style={styles.otpCardLabel}>🔐 PASSENGER OTP REQUIRED</Text>
+                          <Text style={styles.otpCardLabel}>PASSENGER OTP REQUIRED</Text>
                           <Text style={styles.otpCardHint}>Ask passenger to share their pickup OTP</Text>
                           <VoiceTextInput
                             value={rideStartOtp}
@@ -1758,7 +1880,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                     {String(activeRide.status) === 'in_progress' && (
                       <>
                         <View style={styles.otpCard}>
-                          <Text style={styles.otpCardLabel}>🏁 COMPLETION OTP (Optional)</Text>
+                          <Text style={styles.otpCardLabel}>COMPLETION OTP (Optional)</Text>
                           <Text style={styles.otpCardHint}>Passenger drop-off OTP if available</Text>
                           <VoiceTextInput
                             value={rideEndOtp}
@@ -1823,7 +1945,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                                 <Text style={styles.distanceBadgeText}>{req.distance_km} km</Text>
                               </View>
                               <View style={styles.fareBadge}>
-                                <Text style={styles.fareBadgeText}>₹{req.estimated_fare}</Text>
+                                <Text style={styles.fareBadgeText}>Rs. {req.estimated_fare}</Text>
                               </View>
                             </View>
                           </View>
@@ -1848,7 +1970,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                               style={styles.acceptButtonNew}
                               onPress={() => acceptRequest(req.id)}
                               disabled={loading}>
-                              <Text style={styles.acceptTextNew}>✓ Accept</Text>
+                              <Text style={styles.acceptTextNew}>Accept</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
                               style={styles.declineButtonNew}
@@ -1866,7 +1988,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                               }
                               disabled={loading}>
                               <Text style={[styles.blockButtonTextNew, isBlocked && styles.blockButtonTextActive]}>
-                                {isBlocked ? '✓ Blocked' : 'Block'}
+                                {isBlocked ? 'Blocked' : 'Block'}
                               </Text>
                             </TouchableOpacity>
                           </View>
@@ -1889,6 +2011,11 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
               loading={loading}
               onAcceptRequest={acceptRequest}
               onRejectRequest={rejectRequest}
+              onResumeRide={resumeScheduledRide}
+              onNavigateRide={openScheduledRideNavigation}
+              onCallPassenger={callScheduledPassenger}
+              onCancelRide={cancelScheduledRide}
+              onOpenSupport={openScheduledRideSupport}
               onRefresh={refreshRideStageValidation}
             />
           )}
@@ -2129,11 +2256,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
 }
 
 export default function DriverDashboard(props) {
-  return (
-    <NotificationProvider>
-      <DriverDashboardContent {...props} />
-    </NotificationProvider>
-  );
+  return <DriverDashboardContent {...props} />;
 }
 
 const styles = StyleSheet.create({

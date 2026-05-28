@@ -219,7 +219,7 @@ export default function EarningsPanel({
           <Text style={styles.cardTitle}>Today&apos;s Earnings</Text>
           <View style={styles.metricsGrid}>
             <View style={styles.metricItem}>
-              <Text style={styles.metricValue}>₹{todayMetrics.earnings}</Text>
+              <Text style={styles.metricValue}>Rs. {todayMetrics.earnings}</Text>
               <Text style={styles.metricLabel}>Total</Text>
             </View>
             <View style={styles.metricDivider} />
@@ -229,7 +229,7 @@ export default function EarningsPanel({
             </View>
             <View style={styles.metricDivider} />
             <View style={styles.metricItem}>
-              <Text style={styles.metricValue}>₹{todayMetrics.hourlyRate}</Text>
+              <Text style={styles.metricValue}>Rs. {todayMetrics.hourlyRate}</Text>
               <Text style={styles.metricLabel}>Per Hour</Text>
             </View>
           </View>
@@ -241,14 +241,14 @@ export default function EarningsPanel({
         {weeklyMetrics && (
           <View style={[styles.card, styles.summaryCard]}>
             <Text style={styles.cardTitle}>Weekly</Text>
-            <Text style={styles.bigNumber}>₹{weeklyMetrics.earnings}</Text>
+            <Text style={styles.bigNumber}>Rs. {weeklyMetrics.earnings}</Text>
             <Text style={styles.smallText}>Last 7 days</Text>
           </View>
         )}
         {monthlyMetrics && (
           <View style={[styles.card, styles.summaryCard]}>
             <Text style={styles.cardTitle}>Monthly</Text>
-            <Text style={styles.bigNumber}>₹{monthlyMetrics.earnings}</Text>
+            <Text style={styles.bigNumber}>Rs. {monthlyMetrics.earnings}</Text>
             <Text style={styles.smallText}>This month</Text>
           </View>
         )}
@@ -260,14 +260,14 @@ export default function EarningsPanel({
           style={styles.actionButton}
           onPress={onRequestReport}
           disabled={loading}>
-          <Text style={styles.actionButtonIcon}>📊</Text>
+          <Text style={styles.actionButtonIcon}>Report</Text>
           <Text style={styles.actionButtonText}>Full Report</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.actionButton}
           onPress={focusWithdrawInput}
           disabled={loading}>
-          <Text style={styles.actionButtonIcon}>💳</Text>
+          <Text style={styles.actionButtonIcon}>Pay</Text>
           <Text style={styles.actionButtonText}>Withdraw</Text>
         </TouchableOpacity>
       </View>
@@ -383,10 +383,10 @@ export default function EarningsPanel({
         onPress={() => setShowFareDetails(!showFareDetails)}>
         <View style={styles.fareHeaderRow}>
           <Text style={styles.cardTitle}>
-            {showFareDetails ? '⬇️' : '➡️'} Fare Details
+            Fare Details
           </Text>
           <Text style={styles.expandIcon}>
-            {showFareDetails ? '−' : '+'}
+            {showFareDetails ? '-' : '+'}
           </Text>
         </View>
       </TouchableOpacity>
@@ -397,23 +397,23 @@ export default function EarningsPanel({
             <Text style={styles.sectionTitle}>Platform Pricing</Text>
             <View style={styles.fareRow}>
               <Text style={styles.fareLabel}>Base Fare:</Text>
-              <Text style={styles.fareValue}>₹{fareDetails.baseFare}</Text>
+              <Text style={styles.fareValue}>Rs. {fareDetails.baseFare}</Text>
             </View>
             <View style={styles.fareRow}>
               <Text style={styles.fareLabel}>Per KM Rate:</Text>
-              <Text style={styles.fareValue}>₹{fareDetails.perKmRate}/km</Text>
+              <Text style={styles.fareValue}>Rs. {fareDetails.perKmRate}/km</Text>
             </View>
             <View style={styles.fareRow}>
               <Text style={styles.fareLabel}>Minimum Fare:</Text>
-              <Text style={styles.fareValue}>₹{fareDetails.minimumFare}</Text>
+              <Text style={styles.fareValue}>Rs. {fareDetails.minimumFare}</Text>
             </View>
             <View style={styles.fareRow}>
               <Text style={styles.fareLabel}>Surge (Peak):</Text>
-              <Text style={styles.fareValue}>×{fareDetails.surgeMultiplier}</Text>
+              <Text style={styles.fareValue}>x{fareDetails.surgeMultiplier}</Text>
             </View>
             <View style={styles.fareRow}>
               <Text style={styles.fareLabel}>Night (10pm-6am):</Text>
-              <Text style={styles.fareValue}>×{fareDetails.nightMultiplier}</Text>
+              <Text style={styles.fareValue}>x{fareDetails.nightMultiplier}</Text>
             </View>
             <View style={styles.fareRow}>
               <Text style={styles.fareLabel}>Peak Hours:</Text>
@@ -427,29 +427,29 @@ export default function EarningsPanel({
               {driverRates.baseFare !== fareDetails.baseFare && (
                 <View style={styles.fareRow}>
                   <Text style={styles.fareLabel}>Base Fare:</Text>
-                  <Text style={styles.fareValue}>₹{driverRates.baseFare}</Text>
+                  <Text style={styles.fareValue}>Rs. {driverRates.baseFare}</Text>
                 </View>
               )}
               {driverRates.perKmRate !== fareDetails.perKmRate && (
                 <View style={styles.fareRow}>
                   <Text style={styles.fareLabel}>Per KM Rate:</Text>
-                  <Text style={styles.fareValue}>₹{driverRates.perKmRate}/km</Text>
+                  <Text style={styles.fareValue}>Rs. {driverRates.perKmRate}/km</Text>
                 </View>
               )}
               {driverRates.surgeMultiplier !== fareDetails.surgeMultiplier && (
                 <View style={styles.fareRow}>
                   <Text style={styles.fareLabel}>Surge Multiplier:</Text>
-                  <Text style={styles.fareValue}>×{driverRates.surgeMultiplier}</Text>
+                  <Text style={styles.fareValue}>x{driverRates.surgeMultiplier}</Text>
                 </View>
               )}
               {driverRates.nightMultiplier !== fareDetails.nightMultiplier && (
                 <View style={styles.fareRow}>
                   <Text style={styles.fareLabel}>Night Multiplier:</Text>
-                  <Text style={styles.fareValue}>×{driverRates.nightMultiplier}</Text>
+                  <Text style={styles.fareValue}>x{driverRates.nightMultiplier}</Text>
                 </View>
               )}
               <Text style={styles.customNote}>
-                ℹ️ Custom rates apply to your rides when approved by admin.
+                Custom rates apply to your rides when approved by admin.
               </Text>
             </View>
           )}
@@ -461,7 +461,7 @@ export default function EarningsPanel({
               10 KM ride during peak hours:
             </Text>
             <Text style={styles.exampleCalculation}>
-              (₹{fareDetails.baseFare} + 10 × ₹{fareDetails.perKmRate}) × {fareDetails.surgeMultiplier} = ₹{Math.max(
+              (Rs. {fareDetails.baseFare} + 10 x Rs. {fareDetails.perKmRate}) x {fareDetails.surgeMultiplier} = Rs. {Math.max(
                 Math.round(
                   (parseFloat(fareDetails.baseFare) + 10 * parseFloat(fareDetails.perKmRate)) 
                   * parseFloat(fareDetails.surgeMultiplier) * 100
@@ -584,7 +584,9 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   actionButtonIcon: {
-    fontSize: 20,
+    fontSize: 11,
+    fontWeight: '700',
+    color: COLORS.white,
     marginBottom: 4,
   },
   actionButtonText: {

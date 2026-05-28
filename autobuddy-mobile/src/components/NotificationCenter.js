@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   Alert,
   View,
@@ -23,9 +23,38 @@ import NotificationItem from './NotificationItem';
  * @param {Function} onNotificationPress - Callback when notification tapped
  */
 export default function NotificationCenter({ token, onClose, onNotificationPress }) {
-  const { notifications, unreadCount, markAsRead, removeNotification, clearAll } =
+  const { notifications, unreadCount, addNotification, markAsRead, removeNotification, clearAll, setIsInitialized } =
     useNotifications();
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (!token) {
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    notificationService
+      .fetchNotifications(token, { limit: 80 })
+      .then((rows) => {
+        if (!isMounted) {
+          return;
+        }
+        rows
+          .slice()
+          .reverse()
+          .forEach((notification) => addNotification(notification));
+        setIsInitialized(true);
+      })
+      .catch((error) => {
+        console.error('Error loading notifications:', error);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [token, addNotification, setIsInitialized]);
 
   const handleNotificationPress = useCallback(
     (notification) => {
@@ -116,7 +145,7 @@ export default function NotificationCenter({ token, onClose, onNotificationPress
             accessibilityLabel="Close notifications"
             accessibilityRole="button"
           >
-            <Text style={styles.closeText}>✕</Text>
+            <Text style={styles.closeText}>x</Text>
           </TouchableOpacity>
         </View>
 
@@ -149,7 +178,7 @@ export default function NotificationCenter({ token, onClose, onNotificationPress
         {/* Notifications list */}
         {notifications.length === 0 ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyIcon}>🔔</Text>
+            <Text style={styles.emptyIcon}>Bell</Text>
             <Text style={styles.emptyTitle}>No Notifications</Text>
             <Text style={styles.emptySubtitle}>
               You&apos;re all caught up! We&apos;ll notify you when something important happens.

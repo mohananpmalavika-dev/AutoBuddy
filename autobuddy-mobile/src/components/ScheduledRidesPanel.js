@@ -82,11 +82,23 @@ function ScheduledRideCard({
   loading,
   onAcceptRequest,
   onRejectRequest,
+  onResumeRide,
+  onNavigateRide,
+  onCallPassenger,
+  onCancelRide,
+  onOpenSupport,
 }) {
   const isRequest = type === 'request';
   const pickup = locationAddress(ride.pickup_location, 'Pickup not available');
   const drop = locationAddress(ride.drop_location, 'Drop not available');
   const timeLabel = timeUntilLabel(ride.minutes_until);
+  const assignedActions = [
+    { key: 'resume', label: 'Resume', onPress: onResumeRide },
+    { key: 'navigate', label: 'Navigate', onPress: onNavigateRide },
+    { key: 'call', label: 'Call', onPress: onCallPassenger },
+    { key: 'support', label: 'Support', onPress: onOpenSupport },
+    { key: 'cancel', label: 'Cancel', onPress: onCancelRide, danger: true },
+  ];
 
   return (
     <View style={styles.rideCard}>
@@ -132,6 +144,26 @@ function ScheduledRideCard({
           </TouchableOpacity>
         </View>
       )}
+
+      {!isRequest && (
+        <View style={styles.assignedActionGrid}>
+          {assignedActions.map((action) => (
+            <TouchableOpacity
+              key={action.key}
+              style={[
+                styles.assignedActionButton,
+                action.danger && styles.assignedDangerButton,
+                (loading || typeof action.onPress !== 'function') && styles.buttonDisabled,
+              ]}
+              onPress={() => action.onPress?.(ride)}
+              disabled={loading || typeof action.onPress !== 'function'}>
+              <Text style={[styles.assignedActionText, action.danger && styles.assignedDangerText]}>
+                {action.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
@@ -141,6 +173,11 @@ export default function ScheduledRidesPanel({
   loading = false,
   onAcceptRequest,
   onRejectRequest,
+  onResumeRide,
+  onNavigateRide,
+  onCallPassenger,
+  onCancelRide,
+  onOpenSupport,
   onRefresh,
 }) {
   const scheduledRequests = asArray(upcomingRides?.scheduled_requests);
@@ -217,6 +254,11 @@ export default function ScheduledRidesPanel({
             ride={ride}
             type="assigned"
             loading={loading}
+            onResumeRide={onResumeRide}
+            onNavigateRide={onNavigateRide}
+            onCallPassenger={onCallPassenger}
+            onCancelRide={onCancelRide}
+            onOpenSupport={onOpenSupport}
           />
         ))
       )}
@@ -391,7 +433,35 @@ const styles = StyleSheet.create({
   },
   actionRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
+  },
+  assignedActionGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  assignedActionButton: {
+    minWidth: 92,
+    flexGrow: 1,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    backgroundColor: COLORS.background,
+  },
+  assignedActionText: {
+    color: COLORS.textMain,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  assignedDangerButton: {
+    borderColor: COLORS.danger,
+    backgroundColor: '#FFF5F5',
+  },
+  assignedDangerText: {
+    color: COLORS.danger,
   },
   primaryButton: {
     flex: 1,

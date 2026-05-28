@@ -95,9 +95,9 @@ export default function EnhancedSettingsPanel({
   ];
 
   const themes = [
-    { value: 'light', label: '☀️ Light Mode' },
-    { value: 'dark', label: '🌙 Dark Mode' },
-    { value: 'auto', label: '🔄 Auto (System)' },
+    { value: 'light', label: 'Light Mode' },
+    { value: 'dark', label: 'Dark Mode' },
+    { value: 'auto', label: 'Auto (System)' },
   ];
 
   const fetchSettings = useCallback(async () => {
@@ -229,7 +229,7 @@ export default function EnhancedSettingsPanel({
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <Text style={styles.title}>⚙️ Settings & Preferences</Text>
+      <Text style={styles.title}>Settings & Preferences</Text>
       <Text style={styles.subtitle}>Manage your account preferences</Text>
 
       {error && <Text style={[styles.message, styles.error]}>{error}</Text>}
@@ -237,7 +237,7 @@ export default function EnhancedSettingsPanel({
 
       {/* Availability Section */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🟢 Availability</Text>
+        <Text style={styles.sectionTitle}>Availability</Text>
         <View style={styles.settingRow}>
           <Text style={styles.settingLabel}>Current Status</Text>
           <TouchableOpacity
@@ -245,14 +245,14 @@ export default function EnhancedSettingsPanel({
             onPress={onToggleOnline}
             disabled={parentLoading}
           >
-            <Text style={styles.statusToggleText}>{displayIsOnline ? '🟢 Online' : '🔴 Offline'}</Text>
+            <Text style={styles.statusToggleText}>{displayIsOnline ? 'Online' : 'Offline'}</Text>
           </TouchableOpacity>
         </View>
       </View>
 
       {/* Notification Settings */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🔔 Notifications</Text>
+        <Text style={styles.sectionTitle}>Notifications</Text>
         <SettingRow
           label="Push Notifications"
           value={settings.push_notifications}
@@ -287,7 +287,7 @@ export default function EnhancedSettingsPanel({
 
       {/* Quiet Hours */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🤫 Quiet Hours</Text>
+        <Text style={styles.sectionTitle}>Quiet Hours</Text>
         <SettingRow
           label="Enable Quiet Hours"
           value={settings.quiet_hours_enabled}
@@ -328,7 +328,7 @@ export default function EnhancedSettingsPanel({
 
       {/* Privacy & Data */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🔒 Privacy & Data</Text>
+        <Text style={styles.sectionTitle}>Privacy & Data</Text>
         <SettingRow
           label="Share Location"
           value={settings.share_location}
@@ -348,7 +348,7 @@ export default function EnhancedSettingsPanel({
 
       {/* Display Preferences */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🎨 Display</Text>
+        <Text style={styles.sectionTitle}>Display</Text>
         <Text style={styles.fieldLabel}>Language</Text>
         <View style={styles.optionGroup}>
           {languages.map((lang) => (
@@ -394,20 +394,20 @@ export default function EnhancedSettingsPanel({
 
       {/* Account Management */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>👤 Account Management</Text>
+        <Text style={styles.sectionTitle}>Account Management</Text>
         <TouchableOpacity 
           style={styles.actionButton}
           onPress={handleChangePassword}
           disabled={parentLoading || loading}
         >
-          <Text style={styles.actionButtonText}>🔐 Change Password</Text>
+          <Text style={styles.actionButtonText}>Change Password</Text>
         </TouchableOpacity>
         <TouchableOpacity 
           style={styles.actionButton}
           onPress={handlePaymentMethods}
           disabled={parentLoading || loading}
         >
-          <Text style={styles.actionButtonText}>💳 Payment Methods</Text>
+          <Text style={styles.actionButtonText}>Payment Methods</Text>
         </TouchableOpacity>
         <TouchableOpacity 
           style={styles.actionButton}
@@ -438,13 +438,13 @@ export default function EnhancedSettingsPanel({
           onPress={handleDeleteAccount}
           disabled={parentLoading || loading}
         >
-          <Text style={styles.dangerButtonText}>🗑️ Delete Account</Text>
+          <Text style={styles.dangerButtonText}>Delete Account</Text>
         </TouchableOpacity>
       </View>
 
       {/* About Section */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>ℹ️ About</Text>
+        <Text style={styles.sectionTitle}>About</Text>
         <View style={styles.aboutItem}>
           <Text style={styles.aboutLabel}>App Version</Text>
           <Text style={styles.aboutValue}>1.2.5</Text>
@@ -458,7 +458,7 @@ export default function EnhancedSettingsPanel({
           onPress={handleHelpFaq}
           disabled={parentLoading || loading}
         >
-          <Text style={styles.actionButtonText}>❓ Help & FAQ</Text>
+          <Text style={styles.actionButtonText}>Help & FAQ</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.actionButton}

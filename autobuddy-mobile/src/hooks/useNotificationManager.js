@@ -1,6 +1,68 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
+import { Platform, Vibration } from 'react-native';
 import { useNotifications } from '../contexts/NotificationContext';
 import { notificationService } from '../lib/notificationService';
+
+const DEFAULT_NOTIFICATION_SETTINGS = {
+  push_notifications: true,
+  sound_enabled: true,
+  vibration_enabled: true,
+  quiet_hours_enabled: false,
+  quiet_hours_start: '22:00',
+  quiet_hours_end: '08:00',
+  accept_promo: true,
+};
+const EMPTY_NOTIFICATION_SETTINGS = {};
+
+function normalizeSettings(settings = {}) {
+  return {
+    ...DEFAULT_NOTIFICATION_SETTINGS,
+    ...(settings && typeof settings === 'object' ? settings : {}),
+  };
+}
+
+function parseTimeToMinutes(value) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(String(value || '').trim());
+  if (!match) {
+    return null;
+  }
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+    return null;
+  }
+  return hours * 60 + minutes;
+}
+
+function isQuietHoursActive(settings, date = new Date()) {
+  if (!settings.quiet_hours_enabled) {
+    return false;
+  }
+  const start = parseTimeToMinutes(settings.quiet_hours_start);
+  const end = parseTimeToMinutes(settings.quiet_hours_end);
+  if (start === null || end === null || start === end) {
+    return false;
+  }
+  const now = date.getHours() * 60 + date.getMinutes();
+  return start < end ? now >= start && now < end : now >= start || now < end;
+}
+
+function isPromotionalNotification(notification = {}) {
+  const data = notification.data && typeof notification.data === 'object' ? notification.data : {};
+  const typeText = [
+    notification.type,
+    data.type,
+    data.category,
+    data.campaign_type,
+    data.topic,
+    data.tag,
+  ]
+    .map((value) => String(value || '').toLowerCase())
+    .join(' ');
+  return ['promo', 'promotion', 'marketing', 'offer', 'campaign'].some((marker) =>
+    typeText.includes(marker),
+  );
+}
 
 /**
  * useNotificationManager - Initialize and manage notifications
@@ -10,9 +72,10 @@ import { notificationService } from '../lib/notificationService';
  * @param {string} userId - User ID
  * @returns {Object} - { loading, error, initialized }
  */
-export function useNotificationManager(token, userId) {
+export function useNotificationManager(token, userId, notificationSettings = EMPTY_NOTIFICATION_SETTINGS) {
   const { addNotification, setIsInitialized } = useNotifications();
   const initializingRef = useRef(false);
+  const settings = useMemo(() => normalizeSettings(notificationSettings), [notificationSettings]);
 
   useEffect(() => {
     if (!token || !userId || initializingRef.current) {
@@ -20,6 +83,7 @@ export function useNotificationManager(token, userId) {
     }
 
     initializingRef.current = true;
+    const activeSettings = settings;
 
     const handleIncomingNotification = (notificationData) => {
       const safeNotification =
@@ -28,6 +92,10 @@ export function useNotificationManager(token, userId) {
         safeNotification.data && typeof safeNotification.data === 'object'
           ? safeNotification.data
           : {};
+
+      if (!activeSettings.accept_promo && isPromotionalNotification(safeNotification)) {
+        return;
+      }
 
       addNotification({
         ...safeNotification,
@@ -49,8 +117,15 @@ export function useNotificationManager(token, userId) {
         data: payloadData,
       });
 
+      const quietNow = isQuietHoursActive(activeSettings);
+      const externalAlertsEnabled = activeSettings.push_notifications !== false && !quietNow;
+
       // Browser notification if permitted
-      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      if (
+        externalAlertsEnabled &&
+        typeof Notification !== 'undefined' &&
+        Notification.permission === 'granted'
+      ) {
         try {
           new Notification(safeNotification.title || 'AutoBuddy', {
             body: safeNotification.body || '',
@@ -62,7 +137,12 @@ export function useNotificationManager(token, userId) {
       }
 
       // Voice notification (optional)
-      if (typeof window !== 'undefined' && window.speechSynthesis) {
+      if (
+        externalAlertsEnabled &&
+        activeSettings.sound_enabled !== false &&
+        typeof window !== 'undefined' &&
+        window.speechSynthesis
+      ) {
         try {
           const utterance = new SpeechSynthesisUtterance(
             `${safeNotification.title || 'AutoBuddy'}. ${safeNotification.body || ''}`
@@ -74,10 +154,26 @@ export function useNotificationManager(token, userId) {
           console.warn('Voice notification failed:', e);
         }
       }
+
+      if (externalAlertsEnabled && activeSettings.vibration_enabled !== false) {
+        try {
+          if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.vibrate) {
+            navigator.vibrate(120);
+          } else if (Platform.OS !== 'web') {
+            Vibration.vibrate(250);
+          }
+        } catch (e) {
+          console.warn('Notification vibration failed:', e);
+        }
+      }
     };
 
-    // Initialize notification service and hydrate existing unread/read state.
-    notificationService.initialize(token, handleIncomingNotification);
+    if (activeSettings.push_notifications === false) {
+      notificationService.cleanup();
+    } else {
+      // Initialize notification service and hydrate existing unread/read state.
+      notificationService.initialize(token, handleIncomingNotification);
+    }
     notificationService
       .fetchNotifications(token, { limit: 40 })
       .then((rows) => {
@@ -92,16 +188,27 @@ export function useNotificationManager(token, userId) {
     setIsInitialized(true);
 
     // Request browser notification permission if needed
-    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+    if (
+      activeSettings.push_notifications !== false &&
+      typeof Notification !== 'undefined' &&
+      Notification.permission === 'default'
+    ) {
       Notification.requestPermission().catch(() => null);
     }
 
     // Cleanup on unmount
     return () => {
-      // Don't cleanup service on unmount - keep listening
-      // notificationService.cleanup();
+      notificationService.cleanup();
+      initializingRef.current = false;
+      setIsInitialized(false);
     };
-  }, [token, userId, addNotification, setIsInitialized]);
+  }, [
+    token,
+    userId,
+    addNotification,
+    setIsInitialized,
+    settings,
+  ]);
 
   return { initialized: true };
 }

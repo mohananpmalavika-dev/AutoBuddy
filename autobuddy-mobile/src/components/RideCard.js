@@ -10,11 +10,11 @@ import { COLORS, SHADOWS } from '../theme';
 import KeralaSafetyCard from './KeralaSafetyCard';
 
 const RIDE_STATUS_MAP = {
-  pending: { label: 'New Request', color: '#FF6B6B', icon: '📍' },
-  accepted: { label: 'Accepted', color: '#4ECDC4', icon: '✓' },
-  driver_arrived: { label: 'You Arrived', color: '#45B7D1', icon: '📍' },
-  in_progress: { label: 'Trip Started', color: '#95E1D3', icon: '🚗' },
-  completed: { label: 'Completed', color: '#6BCF7F', icon: '✓' },
+  pending: { label: 'New Request', color: '#FF6B6B', icon: 'PIN' },
+  accepted: { label: 'Accepted', color: '#4ECDC4', icon: 'OK' },
+  driver_arrived: { label: 'You Arrived', color: '#45B7D1', icon: 'PIN' },
+  in_progress: { label: 'Trip Started', color: '#95E1D3', icon: 'CAR' },
+  completed: { label: 'Completed', color: '#6BCF7F', icon: 'OK' },
 };
 
 const UNKNOWN_RIDE_STATUS = { label: 'Unknown', color: COLORS.gray, icon: '?' };
@@ -74,7 +74,7 @@ export default function RideCard({
 
   const estimatedFare = useMemo(() => {
     if (!ride?.estimated_fare && !ride?.fare) return null;
-    return `₹${ride?.estimated_fare || ride?.fare || '0'}`;
+    return `Rs. ${ride?.estimated_fare || ride?.fare || '0'}`;
   }, [ride?.estimated_fare, ride?.fare]);
 
   const handleToggleExpand = useCallback(() => {
@@ -87,7 +87,7 @@ export default function RideCard({
     return (
       <View style={styles.container}>
         <View style={styles.emptyState}>
-          <Text style={styles.emptyStateIcon}>📭</Text>
+          <Text style={styles.emptyStateIcon}>-</Text>
           <Text style={styles.emptyStateText}>No active requests</Text>
           <Text style={styles.emptyStateSubtext}>Turn online to receive ride requests</Text>
         </View>
@@ -118,27 +118,27 @@ export default function RideCard({
         </View>
         <View style={styles.passengerInfo}>
           <Text style={styles.passengerName}>{passenger.name}</Text>
-          <Text style={styles.rating}>⭐ {passenger.rating?.toFixed(1) || '4.5'}</Text>
+          <Text style={styles.rating}>Rating {passenger.rating?.toFixed(1) || '4.5'}</Text>
         </View>
         <View style={styles.fareContainer}>
           <Text style={styles.fareLabel}>Est. Fare</Text>
-          <Text style={styles.fareAmount}>{estimatedFare || '₹0'}</Text>
+          <Text style={styles.fareAmount}>{estimatedFare || 'Rs. 0'}</Text>
         </View>
       </View>
 
       {/* Location Summary */}
       <View style={styles.locationsRow}>
         <View style={styles.locationItem}>
-          <Text style={styles.locationIcon}>📍</Text>
+          <Text style={styles.locationIcon}>P</Text>
           <Text style={styles.locationText} numberOfLines={1}>
             {locations.pickup?.address || 'Pickup location'}
           </Text>
         </View>
         <View style={styles.locationDivider}>
-          <Text style={styles.dividerArrow}>↓</Text>
+          <Text style={styles.dividerArrow}>to</Text>
         </View>
         <View style={styles.locationItem}>
-          <Text style={styles.locationIcon}>🎯</Text>
+          <Text style={styles.locationIcon}>D</Text>
           <Text style={styles.locationText} numberOfLines={1}>
             {locations.dropoff?.address || 'Dropoff location'}
           </Text>
@@ -158,7 +158,7 @@ export default function RideCard({
                   <ActivityIndicator size="small" color={COLORS.white} />
                 ) : (
                   <>
-                    <Text style={styles.actionBtnIcon}>✓</Text>
+                    <Text style={styles.actionBtnIcon}>OK</Text>
                     <Text style={styles.actionBtnText}>Accept</Text>
                   </>
                 )}
@@ -167,7 +167,7 @@ export default function RideCard({
                 style={[styles.actionBtn, styles.declineBtn]}
                 onPress={onDecline}
                 disabled={loading}>
-                <Text style={styles.actionBtnIcon}>✕</Text>
+                <Text style={styles.actionBtnIcon}>X</Text>
                 <Text style={[styles.actionBtnText, { color: COLORS.danger }]}>Decline</Text>
               </TouchableOpacity>
             </>
@@ -177,19 +177,19 @@ export default function RideCard({
                 style={[styles.actionBtn, styles.messageBtn]}
                 onPress={onMessage}
                 disabled={loading}>
-                <Text style={styles.actionBtnIcon}>💬</Text>
+                <Text style={styles.actionBtnIcon}>Msg</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.actionBtn, styles.callBtn]}
                 onPress={onCall}
                 disabled={loading}>
-                <Text style={styles.actionBtnIcon}>📞</Text>
+                <Text style={styles.actionBtnIcon}>Call</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.actionBtn, styles.mapBtn]}
                 onPress={onMapPress}
                 disabled={loading}>
-                <Text style={styles.actionBtnIcon}>🗺️</Text>
+                <Text style={styles.actionBtnIcon}>Map</Text>
               </TouchableOpacity>
             </>
           )}
@@ -219,7 +219,7 @@ export default function RideCard({
         <TouchableOpacity
           style={styles.expandBtn}
           onPress={handleToggleExpand}>
-          <Text style={styles.expandIcon}>{expanded ? '▼' : '▲'}</Text>
+          <Text style={styles.expandIcon}>{expanded ? 'v' : '^'}</Text>
           <Text style={styles.expandText}>
             {expanded ? 'Show Less' : 'Show Details'}
           </Text>

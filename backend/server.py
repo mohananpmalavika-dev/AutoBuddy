@@ -3421,15 +3421,74 @@ async def send_fcm_push(push_token: str, title: str, body: str, data: Optional[D
     return False
 
 
+PROMOTIONAL_NOTIFICATION_MARKERS = {"promo", "promotion", "marketing", "offer", "campaign"}
+
+
+def parse_minutes_since_midnight(value: Any) -> Optional[int]:
+    match = re.match(r"^(\d{1,2}):(\d{2})$", str(value or "").strip())
+    if not match:
+        return None
+    hours = int(match.group(1))
+    minutes = int(match.group(2))
+    if hours < 0 or hours > 23 or minutes < 0 or minutes > 59:
+        return None
+    return hours * 60 + minutes
+
+
+def is_driver_quiet_hours_active(settings: Dict[str, Any], now: datetime) -> bool:
+    if not settings.get("quiet_hours_enabled"):
+        return False
+    start = parse_minutes_since_midnight(settings.get("quiet_hours_start"))
+    end = parse_minutes_since_midnight(settings.get("quiet_hours_end"))
+    if start is None or end is None or start == end:
+        return False
+    current = now.hour * 60 + now.minute
+    return start <= current < end if start < end else current >= start or current < end
+
+
+def is_promotional_notification(data: Optional[Dict[str, Any]]) -> bool:
+    if not isinstance(data, dict):
+        return False
+    values = [
+        data.get("type"),
+        data.get("category"),
+        data.get("campaign_type"),
+        data.get("topic"),
+        data.get("tag"),
+    ]
+    haystack = " ".join(str(value or "").lower() for value in values)
+    return any(marker in haystack for marker in PROMOTIONAL_NOTIFICATION_MARKERS)
+
+
+async def get_driver_notification_settings(user_id: str) -> Optional[Dict[str, Any]]:
+    user = await db.users.find_one({"id": user_id}, {"role": 1})
+    role_value = getattr((user or {}).get("role"), "value", (user or {}).get("role"))
+    if role_value != UserRole.DRIVER.value:
+        return None
+    driver = await db.drivers.find_one({"user_id": user_id}, {"settings": 1})
+    return normalize_driver_settings((driver or {}).get("settings"))
+
+
 async def notify_user(user_id: str, title: str, body: str, data: Optional[Dict[str, Any]] = None):
     """Send in-app realtime notification and optional push notification."""
     now = get_ist_now()
     notification_id = str(uuid.uuid4())
+    payload_data = data or {}
+    driver_settings = await get_driver_notification_settings(user_id)
+    promo_suppressed = bool(
+        driver_settings
+        and not driver_settings.get("accept_promo", True)
+        and is_promotional_notification(payload_data)
+    )
+    if promo_suppressed:
+        return None
+    quiet_hours_suppressed = bool(driver_settings and is_driver_quiet_hours_active(driver_settings, now))
+    push_enabled = bool(not driver_settings or driver_settings.get("push_notifications", True))
     payload = {
         "id": notification_id,
         "title": title,
         "body": body,
-        "data": data or {},
+        "data": payload_data,
         "timestamp": now.isoformat(),
     }
 
@@ -3443,14 +3502,22 @@ async def notify_user(user_id: str, title: str, body: str, data: Optional[Dict[s
             "type": payload["data"].get("type", "notification"),
             "severity": payload["data"].get("severity", "info"),
             "icon": payload["data"].get("icon"),
+            "delivery_preferences": {
+                "push_enabled": push_enabled,
+                "email_enabled": bool(not driver_settings or driver_settings.get("email_notifications", True)),
+                "sms_enabled": bool(not driver_settings or driver_settings.get("sms_alerts", True)),
+                "quiet_hours_suppressed": quiet_hours_suppressed,
+                "promo_suppressed": promo_suppressed,
+            },
             "read": False,
             "created_at": now,
         }
     )
 
-    await emit_to_user(user_id, "in_app_notification", payload)
+    if push_enabled and not quiet_hours_suppressed:
+        await emit_to_user(user_id, "in_app_notification", payload)
 
-    token_doc = await db.push_tokens.find_one({"user_id": user_id})
+    token_doc = await db.push_tokens.find_one({"user_id": user_id}) if push_enabled and not quiet_hours_suppressed else None
     if token_doc and token_doc.get("token"):
         await send_fcm_push(token_doc["token"], title=title, body=body, data=payload["data"])
 
@@ -4581,6 +4648,20 @@ def without_mongo_id(document: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         return {}
     result = dict(document)
     result.pop("_id", None)
+    return result
+
+
+def build_driver_kyc_response(document: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not document:
+        return {"status": "not_submitted"}
+    result = without_mongo_id(document)
+    raw_aadhaar = result.pop("aadhaar_number", None)
+    result.pop("aadhaar_number_encrypted", None)
+    masked_aadhaar = result.get("aadhaar_number_masked") or (
+        mask_document_number(raw_aadhaar) if raw_aadhaar else ""
+    )
+    result["aadhaar_number_masked"] = masked_aadhaar
+    result["aadhaar_number"] = masked_aadhaar
     return result
 
 async def build_passenger_profile_response(user: Dict[str, Any]) -> Dict[str, Any]:
@@ -7889,15 +7970,46 @@ async def create_booking(
     )
 
 @api_router.get("/bookings", response_model=List[BookingResponse])
-async def get_bookings(current_user: dict = Depends(get_current_user)):
+async def get_bookings(
+    current_user: dict = Depends(get_current_user),
+    status_filter: Optional[str] = Query(None, alias="status"),
+    status_in: Optional[str] = Query(None),
+    history: bool = Query(False),
+    limit: int = Query(100, ge=1, le=200),
+    skip: int = Query(0, ge=0),
+):
     """Get user's bookings"""
     query = {}
     if current_user["role"] == UserRole.PASSENGER:
         query["passenger_id"] = current_user["id"]
     elif current_user["role"] == UserRole.DRIVER:
         query["driver_id"] = current_user["id"]
+
+    valid_status_values = {status.value for status in BookingStatus}
+    if status_in:
+        statuses = [
+            item.strip().lower()
+            for item in status_in.split(",")
+            if item.strip().lower() in valid_status_values
+        ]
+        if statuses:
+            query["status"] = {"$in": statuses}
+    elif status_filter and status_filter.lower() != "all":
+        normalized_status = status_filter.strip().lower()
+        if normalized_status in valid_status_values:
+            query["status"] = normalized_status
+    elif history:
+        query["status"] = {
+            "$in": [
+                BookingStatus.COMPLETED.value,
+                BookingStatus.CANCELLED.value,
+                BookingStatus.NO_DRIVER_FOUND.value,
+                BookingStatus.REJECTED.value,
+                BookingStatus.BOOKING_FAILED.value,
+            ]
+        }
     
-    bookings = await db.bookings.find(query).sort("created_at", -1).to_list(100)
+    bookings = await db.bookings.find(query).sort("created_at", -1).skip(skip).to_list(limit)
     
     # Batch fetch all unique user IDs and driver IDs
     passenger_ids = list(set([b["passenger_id"] for b in bookings]))
@@ -8822,10 +8934,13 @@ async def submit_driver_kyc(payload: DriverKYCSubmission, current_user: dict = D
     if current_user["role"] != UserRole.DRIVER:
         raise HTTPException(status_code=403, detail="Only drivers can submit KYC")
 
+    now = get_ist_now()
+    aadhaar_masked = mask_document_number(payload.aadhaar_number)
     kyc_doc = {
         "id": str(uuid.uuid4()),
         "driver_id": current_user["id"],
-        "aadhaar_number": payload.aadhaar_number,
+        "aadhaar_number_encrypted": encrypt_value(payload.aadhaar_number),
+        "aadhaar_number_masked": aadhaar_masked,
         "license_number": payload.license_number,
         "rc_number": payload.rc_number,
         "aadhaar_image_url": payload.aadhaar_image_url,
@@ -8834,13 +8949,13 @@ async def submit_driver_kyc(payload: DriverKYCSubmission, current_user: dict = D
         "selfie_image_url": payload.selfie_image_url,
         "status": KYCStatus.PENDING,
         "reject_reason": None,
-        "submitted_at": get_ist_now(),
-        "updated_at": get_ist_now(),
+        "submitted_at": now,
+        "updated_at": now,
     }
 
     await db.driver_kyc.update_one(
         {"driver_id": current_user["id"]},
-        {"$set": kyc_doc},
+        {"$set": kyc_doc, "$unset": {"aadhaar_number": ""}},
         upsert=True,
     )
 
@@ -8851,7 +8966,7 @@ async def submit_driver_kyc(payload: DriverKYCSubmission, current_user: dict = D
                 "kyc_status": KYCStatus.PENDING,
                 "license_number": payload.license_number,
                 "rc_number": payload.rc_number,
-                "aadhaar_masked": mask_document_number(payload.aadhaar_number),
+                "aadhaar_masked": aadhaar_masked,
                 "aadhaar_document_url": payload.aadhaar_image_url,
                 "license_document_url": payload.license_image_url,
                 "rc_document_url": payload.rc_image_url,
@@ -8869,10 +8984,7 @@ async def get_driver_kyc(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Only drivers can access KYC")
 
     doc = await db.driver_kyc.find_one({"driver_id": current_user["id"]})
-    if not doc:
-        return {"status": "not_submitted"}
-    doc["_id"] = str(doc["_id"])
-    return doc
+    return build_driver_kyc_response(doc)
 
 
 @api_router.get("/admin/kyc/pending")
@@ -8887,7 +8999,7 @@ async def get_pending_kyc(current_user: dict = Depends(get_current_user)):
     out = []
     for item in pending:
         user = users.get(item["driver_id"])
-        item["_id"] = str(item["_id"])
+        item = build_driver_kyc_response(item)
         item["driver_name"] = user["name"] if user else "Unknown"
         item["driver_phone"] = user["phone"] if user else ""
         out.append(item)

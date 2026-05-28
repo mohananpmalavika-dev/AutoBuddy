@@ -200,7 +200,7 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <Text style={styles.title}>🚗 Vehicle Information</Text>
+      <Text style={styles.title}>Vehicle Information</Text>
       <Text style={styles.subtitle}>Manage your vehicle details</Text>
 
       {error && <Text style={[styles.message, styles.error]}>{error}</Text>}
@@ -209,26 +209,26 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
       {/* Active Vehicle Display */}
       {activeVehicle && (
         <View style={styles.activeVehicleCard}>
-          <Text style={styles.activeLabel}>🟢 ACTIVE VEHICLE</Text>
+          <Text style={styles.activeLabel}>ACTIVE VEHICLE</Text>
           <View style={styles.vehicleDetails}>
             <Text style={styles.vehicleTitle}>
               {activeVehicle.make} {activeVehicle.model} ({activeVehicle.year})
             </Text>
             <Text style={styles.vehicleInfo}>
-              📋 License: <Text style={styles.bold}>{activeVehicle.license_plate}</Text>
+              License: <Text style={styles.bold}>{activeVehicle.license_plate}</Text>
             </Text>
             <Text style={styles.vehicleInfo}>
-              🎨 Color: <Text style={styles.bold}>{activeVehicle.color}</Text>
+              Color: <Text style={styles.bold}>{activeVehicle.color}</Text>
             </Text>
             <Text style={styles.vehicleInfo}>
-              👥 Capacity: <Text style={styles.bold}>{activeVehicle.seating_capacity} seats</Text>
+              Capacity: <Text style={styles.bold}>{activeVehicle.seating_capacity} seats</Text>
             </Text>
             <Text style={styles.vehicleInfo}>
-              🚗 Type: <Text style={styles.bold}>{activeVehicle.vehicle_type}</Text>
+              Type: <Text style={styles.bold}>{activeVehicle.vehicle_type}</Text>
             </Text>
             {activeVehicle.registration_number && (
               <Text style={styles.vehicleInfo}>
-                📄 Registration: <Text style={styles.bold}>{activeVehicle.registration_number}</Text>
+                Registration: <Text style={styles.bold}>{activeVehicle.registration_number}</Text>
               </Text>
             )}
           </View>
@@ -271,14 +271,14 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
                     onPress={() => setActiveVehicleRequest(vehicle.id)}
                     disabled={parentLoading || loading}
                   >
-                    <Text style={styles.activateButtonText}>✓ Activate</Text>
+                    <Text style={styles.activateButtonText}>Activate</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.deleteButton}
                     onPress={() => deleteVehicle(vehicle.id)}
                     disabled={parentLoading || loading}
                   >
-                    <Text style={styles.deleteButtonText}>🗑️ Remove</Text>
+                    <Text style={styles.deleteButtonText}>Remove</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -387,7 +387,7 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
               disabled={parentLoading || loading}
             >
               <Text style={styles.submitButtonText}>
-                {editingVehicleId ? 'Save Changes' : '✓ Add Vehicle'}
+                {editingVehicleId ? 'Save Changes' : 'Add Vehicle'}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -395,7 +395,7 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
               onPress={resetVehicleForm}
               disabled={parentLoading || loading}
             >
-              <Text style={styles.cancelButtonText}>✕ Cancel</Text>
+              <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -410,12 +410,12 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
       )}
 
       <View style={styles.info}>
-        <Text style={styles.infoTitle}>💡 Vehicle Information</Text>
+        <Text style={styles.infoTitle}>Vehicle Information</Text>
         <Text style={styles.infoText}>
-          • You can have multiple vehicles registered{'\n'}
-          • Only one vehicle can be active at a time{'\n'}
-          • Passengers will see your active vehicle details{'\n'}
-          • Keep vehicle info updated for matching
+          - You can have multiple vehicles registered{'\n'}
+          - Only one vehicle can be active at a time{'\n'}
+          - Passengers will see your active vehicle details{'\n'}
+          - Keep vehicle info updated for matching
         </Text>
       </View>
     </ScrollView>

@@ -31,9 +31,9 @@ export const notificationService = {
       // Also start polling as fallback
       this.startPolling(token, onNotification);
 
-      console.log('✅ Notification service initialized');
+      console.log('Notification service initialized');
     } catch (error) {
-      console.error('❌ Notification init error:', error);
+      console.error('Notification init error:', error);
       // Fallback to polling only
       this.startPolling(token, onNotification);
     }
@@ -47,7 +47,7 @@ export const notificationService = {
       notificationSocket = createAutoBuddySocket(token);
 
       const handleSocketNotification = (data) => {
-        console.log('📬 New notification via WebSocket:', data);
+        console.log('New notification via WebSocket:', data);
         if (typeof onNotification === 'function') {
           onNotification(data);
         }
@@ -64,7 +64,7 @@ export const notificationService = {
           bookingId: data.booking_id,
           driverId: data.driver_id,
           severity: 'info',
-          icon: '✅',
+          icon: 'OK',
         });
       });
 
@@ -76,7 +76,7 @@ export const notificationService = {
           bookingId: data.booking_id,
           driverId: data.driver_id,
           severity: 'important',
-          icon: '📍',
+          icon: 'PIN',
         });
       });
 
@@ -87,7 +87,7 @@ export const notificationService = {
           body: 'Your ride has started',
           bookingId: data.booking_id,
           severity: 'info',
-          icon: '🚗',
+          icon: 'CAR',
         });
       });
 
@@ -95,11 +95,11 @@ export const notificationService = {
         onNotification({
           type: 'trip_completed',
           title: 'Trip Completed',
-          body: `Fare: ₹${data.fare}. Please rate your driver.`,
+          body: `Fare: Rs. ${data.fare}. Please rate your driver.`,
           bookingId: data.booking_id,
           fare: data.fare,
           severity: 'info',
-          icon: '✔️',
+          icon: 'OK',
         });
       });
 
@@ -110,18 +110,18 @@ export const notificationService = {
           body: `Driver ${data.driver_name} cancelled the ride`,
           bookingId: data.booking_id,
           severity: 'warning',
-          icon: '⚠️',
+          icon: 'WARN',
         });
       });
 
       notificationSocket.on('error', (error) => {
-        console.error('❌ WebSocket error:', error);
+        console.error('WebSocket error:', error);
         // Continue with polling fallback
       });
 
-      console.log('✅ WebSocket connected for notifications');
+      console.log('WebSocket connected for notifications');
     } catch (error) {
-      console.warn('⚠️ WebSocket setup failed, using polling:', error);
+      console.warn('WebSocket setup failed, using polling:', error);
     }
   },
 
@@ -148,7 +148,7 @@ export const notificationService = {
           });
         }
       } catch (error) {
-        console.warn('⚠️ Polling error:', error);
+        console.warn('Notification polling error:', error);
       }
     }, POLLING_INTERVAL);
   },
@@ -168,7 +168,7 @@ export const notificationService = {
       });
       return Array.isArray(response) ? response : [];
     } catch (error) {
-      console.error('❌ Error fetching notifications:', error);
+      console.error('Error fetching notifications:', error);
       return [];
     }
   },
@@ -184,7 +184,7 @@ export const notificationService = {
       });
       return true;
     } catch (error) {
-      console.error('❌ Error marking notification as read:', error);
+      console.error('Error marking notification as read:', error);
       return false;
     }
   },
@@ -200,7 +200,7 @@ export const notificationService = {
       });
       return true;
     } catch (error) {
-      console.error('❌ Error marking all as read:', error);
+      console.error('Error marking all as read:', error);
       return false;
     }
   },
@@ -216,7 +216,7 @@ export const notificationService = {
       });
       return true;
     } catch (error) {
-      console.error('❌ Error deleting notification:', error);
+      console.error('Error deleting notification:', error);
       return false;
     }
   },
@@ -232,7 +232,7 @@ export const notificationService = {
       });
       return true;
     } catch (error) {
-      console.error('❌ Error clearing notifications:', error);
+      console.error('Error clearing notifications:', error);
       return false;
     }
   },
@@ -249,6 +249,6 @@ export const notificationService = {
       notificationSocket.disconnect();
       notificationSocket = null;
     }
-    console.log('✅ Notification service cleaned up');
+    console.log('Notification service cleaned up');
   },
 };

@@ -44,6 +44,8 @@ const SORT_OPTIONS = [
   { key: 'distance', label: 'Farthest Distance' },
 ];
 
+const SERVER_PAGE_SIZE = 100;
+
 function formatLocation(location) {
   if (!location) return 'Unknown';
   if (typeof location === 'string') return location.split(',')[0];
@@ -122,7 +124,7 @@ function RideHistoryCard({ booking, onPress, isLoading, viewerRole = 'passenger'
       <View style={styles.cardContent}>
         <View style={styles.routeSection}>
           <Text style={styles.routeText} numberOfLines={1}>
-            📍 {formatLocation(booking.pickup_location)} → {formatLocation(booking.drop_location)}
+            {formatLocation(booking.pickup_location)} to {formatLocation(booking.drop_location)}
           </Text>
         </View>
 
@@ -142,14 +144,14 @@ function RideHistoryCard({ booking, onPress, isLoading, viewerRole = 'passenger'
           <View style={styles.detailItem}>
             <Text style={styles.detailLabel}>Fare</Text>
             <Text style={[styles.detailValue, styles.fareText]}>
-              ₹{Number(booking.final_fare || booking.estimated_fare || 0).toFixed(0)}
+              Rs. {Number(booking.final_fare || booking.estimated_fare || 0).toFixed(0)}
             </Text>
           </View>
 
           {booking.rating && (
             <View style={styles.detailItem}>
               <Text style={styles.detailLabel}>Rating</Text>
-              <Text style={styles.detailValue}>⭐ {booking.rating}/5</Text>
+              <Text style={styles.detailValue}>Rating {booking.rating}/5</Text>
             </View>
           )}
         </View>
@@ -157,7 +159,7 @@ function RideHistoryCard({ booking, onPress, isLoading, viewerRole = 'passenger'
 
       <View style={styles.cardFooter}>
         <Text style={styles.bookingId}>ID: {String(booking.id || 'N/A').substring(0, 12)}</Text>
-        <Text style={styles.tapHint}>Tap for details →</Text>
+        <Text style={styles.tapHint}>Tap for details</Text>
       </View>
     </TouchableOpacity>
   );
@@ -174,6 +176,7 @@ export default function RideHistoryPanel({
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState('');
   const [selectedBooking, setSelectedBooking] = useState(null);
+  const [serverHasMore, setServerHasMore] = useState(false);
 
   // Filter state
   const [statusFilter, setStatusFilter] = useState('all');
@@ -186,14 +189,24 @@ export default function RideHistoryPanel({
   const [displayedCount, setDisplayedCount] = useState(10);
 
   // Fetch bookings
-  const fetchBookings = useCallback(async () => {
+  const fetchBookings = useCallback(async ({ skip = 0 } = {}) => {
     try {
-      const data = await apiRequest('/bookings', { token });
+      const query = {
+        limit: SERVER_PAGE_SIZE,
+        skip,
+      };
+      if (viewerRole === 'driver') {
+        query.history = true;
+      }
+      if (statusFilter !== 'all') {
+        query.status = statusFilter;
+      }
+      const data = await apiRequest('/bookings', { token, query });
       return Array.isArray(data) ? data : [];
     } catch (err) {
       throw err;
     }
-  }, [token]);
+  }, [statusFilter, token, viewerRole]);
 
   useEffect(() => {
     let isMounted = true;
@@ -205,6 +218,7 @@ export default function RideHistoryPanel({
         const data = await fetchBookings();
         if (isMounted) {
           setBookings(data);
+          setServerHasMore(data.length === SERVER_PAGE_SIZE);
           setSelectedBooking(null);
           setDisplayedCount(10);
         }
@@ -212,6 +226,7 @@ export default function RideHistoryPanel({
         if (isMounted) {
           setError(err.message || 'Failed to load ride history');
           setBookings([]);
+          setServerHasMore(false);
         }
       } finally {
         if (isMounted) {
@@ -278,15 +293,37 @@ export default function RideHistoryPanel({
   }, [bookings, statusFilter, dateFilter, sortBy, searchText]);
 
   const displayedList = filteredAndSortedBookings.slice(0, displayedCount);
-  const hasMore = displayedCount < filteredAndSortedBookings.length;
+  const hasMore = displayedCount < filteredAndSortedBookings.length || serverHasMore;
 
-  const handleLoadMore = useCallback(() => {
+  const handleLoadMore = useCallback(async () => {
     setLoadingMore(true);
-    setTimeout(() => {
+    try {
+      if (displayedCount < filteredAndSortedBookings.length) {
+        setDisplayedCount((prev) => prev + pageSize);
+        return;
+      }
+      if (!serverHasMore) {
+        return;
+      }
+      const olderBookings = await fetchBookings({ skip: bookings.length });
+      setServerHasMore(olderBookings.length === SERVER_PAGE_SIZE);
+      setBookings((prev) => {
+        const existingIds = new Set(prev.map((booking) => String(booking.id)));
+        const merged = [...prev];
+        olderBookings.forEach((booking) => {
+          if (!existingIds.has(String(booking.id))) {
+            merged.push(booking);
+          }
+        });
+        return merged;
+      });
       setDisplayedCount((prev) => prev + pageSize);
+    } catch (err) {
+      setError(err.message || 'Failed to load older rides');
+    } finally {
       setLoadingMore(false);
-    }, 300);
-  }, [pageSize]);
+    }
+  }, [bookings.length, displayedCount, fetchBookings, filteredAndSortedBookings.length, pageSize, serverHasMore]);
 
   const handleRefresh = useCallback(async () => {
     try {
@@ -294,6 +331,7 @@ export default function RideHistoryPanel({
       setError('');
       const data = await fetchBookings();
       setBookings(data);
+      setServerHasMore(data.length === SERVER_PAGE_SIZE);
       setSelectedBooking(null);
       setDisplayedCount(10);
     } catch (err) {
@@ -334,13 +372,13 @@ export default function RideHistoryPanel({
           {viewerRole === 'driver' ? 'Ride History & Receipts' : 'Ride History'}
         </Text>
         <TouchableOpacity onPress={handleRefresh} disabled={loading}>
-          <Text style={styles.refreshButton}>🔄 Refresh</Text>
+          <Text style={styles.refreshButton}>Refresh</Text>
         </TouchableOpacity>
       </View>
 
       {/* Search */}
       <View style={styles.searchBox}>
-        <Text style={styles.searchIcon}>🔍</Text>
+        <Text style={styles.searchIcon}>Search</Text>
         <Text style={styles.searchPlaceholder} numberOfLines={1}>
           {searchText || `Search by ${getCounterpartLabel(viewerRole).toLowerCase()}, location, or ID`}
         </Text>
@@ -416,6 +454,7 @@ export default function RideHistoryPanel({
       <View style={styles.resultsInfo}>
         <Text style={styles.resultsText}>
           Showing {displayedList.length} of {filteredAndSortedBookings.length} rides
+          {serverHasMore ? ' loaded, older rides available' : ''}
         </Text>
       </View>
 
@@ -503,7 +542,7 @@ export default function RideHistoryPanel({
       {/* Empty State */}
       {!loading && !error && displayedList.length === 0 && (
         <View style={styles.emptyContainer}>
-          <Text style={styles.emptyIcon}>🚕</Text>
+          <Text style={styles.emptyIcon}>Ride</Text>
           <Text style={styles.emptyTitle}>No rides found</Text>
           <Text style={styles.emptySubtitle}>
             {filteredAndSortedBookings.length === 0
@@ -535,7 +574,9 @@ export default function RideHistoryPanel({
                 <ActivityIndicator color={COLORS.primary} />
               ) : (
                 <Text style={styles.loadMoreText}>
-                  Load More ({displayedCount}/{filteredAndSortedBookings.length})
+                  {displayedCount < filteredAndSortedBookings.length
+                    ? `Load More (${displayedCount}/${filteredAndSortedBookings.length})`
+                    : 'Load Older Rides'}
                 </Text>
               )}
             </TouchableOpacity>

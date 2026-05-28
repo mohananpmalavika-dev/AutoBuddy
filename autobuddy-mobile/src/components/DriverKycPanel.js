@@ -133,9 +133,12 @@ export default function DriverKycPanel({ token, onDataChanged }) {
       ]);
       setKycStatus(kycPayload || null);
       if (kycPayload && kycPayload.status !== 'not_submitted') {
+        const aadhaarFromServer = String(kycPayload.aadhaar_number || '');
+        const rawAadhaarDigits = digitsOnly(aadhaarFromServer, 12);
+        const canPrefillAadhaar = rawAadhaarDigits.length === 12 && !aadhaarFromServer.includes('*');
         setForm((prev) => ({
           ...prev,
-          aadhaar_number: String(kycPayload.aadhaar_number || prev.aadhaar_number || ''),
+          aadhaar_number: canPrefillAadhaar ? rawAadhaarDigits : prev.aadhaar_number || '',
           license_number: String(kycPayload.license_number || prev.license_number || ''),
           rc_number: String(kycPayload.rc_number || prev.rc_number || ''),
           aadhaar_image_url: String(kycPayload.aadhaar_image_url || prev.aadhaar_image_url || ''),
@@ -267,6 +270,7 @@ export default function DriverKycPanel({ token, onDataChanged }) {
     () => REQUIRED_KYC_FILES.filter((item) => Boolean(form[item.payloadKey])).length,
     [form],
   );
+  const maskedAadhaar = String(kycStatus?.aadhaar_number_masked || '').trim();
 
   const renderUploadRequirement = (requirement) => {
     const document = documents[requirement.docType] || {};
@@ -301,8 +305,9 @@ export default function DriverKycPanel({ token, onDataChanged }) {
     <View style={styles.card}>
       <Text style={styles.title}>KYC & Driver Documents</Text>
       <Text style={styles.subtitle}>
-        Status: {String(kycStatus?.status || 'not submitted')} · {readyFilesCount}/{REQUIRED_KYC_FILES.length} files ready
+        Status: {String(kycStatus?.status || 'not submitted')} - {readyFilesCount}/{REQUIRED_KYC_FILES.length} files ready
       </Text>
+      {!!maskedAadhaar && <Text style={styles.maskedDocument}>Aadhaar on file: {maskedAadhaar}</Text>}
       {!!kycStatus?.reject_reason && (
         <Text style={styles.error}>Rejected: {kycStatus.reject_reason}</Text>
       )}
@@ -316,7 +321,7 @@ export default function DriverKycPanel({ token, onDataChanged }) {
         onChangeText={(value) => updateField('aadhaar_number', digitsOnly(value, 12))}
         keyboardType="number-pad"
         maxLength={12}
-        placeholder="12-digit Aadhaar"
+        placeholder={maskedAadhaar ? 'Enter full 12-digit Aadhaar to resubmit' : '12-digit Aadhaar'}
         placeholderTextColor={COLORS.textMuted}
         style={styles.input}
       />
@@ -370,6 +375,7 @@ const styles = StyleSheet.create({
   },
   title: { color: COLORS.textMain, fontSize: 17, fontWeight: '900' },
   subtitle: { color: COLORS.textMuted, fontWeight: '700', marginTop: 4, marginBottom: 10 },
+  maskedDocument: { color: COLORS.textMuted, fontWeight: '700', marginBottom: 10 },
   label: { color: COLORS.textMain, fontWeight: '700', marginBottom: 5 },
   input: {
     borderWidth: 1,

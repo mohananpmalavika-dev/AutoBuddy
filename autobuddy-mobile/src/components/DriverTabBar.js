@@ -67,7 +67,7 @@ export default function DriverTabBar({
     { key: 'support', label: 'Support', icon: 'H', badge: getBadgeCount('support') },
     
     // Preferences
-    { key: 'settings', label: 'Settings', icon: '⚙️', badge: null },
+    { key: 'settings', label: 'Settings', icon: 'G', badge: null },
     { key: 'actions', label: 'Actions', icon: '+', badge: null },
   ], [getBadgeCount, notificationCount, requestCount, upcomingCount]);
 
