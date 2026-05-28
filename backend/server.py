@@ -6023,6 +6023,19 @@ async def update_driver_availability(availability: DriverAvailabilityUpdate, cur
         "current_location": await get_effective_driver_location(profile),
     }
 
+@api_router.get("/drivers/availability")
+async def get_driver_availability(current_user: dict = Depends(get_current_user)):
+    """Get the current availability status of the driver."""
+    if current_user["role"] != UserRole.DRIVER:
+        raise HTTPException(status_code=403, detail="Only drivers can view their availability")
+    
+    profile = await db.drivers.find_one({"user_id": current_user["id"]}) or {}
+    return {
+        "is_available": bool(profile.get("is_available", False)),
+        "is_online": bool(profile.get("is_online", False)),
+        "current_location": await get_effective_driver_location(profile),
+    }
+
 @api_router.get("/drivers/analytics")
 async def get_driver_analytics(period: str = "week", current_user: dict = Depends(get_current_user)):
     require_driver_user(current_user)
