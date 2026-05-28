@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { apiRequest } from '../lib/api';
+import { appendPickerAssetToFormData } from '../lib/uploadFormData';
 import { COLORS, SHADOWS } from '../theme';
 
 /**
@@ -80,11 +81,13 @@ export default function PassengerDocumentsPanel({ token }) {
 
       const formData = new FormData();
       formData.append('document_type', docType);
-      formData.append('file', {
-        uri: asset.uri,
-        type: asset.mimeType || 'application/octet-stream',
-        name: asset.name,
-      });
+      await appendPickerAssetToFormData(
+        formData,
+        'file',
+        asset,
+        asset.name || `${docType}-document`,
+        asset.mimeType || 'application/octet-stream',
+      );
 
       const response = await apiRequest('/passengers/documents/upload', {
         token,

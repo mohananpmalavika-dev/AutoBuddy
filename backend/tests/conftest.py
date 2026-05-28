@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from fastapi import FastAPI, Depends
 from sqlalchemy import create_engine, Column, String
-from sqlalchemy.orm import sessionmaker, Session, relationship
+from sqlalchemy.orm import sessionmaker, Session
 from datetime import datetime, timedelta
 import uuid
 import sys
@@ -24,29 +24,14 @@ from app.routers.features_routes import router as features_router
 class Passenger(Base):
     __tablename__ = "passengers"
     id = Column(String, primary_key=True)
-    # Relationships for foreign keys
-    ratings_given = relationship("PassengerRating", back_populates="passenger", foreign_keys="PassengerRating.passenger_id")
-    saved_places = relationship("SavedPlace", back_populates="passenger")
-    preferences = relationship("PassengerPreferences", back_populates="passenger", uselist=False)
-    scheduled_rides = relationship("ScheduledRide", back_populates="passenger")
-    payment_methods = relationship("PaymentMethod", back_populates="passenger")
-    wallet = relationship("PassengerWallet", back_populates="passenger", uselist=False)
-    favorite_drivers = relationship("FavoriteDriver", back_populates="passenger")
-    emergency_contacts = relationship("EmergencyContact", back_populates="passenger")
-    support_tickets = relationship("SupportTicket", back_populates="passenger")
-    accessibility_settings = relationship("AccessibilitySetting", back_populates="passenger", uselist=False)
 
 class Driver(Base):
     __tablename__ = "drivers"
     id = Column(String, primary_key=True)
-    # Relationships for foreign keys
-    ratings_received = relationship("PassengerRating", back_populates="driver", foreign_keys="PassengerRating.driver_id")
-    favorited_by = relationship("FavoriteDriver", back_populates="driver")
 
 class Booking(Base):
     __tablename__ = "bookings"
     id = Column(String, primary_key=True)
-    rating = relationship("PassengerRating", back_populates="booking", uselist=False)
 
 class SupportAgent(Base):
     __tablename__ = "support_agents"

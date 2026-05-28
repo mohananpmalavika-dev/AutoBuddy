@@ -22,6 +22,7 @@ import {
 } from '../lib/places';
 import { COLORS, SHADOWS } from '../theme';
 import RevenueCard from '../components/RevenueCard';
+import RideProductsGrid from '../components/RideProductsGrid';
 import RideCommunicationCard from '../components/RideCommunicationCard';
 import VoiceTextInput from '../components/VoiceTextInput';
 import BookingConfirmationCard from '../components/BookingConfirmationCard';
@@ -32,13 +33,14 @@ import PromoCodePanel from '../components/PromoCodePanel';
 import SupportTicketsPanel from '../components/SupportTicketsPanel';
 import PaymentMethodsPanel from '../components/PaymentMethodsPanel';
 import PassengerRatingsPanel from '../components/PassengerRatingsPanel';
+import FavoriteDriversPanel from '../components/FavoriteDriversPanel';
 import PostRideRatingModal from '../components/PostRideRatingModal';
 import SavedPlacesQuickSelect from '../components/SavedPlacesQuickSelect';
 import PreferencesPanel from '../components/PreferencesPanel';
 import SavedPlacesPanel from '../components/SavedPlacesPanel';
 import EmergencyContactsPanel from '../components/EmergencyContactsPanel';
 import AccessibilityPanel from '../components/AccessibilityPanel';
-import ScheduledRidesPanel from '../components/ScheduledRidesPanel';
+import PassengerScheduledRidesPanel from '../components/PassengerScheduledRidesPanel';
 import NotificationCenter from '../components/NotificationCenter';
 import PassengerProfilePanel from '../components/PassengerProfilePanel';
 import PassengerKYCPanel from '../components/PassengerKYCPanel';
@@ -52,32 +54,45 @@ import { useKeralaSafety } from '../hooks/useKeralaSafety';
 import { validateScheduledPickup } from '../lib/scheduling';
 
 const PASSENGER_MENU_OPTIONS = [
-  { key: 'ride', label: 'Ride Booking' },
-  { key: 'drivers', label: 'Drivers' },
-  { key: 'safety', label: 'Safety' },
-  { key: 'wallet', label: 'Wallet' },
-  { key: 'spin', label: 'Spin & Win' },
-  { key: 'notifications', label: 'Notifications' },
-  { key: 'promo', label: 'Promo Codes' },
-  { key: 'support', label: 'Support' },
-  { key: 'payment', label: 'Payment' },
-  { key: 'ratings', label: 'Ratings' },
-  { key: 'preferences', label: 'Preferences' },
-  { key: 'places', label: 'Saved Places' },
-  { key: 'emergency', label: 'Emergency' },
-  { key: 'accessibility', label: 'Accessibility' },
-  { key: 'scheduled', label: 'Scheduled Rides' },
-  { key: 'history', label: 'Ride History' },
-  { key: 'profile', label: 'Profile' },
-  { key: 'kyc', label: 'KYC Verification' },
-  { key: 'documents', label: 'Documents' },
-  { key: 'receipts', label: 'Receipts' },
-  { key: 'subscription', label: 'Subscription' },
+  { key: 'ride', label: 'Ride Booking', icon: '🚕' },
+  { key: 'drivers', label: 'Drivers', icon: '🧭' },
+  { key: 'favorites', label: 'Favorite Drivers', icon: '★' },
+  { key: 'safety', label: 'Safety', icon: '🛡' },
+  { key: 'wallet', label: 'Wallet', icon: '₹' },
+  { key: 'spin', label: 'Spin & Win', icon: '🎁' },
+  { key: 'notifications', label: 'Notifications', icon: '🔔' },
+  { key: 'promo', label: 'Promo Codes', icon: '%' },
+  { key: 'support', label: 'Support', icon: '?' },
+  { key: 'payment', label: 'Payment', icon: '💳' },
+  { key: 'ratings', label: 'Ratings', icon: '★' },
+  { key: 'preferences', label: 'Preferences', icon: '⚙' },
+  { key: 'places', label: 'Saved Places', icon: '📍' },
+  { key: 'emergency', label: 'Emergency', icon: 'SOS' },
+  { key: 'accessibility', label: 'Accessibility', icon: '♿' },
+  { key: 'scheduled', label: 'Scheduled Rides', icon: '📅' },
+  { key: 'history', label: 'Ride History', icon: '↺' },
+  { key: 'profile', label: 'Profile', icon: '👤' },
+  { key: 'kyc', label: 'KYC Verification', icon: 'ID' },
+  { key: 'documents', label: 'Documents', icon: '📄' },
+  { key: 'receipts', label: 'Receipts', icon: '🧾' },
+  { key: 'subscription', label: 'Subscription', icon: '✓' },
 ];
 const PRIMARY_PASSENGER_MENU_KEY = 'ride';
-const DASHBOARD_PASSENGER_MENU_KEYS = new Set([PRIMARY_PASSENGER_MENU_KEY]);
-const SECONDARY_PASSENGER_MENU_OPTIONS = PASSENGER_MENU_OPTIONS.filter(
-  (menu) => !DASHBOARD_PASSENGER_MENU_KEYS.has(menu.key),
+const buildPassengerMenuOptions = (keys) =>
+  keys.map((key) => PASSENGER_MENU_OPTIONS.find((menu) => menu.key === key)).filter(Boolean);
+const PINNED_PASSENGER_MENU_OPTIONS = buildPassengerMenuOptions(['drivers', 'favorites', 'safety', 'wallet']);
+const SECONDARY_PASSENGER_MENU_GROUPS = [
+  { key: 'trip', title: 'Trip', keys: ['scheduled', 'history', 'ratings', 'receipts'] },
+  { key: 'deals', title: 'Deals & Payment', keys: ['spin', 'promo', 'payment', 'subscription'] },
+  { key: 'account', title: 'Account', keys: ['profile', 'kyc', 'documents', 'preferences', 'places', 'accessibility'] },
+  { key: 'help', title: 'Help', keys: ['notifications', 'support', 'emergency'] },
+].map((section) => ({
+  ...section,
+  options: buildPassengerMenuOptions(section.keys),
+})).filter((section) => section.options.length > 0);
+const PASSENGER_MENU_BY_KEY = PASSENGER_MENU_OPTIONS.reduce(
+  (acc, menu) => ({ ...acc, [menu.key]: menu }),
+  {},
 );
 
 const DEFAULT_REGION = { latitude: 13.0827, longitude: 80.2707, latitudeDelta: 0.05, longitudeDelta: 0.05 };
@@ -112,7 +127,15 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [fareExpectationInput, setFareExpectationInput] = useState('');
   const [optedOutDriverIds, setOptedOutDriverIds] = useState([]);
   const [autoFetchingTripData, setAutoFetchingTripData] = useState(false);
-  const [bookingMode, setBookingMode] = useState('instant');
+  const [rideProduct, setRideProduct] = useState('normal');
+  const [corporateCode, setCorporateCode] = useState('');
+  const [airportTerminal, setAirportTerminal] = useState('');
+  const [flightNumber, setFlightNumber] = useState('');
+  const [tourismPackage, setTourismPackage] = useState('Kerala Local Sightseeing');
+  const [intercityReturnTrip, setIntercityReturnTrip] = useState(false);
+  const [rentalHoursInput, setRentalHoursInput] = useState('4');
+  const [safeRidePriority, setSafeRidePriority] = useState('elderly');
+  const [passengerCountInput, setPassengerCountInput] = useState('1');
   const [scheduledAtInput, setScheduledAtInput] = useState('');
   const [scheduledTimeZone, setScheduledTimeZone] = useState('local');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('cash');
@@ -134,6 +157,11 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [bookingJustCreated, setBookingJustCreated] = useState(false);
   const [showInteractiveMap, setShowInteractiveMap] = useState(true);
   const [locationSearchModalVisible, setLocationSearchModalVisible] = useState(false);
+  const [rideProductAvailability, setRideProductAvailability] = useState({
+    enabled_products: ['normal'],
+    pickup_district: null,
+  });
+  const [rideProductsLoading, setRideProductsLoading] = useState(false);
   const [spinWinStatus, setSpinWinStatus] = useState(null);
   const [spinWinLoading, setSpinWinLoading] = useState(false);
   const [spinningNow, setSpinningNow] = useState(false);
@@ -306,6 +334,16 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     const parsed = Number(String(fareExpectationInput || '').trim());
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
   }, [fareExpectationInput]);
+  const enabledRideProducts = useMemo(() => {
+    const source = Array.isArray(rideProductAvailability?.enabled_products)
+      ? rideProductAvailability.enabled_products
+      : [];
+    const filtered = source.filter((key) => typeof key === 'string' && key.trim().length > 0);
+    return filtered.length > 0 ? filtered : ['normal'];
+  }, [rideProductAvailability]);
+  const canScheduleBooking = enabledRideProducts.includes('scheduled');
+  const effectiveRideProduct = rideProduct || 'normal';
+  const isScheduledBookingMode = effectiveRideProduct === 'scheduled' && canScheduleBooking;
   const keralaSafety = useKeralaSafety({
     token,
     userName: user?.name,
@@ -611,6 +649,54 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       return [];
     }
   };
+
+  const refreshRideProductAvailability = useCallback(
+    async ({ silent = false, addressOverride = null } = {}) => {
+      const pickupAddress = String(addressOverride || pickupLocation?.address || '').trim() || undefined;
+      try {
+        if (!silent) {
+          setRideProductsLoading(true);
+        }
+        const availability = await apiRequest('/ride-products/availability', {
+          query: {
+            pickup_address: pickupAddress,
+          },
+        });
+        if (availability && Array.isArray(availability.enabled_products)) {
+          const enabledProducts =
+            availability.enabled_products.length > 0 ? availability.enabled_products : ['normal'];
+          setRideProductAvailability({
+            enabled_products: enabledProducts,
+            pickup_district: availability.pickup_district || null,
+          });
+          if (!enabledProducts.includes(effectiveRideProduct)) {
+            setRideProduct('normal');
+            if (!silent) {
+              setMessage('Selected ride product is not active here. Switched to Normal.');
+            }
+          }
+        }
+      } catch (err) {
+        if (!silent) {
+          setError(err.message || 'Could not load ride product settings.');
+        }
+      } finally {
+        if (!silent) {
+          setRideProductsLoading(false);
+        }
+      }
+    },
+    [effectiveRideProduct, pickupLocation?.address],
+  );
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      refreshRideProductAvailability({ silent: true }).catch(() => null);
+    }, 300);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [refreshRideProductAvailability]);
 
   const fetchSpinWinStatus = useCallback(
     async ({ silent = false } = {}) => {
@@ -1021,6 +1107,36 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     [triggerA11yFeedback],
   );
 
+  const renderPassengerMenuChip = useCallback(
+    (menu, variant = 'secondary') => {
+      const label = getMenuLabel(menu);
+      const selected = activePassengerMenu === menu.key;
+      return (
+        <TouchableOpacity
+          key={menu.key}
+          style={[
+            styles.menuChip,
+            variant === 'pinned' && styles.pinnedMenuChip,
+            selected && styles.menuChipActive,
+          ]}
+          onPress={() => handleMenuSelection(menu.key, label)}
+          accessibilityRole="tab"
+          accessibilityLabel={label}
+          accessibilityState={{ selected }}>
+          <View style={[styles.menuIconBadge, selected && styles.menuIconBadgeActive]}>
+            <Text style={[styles.menuIconText, selected && styles.menuIconTextActive]}>{menu.icon || '•'}</Text>
+          </View>
+          <Text
+            style={[styles.menuChipText, selected && styles.menuChipTextActive]}
+            numberOfLines={1}>
+            {label}
+          </Text>
+        </TouchableOpacity>
+      );
+    },
+    [activePassengerMenu, getMenuLabel, handleMenuSelection],
+  );
+
   const openRideEmergencyPanel = useCallback(() => {
     handleMenuSelection('emergency', 'Emergency during this ride');
     setMessage('Opening emergency contacts for this ride.');
@@ -1104,7 +1220,12 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     if (!validateBothLocations()) {
       return;
     }
-    const isScheduledMode = bookingMode === 'scheduled';
+    if (!new Set(enabledRideProducts).has(effectiveRideProduct)) {
+      const districtLabel = rideProductAvailability?.pickup_district || 'this district';
+      setError(`Selected product is not active in ${districtLabel}.`);
+      return;
+    }
+    const isScheduledMode = effectiveRideProduct === 'scheduled';
     let scheduledForIso = undefined;
     if (isScheduledMode) {
       const scheduleValidation = validateScheduledPickup(scheduledAtInput, scheduledTimeZone);
@@ -1113,6 +1234,27 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         return;
       }
       scheduledForIso = scheduleValidation.iso;
+    }
+
+    const passengerCountValue = Number(String(passengerCountInput || '').trim());
+    const passengerCount = Number.isFinite(passengerCountValue)
+      ? Math.max(1, Math.min(6, Math.round(passengerCountValue)))
+      : 1;
+    if (effectiveRideProduct === 'corporate' && !corporateCode.trim()) {
+      setError('Corporate code required.');
+      return;
+    }
+    if (effectiveRideProduct === 'airport' && (!flightNumber.trim() || !airportTerminal.trim())) {
+      setError('Flight number and terminal are required for airport rides.');
+      return;
+    }
+    const rentalHoursValue = Number(String(rentalHoursInput || '').trim());
+    const rentalHours = Number.isFinite(rentalHoursValue)
+      ? Math.max(1, Math.min(24, Math.round(rentalHoursValue)))
+      : 0;
+    if (effectiveRideProduct === 'rental_hourly' && rentalHours <= 0) {
+      setError('Rental hours required.');
+      return;
     }
 
     const existingActive = await apiRequest('/bookings/active', { token }).catch(() => null);
@@ -1126,8 +1268,10 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       allowParallel = true;
     }
 
-    const effectiveRideProduct = isScheduledMode ? 'scheduled' : 'normal';
     const rideNotes = [];
+    if (effectiveRideProduct === 'school_elderly_safe') {
+      rideNotes.push(`Safe ride priority: ${safeRidePriority}`);
+    }
     if (appliedPromo?.code) {
       rideNotes.push(`Promo requested: ${appliedPromo.code}`);
     }
@@ -1154,10 +1298,18 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               ? Number(appliedPromo.max_discount)
               : undefined,
           ride_product: effectiveRideProduct,
-          passenger_count: 1,
+          passenger_count: passengerCount,
           allow_parallel: allowParallel,
           selected_driver_id: selectedDriverId || undefined,
           scheduled_for: scheduledForIso,
+          corporate_code: effectiveRideProduct === 'corporate' ? corporateCode.trim() : undefined,
+          airport_terminal: effectiveRideProduct === 'airport' ? airportTerminal.trim() : undefined,
+          flight_number: effectiveRideProduct === 'airport' ? flightNumber.trim() : undefined,
+          intercity_return_trip: effectiveRideProduct === 'intercity' ? intercityReturnTrip : false,
+          tourism_package: effectiveRideProduct === 'tourism' ? tourismPackage.trim() : undefined,
+          women_only_required: effectiveRideProduct === 'women_only',
+          rental_hours: effectiveRideProduct === 'rental_hourly' ? rentalHours : undefined,
+          safe_ride_priority: effectiveRideProduct === 'school_elderly_safe' ? safeRidePriority : undefined,
           notes: rideNotes.length ? rideNotes.join(' | ') : undefined,
         },
       }),
@@ -1262,6 +1414,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const refreshPassengerDashboard = async () => {
     await refreshActiveBooking();
     await refreshPassengerBookings({ silent: true });
+    await refreshRideProductAvailability({ silent: true });
     await refreshDriverDiscovery({ silent: true });
   };
 
@@ -1369,13 +1522,34 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                 styles.primaryMenuButton,
                 activePassengerMenu === PRIMARY_PASSENGER_MENU_KEY && styles.primaryMenuButtonActive,
               ]}
+              accessibilityRole="tab"
+              accessibilityLabel="Ride Booking"
+              accessibilityState={{ selected: activePassengerMenu === PRIMARY_PASSENGER_MENU_KEY }}
               onPress={() => {
                 handleMenuSelection(PRIMARY_PASSENGER_MENU_KEY, 'Ride Booking');
               }}>
-              <Text style={styles.primaryMenuButtonText}>Ride Booking</Text>
+              <View style={styles.primaryMenuButtonContent}>
+                <View
+                  style={[
+                    styles.menuIconBadge,
+                    activePassengerMenu === PRIMARY_PASSENGER_MENU_KEY && styles.menuIconBadgeActive,
+                  ]}>
+                  <Text
+                    style={[
+                      styles.menuIconText,
+                      activePassengerMenu === PRIMARY_PASSENGER_MENU_KEY && styles.menuIconTextActive,
+                    ]}>
+                    {PASSENGER_MENU_BY_KEY.ride.icon}
+                  </Text>
+                </View>
+                <Text style={styles.primaryMenuButtonText}>Ride Booking</Text>
+              </View>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.menuToggleButton}
+              accessibilityRole="button"
+              accessibilityLabel={showPassengerMenus ? 'Hide passenger menu groups' : 'Show passenger menu groups'}
+              accessibilityState={{ expanded: showPassengerMenus }}
               onPress={() =>
                 setShowPassengerMenus((prev) => {
                   const next = !prev;
@@ -1387,17 +1561,19 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             </TouchableOpacity>
           </View>
 
+          <View style={styles.pinnedMenuRow}>
+            {PINNED_PASSENGER_MENU_OPTIONS.map((menu) => renderPassengerMenuChip(menu, 'pinned'))}
+          </View>
+
           {showPassengerMenus && (
-            <View style={styles.secondaryMenuRow}>
-              {SECONDARY_PASSENGER_MENU_OPTIONS.map((menu) => (
-                <TouchableOpacity
-                  key={menu.key}
-                  style={[styles.menuChip, activePassengerMenu === menu.key && styles.menuChipActive]}
-                  onPress={() => handleMenuSelection(menu.key, getMenuLabel(menu))}>
-                  <Text style={[styles.menuChipText, activePassengerMenu === menu.key && styles.menuChipTextActive]}>
-                    {getMenuLabel(menu)}
-                  </Text>
-                </TouchableOpacity>
+            <View style={styles.secondaryMenuPanel}>
+              {SECONDARY_PASSENGER_MENU_GROUPS.map((section) => (
+                <View key={section.key} style={styles.menuGroup}>
+                  <Text style={styles.menuGroupTitle}>{section.title}</Text>
+                  <View style={styles.secondaryMenuRow}>
+                    {section.options.map((menu) => renderPassengerMenuChip(menu))}
+                  </View>
+                </View>
               ))}
             </View>
           )}
@@ -1405,10 +1581,13 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           {activePassengerMenu !== PRIMARY_PASSENGER_MENU_KEY && (
             <View style={styles.activeMenuInfoRow}>
               <Text style={styles.activeMenuInfoText}>
-                {getMenuLabel(PASSENGER_MENU_OPTIONS.find((menu) => menu.key === activePassengerMenu)) || 'Menu'}
+                {getMenuLabel(PASSENGER_MENU_BY_KEY[activePassengerMenu]) || 'Menu'}
               </Text>
               <TouchableOpacity
                 style={styles.menuToggleButton}
+                accessibilityRole="tab"
+                accessibilityLabel="Back to Ride"
+                accessibilityState={{ selected: false }}
                 onPress={() => handleMenuSelection(PRIMARY_PASSENGER_MENU_KEY, 'Ride Booking')}>
                 <Text style={styles.menuToggleButtonText}>Back to Ride</Text>
               </TouchableOpacity>
@@ -1564,32 +1743,124 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               </View>
               <View style={styles.infoBlock}>
                 <Text style={styles.infoTitle}>Ride Type</Text>
-                <View style={styles.modeRow}>
-                  <TouchableOpacity
-                    style={[styles.modeChip, bookingMode === 'instant' && styles.modeChipActive]}
-                    onPress={() => setBookingMode('instant')}
-                    disabled={loading}>
-                    <Text style={[styles.modeChipText, bookingMode === 'instant' && styles.modeChipTextActive]}>
-                      Instant
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.modeChip, bookingMode === 'scheduled' && styles.modeChipActive]}
-                    onPress={() => setBookingMode('scheduled')}
-                    disabled={loading}>
-                    <Text style={[styles.modeChipText, bookingMode === 'scheduled' && styles.modeChipTextActive]}>
-                      Schedule
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-                {bookingMode === 'scheduled' && (
+                {!!rideProductAvailability?.pickup_district && (
+                  <Text style={styles.hint}>District: {rideProductAvailability.pickup_district}</Text>
+                )}
+                {rideProductsLoading && (
+                  <Text style={styles.hint}>Updating ride products...</Text>
+                )}
+                <RideProductsGrid
+                  selected={effectiveRideProduct}
+                  enabledKeys={enabledRideProducts}
+                  hideInactive
+                  heading="Choose Ride Product"
+                  subheading="Select the ride product for this booking"
+                  onSelect={setRideProduct}
+                />
+
+                {isScheduledBookingMode && (
                   <ScheduledPickupPicker
                     value={scheduledAtInput}
                     onChangeText={setScheduledAtInput}
                     timezone={scheduledTimeZone}
                     onTimezoneChange={setScheduledTimeZone}
-                    inputStyle={styles.searchInput}
+                    inputStyle={styles.input}
                   />
+                )}
+                <Text style={styles.infoText}>Passengers</Text>
+                <VoiceTextInput
+                  style={styles.input}
+                  value={passengerCountInput}
+                  onChangeText={setPassengerCountInput}
+                  keyboardType="number-pad"
+                  placeholder="Passenger count (1-6)"
+                  placeholderTextColor={COLORS.textMuted}
+                />
+                {effectiveRideProduct === 'corporate' && (
+                  <View style={styles.productRequirementBox}>
+                    <Text style={styles.productRequirementTitle}>Corporate code required</Text>
+                    <VoiceTextInput
+                      style={styles.input}
+                      value={corporateCode}
+                      onChangeText={setCorporateCode}
+                      placeholder="Corporate code"
+                      placeholderTextColor={COLORS.textMuted}
+                    />
+                  </View>
+                )}
+                {effectiveRideProduct === 'airport' && (
+                  <View style={styles.productRequirementBox}>
+                    <Text style={styles.productRequirementTitle}>Airport details required</Text>
+                    <VoiceTextInput
+                      style={styles.input}
+                      value={flightNumber}
+                      onChangeText={setFlightNumber}
+                      placeholder="Flight number (e.g., AI123)"
+                      placeholderTextColor={COLORS.textMuted}
+                    />
+                    <VoiceTextInput
+                      style={styles.input}
+                      value={airportTerminal}
+                      onChangeText={setAirportTerminal}
+                      placeholder="Terminal (e.g., T1, T2)"
+                      placeholderTextColor={COLORS.textMuted}
+                    />
+                  </View>
+                )}
+                {effectiveRideProduct === 'intercity' && (
+                  <TouchableOpacity
+                    style={[styles.modeChip, intercityReturnTrip && styles.modeChipActive]}
+                    onPress={() => setIntercityReturnTrip((prev) => !prev)}
+                    disabled={loading}>
+                    <Text style={[styles.modeChipText, intercityReturnTrip && styles.modeChipTextActive]}>
+                      {intercityReturnTrip ? 'Return trip: yes' : 'Return trip: no'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                {effectiveRideProduct === 'tourism' && (
+                  <VoiceTextInput
+                    style={styles.input}
+                    value={tourismPackage}
+                    onChangeText={setTourismPackage}
+                    placeholder="Tourism package"
+                    placeholderTextColor={COLORS.textMuted}
+                  />
+                )}
+                {effectiveRideProduct === 'women_only' && (
+                  <Text style={styles.hint}>Women-only ride will request a female driver when available.</Text>
+                )}
+                {effectiveRideProduct === 'rental_hourly' && (
+                  <VoiceTextInput
+                    style={styles.input}
+                    value={rentalHoursInput}
+                    onChangeText={setRentalHoursInput}
+                    keyboardType="number-pad"
+                    placeholder="Rental hours"
+                    placeholderTextColor={COLORS.textMuted}
+                  />
+                )}
+                {effectiveRideProduct === 'school_elderly_safe' && (
+                  <>
+                    <Text style={styles.infoText}>Safe ride priority</Text>
+                    <View style={styles.modeRow}>
+                      <TouchableOpacity
+                        style={[styles.modeChip, safeRidePriority === 'school' && styles.modeChipActive]}
+                        onPress={() => setSafeRidePriority('school')}
+                        disabled={loading}>
+                        <Text style={[styles.modeChipText, safeRidePriority === 'school' && styles.modeChipTextActive]}>
+                          School
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.modeChip, safeRidePriority === 'elderly' && styles.modeChipActive]}
+                        onPress={() => setSafeRidePriority('elderly')}
+                        disabled={loading}>
+                        <Text style={[styles.modeChipText, safeRidePriority === 'elderly' && styles.modeChipTextActive]}>
+                          Elderly
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </>
                 )}
               </View>
 
@@ -1634,7 +1905,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               <View style={styles.actionsRow}>
                 <TouchableOpacity style={styles.actionButton} onPress={createBooking} disabled={loading}>
                   <Text style={styles.actionText}>
-                    {bookingMode === 'scheduled'
+                    {isScheduledBookingMode
                       ? 'Schedule Ride'
                       : selectedDriverId
                         ? 'Book Selected Driver'
@@ -2046,6 +2317,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             <PaymentMethodsPanel token={token} onDefaultMethodChange={handleDefaultMethodChange} />
           )}
           {activePassengerMenu === 'ratings' && <PassengerRatingsPanel token={token} />}
+          {activePassengerMenu === 'favorites' && <FavoriteDriversPanel token={token} />}
           {activePassengerMenu === 'preferences' && (
             <PreferencesPanel token={token} onPreferencesChange={handlePreferencesChange} />
           )}
@@ -2056,7 +2328,16 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           {activePassengerMenu === 'accessibility' && (
             <AccessibilityPanel token={token} onSettingsChange={setPassengerAccessibility} />
           )}
-          {activePassengerMenu === 'scheduled' && <ScheduledRidesPanel token={token} />}
+          {activePassengerMenu === 'scheduled' && (
+            <PassengerScheduledRidesPanel
+              token={token}
+              onOpenRide={() => handleMenuSelection(PRIMARY_PASSENGER_MENU_KEY, 'Ride Booking')}
+              onRideCancelled={async () => {
+                await refreshActiveBooking();
+                await refreshPassengerBookings({ silent: true });
+              }}
+            />
+          )}
           {activePassengerMenu === 'profile' && <PassengerProfilePanel token={token} />}
           {activePassengerMenu === 'kyc' && <PassengerKYCPanel token={token} />}
           {activePassengerMenu === 'documents' && <PassengerDocumentsPanel token={token} />}
@@ -2168,6 +2449,12 @@ const styles = StyleSheet.create({
     borderColor: COLORS.primaryDark,
     backgroundColor: '#D5ECD8',
   },
+  primaryMenuButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
   primaryMenuButtonText: { color: COLORS.primaryDark, fontWeight: '800', textAlign: 'center' },
   menuToggleButton: {
     borderWidth: 1,
@@ -2178,7 +2465,29 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.bg,
   },
   menuToggleButtonText: { color: COLORS.textMain, fontWeight: '700' },
-  secondaryMenuRow: { flexDirection: 'row', gap: 8, marginBottom: 10, flexWrap: 'wrap' },
+  pinnedMenuRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 10,
+  },
+  secondaryMenuPanel: {
+    gap: 10,
+    marginBottom: 10,
+  },
+  menuGroup: {
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    paddingTop: 8,
+  },
+  menuGroupTitle: {
+    color: COLORS.textMuted,
+    fontSize: 11,
+    fontWeight: '800',
+    marginBottom: 6,
+    textTransform: 'uppercase',
+  },
+  secondaryMenuRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   activeMenuInfoRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2191,15 +2500,48 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
     backgroundColor: COLORS.bg,
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    minHeight: 40,
+    maxWidth: '100%',
     paddingVertical: 7,
-    paddingHorizontal: 12,
-    borderRadius: 999,
+    paddingHorizontal: 9,
+  },
+  pinnedMenuChip: {
+    flexGrow: 1,
+    flexBasis: '45%',
   },
   menuChipActive: {
     borderColor: COLORS.primary,
     backgroundColor: '#E4F2E8',
   },
-  menuChipText: { color: COLORS.textMain, fontWeight: '700' },
+  menuIconBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EAF2ED',
+  },
+  menuIconBadgeActive: {
+    backgroundColor: COLORS.primary,
+  },
+  menuIconText: {
+    color: COLORS.textMain,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  menuIconTextActive: {
+    color: '#FFFFFF',
+  },
+  menuChipText: {
+    color: COLORS.textMain,
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: '700',
+  },
   menuChipTextActive: { color: COLORS.primaryDark },
   selectRow: {
     flexDirection: 'row',
@@ -2415,6 +2757,22 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surface,
     marginTop: 8,
     marginBottom: 6,
+  },
+  productRequirementBox: {
+    borderLeftWidth: 3,
+    borderLeftColor: '#FF9800',
+    borderRadius: 8,
+    backgroundColor: '#FFF3E0',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginVertical: 8,
+  },
+  productRequirementTitle: {
+    color: '#E65100',
+    fontSize: 11,
+    fontWeight: '800',
+    marginBottom: 2,
+    textTransform: 'uppercase',
   },
   hint: { color: COLORS.textMuted, fontSize: 12, marginBottom: 8 },
   driverHeaderRow: {

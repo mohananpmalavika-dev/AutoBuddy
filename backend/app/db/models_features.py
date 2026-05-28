@@ -28,9 +28,9 @@ class PassengerRating(Base):
     __tablename__ = "passenger_ratings"
 
     id = Column(String, primary_key=True)
-    passenger_id = Column(String, ForeignKey("passengers.id"), nullable=False, index=True)
-    driver_id = Column(String, ForeignKey("drivers.id"), nullable=False, index=True)
-    booking_id = Column(String, ForeignKey("bookings.id"), nullable=True, index=True)
+    passenger_id = Column(String, nullable=False, index=True)
+    driver_id = Column(String, nullable=False, index=True)
+    booking_id = Column(String, nullable=True, index=True)
     
     score = Column(Integer, nullable=False)  # 1-5 stars
     feedback = Column(Text, nullable=True)
@@ -38,10 +38,6 @@ class PassengerRating(Base):
     created_at = Column(DateTime, default=get_ist_now, index=True)
     updated_at = Column(DateTime, default=get_ist_now, onupdate=get_ist_now)
 
-    passenger = relationship("Passenger", back_populates="ratings_given", foreign_keys=[passenger_id])
-    driver = relationship("Driver", back_populates="ratings_received", foreign_keys=[driver_id])
-    booking = relationship("Booking", back_populates="rating")
-    
     def to_dict(self):
         return {
             "id": self.id,
@@ -64,7 +60,7 @@ class SavedPlace(Base):
     __tablename__ = "saved_places"
 
     id = Column(String, primary_key=True)
-    passenger_id = Column(String, ForeignKey("passengers.id"), nullable=False, index=True)
+    passenger_id = Column(String, nullable=False, index=True)
     
     name = Column(String, nullable=False)  # "Home", "Work", custom name
     address = Column(String, nullable=False)
@@ -79,8 +75,6 @@ class SavedPlace(Base):
     created_at = Column(DateTime, default=get_ist_now, index=True)
     updated_at = Column(DateTime, default=get_ist_now, onupdate=get_ist_now)
 
-    passenger = relationship("Passenger", back_populates="saved_places")
-    
     def to_dict(self):
         return {
             "id": self.id,
@@ -105,7 +99,7 @@ class PassengerPreferences(Base):
     __tablename__ = "passenger_preferences"
 
     id = Column(String, primary_key=True)
-    passenger_id = Column(String, ForeignKey("passengers.id"), nullable=False, unique=True, index=True)
+    passenger_id = Column(String, nullable=False, unique=True, index=True)
     
     # Notification Preferences
     push_notifications = Column(Boolean, default=True)
@@ -133,8 +127,6 @@ class PassengerPreferences(Base):
     created_at = Column(DateTime, default=get_ist_now, index=True)
     updated_at = Column(DateTime, default=get_ist_now, onupdate=get_ist_now)
 
-    passenger = relationship("Passenger", back_populates="preferences")
-    
     def to_dict(self):
         return {
             "id": self.id,
@@ -164,7 +156,7 @@ class ScheduledRide(Base):
     __tablename__ = "scheduled_rides"
 
     id = Column(String, primary_key=True)
-    passenger_id = Column(String, ForeignKey("passengers.id"), nullable=False, index=True)
+    passenger_id = Column(String, nullable=False, index=True)
     
     pickup_location = Column(String, nullable=False)
     pickup_latitude = Column(Float, nullable=True)
@@ -187,8 +179,6 @@ class ScheduledRide(Base):
     created_at = Column(DateTime, default=get_ist_now, index=True)
     updated_at = Column(DateTime, default=get_ist_now, onupdate=get_ist_now)
 
-    passenger = relationship("Passenger", back_populates="scheduled_rides")
-    
     def to_dict(self):
         return {
             "id": self.id,
@@ -215,7 +205,7 @@ class PaymentMethod(Base):
     __tablename__ = "payment_methods"
 
     id = Column(String, primary_key=True)
-    passenger_id = Column(String, ForeignKey("passengers.id"), nullable=False, index=True)
+    passenger_id = Column(String, nullable=False, index=True)
     
     method_type = Column(String, nullable=False)  # "card", "upi", "wallet", "bank_transfer"
     
@@ -239,8 +229,6 @@ class PaymentMethod(Base):
     created_at = Column(DateTime, default=get_ist_now, index=True)
     updated_at = Column(DateTime, default=get_ist_now, onupdate=get_ist_now)
 
-    passenger = relationship("Passenger", back_populates="payment_methods")
-    
     def to_dict(self):
         return {
             "id": self.id,
@@ -261,7 +249,7 @@ class PassengerWallet(Base):
     __tablename__ = "passenger_wallets"
 
     id = Column(String, primary_key=True)
-    passenger_id = Column(String, ForeignKey("passengers.id"), nullable=False, unique=True, index=True)
+    passenger_id = Column(String, nullable=False, unique=True, index=True)
     
     balance = Column(Float, default=0.0)
     total_added = Column(Float, default=0.0)
@@ -272,7 +260,6 @@ class PassengerWallet(Base):
     created_at = Column(DateTime, default=get_ist_now)
     updated_at = Column(DateTime, default=get_ist_now, onupdate=get_ist_now)
     
-    passenger = relationship("Passenger", back_populates="wallet")
     transactions = relationship("WalletTransaction", back_populates="wallet")
     
     def to_dict(self):
@@ -332,16 +319,13 @@ class FavoriteDriver(Base):
     __tablename__ = "favorite_drivers"
 
     id = Column(String, primary_key=True)
-    passenger_id = Column(String, ForeignKey("passengers.id"), nullable=False, index=True)
-    driver_id = Column(String, ForeignKey("drivers.id"), nullable=False, index=True)
+    passenger_id = Column(String, nullable=False, index=True)
+    driver_id = Column(String, nullable=False, index=True)
     
     added_at = Column(DateTime, default=get_ist_now, index=True)
     last_ride_with = Column(DateTime, nullable=True)
     ride_count_together = Column(Integer, default=1)
 
-    passenger = relationship("Passenger", back_populates="favorite_drivers")
-    driver = relationship("Driver", back_populates="favorited_by")
-    
     def to_dict(self):
         return {
             "id": self.id,
@@ -357,7 +341,7 @@ class EmergencyContact(Base):
     __tablename__ = "emergency_contacts"
 
     id = Column(String, primary_key=True)
-    passenger_id = Column(String, ForeignKey("passengers.id"), nullable=False, index=True)
+    passenger_id = Column(String, nullable=False, index=True)
     
     contact_name = Column(String, nullable=False)
     phone_number = Column(String, nullable=False)
@@ -369,8 +353,6 @@ class EmergencyContact(Base):
     created_at = Column(DateTime, default=get_ist_now)
     updated_at = Column(DateTime, default=get_ist_now, onupdate=get_ist_now)
 
-    passenger = relationship("Passenger", back_populates="emergency_contacts")
-    
     def to_dict(self):
         return {
             "id": self.id,
@@ -462,7 +444,7 @@ class SupportTicket(Base):
     __tablename__ = "support_tickets"
 
     id = Column(String, primary_key=True)
-    passenger_id = Column(String, ForeignKey("passengers.id"), nullable=False, index=True)
+    passenger_id = Column(String, nullable=False, index=True)
     
     subject = Column(String, nullable=False)
     description = Column(Text, nullable=False)
@@ -477,7 +459,6 @@ class SupportTicket(Base):
     updated_at = Column(DateTime, default=get_ist_now, onupdate=get_ist_now)
     resolved_at = Column(DateTime, nullable=True)
     
-    passenger = relationship("Passenger", back_populates="support_tickets")
     messages = relationship("TicketMessage", back_populates="ticket", cascade="all, delete-orphan")
 
     @property
@@ -538,7 +519,7 @@ class AccessibilitySetting(Base):
     __tablename__ = "accessibility_settings"
 
     id = Column(String, primary_key=True)
-    passenger_id = Column(String, ForeignKey("passengers.id"), nullable=False, unique=True, index=True)
+    passenger_id = Column(String, nullable=False, unique=True, index=True)
     
     text_size = Column(String, default="normal")  # "small", "normal", "large", "extra_large"
     high_contrast = Column(Boolean, default=False)
@@ -553,8 +534,6 @@ class AccessibilitySetting(Base):
     created_at = Column(DateTime, default=get_ist_now)
     updated_at = Column(DateTime, default=get_ist_now, onupdate=get_ist_now)
 
-    passenger = relationship("Passenger", back_populates="accessibility_settings")
-    
     def to_dict(self):
         return {
             "id": self.id,

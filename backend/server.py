@@ -143,6 +143,12 @@ DRIVER_UPLOAD_STORAGE_BACKEND = (
     or os.environ.get("UPLOAD_STORAGE_BACKEND")
     or DEFAULT_DRIVER_UPLOAD_STORAGE_BACKEND
 ).strip().lower()
+DEFAULT_PASSENGER_UPLOAD_STORAGE_BACKEND = "s3" if UPLOADS_OBJECT_BUCKET else "mongo"
+PASSENGER_UPLOAD_STORAGE_BACKEND = (
+    os.environ.get("PASSENGER_UPLOAD_STORAGE_BACKEND")
+    or os.environ.get("UPLOAD_STORAGE_BACKEND")
+    or DEFAULT_PASSENGER_UPLOAD_STORAGE_BACKEND
+).strip().lower()
 
 # MongoDB connection
 mongo_url = settings.mongo_url
@@ -1064,6 +1070,7 @@ class Gender(str, Enum):
 
 class BookingStatus(str, Enum):
     PENDING = "pending"
+    SCHEDULED = "scheduled"
     SEARCHING = "searching"
     ACCEPTED = "accepted"
     DRIVER_ARRIVED = "driver_arrived"
@@ -4988,6 +4995,12 @@ async def stored_upload_response(
         return FileResponse(target, filename=download_name)
     return FileResponse(target, media_type=media_type)
 
+def without_upload_storage_fields(document: Dict[str, Any]) -> Dict[str, Any]:
+    result = without_mongo_id(document)
+    for internal_key in ["storage_backend", "storage_id", "storage_key", "storage_bucket", "path"]:
+        result.pop(internal_key, None)
+    return result
+
 DRIVER_DOCUMENT_TYPES: Dict[str, Dict[str, Any]] = {
     "driver_license": {"label": "Driver License", "expires": True, "renewal_window_days": 30},
     "vehicle_registration": {"label": "Vehicle Registration", "expires": True, "renewal_window_days": 30},
@@ -5395,30 +5408,98 @@ async def upload_passenger_profile_photo(
     current_user: dict = Depends(get_current_user),
 ):
     require_passenger(current_user)
-    saved = await save_upload_file(file, PASSENGER_PROFILE_PHOTO_DIR, current_user["id"])
+    saved = await save_upload_file(
+        file,
+        PASSENGER_PROFILE_PHOTO_DIR / current_user["id"],
+        current_user["id"],
+        storage_backend=PASSENGER_UPLOAD_STORAGE_BACKEND,
+    )
     photo_url = f"{str(request.base_url).rstrip('/')}/api/passengers/profile/photo/{saved['filename']}"
     now = get_ist_now()
+    existing = await db.passenger_profiles.find_one(
+        {"user_id": current_user["id"]},
+        {
+            "_id": 0,
+            "user_id": 1,
+            "profile_photo_filename": 1,
+            "profile_photo_storage_backend": 1,
+            "profile_photo_storage_id": 1,
+            "profile_photo_storage_key": 1,
+            "storage_bucket": 1,
+        },
+    )
     await db.passenger_profiles.update_one(
         {"user_id": current_user["id"]},
         {
             "$set": {
                 "profile_photo": photo_url,
                 "profile_photo_filename": saved["filename"],
+                "profile_photo_storage_backend": saved.get("storage_backend"),
+                "profile_photo_storage_id": saved.get("storage_id"),
+                "profile_photo_storage_key": saved.get("storage_key"),
+                "storage_bucket": saved.get("storage_bucket"),
                 "updated_at": now,
             },
             "$setOnInsert": {"user_id": current_user["id"], "created_at": now},
         },
         upsert=True,
     )
+    if existing and (
+        existing.get("profile_photo_filename") != saved["filename"]
+        or existing.get("profile_photo_storage_id") != saved.get("storage_id")
+        or existing.get("profile_photo_storage_key") != saved.get("storage_key")
+    ):
+        existing_photo_dir = PASSENGER_PROFILE_PHOTO_DIR / current_user["id"]
+        existing_filename = Path(str(existing.get("profile_photo_filename") or "")).name
+        if (
+            existing_filename
+            and not existing.get("profile_photo_storage_backend")
+            and (PASSENGER_PROFILE_PHOTO_DIR / existing_filename).exists()
+        ):
+            existing_photo_dir = PASSENGER_PROFILE_PHOTO_DIR
+        await delete_stored_upload(
+            existing,
+            existing_photo_dir,
+            stored_filename_field="profile_photo_filename",
+            storage_backend_field="profile_photo_storage_backend",
+            storage_id_field="profile_photo_storage_id",
+            storage_key_field="profile_photo_storage_key",
+        )
     return {"profile_photo": photo_url}
 
 @api_router.get("/passengers/profile/photo/{filename}")
 async def get_passenger_profile_photo(filename: str):
     safe_name = Path(filename).name
-    target = PASSENGER_PROFILE_PHOTO_DIR / safe_name
-    if not target.exists() or not target.is_file():
+    document = await db.passenger_profiles.find_one(
+        {"profile_photo_filename": safe_name},
+        {
+            "_id": 0,
+            "user_id": 1,
+            "profile_photo_filename": 1,
+            "profile_photo_storage_backend": 1,
+            "profile_photo_storage_id": 1,
+            "profile_photo_storage_key": 1,
+            "storage_bucket": 1,
+        },
+    )
+    if not document:
         raise HTTPException(status_code=404, detail="Profile photo not found")
-    return FileResponse(target)
+    target_dir = PASSENGER_PROFILE_PHOTO_DIR / document["user_id"]
+    if (
+        not document.get("profile_photo_storage_backend")
+        and (PASSENGER_PROFILE_PHOTO_DIR / safe_name).exists()
+    ):
+        target_dir = PASSENGER_PROFILE_PHOTO_DIR
+    return await stored_upload_response(
+        document,
+        target_dir,
+        filename=safe_name,
+        stored_filename_field="profile_photo_filename",
+        storage_backend_field="profile_photo_storage_backend",
+        storage_id_field="profile_photo_storage_id",
+        storage_key_field="profile_photo_storage_key",
+        as_attachment=False,
+    )
 
 @api_router.delete("/passengers/profile/delete")
 async def request_passenger_account_deletion(current_user: dict = Depends(get_current_user)):
@@ -5494,7 +5575,7 @@ async def submit_passenger_kyc(
 async def get_passenger_documents(current_user: dict = Depends(get_current_user)):
     require_passenger(current_user)
     documents = await db.passenger_documents.find({"user_id": current_user["id"]}).sort("uploaded_at", -1).to_list(100)
-    return {"documents": [without_mongo_id(document) for document in documents]}
+    return {"documents": [without_upload_storage_fields(document) for document in documents]}
 
 @api_router.post("/passengers/documents/upload")
 async def upload_passenger_document(
@@ -5505,7 +5586,12 @@ async def upload_passenger_document(
 ):
     require_passenger(current_user)
     doc_type = re.sub(r"[^a-zA-Z0-9_-]+", "_", document_type).strip("_") or "other"
-    saved = await save_upload_file(file, PASSENGER_DOCUMENTS_DIR / current_user["id"], doc_type)
+    saved = await save_upload_file(
+        file,
+        PASSENGER_DOCUMENTS_DIR / current_user["id"],
+        doc_type,
+        storage_backend=PASSENGER_UPLOAD_STORAGE_BACKEND,
+    )
     now = get_ist_now()
     document = {
         "id": f"doc-{uuid.uuid4()}",
@@ -5515,13 +5601,17 @@ async def upload_passenger_document(
         "stored_filename": saved["filename"],
         "content_type": saved["content_type"],
         "size": saved["size"],
+        "storage_backend": saved.get("storage_backend"),
+        "storage_id": saved.get("storage_id"),
+        "storage_key": saved.get("storage_key"),
+        "storage_bucket": saved.get("storage_bucket"),
         "download_url": f"{str(request.base_url).rstrip('/')}/api/passengers/documents/{saved['filename']}/download",
         "uploaded_at": now,
         "verified": False,
         "verification_status": "pending",
     }
     await db.passenger_documents.insert_one(document)
-    return without_mongo_id(document)
+    return without_upload_storage_fields(document)
 
 @api_router.get("/passengers/documents/{filename}/download")
 async def download_passenger_document(filename: str, current_user: dict = Depends(get_current_user)):
@@ -5529,10 +5619,12 @@ async def download_passenger_document(filename: str, current_user: dict = Depend
     document = await db.passenger_documents.find_one({"user_id": current_user["id"], "stored_filename": Path(filename).name})
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
-    target = PASSENGER_DOCUMENTS_DIR / current_user["id"] / document["stored_filename"]
-    if not target.exists() or not target.is_file():
-        raise HTTPException(status_code=404, detail="Document file not found")
-    return FileResponse(target, filename=document.get("filename") or document["stored_filename"])
+    return await stored_upload_response(
+        document,
+        PASSENGER_DOCUMENTS_DIR / current_user["id"],
+        filename=document.get("filename") or document.get("stored_filename"),
+        as_attachment=True,
+    )
 
 @api_router.delete("/passengers/documents/{document_id}")
 async def delete_passenger_document(document_id: str, current_user: dict = Depends(get_current_user)):
@@ -5541,11 +5633,7 @@ async def delete_passenger_document(document_id: str, current_user: dict = Depen
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
     await db.passenger_documents.delete_one({"user_id": current_user["id"], "id": document_id})
-    stored_filename = document.get("stored_filename")
-    if stored_filename:
-        target = PASSENGER_DOCUMENTS_DIR / current_user["id"] / Path(stored_filename).name
-        if target.exists() and target.is_file():
-            target.unlink()
+    await delete_stored_upload(document, PASSENGER_DOCUMENTS_DIR / current_user["id"])
     return {"success": True, "message": "Document deleted"}
 
 @api_router.get("/passengers/receipts")
@@ -5601,16 +5689,26 @@ async def upload_support_attachment(
     current_user: dict = Depends(get_current_user),
 ):
     require_passenger(current_user)
-    saved = await save_upload_file(file, SUPPORT_ATTACHMENTS_DIR / current_user["id"], "support")
+    saved = await save_upload_file(
+        file,
+        SUPPORT_ATTACHMENTS_DIR / current_user["id"],
+        "support",
+        storage_backend=PASSENGER_UPLOAD_STORAGE_BACKEND,
+    )
     attachment_url = f"{str(request.base_url).rstrip('/')}/api/passengers/support/attachments/{saved['filename']}"
     await db.support_attachments.insert_one(
         {
             "id": f"att-{uuid.uuid4()}",
             "user_id": current_user["id"],
+            "role": "passenger",
             "stored_filename": saved["filename"],
             "filename": saved["original_filename"],
             "content_type": saved["content_type"],
             "size": saved["size"],
+            "storage_backend": saved.get("storage_backend"),
+            "storage_id": saved.get("storage_id"),
+            "storage_key": saved.get("storage_key"),
+            "storage_bucket": saved.get("storage_bucket"),
             "url": attachment_url,
             "created_at": get_ist_now(),
         }
@@ -5625,10 +5723,12 @@ async def download_support_attachment(filename: str, current_user: dict = Depend
     )
     if not attachment:
         raise HTTPException(status_code=404, detail="Attachment not found")
-    target = SUPPORT_ATTACHMENTS_DIR / current_user["id"] / attachment["stored_filename"]
-    if not target.exists() or not target.is_file():
-        raise HTTPException(status_code=404, detail="Attachment file not found")
-    return FileResponse(target, filename=attachment.get("filename") or attachment["stored_filename"])
+    return await stored_upload_response(
+        attachment,
+        SUPPORT_ATTACHMENTS_DIR / current_user["id"],
+        filename=attachment.get("filename") or attachment.get("stored_filename"),
+        as_attachment=True,
+    )
 
 @api_router.post("/passengers/subscription/cancel")
 async def cancel_passenger_subscription(current_user: dict = Depends(get_current_user)):
@@ -9391,11 +9491,12 @@ async def cancel_booking(
     if (
         current_user["role"] == UserRole.PASSENGER
         and current_user["id"] == booking.get("passenger_id")
-        and booking["status"] != BookingStatus.PENDING
+        and enum_response_value(booking["status"])
+        not in {BookingStatus.PENDING.value, BookingStatus.SCHEDULED.value}
     ):
         raise HTTPException(
             status_code=400,
-            detail="Passenger cancellation is allowed only while booking is pending.",
+            detail="Passenger cancellation is allowed only while booking is pending or scheduled.",
         )
     
     # Only passenger or assigned driver can cancel

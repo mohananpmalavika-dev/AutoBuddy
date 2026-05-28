@@ -47,7 +47,7 @@ class TestPassengerRatings:
         for i in range(3):
             rating_data = {
                 "driver_id": f"driver-{i}",
-                "score": 4 + i,
+                "score": min(5, 4 + i),
                 "feedback": f"Good ride #{i}"
             }
             client.post(

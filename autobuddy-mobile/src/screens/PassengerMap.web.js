@@ -44,7 +44,7 @@ import SavedPlacesQuickSelect from '../components/SavedPlacesQuickSelect';
 import EmergencyContactsPanel from '../components/EmergencyContactsPanel';
 import AccessibilityPanel from '../components/AccessibilityPanel';
 import AccessibilityQuickAccess from '../components/AccessibilityQuickAccess';
-import ScheduledRidesPanel from '../components/ScheduledRidesPanel';
+import PassengerScheduledRidesPanel from '../components/PassengerScheduledRidesPanel';
 import PassengerProfilePanel from '../components/PassengerProfilePanel';
 import PassengerKYCPanel from '../components/PassengerKYCPanel';
 import PassengerDocumentsPanel from '../components/PassengerDocumentsPanel';
@@ -70,33 +70,45 @@ import { validateScheduledPickup } from '../lib/scheduling';
 
 const LOGO_SOURCE = require('../../assets/images/autobuddy-logo.jpg');
 const PASSENGER_MENU_OPTIONS = [
-  { key: 'ride' },
-  { key: 'drivers' },
-  { key: 'favorites' },
-  { key: 'safety' },
-  { key: 'wallet' },
-  { key: 'spin' },
-  { key: 'history' },
-  { key: 'notifications' },
-  { key: 'promo' },
-  { key: 'support' },
-  { key: 'payment' },
-  { key: 'ratings' },
-  { key: 'preferences' },
-  { key: 'places' },
-  { key: 'emergency' },
-  { key: 'accessibility' },
-  { key: 'scheduled' },
-  { key: 'profile' },
-  { key: 'kyc' },
-  { key: 'documents' },
-  { key: 'receipts' },
-  { key: 'subscription' },
+  { key: 'ride', icon: '🚕' },
+  { key: 'drivers', icon: '🧭' },
+  { key: 'favorites', icon: '★' },
+  { key: 'safety', icon: '🛡' },
+  { key: 'wallet', icon: '₹' },
+  { key: 'spin', icon: '🎁' },
+  { key: 'history', icon: '↺' },
+  { key: 'notifications', icon: '🔔' },
+  { key: 'promo', icon: '%' },
+  { key: 'support', icon: '?' },
+  { key: 'payment', icon: '💳' },
+  { key: 'ratings', icon: '★' },
+  { key: 'preferences', icon: '⚙' },
+  { key: 'places', icon: '📍' },
+  { key: 'emergency', icon: 'SOS' },
+  { key: 'accessibility', icon: '♿' },
+  { key: 'scheduled', icon: '📅' },
+  { key: 'profile', icon: '👤' },
+  { key: 'kyc', icon: 'ID' },
+  { key: 'documents', icon: '📄' },
+  { key: 'receipts', icon: '🧾' },
+  { key: 'subscription', icon: '✓' },
 ];
 const PRIMARY_PASSENGER_MENU_KEY = 'ride';
-const DASHBOARD_PASSENGER_MENU_KEYS = new Set([PRIMARY_PASSENGER_MENU_KEY]);
-const SECONDARY_PASSENGER_MENU_OPTIONS = PASSENGER_MENU_OPTIONS.filter(
-  (menu) => !DASHBOARD_PASSENGER_MENU_KEYS.has(menu.key),
+const buildPassengerMenuOptions = (keys) =>
+  keys.map((key) => PASSENGER_MENU_OPTIONS.find((menu) => menu.key === key)).filter(Boolean);
+const PINNED_PASSENGER_MENU_OPTIONS = buildPassengerMenuOptions(['drivers', 'favorites', 'safety', 'wallet']);
+const SECONDARY_PASSENGER_MENU_GROUPS = [
+  { key: 'trip', title: 'Trip', keys: ['scheduled', 'history', 'ratings', 'receipts'] },
+  { key: 'deals', title: 'Deals & Payment', keys: ['spin', 'promo', 'payment', 'subscription'] },
+  { key: 'account', title: 'Account', keys: ['profile', 'kyc', 'documents', 'preferences', 'places', 'accessibility'] },
+  { key: 'help', title: 'Help', keys: ['notifications', 'support', 'emergency'] },
+].map((section) => ({
+  ...section,
+  options: buildPassengerMenuOptions(section.keys),
+})).filter((section) => section.options.length > 0);
+const PASSENGER_MENU_BY_KEY = PASSENGER_MENU_OPTIONS.reduce(
+  (acc, menu) => ({ ...acc, [menu.key]: menu }),
+  {},
 );
 const DEFAULT_CITY_LOCATION = {
   latitude: 13.0827,
@@ -773,13 +785,74 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     setPassengerAccessibility(settings || null);
   }, []);
 
+  const closeNotificationCenter = useCallback(() => {
+    setShowNotificationCenter(false);
+    setActivePassengerMenu((currentMenu) =>
+      currentMenu === 'notifications' ? PRIMARY_PASSENGER_MENU_KEY : currentMenu,
+    );
+  }, []);
+
+  const handleNotificationPress = useCallback(
+    (notification) => {
+      if (notification?.type === 'booking_accepted' || notification?.bookingId) {
+        setActivePassengerMenu(PRIMARY_PASSENGER_MENU_KEY);
+        setShowNotificationCenter(false);
+        return;
+      }
+      closeNotificationCenter();
+    },
+    [closeNotificationCenter],
+  );
+
   const handleMenuSelection = useCallback(
     (menuKey, label) => {
       setActivePassengerMenu(menuKey);
       setShowPassengerMenus(false);
+      setShowNotificationCenter(menuKey === 'notifications');
       triggerA11yFeedback(`${label || 'Menu'} selected`);
     },
     [triggerA11yFeedback],
+  );
+
+  const getMenuLabel = useCallback(
+    (menu) => {
+      const baseLabel = menuLabels[menu?.key] || menu?.key || t.menu;
+      if (menu?.key === 'notifications' && unreadCount > 0) {
+        return `${baseLabel} (${unreadCount})`;
+      }
+      return baseLabel;
+    },
+    [menuLabels, t.menu, unreadCount],
+  );
+
+  const renderPassengerMenuChip = useCallback(
+    (menu, variant = 'secondary') => {
+      const label = getMenuLabel(menu);
+      const selected = activePassengerMenu === menu.key;
+      return (
+        <TouchableOpacity
+          key={menu.key}
+          style={[
+            styles.menuChip,
+            variant === 'pinned' && styles.pinnedMenuChip,
+            selected && styles.menuChipActive,
+          ]}
+          onPress={() => handleMenuSelection(menu.key, label)}
+          accessibilityRole="tab"
+          accessibilityLabel={label}
+          accessibilityState={{ selected }}>
+          <View style={[styles.menuIconBadge, selected && styles.menuIconBadgeActive]}>
+            <Text style={[styles.menuIconText, selected && styles.menuIconTextActive]}>{menu.icon || '•'}</Text>
+          </View>
+          <Text
+            style={[styles.menuChipText, selected && styles.menuChipTextActive]}
+            numberOfLines={1}>
+            {label}
+          </Text>
+        </TouchableOpacity>
+      );
+    },
+    [activePassengerMenu, getMenuLabel, handleMenuSelection],
   );
 
   const openRideEmergencyPanel = useCallback(() => {
@@ -1740,11 +1813,32 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                   styles.primaryMenuButton,
                   activePassengerMenu === PRIMARY_PASSENGER_MENU_KEY && styles.primaryMenuButtonActive,
                 ]}
+                accessibilityRole="tab"
+                accessibilityLabel={t.rideBooking}
+                accessibilityState={{ selected: activePassengerMenu === PRIMARY_PASSENGER_MENU_KEY }}
                 onPress={() => handleMenuSelection(PRIMARY_PASSENGER_MENU_KEY, t.rideBooking)}>
-                <Text style={styles.primaryMenuButtonText}>{t.rideBooking}</Text>
+                <View style={styles.primaryMenuButtonContent}>
+                  <View
+                    style={[
+                      styles.menuIconBadge,
+                      activePassengerMenu === PRIMARY_PASSENGER_MENU_KEY && styles.menuIconBadgeActive,
+                    ]}>
+                    <Text
+                      style={[
+                        styles.menuIconText,
+                        activePassengerMenu === PRIMARY_PASSENGER_MENU_KEY && styles.menuIconTextActive,
+                      ]}>
+                      {PASSENGER_MENU_BY_KEY.ride.icon}
+                    </Text>
+                  </View>
+                  <Text style={styles.primaryMenuButtonText}>{t.rideBooking}</Text>
+                </View>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.menuToggleButton}
+                accessibilityRole="button"
+                accessibilityLabel={showPassengerMenus ? t.hideMenus : t.otherMenus}
+                accessibilityState={{ expanded: showPassengerMenus }}
                 onPress={() =>
                   setShowPassengerMenus((prev) => {
                     const next = !prev;
@@ -1758,17 +1852,19 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               </TouchableOpacity>
             </View>
 
+            <View style={styles.pinnedMenuRow}>
+              {PINNED_PASSENGER_MENU_OPTIONS.map((menu) => renderPassengerMenuChip(menu, 'pinned'))}
+            </View>
+
             {showPassengerMenus && (
-              <View style={styles.secondaryMenuRow}>
-                {SECONDARY_PASSENGER_MENU_OPTIONS.map((menu) => (
-                  <TouchableOpacity
-                    key={menu.key}
-                    style={[styles.menuChip, activePassengerMenu === menu.key && styles.menuChipActive]}
-                    onPress={() => handleMenuSelection(menu.key, menuLabels[menu.key] || menu.key)}>
-                    <Text style={[styles.menuChipText, activePassengerMenu === menu.key && styles.menuChipTextActive]}>
-                      {menuLabels[menu.key] || menu.key}
-                    </Text>
-                  </TouchableOpacity>
+              <View style={styles.secondaryMenuPanel}>
+                {SECONDARY_PASSENGER_MENU_GROUPS.map((section) => (
+                  <View key={section.key} style={styles.menuGroup}>
+                    <Text style={styles.menuGroupTitle}>{section.title}</Text>
+                    <View style={styles.secondaryMenuRow}>
+                      {section.options.map((menu) => renderPassengerMenuChip(menu))}
+                    </View>
+                  </View>
                 ))}
               </View>
             )}
@@ -1776,10 +1872,13 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             {activePassengerMenu !== PRIMARY_PASSENGER_MENU_KEY && (
               <View style={styles.activeMenuInfoRow}>
                 <Text style={styles.activeMenuInfoText}>
-                  {menuLabels[activePassengerMenu] || t.menu}
+                  {getMenuLabel(PASSENGER_MENU_BY_KEY[activePassengerMenu]) || t.menu}
                 </Text>
                 <TouchableOpacity
                   style={styles.menuToggleButton}
+                  accessibilityRole="tab"
+                  accessibilityLabel={t.backToRide}
+                  accessibilityState={{ selected: false }}
                   onPress={() => handleMenuSelection(PRIMARY_PASSENGER_MENU_KEY, t.rideBooking)}>
                   <Text style={styles.menuToggleButtonText}>{t.backToRide}</Text>
                 </TouchableOpacity>
@@ -2500,7 +2599,6 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               </View>
             )}
 
-            {activePassengerMenu === 'notifications' && <NotificationCenter token={token} onClose={() => setShowNotificationCenter(false)} />}
             {activePassengerMenu === 'promo' && (
               <PromoCodePanel
                 token={token}
@@ -2524,7 +2622,16 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             {activePassengerMenu === 'accessibility' && (
               <AccessibilityPanel token={token} onSettingsChange={handleAccessibilityChange} />
             )}
-            {activePassengerMenu === 'scheduled' && <ScheduledRidesPanel token={token} />}
+            {activePassengerMenu === 'scheduled' && (
+              <PassengerScheduledRidesPanel
+                token={token}
+                onOpenRide={() => handleMenuSelection(PRIMARY_PASSENGER_MENU_KEY, t.rideBooking)}
+                onRideCancelled={async () => {
+                  await refreshActiveBooking();
+                  await refreshPassengerBookings({ silent: true });
+                }}
+              />
+            )}
             {activePassengerMenu === 'profile' && <PassengerProfilePanel token={token} />}
             {activePassengerMenu === 'kyc' && <PassengerKYCPanel token={token} />}
             {activePassengerMenu === 'documents' && <PassengerDocumentsPanel token={token} />}
@@ -2538,14 +2645,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           <View style={styles.notificationCenterOverlay}>
             <NotificationCenter
               token={token}
-              onClose={() => setShowNotificationCenter(false)}
-              onNotificationPress={(notification) => {
-                // Navigate to relevant screen based on notification type
-                if (notification.type === 'booking_accepted' || notification.bookingId) {
-                  setActivePassengerMenu(PRIMARY_PASSENGER_MENU_KEY);
-                }
-                setShowNotificationCenter(false);
-              }}
+              onClose={closeNotificationCenter}
+              onNotificationPress={handleNotificationPress}
             />
           </View>
         )}
@@ -2684,6 +2785,12 @@ const styles = StyleSheet.create({
     borderColor: COLORS.primaryDark,
     backgroundColor: '#D5ECD8',
   },
+  primaryMenuButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
   primaryMenuButtonText: { color: COLORS.primaryDark, fontWeight: '800', textAlign: 'center' },
   menuToggleButton: {
     borderWidth: 1,
@@ -2694,7 +2801,29 @@ const styles = StyleSheet.create({
     backgroundColor: '#F6FAF7',
   },
   menuToggleButtonText: { color: '#355243', fontWeight: '700' },
-  secondaryMenuRow: { flexDirection: 'row', gap: 8, marginBottom: 10, flexWrap: 'wrap' },
+  pinnedMenuRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 10,
+  },
+  secondaryMenuPanel: {
+    gap: 10,
+    marginBottom: 10,
+  },
+  menuGroup: {
+    borderTopWidth: 1,
+    borderTopColor: '#DDE8E1',
+    paddingTop: 8,
+  },
+  menuGroupTitle: {
+    color: COLORS.textMuted,
+    fontSize: 11,
+    fontWeight: '800',
+    marginBottom: 6,
+    textTransform: 'uppercase',
+  },
+  secondaryMenuRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   activeMenuInfoRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2706,13 +2835,46 @@ const styles = StyleSheet.create({
   menuChip: {
     borderWidth: 1,
     borderColor: '#CBD9D0',
-    borderRadius: 999,
-    paddingHorizontal: 12,
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    maxWidth: '100%',
+    minHeight: 40,
+    paddingHorizontal: 9,
     paddingVertical: 7,
     backgroundColor: '#F6FAF7',
   },
+  pinnedMenuChip: {
+    flexGrow: 1,
+    flexBasis: '45%',
+  },
   menuChipActive: { borderColor: COLORS.primary, backgroundColor: '#E3F2E8' },
-  menuChipText: { color: '#355243', fontWeight: '700' },
+  menuIconBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EAF2ED',
+  },
+  menuIconBadgeActive: {
+    backgroundColor: COLORS.primary,
+  },
+  menuIconText: {
+    color: '#355243',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  menuIconTextActive: {
+    color: '#FFFFFF',
+  },
+  menuChipText: {
+    color: '#355243',
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: '700',
+  },
   menuChipTextActive: { color: COLORS.primaryDark },
   pickupLabelRow: {
     flexDirection: 'row',

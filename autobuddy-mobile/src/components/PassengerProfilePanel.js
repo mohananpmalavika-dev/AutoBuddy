@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { apiRequest } from '../lib/api';
+import { appendPickerAssetToFormData } from '../lib/uploadFormData';
 import { COLORS, SHADOWS } from '../theme';
 
 /**
@@ -99,11 +100,13 @@ export default function PassengerProfilePanel({ token, loading: parentLoading = 
       setError('');
 
       const formData = new FormData();
-      formData.append('file', {
-        uri: asset.uri,
-        type: 'image/jpeg',
-        name: `profile-${Date.now()}.jpg`,
-      });
+      await appendPickerAssetToFormData(
+        formData,
+        'file',
+        asset,
+        'passenger-profile-photo.jpg',
+        'image/jpeg',
+      );
 
       const response = await apiRequest('/passengers/profile/photo', {
         token,
