@@ -18,6 +18,7 @@ import { COLORS, SHADOWS } from '../theme';
  *   - activeTab: driver dashboard tab key
  *   - onTabChange: (tabKey) => void
  *   - requestCount: number (pending requests)
+ *   - notificationCount: number (unread notifications)
  *   - isOnline: boolean
  *   - compact: boolean (use compact styling for web sidebar)
  */
@@ -25,12 +26,15 @@ export default function DriverTabBar({
   activeTab = 'requests',
   onTabChange,
   requestCount = 0,
+  notificationCount = 0,
   isOnline = false,
   compact = false,
 }) {
   const tabs = useMemo(() => [
     // Core Operation
     { key: 'requests', label: 'Ride Flow', icon: 'R', badge: requestCount > 0 ? requestCount : null },
+    { key: 'history', label: 'History', icon: 'L', badge: null },
+    { key: 'notifications', label: 'Notifications', icon: 'N', badge: notificationCount > 0 ? notificationCount : null },
     { key: 'earnings', label: 'Earnings', icon: 'E', badge: null },
     
     // Account Management
@@ -54,7 +58,7 @@ export default function DriverTabBar({
     // Preferences
     { key: 'settings', label: 'Settings', icon: '⚙️', badge: null },
     { key: 'actions', label: 'Actions', icon: '+', badge: null },
-  ], [requestCount]);
+  ], [notificationCount, requestCount]);
 
   const handleTabPress = useCallback((tabKey) => {
     if (typeof onTabChange === 'function') {

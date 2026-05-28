@@ -1,13 +1,13 @@
-import { useEffect, useCallback, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { useNotifications } from '../contexts/NotificationContext';
 import { notificationService } from '../lib/notificationService';
 
 /**
  * useNotificationManager - Initialize and manage notifications
- * Should be called once in root component (App.tsx or PassengerMap.web.js)
+ * Should be called once in a screen wrapped by NotificationProvider.
  *
  * @param {string} token - Auth token
- * @param {string} userId - Passenger user ID
+ * @param {string} userId - User ID
  * @returns {Object} - { loading, error, initialized }
  */
 export function useNotificationManager(token, userId) {
@@ -22,22 +22,38 @@ export function useNotificationManager(token, userId) {
     initializingRef.current = true;
 
     const handleIncomingNotification = (notificationData) => {
+      const safeNotification =
+        notificationData && typeof notificationData === 'object' ? notificationData : {};
+      const payloadData =
+        safeNotification.data && typeof safeNotification.data === 'object'
+          ? safeNotification.data
+          : {};
+
       addNotification({
-        type: notificationData.type || 'notification',
-        title: notificationData.title || 'New Update',
-        body: notificationData.body || '',
-        icon: notificationData.icon || '🔔',
-        severity: notificationData.severity || 'info',
-        bookingId: notificationData.booking_id || notificationData.bookingId,
-        driverId: notificationData.driver_id || notificationData.driverId,
-        data: notificationData,
+        ...safeNotification,
+        type: safeNotification.type || payloadData.type || 'notification',
+        title: safeNotification.title || 'New Update',
+        body: safeNotification.body || safeNotification.message || '',
+        icon: safeNotification.icon || payloadData.icon || 'N',
+        severity: safeNotification.severity || payloadData.severity || 'info',
+        bookingId:
+          safeNotification.booking_id ||
+          safeNotification.bookingId ||
+          payloadData.booking_id ||
+          payloadData.bookingId,
+        driverId:
+          safeNotification.driver_id ||
+          safeNotification.driverId ||
+          payloadData.driver_id ||
+          payloadData.driverId,
+        data: payloadData,
       });
 
       // Browser notification if permitted
       if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
         try {
-          new Notification(notificationData.title || 'AutoBuddy', {
-            body: notificationData.body || '',
+          new Notification(safeNotification.title || 'AutoBuddy', {
+            body: safeNotification.body || '',
             icon: '/favicon.ico',
           });
         } catch (e) {
@@ -49,7 +65,7 @@ export function useNotificationManager(token, userId) {
       if (typeof window !== 'undefined' && window.speechSynthesis) {
         try {
           const utterance = new SpeechSynthesisUtterance(
-            `${notificationData.title}. ${notificationData.body}`
+            `${safeNotification.title || 'AutoBuddy'}. ${safeNotification.body || ''}`
           );
           utterance.lang = 'en-IN';
           window.speechSynthesis.cancel();
@@ -60,8 +76,19 @@ export function useNotificationManager(token, userId) {
       }
     };
 
-    // Initialize notification service
+    // Initialize notification service and hydrate existing unread/read state.
     notificationService.initialize(token, handleIncomingNotification);
+    notificationService
+      .fetchNotifications(token, { limit: 40 })
+      .then((rows) => {
+        rows
+          .slice()
+          .reverse()
+          .forEach((notification) => addNotification(notification));
+      })
+      .catch((error) => {
+        console.warn('Error fetching initial notifications:', error);
+      });
     setIsInitialized(true);
 
     // Request browser notification permission if needed

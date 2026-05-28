@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -21,6 +21,7 @@ import { COLORS, SHADOWS } from '../theme';
  *   - pricingRules: {base_fare, per_km_rate, surge_multiplier, night_multiplier, ...}
  *   - driverFareConfig: {base_fare, per_km_rate, ...} (driver's custom rates)
  *   - loading: boolean
+ *   - initialAction: 'summary' | 'withdraw'
  *   - onRequestReport: () => void
  *   - onRequestWithdraw: () => void
  */
@@ -29,11 +30,13 @@ export default function EarningsPanel({
   pricingRules = null,
   driverFareConfig = null,
   loading = false,
+  initialAction = 'summary',
   onRequestReport,
   onRequestWithdraw,
 }) {
   const [showFareDetails, setShowFareDetails] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState('');
+  const withdrawInputRef = useRef(null);
 
   const todayMetrics = useMemo(() => {
     if (!earnings) return null;
@@ -84,6 +87,16 @@ export default function EarningsPanel({
       nightMultiplier: driverFareConfig.night_multiplier || 1,
     };
   }, [driverFareConfig]);
+
+  useEffect(() => {
+    if (initialAction !== 'withdraw') {
+      return undefined;
+    }
+    const timer = setTimeout(() => {
+      withdrawInputRef.current?.focus?.();
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [initialAction]);
 
   if (!earnings && !pricingRules) {
     return (
@@ -161,6 +174,7 @@ export default function EarningsPanel({
         </TouchableOpacity>
       </View>
       <TextInput
+        ref={withdrawInputRef}
         style={styles.withdrawInput}
         value={withdrawAmount}
         onChangeText={setWithdrawAmount}

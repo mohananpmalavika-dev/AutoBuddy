@@ -1,48 +1,107 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
 
 /**
- * NotificationContext - Global state for passenger notifications
- * Manages real-time alerts for booking updates, arrivals, completions, etc.
+ * NotificationContext - Global state for user notifications.
+ * Manages real-time alerts for booking updates, driver notices, support, and payouts.
  */
 
 const NotificationContext = createContext(null);
 
+function getNotificationId(notification = {}) {
+  return String(
+    notification.id ||
+      notification._id ||
+      notification.notification_id ||
+      notification.data?.id ||
+      notification.data?.notification_id ||
+      `notif-${Date.now()}-${Math.random()}`,
+  );
+}
+
+function normalizeNotification(notification = {}) {
+  const data = notification.data && typeof notification.data === 'object' ? notification.data : {};
+  const readProvided = notification.read !== undefined || notification.is_read !== undefined;
+  const createdAt = notification.created_at || data.created_at;
+  const timestamp = notification.timestamp || data.timestamp || createdAt || new Date().toISOString();
+
+  return {
+    ...notification,
+    id: getNotificationId(notification),
+    type: notification.type || data.type || 'notification',
+    title: notification.title || data.title || 'New Update',
+    body: notification.body || notification.message || data.body || data.message || '',
+    icon: notification.icon || data.icon || 'N',
+    severity: notification.severity || data.severity || 'info',
+    timestamp,
+    created_at: createdAt || timestamp,
+    read: readProvided ? Boolean(notification.read ?? notification.is_read) : false,
+    bookingId:
+      notification.bookingId ||
+      notification.booking_id ||
+      data.bookingId ||
+      data.booking_id ||
+      null,
+    driverId:
+      notification.driverId ||
+      notification.driver_id ||
+      data.driverId ||
+      data.driver_id ||
+      null,
+    data,
+    readProvided,
+  };
+}
+
+function sortNotifications(list) {
+  return [...list].sort((left, right) => {
+    const leftTime = new Date(left.timestamp || left.created_at || 0).getTime();
+    const rightTime = new Date(right.timestamp || right.created_at || 0).getTime();
+    return rightTime - leftTime;
+  });
+}
+
 export function NotificationProvider({ children }) {
   const [notifications, setNotifications] = useState([]);
-  const [unreadCount, setUnreadCount] = useState(0);
   const [isInitialized, setIsInitialized] = useState(false);
+  const unreadCount = useMemo(
+    () => notifications.filter((notification) => !notification.read).length,
+    [notifications],
+  );
 
-  // Add a new notification
+  // Add or update a notification from socket, polling, or initial hydration.
   const addNotification = useCallback((notification) => {
-    const id = `notif-${Date.now()}-${Math.random()}`;
-    const newNotif = {
-      id,
-      timestamp: new Date(),
-      read: false,
-      ...notification,
-    };
+    const normalized = normalizeNotification(notification);
 
-    setNotifications((prev) => [newNotif, ...prev]);
-    setUnreadCount((prev) => prev + 1);
+    setNotifications((prev) => {
+      const existing = prev.find((item) => String(item.id) === String(normalized.id));
+      if (!existing) {
+        const nextNotification = { ...normalized };
+        delete nextNotification.readProvided;
+        return sortNotifications([nextNotification, ...prev]);
+      }
 
-    // Auto-dismiss info notifications after 5 seconds
-    if (notification.type === 'info') {
-      setTimeout(() => {
-        removeNotification(id);
-      }, 5000);
-    }
+      const nextRead = normalized.readProvided ? normalized.read : existing.read;
+      const nextNotification = { ...normalized };
+      delete nextNotification.readProvided;
+      return sortNotifications(
+        prev.map((item) =>
+          String(item.id) === String(normalized.id)
+            ? { ...item, ...nextNotification, read: nextRead }
+            : item,
+        ),
+      );
+    });
 
-    return id;
+    return normalized.id;
   }, []);
 
   // Mark notification as read
   const markAsRead = useCallback((notificationId) => {
     setNotifications((prev) =>
       prev.map((notif) =>
-        notif.id === notificationId ? { ...notif, read: true } : notif
+        String(notif.id) === String(notificationId) ? { ...notif, read: true } : notif
       )
     );
-    setUnreadCount((prev) => Math.max(0, prev - 1));
   }, []);
 
   // Mark all as read
@@ -50,18 +109,16 @@ export function NotificationProvider({ children }) {
     setNotifications((prev) =>
       prev.map((notif) => ({ ...notif, read: true }))
     );
-    setUnreadCount(0);
   }, []);
 
   // Remove a notification
   const removeNotification = useCallback((notificationId) => {
-    setNotifications((prev) => prev.filter((notif) => notif.id !== notificationId));
+    setNotifications((prev) => prev.filter((notif) => String(notif.id) !== String(notificationId)));
   }, []);
 
   // Remove all notifications
   const clearAll = useCallback(() => {
     setNotifications([]);
-    setUnreadCount(0);
   }, []);
 
   // Get notifications by type (e.g., 'booking', 'system')

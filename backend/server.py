@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Request, Response, UploadFile, File, Form
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Request, Response, UploadFile, File, Form, Query
 from fastapi.exceptions import RequestValidationError
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import JSONResponse, FileResponse
@@ -31,6 +31,8 @@ import random
 import re
 from urllib.parse import urlparse, parse_qs
 from cryptography.fernet import Fernet
+from bson import ObjectId
+from bson.errors import InvalidId
 from app.core.config import get_settings
 from app.db.client import create_mongo_client, create_database
 from app.db.retry import retry_on_db_error
@@ -1613,6 +1615,8 @@ class FavoriteDriverToggleRequest(BaseModel):
 
 class UserBlockToggleRequest(BaseModel):
     is_blocked: bool = True
+    reason: Optional[str] = None
+    booking_id: Optional[str] = None
 
 class RouteEstimateRequest(BaseModel):
     pickup_location: Location
@@ -3410,7 +3414,9 @@ async def send_fcm_push(push_token: str, title: str, body: str, data: Optional[D
 async def notify_user(user_id: str, title: str, body: str, data: Optional[Dict[str, Any]] = None):
     """Send in-app realtime notification and optional push notification."""
     now = get_ist_now()
+    notification_id = str(uuid.uuid4())
     payload = {
+        "id": notification_id,
         "title": title,
         "body": body,
         "data": data or {},
@@ -3419,11 +3425,15 @@ async def notify_user(user_id: str, title: str, body: str, data: Optional[Dict[s
 
     await db.notifications.insert_one(
         {
-            "id": str(uuid.uuid4()),
+            "id": notification_id,
             "user_id": user_id,
             "title": title,
             "body": body,
             "data": payload["data"],
+            "type": payload["data"].get("type", "notification"),
+            "severity": payload["data"].get("severity", "info"),
+            "icon": payload["data"].get("icon"),
+            "read": False,
             "created_at": now,
         }
     )
@@ -6926,6 +6936,52 @@ async def get_passenger_blocked_drivers(current_user: dict = Depends(get_current
     blocked_ids = await get_passenger_blocked_driver_ids(current_user["id"])
     return {"driver_ids": blocked_ids}
 
+
+def coerce_block_reason(reason: Optional[str]) -> str:
+    normalized = re.sub(r"\s+", " ", str(reason or "").strip())
+    return normalized[:240] if normalized else "Blocked by driver"
+
+
+def location_address_for_response(location: Optional[Dict[str, Any]]) -> Optional[str]:
+    if not isinstance(location, dict):
+        return None
+
+    address = str(location.get("address") or "").strip()
+    if address:
+        return address
+
+    latitude = location.get("latitude")
+    longitude = location.get("longitude")
+    if latitude is None or longitude is None:
+        return None
+    return f"{latitude}, {longitude}"
+
+
+def serialize_driver_blocked_passenger(
+    block_row: Dict[str, Any],
+    passenger: Optional[Dict[str, Any]],
+    booking: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    pickup_location = booking.get("pickup_location") if booking else None
+    drop_location = booking.get("drop_location") if booking else None
+    blocked_at = block_row.get("blocked_at") or block_row.get("created_at") or block_row.get("updated_at")
+
+    return {
+        "passenger_id": block_row.get("passenger_id"),
+        "passenger_name": passenger.get("name") if passenger else None,
+        "passenger_phone": passenger.get("phone") if passenger else None,
+        "blocked_at": blocked_at,
+        "updated_at": block_row.get("updated_at"),
+        "reason": block_row.get("reason") or block_row.get("block_reason") or "No reason recorded",
+        "last_booking_id": (booking or {}).get("id") or block_row.get("last_booking_id") or block_row.get("booking_id"),
+        "last_booking_status": (booking or {}).get("status"),
+        "last_ride_at": (booking or {}).get("created_at") or block_row.get("updated_at"),
+        "pickup_address": location_address_for_response(pickup_location),
+        "dropoff_address": location_address_for_response(drop_location),
+        "estimated_fare": (booking or {}).get("final_fare") or (booking or {}).get("estimated_fare"),
+    }
+
+
 @api_router.put("/drivers/blocked-passengers/{passenger_id}")
 async def toggle_blocked_passenger_for_driver(
     passenger_id: str,
@@ -6942,29 +6998,101 @@ async def toggle_blocked_passenger_for_driver(
         raise HTTPException(status_code=404, detail="Passenger not found")
 
     if payload.is_blocked:
+        now = get_ist_now()
+        reason = coerce_block_reason(payload.reason)
+        booking_id = str(payload.booking_id or "").strip() or None
+        booking_context = None
+        if booking_id:
+            booking_context = await db.bookings.find_one(
+                {
+                    "id": booking_id,
+                    "passenger_id": passenger_id,
+                    "$or": [
+                        {"driver_id": current_user["id"]},
+                        {"candidate_driver_ids": current_user["id"]},
+                        {"driver_id": None, "status": BookingStatus.PENDING},
+                    ],
+                }
+            )
+
+        block_update = {
+            "driver_id": current_user["id"],
+            "passenger_id": passenger_id,
+            "reason": reason,
+            "updated_at": now,
+            "source": "driver_dashboard",
+        }
+        if booking_context:
+            block_update["last_booking_id"] = booking_context.get("id")
+
         await db.driver_blocked_passengers.update_one(
             {"driver_id": current_user["id"], "passenger_id": passenger_id},
             {
-                "$set": {
-                    "driver_id": current_user["id"],
-                    "passenger_id": passenger_id,
-                    "updated_at": get_ist_now(),
-                },
-                "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": get_ist_now()},
+                "$set": block_update,
+                "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": now, "blocked_at": now},
             },
             upsert=True,
         )
-        return {"message": "Passenger blocked"}
+        await cache_delete(f"driver_pending_requests:{current_user['id']}")
+        return {"message": "Passenger blocked", "passenger_id": passenger_id}
 
     await db.driver_blocked_passengers.delete_one({"driver_id": current_user["id"], "passenger_id": passenger_id})
-    return {"message": "Passenger unblocked"}
+    await cache_delete(f"driver_pending_requests:{current_user['id']}")
+    return {"message": "Passenger unblocked", "passenger_id": passenger_id}
 
 @api_router.get("/drivers/blocked-passengers")
 async def get_driver_blocked_passengers(current_user: dict = Depends(get_current_user)):
     if current_user["role"] != UserRole.DRIVER:
         raise HTTPException(status_code=403, detail="Only drivers can view blocked passengers")
-    blocked_ids = await get_driver_blocked_passenger_ids(current_user["id"])
-    return {"passenger_ids": blocked_ids}
+    blocked_rows = await db.driver_blocked_passengers.find(
+        {"driver_id": current_user["id"]}
+    ).sort("updated_at", -1).to_list(500)
+    blocked_ids = [row.get("passenger_id") for row in blocked_rows if row.get("passenger_id")]
+    if not blocked_ids:
+        return {"passenger_ids": [], "passengers": []}
+
+    passengers = {
+        user["id"]: user
+        for user in await db.users.find({"id": {"$in": blocked_ids}}).to_list(None)
+    }
+
+    stored_booking_ids = [
+        row.get("last_booking_id") or row.get("booking_id")
+        for row in blocked_rows
+        if row.get("last_booking_id") or row.get("booking_id")
+    ]
+    related_booking_filters = [
+        {"driver_id": current_user["id"]},
+        {"candidate_driver_ids": current_user["id"]},
+    ]
+    if stored_booking_ids:
+        related_booking_filters.append({"id": {"$in": stored_booking_ids}})
+
+    related_bookings = await db.bookings.find(
+        {
+            "passenger_id": {"$in": blocked_ids},
+            "$or": related_booking_filters,
+        }
+    ).sort("created_at", -1).to_list(1000)
+    bookings_by_id = {booking.get("id"): booking for booking in related_bookings if booking.get("id")}
+    latest_booking_by_passenger = {}
+    for booking in related_bookings:
+        passenger_id_for_booking = booking.get("passenger_id")
+        if passenger_id_for_booking and passenger_id_for_booking not in latest_booking_by_passenger:
+            latest_booking_by_passenger[passenger_id_for_booking] = booking
+
+    passengers_payload = []
+    for row in blocked_rows:
+        passenger_id = row.get("passenger_id")
+        if not passenger_id:
+            continue
+        booking_id = row.get("last_booking_id") or row.get("booking_id")
+        booking = bookings_by_id.get(booking_id) or latest_booking_by_passenger.get(passenger_id)
+        passengers_payload.append(
+            serialize_driver_blocked_passenger(row, passengers.get(passenger_id), booking)
+        )
+
+    return {"passenger_ids": blocked_ids, "passengers": passengers_payload}
 
 @api_router.get("/passengers/favorite-drivers")
 async def get_favorite_drivers(
@@ -8519,12 +8647,98 @@ async def register_push_token(payload: PushTokenRegister, current_user: dict = D
     return {"message": "Push token registered"}
 
 
+def serialize_notification(row: Dict[str, Any]) -> Dict[str, Any]:
+    data = row.get("data") if isinstance(row.get("data"), dict) else {}
+    created_at = row.get("created_at") or row.get("timestamp") or get_ist_now()
+    if isinstance(created_at, datetime):
+        created_at_value = created_at.isoformat()
+    else:
+        created_at_value = str(created_at)
+    timestamp = row.get("timestamp") or created_at_value
+    if isinstance(timestamp, datetime):
+        timestamp = timestamp.isoformat()
+
+    notification_id = str(row.get("id") or row.get("_id") or "")
+    body = row.get("body") or row.get("message") or data.get("body") or data.get("message") or ""
+
+    return {
+        "_id": str(row.get("_id")) if row.get("_id") is not None else None,
+        "id": notification_id,
+        "user_id": row.get("user_id"),
+        "title": row.get("title") or data.get("title") or "Notification",
+        "body": body,
+        "message": body,
+        "type": row.get("type") or data.get("type") or "notification",
+        "severity": row.get("severity") or data.get("severity") or "info",
+        "icon": row.get("icon") or data.get("icon"),
+        "read": bool(row.get("read", False)),
+        "data": data,
+        "created_at": created_at_value,
+        "timestamp": timestamp,
+    }
+
+
+def notification_owner_query(user_id: str, notification_id: str) -> Dict[str, Any]:
+    clauses = [{"user_id": user_id, "id": notification_id}]
+    try:
+        clauses.append({"user_id": user_id, "_id": ObjectId(notification_id)})
+    except InvalidId:
+        pass
+    return {"$or": clauses}
+
+
 @api_router.get("/users/notifications")
-async def get_user_notifications(current_user: dict = Depends(get_current_user)):
-    rows = await db.notifications.find({"user_id": current_user["id"]}).sort("created_at", -1).to_list(40)
-    for row in rows:
-        row["_id"] = str(row["_id"])
-    return rows
+async def get_user_notifications(
+    current_user: dict = Depends(get_current_user),
+    unread_only: bool = Query(False),
+    limit: int = Query(40, ge=1, le=100),
+    skip: int = Query(0, ge=0),
+):
+    query: Dict[str, Any] = {"user_id": current_user["id"]}
+    if unread_only:
+        query["read"] = {"$ne": True}
+    rows = (
+        await db.notifications.find(query)
+        .sort("created_at", -1)
+        .skip(skip)
+        .limit(limit)
+        .to_list(length=limit)
+    )
+    return [serialize_notification(row) for row in rows]
+
+
+@api_router.post("/users/notifications/read-all")
+async def mark_all_user_notifications_read(current_user: dict = Depends(get_current_user)):
+    result = await db.notifications.update_many(
+        {"user_id": current_user["id"], "read": {"$ne": True}},
+        {"$set": {"read": True, "read_at": get_ist_now()}},
+    )
+    return {"message": "Notifications marked as read", "modified_count": result.modified_count}
+
+
+@api_router.post("/users/notifications/clear-all")
+async def clear_user_notifications(current_user: dict = Depends(get_current_user)):
+    result = await db.notifications.delete_many({"user_id": current_user["id"]})
+    return {"message": "Notifications cleared", "deleted_count": result.deleted_count}
+
+
+@api_router.post("/users/notifications/{notification_id}/read")
+async def mark_user_notification_read(notification_id: str, current_user: dict = Depends(get_current_user)):
+    result = await db.notifications.update_one(
+        notification_owner_query(current_user["id"], notification_id),
+        {"$set": {"read": True, "read_at": get_ist_now()}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    return {"message": "Notification marked as read"}
+
+
+@api_router.delete("/users/notifications/{notification_id}")
+async def delete_user_notification(notification_id: str, current_user: dict = Depends(get_current_user)):
+    result = await db.notifications.delete_one(notification_owner_query(current_user["id"], notification_id))
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    return {"message": "Notification deleted"}
 
 
 @api_router.post("/users/emergency-contacts")

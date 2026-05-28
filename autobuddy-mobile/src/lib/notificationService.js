@@ -9,6 +9,7 @@ import { createAutoBuddySocket } from './socket';
 let notificationSocket = null;
 let pollingInterval = null;
 const POLLING_INTERVAL = 10000; // 10 seconds fallback
+const USER_NOTIFICATIONS_PATH = '/users/notifications';
 
 export const notificationService = {
   /**
@@ -19,6 +20,11 @@ export const notificationService = {
    */
   async initialize(token, onNotification) {
     try {
+      if (notificationSocket) {
+        notificationSocket.disconnect();
+        notificationSocket = null;
+      }
+
       // Try WebSocket first (real-time)
       this.setupWebSocket(token, onNotification);
 
@@ -40,12 +46,15 @@ export const notificationService = {
     try {
       notificationSocket = createAutoBuddySocket(token);
 
-      notificationSocket.on('notification', (data) => {
+      const handleSocketNotification = (data) => {
         console.log('📬 New notification via WebSocket:', data);
         if (typeof onNotification === 'function') {
           onNotification(data);
         }
-      });
+      };
+
+      notificationSocket.on('notification', handleSocketNotification);
+      notificationSocket.on('in_app_notification', handleSocketNotification);
 
       notificationSocket.on('booking_accepted', (data) => {
         onNotification({
@@ -126,9 +135,9 @@ export const notificationService = {
 
     pollingInterval = setInterval(async () => {
       try {
-        const response = await apiRequest('/passengers/notifications', {
+        const response = await apiRequest(USER_NOTIFICATIONS_PATH, {
           token,
-          query: { unread_only: true },
+          query: { unread_only: true, limit: 40 },
         });
 
         if (Array.isArray(response)) {
@@ -149,11 +158,11 @@ export const notificationService = {
    */
   async fetchNotifications(token, options = {}) {
     try {
-      const response = await apiRequest('/passengers/notifications', {
+      const response = await apiRequest(USER_NOTIFICATIONS_PATH, {
         token,
         query: {
           limit: options.limit || 50,
-          offset: options.offset || 0,
+          skip: options.skip ?? options.offset ?? 0,
           unread_only: options.unreadOnly || false,
         },
       });
@@ -169,7 +178,7 @@ export const notificationService = {
    */
   async markAsRead(token, notificationId) {
     try {
-      await apiRequest(`/passengers/notifications/${notificationId}/read`, {
+      await apiRequest(`${USER_NOTIFICATIONS_PATH}/${notificationId}/read`, {
         token,
         method: 'POST',
       });
@@ -185,7 +194,7 @@ export const notificationService = {
    */
   async markAllAsRead(token) {
     try {
-      await apiRequest('/passengers/notifications/read-all', {
+      await apiRequest(`${USER_NOTIFICATIONS_PATH}/read-all`, {
         token,
         method: 'POST',
       });
@@ -201,7 +210,7 @@ export const notificationService = {
    */
   async deleteNotification(token, notificationId) {
     try {
-      await apiRequest(`/passengers/notifications/${notificationId}`, {
+      await apiRequest(`${USER_NOTIFICATIONS_PATH}/${notificationId}`, {
         token,
         method: 'DELETE',
       });
@@ -217,7 +226,7 @@ export const notificationService = {
    */
   async clearAll(token) {
     try {
-      await apiRequest('/passengers/notifications/clear-all', {
+      await apiRequest(`${USER_NOTIFICATIONS_PATH}/clear-all`, {
         token,
         method: 'POST',
       });

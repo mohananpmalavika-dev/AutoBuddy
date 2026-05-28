@@ -2,8 +2,10 @@ import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import {
   ActivityIndicator,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -42,27 +44,66 @@ const SORT_OPTIONS = [
   { key: 'distance', label: 'Farthest Distance' },
 ];
 
-function RideHistoryCard({ booking, onPress, isLoading }) {
+function formatLocation(location) {
+  if (!location) return 'Unknown';
+  if (typeof location === 'string') return location.split(',')[0];
+  if (location.address) return location.address.split(',')[0];
+  return 'Unknown';
+}
+
+function getFareAmount(booking) {
+  return Number(booking?.final_fare ?? booking?.estimated_fare ?? 0) || 0;
+}
+
+function formatCurrency(amount) {
+  return `INR ${Number(amount || 0).toFixed(0)}`;
+}
+
+function getCounterpartLabel(viewerRole) {
+  return viewerRole === 'driver' ? 'Passenger' : 'Driver';
+}
+
+function getCounterpartName(booking, viewerRole) {
+  if (viewerRole === 'driver') {
+    return booking?.passenger_name || 'Passenger';
+  }
+  return booking?.driver_name || 'Unassigned';
+}
+
+function buildReceiptLines(booking, viewerRole) {
+  const totalFare = getFareAmount(booking);
+  const pickupSurcharge = Number(booking?.pickup_surcharge || 0);
+  const routeFare = Math.max(totalFare - pickupSurcharge, 0);
+  return [
+    `AutoBuddy ${viewerRole === 'driver' ? 'driver' : 'ride'} receipt`,
+    `Booking: ${booking?.id || 'N/A'}`,
+    `${getCounterpartLabel(viewerRole)}: ${getCounterpartName(booking, viewerRole)}`,
+    `Status: ${String(booking?.status || 'unknown').replace(/_/g, ' ')}`,
+    `Pickup: ${formatLocation(booking?.pickup_location)}`,
+    `Drop: ${formatLocation(booking?.drop_location)}`,
+    `Distance: ${Number(booking?.actual_distance_km || booking?.distance_km || 0).toFixed(1)} km`,
+    `Route fare: ${formatCurrency(routeFare)}`,
+    pickupSurcharge > 0 ? `Pickup surcharge: ${formatCurrency(pickupSurcharge)}` : null,
+    `Total fare: ${formatCurrency(totalFare)}`,
+    `Payment: ${String(booking?.payment_method || 'cash').toUpperCase()}`,
+    `Reference: ${String(booking?.id || '').slice(0, 12)}`,
+  ].filter(Boolean);
+}
+
+function RideHistoryCard({ booking, onPress, isLoading, viewerRole = 'passenger' }) {
   const statusColor = {
     completed: '#4CAF50',
     cancelled: '#F44336',
     no_driver_found: '#FF9800',
     pending: '#2196F3',
     accepted: '#2196F3',
-  }[booking.status] || '#757575';
+  }[booking?.status] || '#757575';
 
   const formatDate = (dateStr) => {
     const date = new Date(dateStr);
     return date.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' }) + 
            ' ' + 
            date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
-  };
-
-  const formatLocation = (location) => {
-    if (!location) return 'Unknown';
-    if (typeof location === 'string') return location.split(',')[0];
-    if (location.address) return location.address.split(',')[0];
-    return 'Unknown';
   };
 
   return (
@@ -73,7 +114,7 @@ function RideHistoryCard({ booking, onPress, isLoading }) {
       activeOpacity={0.7}>
       <View style={styles.cardHeader}>
         <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
-          <Text style={styles.statusText}>{booking.status.replace('_', ' ').toUpperCase()}</Text>
+          <Text style={styles.statusText}>{String(booking?.status || 'unknown').replace('_', ' ').toUpperCase()}</Text>
         </View>
         <Text style={styles.cardTime}>{formatDate(booking.created_at)}</Text>
       </View>
@@ -87,8 +128,8 @@ function RideHistoryCard({ booking, onPress, isLoading }) {
 
         <View style={styles.detailsRow}>
           <View style={styles.detailItem}>
-            <Text style={styles.detailLabel}>Driver</Text>
-            <Text style={styles.detailValue}>{booking.driver_name || 'Unassigned'}</Text>
+            <Text style={styles.detailLabel}>{getCounterpartLabel(viewerRole)}</Text>
+            <Text style={styles.detailValue}>{getCounterpartName(booking, viewerRole)}</Text>
           </View>
 
           <View style={styles.detailItem}>
@@ -115,18 +156,24 @@ function RideHistoryCard({ booking, onPress, isLoading }) {
       </View>
 
       <View style={styles.cardFooter}>
-        <Text style={styles.bookingId}>ID: {booking.id.substring(0, 12)}</Text>
+        <Text style={styles.bookingId}>ID: {String(booking.id || 'N/A').substring(0, 12)}</Text>
         <Text style={styles.tapHint}>Tap for details →</Text>
       </View>
     </TouchableOpacity>
   );
 }
 
-export default function RideHistoryPanel({ token, onTripSelected }) {
+export default function RideHistoryPanel({
+  token,
+  onTripSelected,
+  viewerRole = 'passenger',
+  onSupportRequested,
+}) {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState('');
+  const [selectedBooking, setSelectedBooking] = useState(null);
 
   // Filter state
   const [statusFilter, setStatusFilter] = useState('all');
@@ -158,6 +205,7 @@ export default function RideHistoryPanel({ token, onTripSelected }) {
         const data = await fetchBookings();
         if (isMounted) {
           setBookings(data);
+          setSelectedBooking(null);
           setDisplayedCount(10);
         }
       } catch (err) {
@@ -201,8 +249,9 @@ export default function RideHistoryPanel({ token, onTripSelected }) {
     if (searchText.trim()) {
       const search = searchText.toLowerCase();
       result = result.filter((b) => 
+        b.passenger_name?.toLowerCase().includes(search) ||
         b.driver_name?.toLowerCase().includes(search) ||
-        b.id.toLowerCase().includes(search) ||
+        String(b.id || '').toLowerCase().includes(search) ||
         b.pickup_location?.address?.toLowerCase().includes(search) ||
         b.drop_location?.address?.toLowerCase().includes(search)
       );
@@ -245,6 +294,7 @@ export default function RideHistoryPanel({ token, onTripSelected }) {
       setError('');
       const data = await fetchBookings();
       setBookings(data);
+      setSelectedBooking(null);
       setDisplayedCount(10);
     } catch (err) {
       setError(err.message || 'Failed to load ride history');
@@ -253,11 +303,36 @@ export default function RideHistoryPanel({ token, onTripSelected }) {
     }
   }, [fetchBookings]);
 
+  const handleTripPress = useCallback((booking) => {
+    if (typeof onTripSelected === 'function') {
+      onTripSelected(booking);
+      return;
+    }
+    setSelectedBooking(booking);
+  }, [onTripSelected]);
+
+  const shareReceipt = useCallback(async (booking) => {
+    try {
+      await Share.share({
+        title: `AutoBuddy Receipt - ${String(booking?.id || '').slice(0, 12)}`,
+        message: buildReceiptLines(booking, viewerRole).join('\n'),
+      });
+    } catch (err) {
+      setError(err.message || 'Could not share receipt');
+    }
+  }, [viewerRole]);
+
+  const selectedTotalFare = getFareAmount(selectedBooking);
+  const selectedPickupSurcharge = Number(selectedBooking?.pickup_surcharge || 0);
+  const selectedRouteFare = Math.max(selectedTotalFare - selectedPickupSurcharge, 0);
+
   return (
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Ride History</Text>
+        <Text style={styles.headerTitle}>
+          {viewerRole === 'driver' ? 'Ride History & Receipts' : 'Ride History'}
+        </Text>
         <TouchableOpacity onPress={handleRefresh} disabled={loading}>
           <Text style={styles.refreshButton}>🔄 Refresh</Text>
         </TouchableOpacity>
@@ -267,8 +342,18 @@ export default function RideHistoryPanel({ token, onTripSelected }) {
       <View style={styles.searchBox}>
         <Text style={styles.searchIcon}>🔍</Text>
         <Text style={styles.searchPlaceholder} numberOfLines={1}>
-          {searchText || 'Search by driver, location, or ID...'}
+          {searchText || `Search by ${getCounterpartLabel(viewerRole).toLowerCase()}, location, or ID`}
         </Text>
+        <TextInput
+          style={styles.searchInput}
+          value={searchText}
+          onChangeText={(text) => {
+            setSearchText(text);
+            setDisplayedCount(10);
+          }}
+          placeholder={`Search by ${getCounterpartLabel(viewerRole).toLowerCase()}, location, or ID`}
+          placeholderTextColor={COLORS.textMuted}
+        />
       </View>
 
       {/* Filter Controls */}
@@ -334,6 +419,69 @@ export default function RideHistoryPanel({ token, onTripSelected }) {
         </Text>
       </View>
 
+      {selectedBooking && !loading && !error && (
+        <View style={[styles.receiptDetail, SHADOWS.soft]}>
+          <View style={styles.receiptHeader}>
+            <View style={styles.receiptHeaderText}>
+              <Text style={styles.receiptTitle}>Receipt and dispute reference</Text>
+              <Text style={styles.receiptMeta}>Booking {String(selectedBooking.id || 'N/A').slice(0, 12)}</Text>
+            </View>
+            <TouchableOpacity onPress={() => setSelectedBooking(null)} style={styles.closeButton}>
+              <Text style={styles.closeButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.receiptRows}>
+            <View style={styles.receiptRow}>
+              <Text style={styles.receiptLabel}>{getCounterpartLabel(viewerRole)}</Text>
+              <Text style={styles.receiptValue}>{getCounterpartName(selectedBooking, viewerRole)}</Text>
+            </View>
+            <View style={styles.receiptRow}>
+              <Text style={styles.receiptLabel}>Status</Text>
+              <Text style={styles.receiptValue}>{String(selectedBooking.status || 'unknown').replace(/_/g, ' ')}</Text>
+            </View>
+            <View style={styles.receiptRow}>
+              <Text style={styles.receiptLabel}>Distance</Text>
+              <Text style={styles.receiptValue}>
+                {Number(selectedBooking.actual_distance_km || selectedBooking.distance_km || 0).toFixed(1)} km
+              </Text>
+            </View>
+            <View style={styles.receiptRow}>
+              <Text style={styles.receiptLabel}>Route fare</Text>
+              <Text style={styles.receiptValue}>{formatCurrency(selectedRouteFare)}</Text>
+            </View>
+            {selectedPickupSurcharge > 0 && (
+              <View style={styles.receiptRow}>
+                <Text style={styles.receiptLabel}>Pickup surcharge</Text>
+                <Text style={styles.receiptValue}>{formatCurrency(selectedPickupSurcharge)}</Text>
+              </View>
+            )}
+            <View style={[styles.receiptRow, styles.receiptTotalRow]}>
+              <Text style={styles.receiptTotalLabel}>Total fare</Text>
+              <Text style={styles.receiptTotalValue}>{formatCurrency(selectedTotalFare)}</Text>
+            </View>
+            <View style={styles.receiptRow}>
+              <Text style={styles.receiptLabel}>Payment</Text>
+              <Text style={styles.receiptValue}>{String(selectedBooking.payment_method || 'cash').toUpperCase()}</Text>
+            </View>
+          </View>
+
+          <Text style={styles.disputeHint}>
+            Use booking ID {String(selectedBooking.id || 'N/A')} when contacting support about fare, cancellation, payout, or passenger issues.
+          </Text>
+          <View style={styles.receiptActions}>
+            <TouchableOpacity style={styles.secondaryActionButton} onPress={() => shareReceipt(selectedBooking)}>
+              <Text style={styles.secondaryActionText}>Share Receipt</Text>
+            </TouchableOpacity>
+            {viewerRole === 'driver' && typeof onSupportRequested === 'function' && (
+              <TouchableOpacity style={styles.secondaryActionButton} onPress={() => onSupportRequested(selectedBooking)}>
+                <Text style={styles.secondaryActionText}>Open Support</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      )}
+
       {/* Loading State */}
       {loading && (
         <View style={styles.centerContainer}>
@@ -372,7 +520,8 @@ export default function RideHistoryPanel({ token, onTripSelected }) {
             <RideHistoryCard
               key={booking.id}
               booking={booking}
-              onPress={() => onTripSelected?.(booking)}
+              viewerRole={viewerRole}
+              onPress={() => handleTripPress(booking)}
             />
           ))}
 
@@ -447,13 +596,20 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   searchIcon: {
-    fontSize: 14,
+    fontSize: 11,
+    fontWeight: '700',
+    color: COLORS.textMuted,
     marginRight: 8,
+    textTransform: 'uppercase',
   },
   searchPlaceholder: {
+    display: 'none',
+  },
+  searchInput: {
     fontSize: 12,
-    color: COLORS.textMuted,
+    color: COLORS.textMain,
     flex: 1,
+    paddingVertical: 0,
   },
 
   filterScroll: {
@@ -507,6 +663,110 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: COLORS.textMuted,
     fontWeight: '500',
+  },
+
+  receiptDetail: {
+    marginHorizontal: 12,
+    marginTop: 10,
+    marginBottom: 8,
+    padding: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  receiptHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 10,
+  },
+  receiptHeaderText: {
+    flex: 1,
+    paddingRight: 10,
+  },
+  receiptTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: COLORS.textMain,
+  },
+  receiptMeta: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+    marginTop: 2,
+  },
+  closeButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: '#F2F4F5',
+  },
+  closeButtonText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: COLORS.textMain,
+  },
+  receiptRows: {
+    borderTopWidth: 1,
+    borderTopColor: '#EFEFEF',
+  },
+  receiptRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingVertical: 7,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EFEFEF',
+  },
+  receiptLabel: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+    fontWeight: '600',
+  },
+  receiptValue: {
+    flex: 1,
+    textAlign: 'right',
+    fontSize: 11,
+    color: COLORS.textMain,
+    fontWeight: '700',
+  },
+  receiptTotalRow: {
+    backgroundColor: '#F8FCF9',
+    paddingHorizontal: 6,
+  },
+  receiptTotalLabel: {
+    fontSize: 12,
+    color: COLORS.textMain,
+    fontWeight: '800',
+  },
+  receiptTotalValue: {
+    fontSize: 12,
+    color: '#4CAF50',
+    fontWeight: '800',
+  },
+  disputeHint: {
+    marginTop: 10,
+    fontSize: 11,
+    color: COLORS.textMuted,
+    lineHeight: 16,
+  },
+  receiptActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  secondaryActionButton: {
+    flex: 1,
+    paddingVertical: 9,
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    alignItems: 'center',
+  },
+  secondaryActionText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: COLORS.primary,
   },
 
   list: {
