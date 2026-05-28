@@ -6015,11 +6015,13 @@ async def update_driver_availability(availability: DriverAvailabilityUpdate, cur
                 float(geo_loc.get("latitude")),
                 float(geo_loc.get("longitude")),
             )
+    # Fetch the updated profile with location data
     profile = await db.drivers.find_one({"user_id": current_user["id"]}) or {}
+    # Return the state we just set (not fetched from DB to avoid timing issues)
     return {
         "message": "Availability updated",
-        "is_available": bool(profile.get("is_available", availability.is_available)),
-        "is_online": bool(profile.get("is_online", availability.is_available)),
+        "is_available": bool(availability.is_available),
+        "is_online": bool(availability.is_available),
         "current_location": await get_effective_driver_location(profile),
     }
 
