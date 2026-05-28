@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import PostRideTabs from './PostRideTabs';
 import {
   ActivityIndicator,
   Modal,
@@ -12,41 +11,53 @@ import {
 import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
 import VoiceTextInput from './VoiceTextInput';
+import LostItemTab from './LostItemTab';
+import PostRideTabs from './PostRideTabs';
+import ReceiptTab from './ReceiptTab';
 
-/**
- * PostRideRatingModal - Post-ride rating experience
- * 
- * Purpose:
- * - Trigger immediately after ride completion
- * - Seamless rating submission flow
- * - Driver feedback & trip review
- * - Option to skip for later
- * 
- * Features:
- * - 5-star rating system
- * - Optional feedback text
- * - Driver name & ride details
- * - Quick submit or skip
- * - Prevents duplicate ratings
- */
+const POST_RIDE_TABS = [
+  { key: 'rate', label: 'Rate Ride' },
+  { key: 'report', label: 'Report Issue' },
+  { key: 'lost', label: 'Lost Item' },
+  { key: 'receipt', label: 'Receipt' },
+];
+
+const REPORT_CATEGORIES = [
+  { label: 'Booking', value: 'booking' },
+  { label: 'Payment', value: 'payment' },
+  { label: 'Driver', value: 'driver' },
+  { label: 'Safety', value: 'safety' },
+  { label: 'Other', value: 'other' },
+];
+
+function formatMoney(value) {
+  const amount = Number(value || 0);
+  return `INR ${Number.isFinite(amount) ? amount.toFixed(2) : '0.00'}`;
+}
 
 function RatingStars({ current, onSelect, size = 'large' }) {
-  const starSize = size === 'large' ? 40 : 28;
-  const tapSize = size === 'large' ? 50 : 40;
-  
+  const starSize = size === 'large' ? 36 : 26;
+  const tapSize = size === 'large' ? 48 : 38;
+
   return (
     <View style={styles.starsContainer}>
       <View style={styles.starsRow}>
-        {[1, 2, 3, 4, 5].map((star) => (
-          <TouchableOpacity
-            key={star}
-            onPress={() => onSelect(star)}
-            style={[styles.starTouchable, { width: tapSize, height: tapSize }]}>
-            <Text style={[styles.star, { fontSize: starSize }, star <= current && styles.starActive]}>
-              {star <= current ? '★' : '☆'}
-            </Text>
-          </TouchableOpacity>
-        ))}
+        {[1, 2, 3, 4, 5].map((star) => {
+          const selected = star <= current;
+          return (
+            <TouchableOpacity
+              key={star}
+              onPress={() => onSelect(star)}
+              style={[styles.starTouchable, { width: tapSize, height: tapSize }, selected && styles.starTouchableActive]}
+              accessibilityRole="button"
+              accessibilityLabel={`Rate ${star} star${star === 1 ? '' : 's'}`}
+              accessibilityState={{ selected }}>
+              <Text style={[styles.star, { fontSize: starSize }, selected && styles.starActive]}>
+                {star}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
       </View>
       {current > 0 && (
         <Text style={styles.ratingLabel}>
@@ -70,28 +81,47 @@ export default function PostRideRatingModal({
   const [error, setError] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [activeTab, setActiveTab] = useState('rate');
-  const [receipt, setReceipt] = useState(null);
+  const [reportCategory, setReportCategory] = useState('booking');
+  const [reportDescription, setReportDescription] = useState('');
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportSuccess, setReportSuccess] = useState('');
 
-  // Reset form when modal opens
   useEffect(() => {
-    if (visible) {
+    if (!visible) {
+      return undefined;
+    }
+    const timer = setTimeout(() => {
       setScore(0);
       setFeedback('');
       setError('');
       setSubmitted(false);
-    }
+      setActiveTab('rate');
+      setReportCategory('booking');
+      setReportDescription('');
+      setReportSuccess('');
+    }, 0);
+    return () => clearTimeout(timer);
   }, [visible]);
 
   const rideDetails = useMemo(() => ({
     driverName: booking?.driver_name || 'Driver',
-    id: booking?.id?.substring(0, 8) || '',
+    id: booking?.id ? String(booking.id).substring(0, 8) : '',
     date: booking?.created_at ? new Date(booking.created_at).toLocaleDateString() : '',
-    fare: booking?.estimated_fare || booking?.fare || '0',
+    fare: booking?.final_fare || booking?.estimated_fare || booking?.fare || 0,
   }), [booking]);
 
-  const handleSubmit = useCallback(async () => {
+  const handleTabChange = useCallback((tabKey) => {
+    setActiveTab(tabKey);
+    setError('');
+  }, []);
+
+  const handleRatingSubmit = useCallback(async () => {
+    if (!booking?.id) {
+      setError('Booking is unavailable for rating.');
+      return;
+    }
     if (score === 0) {
-      setError('Please select a rating');
+      setError('Please select a rating.');
       return;
     }
 
@@ -111,20 +141,197 @@ export default function PostRideRatingModal({
       });
 
       setSubmitted(true);
-      if (typeof onRatingSubmitted === 'function') {
-        onRatingSubmitted(response?.data || response);
-      }
-
-      // Auto-close after 2 seconds on success
       setTimeout(() => {
+        if (typeof onRatingSubmitted === 'function') {
+          onRatingSubmitted(response?.data || response);
+        }
         onClose?.();
-      }, 2000);
+      }, 900);
     } catch (err) {
-      setError(err.message || 'Failed to submit rating');
+      setError(err.message || 'Failed to submit rating.');
     } finally {
       setLoading(false);
     }
   }, [booking, score, feedback, token, onRatingSubmitted, onClose]);
+
+  const handleReportSubmit = useCallback(async () => {
+    if (!booking?.id) {
+      setError('Booking is unavailable for this issue report.');
+      return;
+    }
+    const description = reportDescription.trim();
+    if (!description) {
+      setError('Describe the issue before sending it to support.');
+      return;
+    }
+
+    try {
+      setError('');
+      setReportSuccess('');
+      setReportLoading(true);
+      const shortId = String(booking.id).slice(0, 8);
+      await apiRequest('/v1/passengers/support/tickets', {
+        method: 'POST',
+        token,
+        body: {
+          subject: `Post-ride issue ${shortId}`,
+          category: reportCategory,
+          priority: reportCategory === 'safety' ? 'urgent' : 'normal',
+          description: [
+            description,
+            '',
+            `Booking ID: ${booking.id}`,
+            booking.driver_id ? `Driver ID: ${booking.driver_id}` : '',
+          ].filter(Boolean).join('\n'),
+        },
+      });
+      setReportSuccess('Support ticket created.');
+      setReportDescription('');
+    } catch (err) {
+      setError(err.message || 'Failed to create support ticket.');
+    } finally {
+      setReportLoading(false);
+    }
+  }, [booking, reportCategory, reportDescription, token]);
+
+  const renderRideSummary = () => (
+    <View style={styles.rideInfoCard}>
+      <Text style={styles.rideInfoDriver}>{rideDetails.driverName}</Text>
+      <Text style={styles.rideInfoDetails}>
+        Ride {rideDetails.id || 'N/A'}{rideDetails.date ? ` | ${rideDetails.date}` : ''}
+      </Text>
+      <Text style={styles.rideInfoFare}>{formatMoney(rideDetails.fare)}</Text>
+    </View>
+  );
+
+  const renderError = () => (
+    !!error && (
+      <View style={styles.errorContainer}>
+        <Text style={styles.errorText}>{error}</Text>
+      </View>
+    )
+  );
+
+  const renderRatingTab = () => (
+    <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      {renderRideSummary()}
+      <View style={styles.ratingSection}>
+        <Text style={styles.sectionTitle}>How was your ride?</Text>
+        <RatingStars current={score} onSelect={setScore} />
+      </View>
+      <View style={styles.quickRatings}>
+        {[
+          { score: 1, label: 'Poor' },
+          { score: 3, label: 'Okay' },
+          { score: 5, label: 'Great' },
+        ].map((item) => {
+          const selected = score === item.score;
+          return (
+            <TouchableOpacity
+              key={item.score}
+              style={[styles.quickRatingButton, selected && styles.quickRatingButtonActive]}
+              onPress={() => setScore(item.score)}
+              accessibilityRole="button"
+              accessibilityState={{ selected }}>
+              <Text style={[styles.quickRatingText, selected && styles.quickRatingTextActive]}>
+                {item.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+      <View style={styles.feedbackSection}>
+        <Text style={styles.sectionTitle}>Optional feedback</Text>
+        <VoiceTextInput
+          value={feedback}
+          onChangeText={(text) => setFeedback(text.slice(0, 500))}
+          placeholder="Share anything that helps improve the ride experience"
+          placeholderTextColor={COLORS.textMuted}
+          multiline
+          style={styles.feedbackInput}
+        />
+        <Text style={styles.characterCount}>{feedback.length}/500</Text>
+      </View>
+      {renderError()}
+      <View style={styles.footer}>
+        <TouchableOpacity style={[styles.button, styles.skipButton]} onPress={onClose} disabled={loading}>
+          <Text style={styles.skipButtonText}>Skip</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.button, styles.submitButton, loading && styles.buttonDisabled]}
+          onPress={handleRatingSubmit}
+          disabled={loading}>
+          {loading ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.submitButtonText}>Submit Rating</Text>}
+        </TouchableOpacity>
+      </View>
+    </ScrollView>
+  );
+
+  const renderReportTab = () => (
+    <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      {renderRideSummary()}
+      <Text style={styles.sectionTitle}>What needs attention?</Text>
+      <View style={styles.categoryRow}>
+        {REPORT_CATEGORIES.map((category) => {
+          const selected = reportCategory === category.value;
+          return (
+            <TouchableOpacity
+              key={category.value}
+              style={[styles.categoryChip, selected && styles.categoryChipActive]}
+              onPress={() => setReportCategory(category.value)}
+              disabled={reportLoading}
+              accessibilityRole="button"
+              accessibilityState={{ selected }}>
+              <Text style={[styles.categoryChipText, selected && styles.categoryChipTextActive]}>
+                {category.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+      <Text style={styles.fieldLabel}>Issue details</Text>
+      <VoiceTextInput
+        value={reportDescription}
+        onChangeText={(text) => setReportDescription(text.slice(0, 700))}
+        placeholder="Describe what happened"
+        placeholderTextColor={COLORS.textMuted}
+        multiline
+        style={styles.feedbackInput}
+      />
+      <Text style={styles.characterCount}>{reportDescription.length}/700</Text>
+      {renderError()}
+      {!!reportSuccess && <Text style={styles.successText}>{reportSuccess}</Text>}
+      <TouchableOpacity
+        style={[styles.fullWidthButton, reportLoading && styles.buttonDisabled]}
+        onPress={handleReportSubmit}
+        disabled={reportLoading}
+        accessibilityRole="button">
+        {reportLoading ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.submitButtonText}>Create Support Ticket</Text>}
+      </TouchableOpacity>
+    </ScrollView>
+  );
+
+  const renderActiveTab = () => {
+    if (activeTab === 'report') {
+      return renderReportTab();
+    }
+    if (activeTab === 'lost') {
+      return (
+        <ScrollView showsVerticalScrollIndicator={false}>
+          {renderRideSummary()}
+          <LostItemTab bookingId={booking?.id} token={token} />
+        </ScrollView>
+      );
+    }
+    if (activeTab === 'receipt') {
+      return (
+        <ScrollView showsVerticalScrollIndicator={false}>
+          <ReceiptTab bookingId={booking?.id} token={token} />
+        </ScrollView>
+      );
+    }
+    return renderRatingTab();
+  };
 
   if (submitted) {
     return (
@@ -135,8 +342,8 @@ export default function PostRideRatingModal({
         onRequestClose={onClose}>
         <View style={styles.overlay}>
           <View style={styles.successContainer}>
-            <Text style={styles.successIcon}>✓</Text>
-            <Text style={styles.successTitle}>Rating Submitted!</Text>
+            <Text style={styles.successIcon}>OK</Text>
+            <Text style={styles.successTitle}>Rating Submitted</Text>
             <Text style={styles.successSubtitle}>
               Thank you for your feedback. It helps us improve.
             </Text>
@@ -154,20 +361,18 @@ export default function PostRideRatingModal({
       onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.modalContent}>
-          {/* Header */}
           <View style={styles.header}>
             <Text style={styles.headerTitle}>Post-Ride Actions</Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <Text style={styles.closeIcon}>✕</Text>
+            <TouchableOpacity onPress={onClose} style={styles.closeButton} accessibilityRole="button">
+              <Text style={styles.closeIcon}>x</Text>
             </TouchableOpacity>
           </View>
-          {/* Tabs for post-ride actions */}
           <PostRideTabs
             activeTab={activeTab}
-            onTabChange={setActiveTab}
-            booking={{ ...booking, token }}
-            receipt={receipt}
-          />
+            onTabChange={handleTabChange}
+            tabs={POST_RIDE_TABS}>
+            {renderActiveTab()}
+          </PostRideTabs>
         </View>
       </View>
     </Modal>
@@ -217,6 +422,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#F5F5F5',
     borderRadius: 10,
     padding: 12,
+    marginHorizontal: 16,
+    marginTop: 14,
     marginBottom: 16,
   },
   rideInfoDriver: {
@@ -241,10 +448,9 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
     color: COLORS.textMain,
-    marginBottom: 16,
-    textAlign: 'center',
+    marginBottom: 12,
   },
   starsContainer: {
     alignItems: 'center',
@@ -253,16 +459,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     marginBottom: 8,
+    gap: 8,
   },
   starTouchable: {
     justifyContent: 'center',
     alignItems: 'center',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#D8DEE8',
+    backgroundColor: '#FFFFFF',
+  },
+  starTouchableActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: '#E8F5E9',
   },
   star: {
-    color: '#CCCCCC',
+    color: COLORS.textMuted,
+    fontWeight: '900',
   },
   starActive: {
-    color: '#FFD700',
+    color: COLORS.primary,
   },
   ratingLabel: {
     fontSize: 14,
@@ -273,23 +489,32 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 16,
-    gap: 6,
+    gap: 8,
   },
   quickRatingButton: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 11,
+    paddingHorizontal: 8,
     borderBottomWidth: 3,
+    borderBottomColor: '#D8DEE8',
+    borderWidth: 1,
+    borderColor: '#D8DEE8',
     borderRadius: 8,
+    backgroundColor: '#FFFFFF',
   },
-  quickRatingEmoji: {
-    fontSize: 28,
-    marginBottom: 4,
+  quickRatingButtonActive: {
+    borderColor: COLORS.primary,
+    borderBottomColor: COLORS.primary,
+    backgroundColor: '#E8F5E9',
   },
   quickRatingText: {
-    fontSize: 10,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '700',
     color: COLORS.textMain,
+  },
+  quickRatingTextActive: {
+    color: COLORS.primary,
   },
   feedbackSection: {
     marginBottom: 16,
@@ -304,6 +529,7 @@ const styles = StyleSheet.create({
     color: COLORS.textMain,
     textAlignVertical: 'top',
     minHeight: 100,
+    backgroundColor: '#FFFFFF',
   },
   characterCount: {
     fontSize: 11,
@@ -325,10 +551,8 @@ const styles = StyleSheet.create({
   footer: {
     flexDirection: 'row',
     gap: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#F0F0F0',
+    paddingVertical: 4,
+    marginBottom: 12,
   },
   button: {
     flex: 1,
@@ -350,6 +574,9 @@ const styles = StyleSheet.create({
   submitButton: {
     backgroundColor: COLORS.primary,
   },
+  buttonDisabled: {
+    opacity: 0.65,
+  },
   submitButtonText: {
     color: '#FFFFFF',
     fontWeight: '700',
@@ -364,8 +591,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   successIcon: {
-    fontSize: 60,
+    fontSize: 28,
     color: '#4CAF50',
+    fontWeight: '900',
     marginBottom: 16,
   },
   successTitle: {
@@ -378,5 +606,51 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COLORS.textMuted,
     textAlign: 'center',
+  },
+  categoryRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 14,
+  },
+  categoryChip: {
+    borderWidth: 1,
+    borderColor: '#D8DEE8',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#FFFFFF',
+  },
+  categoryChipActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: '#E8F5E9',
+  },
+  categoryChipText: {
+    color: COLORS.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  categoryChipTextActive: {
+    color: COLORS.primary,
+  },
+  fieldLabel: {
+    color: COLORS.textMain,
+    fontSize: 12,
+    fontWeight: '800',
+    marginBottom: 8,
+  },
+  fullWidthButton: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 12,
+    marginBottom: 18,
+  },
+  successText: {
+    color: '#166534',
+    fontSize: 12,
+    fontWeight: '800',
+    marginBottom: 8,
   },
 });

@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import * as Location from 'expo-location';
+import { SymbolView } from 'expo-symbols';
 import MapView, { Marker } from 'react-native-maps';
 
 import { apiRequest } from '../lib/api';
@@ -53,29 +54,55 @@ import { usePassengerRideRealtime } from '../hooks/usePassengerRideRealtime';
 import { useKeralaSafety } from '../hooks/useKeralaSafety';
 import { validateScheduledPickup } from '../lib/scheduling';
 
+const PASSENGER_MENU_SYMBOLS = {
+  ride: { ios: 'car.fill', android: 'local_taxi', web: 'local_taxi' },
+  live: { ios: 'location.circle.fill', android: 'my_location', web: 'my_location' },
+  drivers: { ios: 'person.2.fill', android: 'person_search', web: 'person_search' },
+  favorites: { ios: 'star.fill', android: 'favorite', web: 'favorite' },
+  safety: { ios: 'shield.fill', android: 'shield', web: 'shield' },
+  wallet: { ios: 'creditcard.fill', android: 'account_balance_wallet', web: 'account_balance_wallet' },
+  spin: { ios: 'gift.fill', android: 'redeem', web: 'redeem' },
+  notifications: { ios: 'bell.fill', android: 'notifications', web: 'notifications' },
+  promo: { ios: 'ticket.fill', android: 'confirmation_number', web: 'confirmation_number' },
+  support: { ios: 'questionmark.circle.fill', android: 'support_agent', web: 'support_agent' },
+  payment: { ios: 'creditcard', android: 'credit_card', web: 'credit_card' },
+  ratings: { ios: 'star.circle.fill', android: 'star_rate', web: 'star_rate' },
+  preferences: { ios: 'slider.horizontal.3', android: 'tune', web: 'tune' },
+  places: { ios: 'mappin', android: 'location_on', web: 'location_on' },
+  emergency: { ios: 'exclamationmark.triangle.fill', android: 'emergency', web: 'emergency' },
+  accessibility: { ios: 'figure.roll', android: 'accessible', web: 'accessible' },
+  scheduled: { ios: 'calendar', android: 'calendar_clock', web: 'calendar_clock' },
+  history: { ios: 'clock.arrow.circlepath', android: 'history', web: 'history' },
+  profile: { ios: 'person.crop.circle.fill', android: 'person', web: 'person' },
+  kyc: { ios: 'person.crop.rectangle', android: 'id_card', web: 'id_card' },
+  documents: { ios: 'doc.text.fill', android: 'description', web: 'description' },
+  receipts: { ios: 'list.bullet.rectangle.portrait.fill', android: 'receipt_long', web: 'receipt_long' },
+  subscription: { ios: 'checkmark.seal.fill', android: 'workspace_premium', web: 'workspace_premium' },
+};
 const PASSENGER_MENU_OPTIONS = [
-  { key: 'ride', label: 'Ride Booking', icon: '🚕' },
-  { key: 'drivers', label: 'Drivers', icon: '🧭' },
-  { key: 'favorites', label: 'Favorite Drivers', icon: '★' },
-  { key: 'safety', label: 'Safety', icon: '🛡' },
-  { key: 'wallet', label: 'Wallet', icon: '₹' },
-  { key: 'spin', label: 'Spin & Win', icon: '🎁' },
-  { key: 'notifications', label: 'Notifications', icon: '🔔' },
-  { key: 'promo', label: 'Promo Codes', icon: '%' },
-  { key: 'support', label: 'Support', icon: '?' },
-  { key: 'payment', label: 'Payment', icon: '💳' },
-  { key: 'ratings', label: 'Ratings', icon: '★' },
-  { key: 'preferences', label: 'Preferences', icon: '⚙' },
-  { key: 'places', label: 'Saved Places', icon: '📍' },
-  { key: 'emergency', label: 'Emergency', icon: 'SOS' },
-  { key: 'accessibility', label: 'Accessibility', icon: '♿' },
-  { key: 'scheduled', label: 'Scheduled Rides', icon: '📅' },
-  { key: 'history', label: 'Ride History', icon: '↺' },
-  { key: 'profile', label: 'Profile', icon: '👤' },
-  { key: 'kyc', label: 'KYC Verification', icon: 'ID' },
-  { key: 'documents', label: 'Documents', icon: '📄' },
-  { key: 'receipts', label: 'Receipts', icon: '🧾' },
-  { key: 'subscription', label: 'Subscription', icon: '✓' },
+  { key: 'ride', label: 'Ride Booking', symbol: PASSENGER_MENU_SYMBOLS.ride },
+  { key: 'live', label: 'Live Ride', symbol: PASSENGER_MENU_SYMBOLS.live },
+  { key: 'drivers', label: 'Drivers', symbol: PASSENGER_MENU_SYMBOLS.drivers },
+  { key: 'favorites', label: 'Favorite Drivers', symbol: PASSENGER_MENU_SYMBOLS.favorites },
+  { key: 'safety', label: 'Safety', symbol: PASSENGER_MENU_SYMBOLS.safety },
+  { key: 'wallet', label: 'Wallet', symbol: PASSENGER_MENU_SYMBOLS.wallet },
+  { key: 'spin', label: 'Spin & Win', symbol: PASSENGER_MENU_SYMBOLS.spin },
+  { key: 'notifications', label: 'Notifications', symbol: PASSENGER_MENU_SYMBOLS.notifications },
+  { key: 'promo', label: 'Promo Codes', symbol: PASSENGER_MENU_SYMBOLS.promo },
+  { key: 'support', label: 'Support', symbol: PASSENGER_MENU_SYMBOLS.support },
+  { key: 'payment', label: 'Payment', symbol: PASSENGER_MENU_SYMBOLS.payment },
+  { key: 'ratings', label: 'Ratings', symbol: PASSENGER_MENU_SYMBOLS.ratings },
+  { key: 'preferences', label: 'Preferences', symbol: PASSENGER_MENU_SYMBOLS.preferences },
+  { key: 'places', label: 'Saved Places', symbol: PASSENGER_MENU_SYMBOLS.places },
+  { key: 'emergency', label: 'Emergency', symbol: PASSENGER_MENU_SYMBOLS.emergency },
+  { key: 'accessibility', label: 'Accessibility', symbol: PASSENGER_MENU_SYMBOLS.accessibility },
+  { key: 'scheduled', label: 'Scheduled Rides', symbol: PASSENGER_MENU_SYMBOLS.scheduled },
+  { key: 'history', label: 'Ride History', symbol: PASSENGER_MENU_SYMBOLS.history },
+  { key: 'profile', label: 'Profile', symbol: PASSENGER_MENU_SYMBOLS.profile },
+  { key: 'kyc', label: 'KYC Verification', symbol: PASSENGER_MENU_SYMBOLS.kyc },
+  { key: 'documents', label: 'Documents', symbol: PASSENGER_MENU_SYMBOLS.documents },
+  { key: 'receipts', label: 'Receipts', symbol: PASSENGER_MENU_SYMBOLS.receipts },
+  { key: 'subscription', label: 'Subscription', symbol: PASSENGER_MENU_SYMBOLS.subscription },
 ];
 const PRIMARY_PASSENGER_MENU_KEY = 'ride';
 const buildPassengerMenuOptions = (keys) =>
@@ -94,6 +121,20 @@ const PASSENGER_MENU_BY_KEY = PASSENGER_MENU_OPTIONS.reduce(
   (acc, menu) => ({ ...acc, [menu.key]: menu }),
   {},
 );
+
+function PassengerMenuIcon({ symbol, selected, size = 16 }) {
+  return (
+    <SymbolView
+      name={symbol}
+      size={size}
+      tintColor={selected ? '#FFFFFF' : COLORS.primaryDark}
+      resizeMode="scaleAspectFit"
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      fallback={<View style={[styles.menuIconFallback, selected && styles.menuIconFallbackActive]} />}
+    />
+  );
+}
 
 const DEFAULT_REGION = { latitude: 13.0827, longitude: 80.2707, latitudeDelta: 0.05, longitudeDelta: 0.05 };
 const passengerMapStyle = [];
@@ -156,7 +197,6 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [showPassengerMenus, setShowPassengerMenus] = useState(false);
   const [bookingJustCreated, setBookingJustCreated] = useState(false);
   const [showInteractiveMap, setShowInteractiveMap] = useState(true);
-  const [locationSearchModalVisible, setLocationSearchModalVisible] = useState(false);
   const [rideProductAvailability, setRideProductAvailability] = useState({
     enabled_products: ['normal'],
     pickup_district: null,
@@ -167,7 +207,14 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [spinningNow, setSpinningNow] = useState(false);
   const [showRatingModal, setShowRatingModal] = useState(false);
   const [justCompletedBooking, setJustCompletedBooking] = useState(null);
-  useNotificationManager(token, user?.id);
+  const passengerNotificationSettings = useMemo(
+    () => ({
+      ...(passengerPreferences || {}),
+      vibration_enabled: passengerAccessibility?.haptic_feedback,
+    }),
+    [passengerAccessibility?.haptic_feedback, passengerPreferences],
+  );
+  useNotificationManager(token, user?.id, passengerNotificationSettings);
   const { unreadCount } = useNotifications();
   const mapRef = useRef(null);
   const [driverLiveAddress, setDriverLiveAddress] = useState('');
@@ -222,18 +269,33 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     };
   }, [normalizeBookingPaymentMethod, token]);
 
+  useEffect(() => {
+    if (activePassengerMenu !== 'live' || hasLiveRide) {
+      return undefined;
+    }
+    const timer = setTimeout(() => {
+      setActivePassengerMenu(PRIMARY_PASSENGER_MENU_KEY);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [activePassengerMenu, hasLiveRide]);
+
   // Watch for ride completion and auto-trigger rating modal
   useEffect(() => {
     if (!activeBooking?.id) {
-      return;
+      return undefined;
     }
     
     const currentStatus = String(activeBooking?.status || '').toLowerCase();
     if (currentStatus === 'completed' && !showRatingModal) {
-      setJustCompletedBooking(activeBooking);
-      setShowRatingModal(true);
+      const completedBooking = activeBooking;
+      const timer = setTimeout(() => {
+        setJustCompletedBooking(completedBooking);
+        setShowRatingModal(true);
+      }, 0);
+      return () => clearTimeout(timer);
     }
-  }, [activeBooking?.id, activeBooking?.status, showRatingModal]);
+    return undefined;
+  }, [activeBooking, activeBooking?.id, activeBooking?.status, showRatingModal]);
 
   const handlePromoDiscountApplied = useCallback((promoState) => {
     const nextPromo = {
@@ -315,6 +377,18 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const activeRideEndOtp = String(activeBooking?.ride_end_otp || '').trim();
   const isDriverLiveSharing = liveTrackStatuses.has(activeBookingStatus);
   const canCancelActiveBooking = activeBookingStatus === 'pending';
+  const hasLiveRide = Boolean(
+    activeBooking?.id &&
+      !['completed', 'cancelled', 'rejected', 'no_driver_found', 'booking_failed'].includes(activeBookingStatus),
+  );
+  const pinnedPassengerMenuOptions = useMemo(
+    () => (
+      hasLiveRide
+        ? [PASSENGER_MENU_BY_KEY.live, ...PINNED_PASSENGER_MENU_OPTIONS].filter(Boolean)
+        : PINNED_PASSENGER_MENU_OPTIONS
+    ),
+    [hasLiveRide],
+  );
   const liveDriverLocation = normalizeLocation(
     realtimeDriverLocation || activeBooking?.driver_live_location || activeBooking?.driver_location,
   );
@@ -413,7 +487,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     return true;
   };
 
-  const animateMapToLocation = (location) => {
+  const animateMapToLocation = useCallback((location) => {
     if (!mapRef.current || !location) {
       return;
     }
@@ -426,7 +500,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       },
       passengerAccessibility?.reduce_motion ? 0 : 450,
     );
-  };
+  }, [passengerAccessibility?.reduce_motion]);
 
   const setLocationForPoint = (point, location) => {
     if (point === 'pickup') {
@@ -985,7 +1059,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     } finally {
       setLocatingPickup(false);
     }
-  }, []);
+  }, [animateMapToLocation]);
 
   const refreshDriverDiscovery = useCallback(async ({ silent = false } = {}) => {
     if (!pickupLocation || !dropoffLocation) {
@@ -1124,7 +1198,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           accessibilityLabel={label}
           accessibilityState={{ selected }}>
           <View style={[styles.menuIconBadge, selected && styles.menuIconBadgeActive]}>
-            <Text style={[styles.menuIconText, selected && styles.menuIconTextActive]}>{menu.icon || '•'}</Text>
+            <PassengerMenuIcon symbol={menu.symbol} selected={selected} />
           </View>
           <Text
             style={[styles.menuChipText, selected && styles.menuChipTextActive]}
@@ -1534,13 +1608,10 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                     styles.menuIconBadge,
                     activePassengerMenu === PRIMARY_PASSENGER_MENU_KEY && styles.menuIconBadgeActive,
                   ]}>
-                  <Text
-                    style={[
-                      styles.menuIconText,
-                      activePassengerMenu === PRIMARY_PASSENGER_MENU_KEY && styles.menuIconTextActive,
-                    ]}>
-                    {PASSENGER_MENU_BY_KEY.ride.icon}
-                  </Text>
+                  <PassengerMenuIcon
+                    symbol={PASSENGER_MENU_BY_KEY.ride.symbol}
+                    selected={activePassengerMenu === PRIMARY_PASSENGER_MENU_KEY}
+                  />
                 </View>
                 <Text style={styles.primaryMenuButtonText}>Ride Booking</Text>
               </View>
@@ -1562,7 +1633,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           </View>
 
           <View style={styles.pinnedMenuRow}>
-            {PINNED_PASSENGER_MENU_OPTIONS.map((menu) => renderPassengerMenuChip(menu, 'pinned'))}
+            {pinnedPassengerMenuOptions.map((menu) => renderPassengerMenuChip(menu, 'pinned'))}
           </View>
 
           {showPassengerMenus && (
@@ -2033,7 +2104,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             </>
           )}
 
-          {activePassengerMenu === 'ride' && (
+          {activePassengerMenu === 'live' && (
             <>
               {activeBooking ? (
                 <View style={styles.infoBlock}>
@@ -2528,13 +2599,14 @@ const styles = StyleSheet.create({
   menuIconBadgeActive: {
     backgroundColor: COLORS.primary,
   },
-  menuIconText: {
-    color: COLORS.textMain,
-    fontSize: 12,
-    fontWeight: '900',
+  menuIconFallback: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: COLORS.primaryDark,
   },
-  menuIconTextActive: {
-    color: '#FFFFFF',
+  menuIconFallbackActive: {
+    backgroundColor: '#FFFFFF',
   },
   menuChipText: {
     color: COLORS.textMain,

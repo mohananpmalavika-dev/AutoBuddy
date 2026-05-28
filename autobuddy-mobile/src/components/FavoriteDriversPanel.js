@@ -22,7 +22,19 @@ export default function FavoriteDriversPanel({ token }) {
   }, [token]);
 
   useEffect(() => {
-    fetchFavorites();
+    let isMounted = true;
+    
+    const load = async () => {
+      if (isMounted) {
+        await fetchFavorites();
+      }
+    };
+    
+    load();
+    
+    return () => {
+      isMounted = false;
+    };
   }, [fetchFavorites]);
 
   const removeFavorite = async (driverId) => {

@@ -158,7 +158,7 @@ export default function WebGoogleLiveMap({
     return () => {
       cancelled = true;
     };
-  }, [apiKey, defaultCenterPoint]);
+  }, [apiKey, defaultCenterPoint, isInteractiveMode, onMapPress]);
 
   useEffect(() => {
     if (!mapReady || typeof window === 'undefined' || !mapRef.current || !window.google?.maps) {

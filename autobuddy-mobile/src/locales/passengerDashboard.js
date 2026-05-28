@@ -386,7 +386,6 @@ export const passengerDashboardLocales = {
     hide: 'Hide',
     tapMapToSelect: 'Tap map to pick location',
     pickupSelected: 'Pickup selected. Now select dropoff.',
-    dropSelected: 'Drop selected.',
   },
   ml: {
     hi: 'ഹായ്',
@@ -771,7 +770,6 @@ export const passengerDashboardLocales = {
     hide: 'മറയ്ക്കുക',
     tapMapToSelect: 'സ്ഥലം തിരഞ്ഞെടുക്കാൻ മാപ്പ് സ്പർശിക്കുക',
     pickupSelected: 'പിക്കപ്പ് തിരഞ്ഞെടുത്തു. ഇപ്പോൾ ഡ്രോപ്പ് തിരഞ്ഞെടുക്കുക.',
-    dropSelected: 'ഡ്രോപ്പ് തിരഞ്ഞെടുത്തു.',
   },
 };
 

@@ -9,7 +9,7 @@ import {
   View,
 } from 'react-native';
 import { apiRequest } from '../lib/api';
-import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme';
+import { COLORS, SHADOWS } from '../theme';
 import VoiceTextInput from './VoiceTextInput';
 
 /**
@@ -85,8 +85,19 @@ function RideContextCard({ ride, style }) {
   );
 }
 
+function formatRatingDate(value) {
+  if (!value) {
+    return 'Date unavailable';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return 'Date unavailable';
+  }
+  return date.toLocaleDateString();
+}
+
 export default function PassengerRatingsPanel({ token, onRideSelected = null }) {
-  const [loading, setLoading] = useState(false);
+  const [, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [ratings, setRatings] = useState([]);
   const [showSubmitForm, setShowSubmitForm] = useState(false);
@@ -261,7 +272,7 @@ export default function PassengerRatingsPanel({ token, onRideSelected = null }) 
                 token,
               });
               setRatings((prev) => prev.filter((r) => r.id !== ratingId));
-            } catch (err) {
+            } catch (_err) {
               setError('Failed to delete rating');
             }
           },
@@ -473,11 +484,13 @@ export default function PassengerRatingsPanel({ token, onRideSelected = null }) 
 
       {/* Rated Rides Section */}
       <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
-        {ratings.length === 0 ? (
+        {filteredRatings.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyIcon}>⭐</Text>
-            <Text style={styles.emptyTitle}>No Ratings Yet</Text>
-            <Text style={styles.emptySubtitle}>Rate your completed rides</Text>
+            <Text style={styles.emptyTitle}>{ratings.length === 0 ? 'No Ratings Yet' : 'No Ratings Match'}</Text>
+            <Text style={styles.emptySubtitle}>
+              {ratings.length === 0 ? 'Rate your completed rides' : 'Try another rating filter'}
+            </Text>
             {unratedRides.length > 0 && (
               <TouchableOpacity
                 style={styles.rateNowBtn}
@@ -489,7 +502,7 @@ export default function PassengerRatingsPanel({ token, onRideSelected = null }) 
         ) : (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Rating History</Text>
-            {ratings.map((rating) => {
+            {filteredRatings.map((rating) => {
               const ride = pastRides.find((r) => r.id === rating.booking_id);
               return (
                 <View key={rating.id} style={styles.ratingCard}>
@@ -497,7 +510,7 @@ export default function PassengerRatingsPanel({ token, onRideSelected = null }) 
                     <View>
                       <Text style={styles.ratingDriver}>{ride?.driver_name || 'Driver'}</Text>
                       <Text style={styles.ratingDate}>
-                        {new Date(rating.created_at || Date.now()).toLocaleDateString()}
+                        {formatRatingDate(rating.created_at)}
                       </Text>
                     </View>
                     <View style={styles.ratingScore}>

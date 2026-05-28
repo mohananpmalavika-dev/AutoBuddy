@@ -17,6 +17,8 @@ import BottomSheet from '@gorhom/bottom-sheet';
 
 import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
+import { offlineQueueManager } from '../lib/offlineQueueManager';
+import { retryWithBackoff } from '../lib/retryUtils';
 import KeralaSafetyCard from '../components/KeralaSafetyCard';
 import DriverTrustCard from '../components/DriverTrustCard';
 import DriverKycPanel from '../components/DriverKycPanel';
@@ -324,11 +326,26 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   }, []);
 
   const refreshDriverMenuBadges = useCallback(async () => {
-    const payload = await apiRequest('/drivers/menu-badges', { token }).catch(() => null);
-    if (payload && typeof payload === 'object') {
-      setMenuBadges(payload);
+    // Use retry logic to handle network failures
+    try {
+      const payload = await retryWithBackoff(
+        () => apiRequest('/drivers/menu-badges', { token }),
+        {
+          maxRetries: 3,
+          initialDelayMs: 500,
+          maxDelayMs: 10000,
+          backoffMultiplier: 2,
+        }
+      );
+      if (payload && typeof payload === 'object') {
+        setMenuBadges(payload);
+      }
+      return payload;
+    } catch (err) {
+      // Log error but don't throw - badges refresh is non-critical
+      console.warn('Failed to refresh menu badges after retries:', err.message);
+      return null;
     }
-    return payload;
   }, [token]);
 
   const handleDriverSettingsChange = useCallback((nextSettings = {}) => {
@@ -1241,6 +1258,13 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   ]);
 
   const acceptRequest = async (bookingId) => {
+    // Queue operation for offline support
+    await offlineQueueManager.queueOperation({
+      type: 'accept_ride',
+      bookingId,
+      timestamp: Date.now(),
+    });
+
     const accepted = await runAction(() =>
       apiRequest(`/bookings/${bookingId}/accept`, {
         method: 'PUT',
@@ -1255,6 +1279,13 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   };
 
   const rejectRequest = async (bookingId) => {
+    // Queue operation for offline support
+    await offlineQueueManager.queueOperation({
+      type: 'decline_ride',
+      bookingId,
+      timestamp: Date.now(),
+    });
+
     const rejected = await runAction(
       () =>
         apiRequest(`/bookings/${bookingId}/reject`, {

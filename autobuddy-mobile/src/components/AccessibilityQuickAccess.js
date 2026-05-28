@@ -52,31 +52,42 @@ export default function AccessibilityQuickAccess({ token, onSettingsChange = () 
   const [error, setError] = useState('');
   const [activeCategory, setActiveCategory] = useState('vision');
 
-  const fetchAccessibility = async () => {
-    try {
-      setLoading(true);
-      setError('');
-      const response = await apiRequest('/v1/passengers/accessibility', { token });
-      const nextSettings = response?.data || response || {};
-      setAccessibility(nextSettings);
-      if (nextSettings) {
-        onSettingsChange(nextSettings);
-      }
-    } catch (err) {
-      setError(err.message || 'Failed to load accessibility settings');
-      // Set defaults on error
-      setAccessibility({});
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
     if (!token || !showModal) {
       return undefined;
     }
-    fetchAccessibility().catch(() => null);
-  }, [token, showModal]);
+
+    let isMounted = true;
+
+    const load = async () => {
+      try {
+        if (!isMounted) return;
+        setLoading(true);
+        const response = await apiRequest('/v1/passengers/accessibility', { token });
+        if (!isMounted) return;
+        const nextSettings = response?.data || response || {};
+        setAccessibility(nextSettings);
+        setError('');
+        if (nextSettings) {
+          onSettingsChange(nextSettings);
+        }
+      } catch (err) {
+        if (!isMounted) return;
+        setError(err.message || 'Failed to load accessibility settings');
+        setAccessibility({});
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    load();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [token, showModal, onSettingsChange]);
 
   const updateAccessibility = async (field, value) => {
     try {

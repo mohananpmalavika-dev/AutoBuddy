@@ -8,7 +8,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme';
+import { COLORS, SHADOWS } from '../theme';
 
 /**
  * LocationSearchModal Component

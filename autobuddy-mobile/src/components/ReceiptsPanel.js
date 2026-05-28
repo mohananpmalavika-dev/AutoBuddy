@@ -42,10 +42,10 @@ export default function ReceiptsPanel({ token }) {
     return () => clearTimeout(timer);
   }, [fetchReceipts]);
 
-  const downloadReceipt = async (receipt) => {
+  const shareTextReceipt = async (receipt) => {
     try {
       await Share.share({
-        title: `AutoBuddy Receipt - ${receipt.id}`,
+        title: `AutoBuddy Text Receipt - ${receipt.id}`,
         message: [
           `AutoBuddy Receipt #${receipt.id}`,
           `Booking: ${receipt.booking_id}`,
@@ -58,13 +58,13 @@ export default function ReceiptsPanel({ token }) {
         ].join('\n'),
       });
     } catch (err) {
-      setError(err.message || 'Failed to export receipt');
+      setError(err.message || 'Failed to share text receipt');
     }
   };
 
   const shareReceipt = async (receipt) => {
     try {
-      const shareMessage = `Receipt #${receipt.id}\n\nRide: ${receipt.from} → ${receipt.to}\nDate: ${new Date(receipt.date).toLocaleDateString()}\nFare: INR ${receipt.total}\n\nDriver: ${receipt.driver_name}\nDistance: ${receipt.distance_km} km`;
+      const shareMessage = `Receipt #${receipt.id}\n\nRide: ${receipt.from} -> ${receipt.to}\nDate: ${new Date(receipt.date).toLocaleDateString()}\nFare: INR ${receipt.total}\n\nDriver: ${receipt.driver_name}\nDistance: ${receipt.distance_km} km`;
 
       await Share.share({
         message: shareMessage,
@@ -157,9 +157,11 @@ export default function ReceiptsPanel({ token }) {
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.actionButton, { flex: 1 }]}
-          onPress={() => downloadReceipt(item)}
+          onPress={() => shareTextReceipt(item)}
         >
-          <Text style={styles.actionButtonText}>Export</Text>
+          <Text style={styles.actionButtonText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
+            Share Text Receipt
+          </Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -244,13 +246,13 @@ export default function ReceiptsPanel({ token }) {
           • Each ride generates an automatic receipt
         </Text>
         <Text style={styles.infoText}>
-          • Receipts include detailed fare breakdown
+          • Text receipts include detailed fare breakdown
         </Text>
         <Text style={styles.infoText}>
-          • Download receipts in PDF format
+          • Share text receipts via email or messaging
         </Text>
         <Text style={styles.infoText}>
-          • Share receipts via email or messaging
+          • PDF export is not available yet
         </Text>
         <Text style={styles.infoText}>
           • Receipts are available for 2 years

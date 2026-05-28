@@ -327,32 +327,29 @@ def update_preferences(
 # Feature #5: Scheduled Rides
 # ============================================================================
 
+SCHEDULED_RIDES_DEPRECATED_DETAIL = (
+    "Scheduled rides are managed as real bookings now. Use /api/bookings "
+    "with ride_product='scheduled' and scheduled_for, then read scheduled "
+    "rides from /api/bookings."
+)
+
+
+def raise_scheduled_rides_deprecated():
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail=SCHEDULED_RIDES_DEPRECATED_DETAIL,
+    )
+
+
 @router.post("/scheduled-rides", response_model=ScheduledRideResponse)
 def create_scheduled_ride(
     ride: ScheduledRideCreate,
     current_passenger: dict = Depends(get_current_passenger),
     db: Session = Depends(get_db)
 ):
-    """Create a new scheduled ride"""
-    scheduled_ride = ScheduledRide(
-        id=f"sched-ride-{uuid.uuid4()}",
-        passenger_id=current_passenger["id"],
-        pickup_location=ride.pickup_location,
-        pickup_latitude=ride.pickup_latitude,
-        pickup_longitude=ride.pickup_longitude,
-        dropoff_location=ride.dropoff_location,
-        dropoff_latitude=ride.dropoff_latitude,
-        dropoff_longitude=ride.dropoff_longitude,
-        scheduled_time=ride.scheduled_time,
-        ride_type=ride.ride_type,
-        notes=ride.notes,
-        recurring=ride.recurring or False,
-        recurrence_pattern=ride.recurrence_pattern
-    )
-    db.add(scheduled_ride)
-    db.commit()
-    db.refresh(scheduled_ride)
-    return scheduled_ride
+    """Deprecated: scheduled rides must be created as dispatchable bookings."""
+    _ = ride, current_passenger, db
+    raise_scheduled_rides_deprecated()
 
 
 @router.get("/scheduled-rides", response_model=List[ScheduledRideResponse])
@@ -363,14 +360,9 @@ def get_scheduled_rides(
     limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db)
 ):
-    """Get scheduled rides for passenger"""
-    query = db.query(ScheduledRide).filter(ScheduledRide.passenger_id == current_passenger["id"])
-    
-    if status:
-        query = query.filter(ScheduledRide.status == status)
-    
-    rides = query.offset(skip).limit(limit).all()
-    return rides
+    """Deprecated: scheduled ride lists come from booking history now."""
+    _ = current_passenger, status, skip, limit, db
+    raise_scheduled_rides_deprecated()
 
 
 @router.patch("/scheduled-rides/{ride_id}", response_model=ScheduledRideResponse)
@@ -380,23 +372,9 @@ def update_scheduled_ride(
     current_passenger: dict = Depends(get_current_passenger),
     db: Session = Depends(get_db)
 ):
-    """Update a scheduled ride"""
-    ride = db.query(ScheduledRide).filter(
-        ScheduledRide.id == ride_id,
-        ScheduledRide.passenger_id == current_passenger["id"]
-    ).first()
-    
-    if not ride:
-        raise HTTPException(status_code=404, detail="Scheduled ride not found")
-    
-    ride.pickup_location = ride_update.pickup_location
-    ride.dropoff_location = ride_update.dropoff_location
-    ride.scheduled_time = ride_update.scheduled_time
-    ride.notes = ride_update.notes
-    
-    db.commit()
-    db.refresh(ride)
-    return ride
+    """Deprecated: scheduled bookings should be cancelled/rebooked via /api/bookings."""
+    _ = ride_id, ride_update, current_passenger, db
+    raise_scheduled_rides_deprecated()
 
 
 @router.delete("/scheduled-rides/{ride_id}")
@@ -405,18 +383,9 @@ def cancel_scheduled_ride(
     current_passenger: dict = Depends(get_current_passenger),
     db: Session = Depends(get_db)
 ):
-    """Cancel a scheduled ride"""
-    ride = db.query(ScheduledRide).filter(
-        ScheduledRide.id == ride_id,
-        ScheduledRide.passenger_id == current_passenger["id"]
-    ).first()
-    
-    if not ride:
-        raise HTTPException(status_code=404, detail="Scheduled ride not found")
-    
-    ride.status = "cancelled"
-    db.commit()
-    return {"message": "Scheduled ride cancelled"}
+    """Deprecated: cancel scheduled bookings through /api/bookings/{id}/cancel."""
+    _ = ride_id, current_passenger, db
+    raise_scheduled_rides_deprecated()
 
 
 # ============================================================================

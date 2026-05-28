@@ -67,6 +67,7 @@ export function RatingsProvider({ children }) {
     getRating,
     getDriverAverageRating,
     setRatings,
+    setAverageRating,
     setTotalRatings,
   };
 

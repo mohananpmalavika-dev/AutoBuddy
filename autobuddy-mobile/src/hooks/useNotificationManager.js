@@ -11,13 +11,39 @@ const DEFAULT_NOTIFICATION_SETTINGS = {
   quiet_hours_start: '22:00',
   quiet_hours_end: '08:00',
   accept_promo: true,
+  ride_status_notifications: true,
+  driver_arrival_notification: true,
+  surge_pricing_notification: true,
 };
 const EMPTY_NOTIFICATION_SETTINGS = {};
 
 function normalizeSettings(settings = {}) {
+  const source = settings && typeof settings === 'object' ? settings : {};
+  const acceptPromo =
+    source.accept_promo !== undefined
+      ? source.accept_promo
+      : source.promotional_offers !== undefined
+        ? source.promotional_offers
+        : DEFAULT_NOTIFICATION_SETTINGS.accept_promo;
+  const pushNotifications =
+    source.push_notifications !== undefined
+      ? source.push_notifications
+      : source.notifications_enabled !== undefined
+        ? source.notifications_enabled
+        : DEFAULT_NOTIFICATION_SETTINGS.push_notifications;
+  const vibrationEnabled =
+    source.vibration_enabled !== undefined
+      ? source.vibration_enabled
+      : source.haptic_feedback !== undefined
+        ? source.haptic_feedback
+        : DEFAULT_NOTIFICATION_SETTINGS.vibration_enabled;
+
   return {
     ...DEFAULT_NOTIFICATION_SETTINGS,
-    ...(settings && typeof settings === 'object' ? settings : {}),
+    ...source,
+    accept_promo: acceptPromo,
+    push_notifications: pushNotifications,
+    vibration_enabled: vibrationEnabled,
   };
 }
 
@@ -64,6 +90,68 @@ function isPromotionalNotification(notification = {}) {
   );
 }
 
+function notificationText(notification = {}) {
+  const data = notification.data && typeof notification.data === 'object' ? notification.data : {};
+  return [
+    notification.type,
+    data.type,
+    data.category,
+    data.topic,
+    notification.title,
+    data.title,
+    notification.body,
+    notification.message,
+    data.body,
+    data.message,
+  ]
+    .map((value) => String(value || '').toLowerCase())
+    .join(' ');
+}
+
+function isDriverArrivalNotification(notification = {}) {
+  const text = notificationText(notification);
+  return text.includes('driver_arrived') || text.includes('driver arrival') || text.includes('driver arrived');
+}
+
+function isSurgePricingNotification(notification = {}) {
+  const text = notificationText(notification);
+  return text.includes('surge') || text.includes('dynamic_pricing') || text.includes('dynamic pricing');
+}
+
+function isRideStatusNotification(notification = {}) {
+  const text = notificationText(notification);
+  return [
+    'booking_accepted',
+    'booking accepted',
+    'driver_arrived',
+    'driver arrived',
+    'trip_started',
+    'trip started',
+    'trip_completed',
+    'trip completed',
+    'driver_cancelled',
+    'booking_cancelled',
+    'ride cancelled',
+    'rating_pending',
+  ].some((marker) => text.includes(marker));
+}
+
+function shouldAcceptNotification(settings, notification) {
+  if (!settings.accept_promo && isPromotionalNotification(notification)) {
+    return false;
+  }
+  if (!settings.driver_arrival_notification && isDriverArrivalNotification(notification)) {
+    return false;
+  }
+  if (!settings.surge_pricing_notification && isSurgePricingNotification(notification)) {
+    return false;
+  }
+  if (!settings.ride_status_notifications && isRideStatusNotification(notification)) {
+    return false;
+  }
+  return true;
+}
+
 /**
  * useNotificationManager - Initialize and manage notifications
  * Should be called once in a screen wrapped by NotificationProvider.
@@ -93,7 +181,7 @@ export function useNotificationManager(token, userId, notificationSettings = EMP
           ? safeNotification.data
           : {};
 
-      if (!activeSettings.accept_promo && isPromotionalNotification(safeNotification)) {
+      if (!shouldAcceptNotification(activeSettings, safeNotification)) {
         return;
       }
 
@@ -180,6 +268,7 @@ export function useNotificationManager(token, userId, notificationSettings = EMP
         rows
           .slice()
           .reverse()
+          .filter((notification) => shouldAcceptNotification(activeSettings, notification))
           .forEach((notification) => addNotification(notification));
       })
       .catch((error) => {

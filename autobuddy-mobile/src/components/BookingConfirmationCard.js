@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import CancellationCostBanner from './CancellationCostBanner';
 import {
   StyleSheet,
@@ -6,7 +6,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme';
+import { SHADOWS } from '../theme';
 
 /**
  * BookingConfirmationCard Component
@@ -134,22 +134,22 @@ export default function BookingConfirmationCard({
 }) {
   const [visible, setVisible] = useState(true);
 
+  const handleDismiss = useCallback(() => {
+    setVisible(false);
+    if (typeof onDismiss === 'function') {
+      onDismiss();
+    }
+  }, [onDismiss]);
+
   useEffect(() => {
     if (!autoDismissMs) {
-      return;
+      return undefined;
     }
     const timer = setTimeout(() => {
       handleDismiss();
     }, autoDismissMs);
     return () => clearTimeout(timer);
-  }, [autoDismissMs]);
-
-  const handleDismiss = () => {
-    setVisible(false);
-    if (typeof onDismiss === 'function') {
-      onDismiss();
-    }
-  };
+  }, [autoDismissMs, handleDismiss]);
 
   if (!visible || !booking) {
     return null;

@@ -322,6 +322,9 @@ export default function TripDetailModal({
                   <Text style={styles.paymentStatusDate}>
                     {formatDate(booking.created_at)}
                   </Text>
+                  {!!receipt?.id && (
+                    <Text style={styles.paymentStatusDate}>Receipt {receipt.id}</Text>
+                  )}
                 </View>
               </View>
             </View>

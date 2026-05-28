@@ -43,6 +43,44 @@ const STATUSES = [
   { value: 'closed', label: 'Closed' },
 ];
 
+// Validation constants for support tickets
+const VALID_CATEGORIES = ['payment', 'booking', 'account', 'safety', 'vehicle', 'document', 'general'];
+const VALID_PRIORITIES = ['low', 'normal', 'high', 'urgent'];
+
+/**
+ * Validate support ticket input
+ * @returns {string[]} Array of validation error messages
+ */
+function validateTicketInput(subject, description, category, priority) {
+  const errors = [];
+
+  if (!subject || subject.trim().length === 0) {
+    errors.push('Subject is required');
+  } else if (subject.trim().length < 3) {
+    errors.push('Subject must be at least 3 characters');
+  } else if (subject.trim().length > 100) {
+    errors.push('Subject must be less than 100 characters');
+  }
+
+  if (!description || description.trim().length === 0) {
+    errors.push('Description is required');
+  } else if (description.trim().length < 10) {
+    errors.push('Description must be at least 10 characters');
+  } else if (description.trim().length > 5000) {
+    errors.push('Description must be less than 5000 characters');
+  }
+
+  if (!VALID_CATEGORIES.includes(String(category || '').trim().toLowerCase())) {
+    errors.push('Invalid category selected');
+  }
+
+  if (!VALID_PRIORITIES.includes(String(priority || '').trim().toLowerCase())) {
+    errors.push('Invalid priority selected');
+  }
+
+  return errors;
+}
+
 function formatDate(value) {
   if (!value) return 'Not available';
   const date = new Date(value);
@@ -230,8 +268,16 @@ export default function SupportTicketPanel({
   );
 
   const createTicket = async () => {
-    if (!formData.subject.trim() || !formData.description.trim()) {
-      setError('Please fill in subject and description');
+    // Validate input
+    const validationErrors = validateTicketInput(
+      formData.subject,
+      formData.description,
+      formData.category,
+      formData.priority,
+    );
+
+    if (validationErrors.length > 0) {
+      setError(validationErrors.join(' / '));
       return;
     }
 
@@ -244,9 +290,9 @@ export default function SupportTicketPanel({
         body: {
           subject: formData.subject.trim(),
           description: formData.description.trim(),
-          category: formData.category,
-          priority: formData.priority,
-          attachment_urls: formData.attachment_urls,
+          category: String(formData.category || 'general').trim().toLowerCase(),
+          priority: String(formData.priority || 'normal').trim().toLowerCase(),
+          attachment_urls: formData.attachment_urls || [],
         },
       });
       setTimedMessage('Support ticket created. We will respond shortly.');

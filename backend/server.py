@@ -717,6 +717,12 @@ async def seed_admin():
             await db.passenger_favorite_drivers.create_index([("passenger_id", 1), ("driver_id", 1)], unique=True)
         except OperationFailure:
             pass
+        try:
+            await db.passenger_lost_items.create_index([("passenger_id", 1), ("created_at", -1)])
+            await db.passenger_lost_items.create_index("booking_id")
+            await db.passenger_lost_items.create_index("status")
+        except OperationFailure:
+            pass
         await db.passenger_blocked_drivers.create_index([("passenger_id", 1), ("driver_id", 1)], unique=True)
         await db.driver_blocked_passengers.create_index([("driver_id", 1), ("passenger_id", 1)], unique=True)
         await db.drivers.create_index([("custom_fare_pricing_request.status", 1), ("custom_fare_pricing_request.submitted_at", -1)])
@@ -1254,6 +1260,12 @@ class PassengerKYCVerifyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     document_type: Literal["aadhar", "pan", "license", "passport"]
     document_number: str = Field(min_length=4, max_length=40)
+
+class PassengerLostItemRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    item_type: str = Field(min_length=2, max_length=80)
+    description: str = Field(min_length=5, max_length=500)
+    contact: str = Field(min_length=3, max_length=120)
 
 class PassengerSubscriptionUpgradeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
@@ -5681,6 +5693,50 @@ async def get_passenger_receipts(period: str = "all", current_user: dict = Depen
             }
         )
     return {"receipts": receipts}
+
+@api_router.post("/v1/passengers/bookings/{booking_id}/lost-item")
+async def report_passenger_lost_item(
+    booking_id: str,
+    payload: PassengerLostItemRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    require_passenger(current_user)
+    booking = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if booking.get("passenger_id") != current_user["id"]:
+        raise HTTPException(status_code=403, detail="You can report lost items only for your own rides")
+
+    now = get_ist_now()
+    lost_item = {
+        "id": f"lost-{uuid.uuid4()}",
+        "booking_id": booking_id,
+        "passenger_id": current_user["id"],
+        "driver_id": booking.get("driver_id"),
+        "item_type": payload.item_type,
+        "description": payload.description,
+        "contact": payload.contact,
+        "status": "open",
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.passenger_lost_items.insert_one(lost_item)
+    await db.bookings.update_one(
+        {"id": booking_id},
+        {
+            "$set": {"lost_item_reported_at": now},
+            "$push": {
+                "lost_item_reports": {
+                    "id": lost_item["id"],
+                    "item_type": lost_item["item_type"],
+                    "status": lost_item["status"],
+                    "created_at": now,
+                }
+            },
+        },
+    )
+    lost_item.pop("_id", None)
+    return {"message": "Lost item report submitted.", "lost_item": lost_item}
 
 @api_router.post("/passengers/support/attachments")
 async def upload_support_attachment(
@@ -10588,14 +10644,26 @@ async def get_wallet(current_user: dict = Depends(get_current_user)):
 @api_router.post("/wallet/topup")
 async def topup_wallet(payload: WalletTopupRequest, current_user: dict = Depends(get_current_user)):
     now = get_ist_now()
+    amount = round(float(payload.amount), 2)
     result = await db.user_wallets.update_one(
         {"user_id": current_user["id"]},
         {
-            "$inc": {"balance": round(payload.amount, 2)},
+            "$inc": {"balance": amount},
             "$set": {"updated_at": now},
             "$setOnInsert": {"id": str(uuid.uuid4()), "currency": "INR", "created_at": now},
         },
         upsert=True,
+    )
+    await db.wallet_transactions.insert_one(
+        {
+            "id": str(uuid.uuid4()),
+            "user_id": current_user["id"],
+            "type": "credit",
+            "amount": amount,
+            "reason": "wallet_topup",
+            "metadata": {"source": "wallet_topup"},
+            "created_at": now,
+        }
     )
     wallet = await db.user_wallets.find_one({"user_id": current_user["id"]})
     return {
@@ -10742,6 +10810,22 @@ async def perform_spin_win(current_user: dict = Depends(get_current_user)):
                 },
             },
             upsert=True,
+        )
+        await db.wallet_transactions.insert_one(
+            {
+                "id": str(uuid.uuid4()),
+                "user_id": current_user["id"],
+                "type": "credit",
+                "amount": wallet_credit_amount,
+                "reason": "spin_win_reward",
+                "metadata": {
+                    "source": "spin_win",
+                    "prize_id": str(selected_prize.get("id") or ""),
+                    "prize_label": str(selected_prize.get("label") or ""),
+                    "date_key": date_key,
+                },
+                "created_at": now,
+            }
         )
 
     reward_doc = {

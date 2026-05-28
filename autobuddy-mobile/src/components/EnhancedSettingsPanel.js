@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   ScrollView,
@@ -10,6 +10,17 @@ import {
 import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
 import VoiceTextInput from './VoiceTextInput';
+import { driverDashboardLocales } from '../locales/driverDashboard';
+
+/**
+ * Resolve driver dashboard locale based on language code
+ * @param {string} languageCode - Language code (en, ml, hi, ta)
+ * @returns {object} Translated strings
+ */
+function resolveDriverLocale(languageCode = 'en') {
+  const normalized = String(languageCode || 'en').trim().toLowerCase();
+  return driverDashboardLocales[normalized] || driverDashboardLocales.en;
+}
 
 const DEFAULT_SETTINGS = {
   push_notifications: true,
@@ -78,27 +89,43 @@ export default function EnhancedSettingsPanel({
   onSettingsChange,
 }) {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
-  const [quietHoursDraft, setQuietHoursDraft] = useState({
-    quiet_hours_start: DEFAULT_SETTINGS.quiet_hours_start,
-    quiet_hours_end: DEFAULT_SETTINGS.quiet_hours_end,
+  const [languageCode, setLanguageCode] = useState(() => {
+    if (typeof window === 'undefined') {
+      return 'en';
+    }
+    return String(window.localStorage.getItem('autobuddy_lang') || 'en').trim().toLowerCase();
   });
+  const t = useMemo(() => resolveDriverLocale(languageCode), [languageCode]);
+  const languages = useMemo(
+    () => [
+      { value: 'en', label: t.english || 'English' },
+      { value: 'ml', label: t.malayalam || 'Malayalam' },
+      { value: 'hi', label: t.hindi || 'Hindi' },
+      { value: 'ta', label: t.tamil || 'Tamil' },
+    ],
+    [t],
+  );
+  const themes = useMemo(
+    () => [
+      { value: 'light', label: t.light || 'Light' },
+      { value: 'dark', label: t.dark || 'Dark' },
+      { value: 'auto', label: t.autoTheme || 'Auto (System)' },
+    ],
+    [t],
+  );
+  const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
-  const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
+  const [quietHoursDraft, setQuietHoursDraft] = useState({});
 
-  const languages = [
-    { value: 'en', label: 'English' },
-    { value: 'ml', label: 'Malayalam' },
-    { value: 'hi', label: 'Hindi' },
-    { value: 'ta', label: 'Tamil' },
-  ];
-
-  const themes = [
-    { value: 'light', label: 'Light Mode' },
-    { value: 'dark', label: 'Dark Mode' },
-    { value: 'auto', label: 'Auto (System)' },
-  ];
+  // Handle language preference updates without triggering setState in effect
+  const updateLanguagePreference = useCallback((lang) => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('autobuddy_lang', lang);
+      setLanguageCode(lang);
+    }
+  }, []);
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -137,6 +164,12 @@ export default function EnhancedSettingsPanel({
       });
       const nextSettings = normalizeSettings(response?.settings || { ...settings, ...updates });
       setSettings(nextSettings);
+      
+      // Update language preference if language setting changed
+      if (updates.language && String(updates.language).trim()) {
+        updateLanguagePreference(updates.language);
+      }
+      
       onSettingsChange?.(nextSettings);
       setQuietHoursDraft({
         quiet_hours_start: nextSettings.quiet_hours_start,
@@ -229,56 +262,56 @@ export default function EnhancedSettingsPanel({
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <Text style={styles.title}>Settings & Preferences</Text>
-      <Text style={styles.subtitle}>Manage your account preferences</Text>
+      <Text style={styles.title}>{t.settingsTitle || 'Settings & Preferences'}</Text>
+      <Text style={styles.subtitle}>{t.settingsSubtitle || 'Manage your account preferences'}</Text>
 
       {error && <Text style={[styles.message, styles.error]}>{error}</Text>}
       {message && <Text style={[styles.message, styles.success]}>{message}</Text>}
 
       {/* Availability Section */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Availability</Text>
+        <Text style={styles.sectionTitle}>{t.onlineStatus || 'Availability'}</Text>
         <View style={styles.settingRow}>
-          <Text style={styles.settingLabel}>Current Status</Text>
+          <Text style={styles.settingLabel}>{t.currentStatus || 'Current Status'}</Text>
           <TouchableOpacity
             style={[styles.statusToggle, displayIsOnline && styles.statusToggleActive]}
             onPress={onToggleOnline}
             disabled={parentLoading}
           >
-            <Text style={styles.statusToggleText}>{displayIsOnline ? 'Online' : 'Offline'}</Text>
+            <Text style={styles.statusToggleText}>{displayIsOnline ? (t.currentlyOnline || 'Online') : (t.currentlyOffline || 'Offline')}</Text>
           </TouchableOpacity>
         </View>
       </View>
 
       {/* Notification Settings */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Notifications</Text>
+        <Text style={styles.sectionTitle}>{t.notificationSettings || 'Notifications'}</Text>
         <SettingRow
-          label="Push Notifications"
+          label={t.pushNotifications || 'Push Notifications'}
           value={settings.push_notifications}
           onToggle={() => toggleSetting('push_notifications')}
           disabled={parentLoading}
         />
         <SettingRow
-          label="Email Notifications"
+          label={t.emailNotifications || 'Email Notifications'}
           value={settings.email_notifications}
           onToggle={() => toggleSetting('email_notifications')}
           disabled={parentLoading}
         />
         <SettingRow
-          label="SMS Alerts"
+          label={t.smsAlerts || 'SMS Alerts'}
           value={settings.sms_alerts}
           onToggle={() => toggleSetting('sms_alerts')}
           disabled={parentLoading}
         />
         <SettingRow
-          label="Sound Enabled"
+          label={t.soundEnabled || 'Sound Enabled'}
           value={settings.sound_enabled}
           onToggle={() => toggleSetting('sound_enabled')}
           disabled={parentLoading}
         />
         <SettingRow
-          label="Vibration"
+          label={t.vibrationEnabled || 'Vibration'}
           value={settings.vibration_enabled}
           onToggle={() => toggleSetting('vibration_enabled')}
           disabled={parentLoading}
@@ -287,16 +320,16 @@ export default function EnhancedSettingsPanel({
 
       {/* Quiet Hours */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Quiet Hours</Text>
+        <Text style={styles.sectionTitle}>{t.quietHoursEnabled || 'Quiet Hours'}</Text>
         <SettingRow
-          label="Enable Quiet Hours"
+          label={t.quietHoursEnabled || 'Enable Quiet Hours'}
           value={settings.quiet_hours_enabled}
           onToggle={() => toggleSetting('quiet_hours_enabled')}
           disabled={parentLoading}
         />
         {settings.quiet_hours_enabled && (
           <View style={styles.quietHoursForm}>
-            <Text style={styles.fieldLabel}>Start Time</Text>
+            <Text style={styles.fieldLabel}>{t.quietHoursStartTime || 'Start Time'}</Text>
             <VoiceTextInput
               style={styles.input}
               value={quietHoursDraft.quiet_hours_start}
@@ -304,7 +337,7 @@ export default function EnhancedSettingsPanel({
               placeholder="22:00"
               placeholderTextColor={COLORS.textMuted}
             />
-            <Text style={styles.fieldLabel}>End Time</Text>
+            <Text style={styles.fieldLabel}>{t.quietHoursEndTime || 'End Time'}</Text>
             <VoiceTextInput
               style={styles.input}
               value={quietHoursDraft.quiet_hours_end}
@@ -317,10 +350,10 @@ export default function EnhancedSettingsPanel({
               onPress={saveQuietHours}
               disabled={parentLoading || loading}
             >
-              <Text style={styles.actionButtonText}>Save Quiet Hours</Text>
+              <Text style={styles.actionButtonText}>{t.saveQuietHours || 'Save Quiet Hours'}</Text>
             </TouchableOpacity>
             <Text style={styles.quietHoursInfo}>
-              No notifications will be sent during these hours
+              {t.quietHoursInfo || 'No notifications will be sent during these hours'}
             </Text>
           </View>
         )}
@@ -328,28 +361,28 @@ export default function EnhancedSettingsPanel({
 
       {/* Privacy & Data */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Privacy & Data</Text>
+        <Text style={styles.sectionTitle}>{t.privacyData || 'Privacy & Data'}</Text>
         <SettingRow
-          label="Share Location"
+          label={t.shareLocation || 'Share Location'}
           value={settings.share_location}
           onToggle={() => toggleSetting('share_location')}
           disabled={parentLoading}
         />
         <SettingRow
-          label="Accept Promotional Offers"
+          label={t.promoAcceptance || 'Accept Promotional Offers'}
           value={settings.accept_promo}
           onToggle={() => toggleSetting('accept_promo')}
           disabled={parentLoading}
         />
         <Text style={styles.privacyNote}>
-          When Share Location is off, location is only shared during active rides. Promotional offers help you earn more.
+          {t.privacyNote || 'When Share Location is off, location is only shared during active rides. Promotional offers help you earn more.'}
         </Text>
       </View>
 
       {/* Display Preferences */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Display</Text>
-        <Text style={styles.fieldLabel}>Language</Text>
+        <Text style={styles.sectionTitle}>{t.preferences || 'Display'}</Text>
+        <Text style={styles.fieldLabel}>{t.language || 'Language'}</Text>
         <View style={styles.optionGroup}>
           {languages.map((lang) => (
             <TouchableOpacity
@@ -370,7 +403,7 @@ export default function EnhancedSettingsPanel({
           ))}
         </View>
 
-        <Text style={[styles.fieldLabel, styles.fieldLabelSpaced]}>Theme</Text>
+        <Text style={[styles.fieldLabel, styles.fieldLabelSpaced]}>{t.theme || 'Theme'}</Text>
         <View style={styles.optionGroup}>
           {themes.map((theme) => (
             <TouchableOpacity
@@ -394,31 +427,31 @@ export default function EnhancedSettingsPanel({
 
       {/* Account Management */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Account Management</Text>
+        <Text style={styles.sectionTitle}>{t.accountManagement || 'Account Management'}</Text>
         <TouchableOpacity 
           style={styles.actionButton}
           onPress={handleChangePassword}
           disabled={parentLoading || loading}
         >
-          <Text style={styles.actionButtonText}>Change Password</Text>
+          <Text style={styles.actionButtonText}>{t.changePassword || 'Change Password'}</Text>
         </TouchableOpacity>
         <TouchableOpacity 
           style={styles.actionButton}
           onPress={handlePaymentMethods}
           disabled={parentLoading || loading}
         >
-          <Text style={styles.actionButtonText}>Payment Methods</Text>
+          <Text style={styles.actionButtonText}>{t.paymentMethods || 'Payment Methods'}</Text>
         </TouchableOpacity>
         <TouchableOpacity 
           style={styles.actionButton}
           onPress={handleViewPrivacy}
           disabled={parentLoading || loading}
         >
-          <Text style={styles.actionButtonText}>{showPrivacyPolicy ? 'Hide Privacy Policy' : 'View Privacy Policy'}</Text>
+          <Text style={styles.actionButtonText}>{showPrivacyPolicy ? (t.hidePrivacyPolicy || 'Hide Privacy Policy') : (t.viewPrivacyPolicy || 'View Privacy Policy')}</Text>
         </TouchableOpacity>
         {showPrivacyPolicy && (
           <View style={styles.policyPanel}>
-            <Text style={styles.policyTitle}>AutoBuddy Privacy Policy</Text>
+            <Text style={styles.policyTitle}>AutoBuddy {t.privacyPolicy || 'Privacy Policy'}</Text>
             <Text style={styles.policyText}>
               AutoBuddy uses your account, vehicle, document, ride, payment, safety, and location data to run driver matching, trips, payouts, fraud prevention, and support.
             </Text>
@@ -429,7 +462,7 @@ export default function EnhancedSettingsPanel({
               Documents, bank details, and support attachments are used for verification, compliance, payouts, and account help. Promotional preferences control whether offer messages are sent.
             </Text>
             <Text style={styles.policyText}>
-              For account export, correction, or deletion requests, use Contact Support so the team can verify ownership before making changes.
+              For account export, correction, or deletion requests, use {t.contactSupport || 'Contact Support'} so the team can verify ownership before making changes.
             </Text>
           </View>
         )}
@@ -438,19 +471,19 @@ export default function EnhancedSettingsPanel({
           onPress={handleDeleteAccount}
           disabled={parentLoading || loading}
         >
-          <Text style={styles.dangerButtonText}>Delete Account</Text>
+          <Text style={styles.dangerButtonText}>{t.deleteAccount || 'Delete Account'}</Text>
         </TouchableOpacity>
       </View>
 
       {/* About Section */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>About</Text>
+        <Text style={styles.sectionTitle}>{t.about || 'About'}</Text>
         <View style={styles.aboutItem}>
-          <Text style={styles.aboutLabel}>App Version</Text>
+          <Text style={styles.aboutLabel}>{t.appVersion || 'App Version'}</Text>
           <Text style={styles.aboutValue}>1.2.5</Text>
         </View>
         <View style={styles.aboutItem}>
-          <Text style={styles.aboutLabel}>Last Updated</Text>
+          <Text style={styles.aboutLabel}>{t.lastUpdated || 'Last Updated'}</Text>
           <Text style={styles.aboutValue}>{new Date().toLocaleDateString()}</Text>
         </View>
         <TouchableOpacity 
@@ -458,14 +491,14 @@ export default function EnhancedSettingsPanel({
           onPress={handleHelpFaq}
           disabled={parentLoading || loading}
         >
-          <Text style={styles.actionButtonText}>Help & FAQ</Text>
+          <Text style={styles.actionButtonText}>{t.helpAndFAQ || 'Help & FAQ'}</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.actionButton}
           onPress={handleContactSupport}
           disabled={parentLoading || loading}
         >
-          <Text style={styles.actionButtonText}>Contact Support</Text>
+          <Text style={styles.actionButtonText}>{t.contactSupport || 'Contact Support'}</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>

@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme';
+import { COLORS, SHADOWS } from '../theme';
 
 /**
  * NotificationItem - Single notification card
@@ -12,14 +12,12 @@ import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme';
 export default function NotificationItem({ notification, onPress, onDismiss }) {
   const {
     id,
-    type,
     title,
     body,
     icon = '🔔',
     severity = 'info',
     timestamp,
     read = false,
-    bookingId,
   } = notification;
 
   const getBackgroundColor = () => {
