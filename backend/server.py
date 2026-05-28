@@ -33,6 +33,7 @@ from urllib.parse import urlparse, parse_qs
 from cryptography.fernet import Fernet
 from app.core.config import get_settings
 from app.db.client import create_mongo_client, create_database
+from app.db.retry import retry_on_db_error
 from app.routers.auth import router as modular_auth_router
 from app.routers.analytics import router as modular_analytics_router
 from app.routers.driver_trust import router as modular_driver_trust_router
@@ -5864,6 +5865,42 @@ async def delete_driver_vehicle(vehicle_id: str, current_user: dict = Depends(ge
             await sync_driver_primary_vehicle(current_user["id"], None)
     return {"success": True, "message": "Vehicle removed"}
 
+@retry_on_db_error(max_attempts=3, base_delay=0.5, max_delay=5.0)
+async def _db_update_driver_location(
+    driver_id: str,
+    current_location: dict,
+    geo_location: dict,
+    now_utc,
+    latitude: float,
+    longitude: float,
+):
+    """Database operations for location update with retry support."""
+    await db.drivers.update_one(
+        {"user_id": driver_id},
+        {
+            "$set": {
+                "current_location": current_location,
+                "current_location_geo": geo_location,
+                "last_location_at": now_utc,
+                "is_online": True,
+            },
+            "$setOnInsert": build_default_driver_profile(driver_id),
+        },
+        upsert=True,
+    )
+    await upsert_driver_geo_index(driver_id, latitude, longitude)
+
+
+@retry_on_db_error(max_attempts=3, base_delay=0.5, max_delay=5.0)
+async def _db_get_active_booking(driver_id: str):
+    """Get active booking with retry support."""
+    active_statuses = [BookingStatus.ACCEPTED, BookingStatus.DRIVER_ARRIVED, BookingStatus.IN_PROGRESS]
+    return await db.bookings.find_one({
+        "driver_id": driver_id,
+        "status": {"$in": active_statuses},
+    })
+
+
 @api_router.put("/drivers/location")
 async def update_driver_location(location_update: DriverLocationUpdate, current_user: dict = Depends(get_current_user)):
     if current_user["role"] != UserRole.DRIVER:
@@ -5881,27 +5918,22 @@ async def update_driver_location(location_update: DriverLocationUpdate, current_
         "type": "Point",
         "coordinates": [float(longitude), float(latitude)],
     }
-    await db.drivers.update_one(
-        {"user_id": current_user["id"]},
-        {
-            "$set": {
-                "current_location": cached_location,
-                "current_location_geo": geo_location,
-                "last_location_at": now_utc,
-                "is_online": True,
-            },
-            "$setOnInsert": build_default_driver_profile(current_user["id"]),
-        },
-        upsert=True,
+    
+    # Update driver location with automatic retries
+    await _db_update_driver_location(
+        current_user["id"],
+        cached_location,
+        geo_location,
+        now_utc,
+        latitude,
+        longitude,
     )
-    await upsert_driver_geo_index(current_user["id"], latitude, longitude)
+    
     await cache_delete(f"driver_profile:{current_user['id']}")
 
-    active_statuses = [BookingStatus.ACCEPTED, BookingStatus.DRIVER_ARRIVED, BookingStatus.IN_PROGRESS]
-    active_booking = await db.bookings.find_one({
-        "driver_id": current_user["id"],
-        "status": {"$in": active_statuses},
-    })
+    # Get active booking with retries
+    active_booking = await _db_get_active_booking(current_user["id"])
+    
     if active_booking:
         await emit_to_user(
             active_booking["passenger_id"],
@@ -5915,6 +5947,7 @@ async def update_driver_location(location_update: DriverLocationUpdate, current_
         )
 
     return {"message": "Location updated"}
+
 
 
 @api_router.post("/drivers/telemetry", status_code=status.HTTP_202_ACCEPTED)
@@ -5971,6 +6004,45 @@ async def update_driver_telemetry(
         "processed_mode": processed_mode,
     }
 
+@retry_on_db_error(max_attempts=3, base_delay=0.5, max_delay=5.0)
+async def _db_update_driver_availability(
+    driver_id: str,
+    is_available: bool,
+    now_utc,
+    driver_insert_defaults: dict,
+):
+    """Database operations for availability update with retry support."""
+    await db.drivers.update_one(
+        {"user_id": driver_id},
+        {
+            "$set": {
+                "is_available": is_available,
+                "is_online": is_available,
+                "updated_at": now_utc,
+                "last_online_at": now_utc if is_available else None,
+                "last_offline_at": now_utc if not is_available else None,
+            },
+            "$setOnInsert": driver_insert_defaults,
+        },
+        upsert=True,
+    )
+    await db.driver_availability_events.insert_one(
+        {
+            "id": f"drv-avail-{uuid.uuid4()}",
+            "driver_id": driver_id,
+            "is_available": bool(is_available),
+            "is_online": bool(is_available),
+            "created_at": now_utc,
+        }
+    )
+
+
+@retry_on_db_error(max_attempts=3, base_delay=0.5, max_delay=5.0)
+async def _db_get_driver_for_geo(driver_id: str):
+    """Get driver profile for geolocation with retry support."""
+    return await db.drivers.find_one({"user_id": driver_id}, {"_id": 0, "current_location": 1})
+
+
 @api_router.put("/drivers/availability")
 async def update_driver_availability(availability: DriverAvailabilityUpdate, current_user: dict = Depends(get_current_user)):
     if current_user["role"] != UserRole.DRIVER:
@@ -5981,39 +6053,26 @@ async def update_driver_availability(availability: DriverAvailabilityUpdate, cur
     driver_insert_defaults = build_default_driver_profile(current_user["id"])
     driver_insert_defaults.pop("is_available", None)
 
-    await db.drivers.update_one(
-        {"user_id": current_user["id"]},
-        {
-            "$set": {
-                "is_available": availability.is_available,
-                "is_online": availability.is_available,
-                "updated_at": now_utc,
-                "last_online_at": now_utc if availability.is_available else None,
-                "last_offline_at": now_utc if not availability.is_available else None,
-            },
-            "$setOnInsert": driver_insert_defaults,
-        },
-        upsert=True,
+    # Update availability with retries
+    await _db_update_driver_availability(
+        current_user["id"],
+        availability.is_available,
+        now_utc,
+        driver_insert_defaults,
     )
+    
     if availability.is_available:
         await runtime_state.touch_driver_heartbeat(str(current_user["id"]))
     else:
         await runtime_state.mark_driver_offline(str(current_user["id"]))
-    await db.driver_availability_events.insert_one(
-        {
-            "id": f"drv-avail-{uuid.uuid4()}",
-            "driver_id": current_user["id"],
-            "is_available": bool(availability.is_available),
-            "is_online": bool(availability.is_available),
-            "created_at": now_utc,
-        }
-    )
+    
     await cache_delete(f"driver_profile:{current_user['id']}")
+    
     if not availability.is_available:
         await runtime_state.clear_driver_live_location(str(current_user["id"]))
         await remove_driver_geo_index(str(current_user["id"]))
     else:
-        profile_for_geo = await db.drivers.find_one({"user_id": current_user["id"]}, {"_id": 0, "current_location": 1})
+        profile_for_geo = await _db_get_driver_for_geo(current_user["id"])
         geo_loc = normalize_tracking_location((profile_for_geo or {}).get("current_location"))
         if geo_loc:
             await upsert_driver_geo_index(
@@ -6021,17 +6080,17 @@ async def update_driver_availability(availability: DriverAvailabilityUpdate, cur
                 float(geo_loc.get("latitude")),
                 float(geo_loc.get("longitude")),
             )
-    # Fetch the updated profile with location data
-    profile = await db.drivers.find_one({"user_id": current_user["id"]}) or {}
+    
     # Return the state we just set (not fetched from DB to avoid timing issues)
     return {
         "message": "Availability updated",
         "is_available": bool(availability.is_available),
         "is_online": bool(availability.is_available),
-        "current_location": await get_effective_driver_location(profile),
+        "current_location": await runtime_state.get_driver_live_location(str(current_user["id"])) or {},
     }
 
 @api_router.get("/drivers/availability")
+@retry_on_db_error(max_attempts=2, base_delay=0.3, max_delay=3.0)
 async def get_driver_availability(current_user: dict = Depends(get_current_user)):
     """Get the current availability status of the driver."""
     if current_user["role"] != UserRole.DRIVER:
