@@ -413,6 +413,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
         setServerIsOnline(profile.is_available);
         const canApplyServerAvailability =
           !availabilitySyncPending &&
+          !availabilityToggleInFlightRef.current &&
           !pendingAvailabilitySyncRef.current &&
           Date.now() >= availabilityUiOverrideUntilRef.current;
         // Avoid overriding an in-flight toggle with stale profile snapshots.
@@ -478,6 +479,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
         setServerIsOnline(profile.is_available);
         const canApplyServerAvailability =
           !availabilitySyncPending &&
+          !availabilityToggleInFlightRef.current &&
           !pendingAvailabilitySyncRef.current &&
           Date.now() >= availabilityUiOverrideUntilRef.current;
         if (canApplyServerAvailability) {
@@ -866,112 +868,67 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     };
   }, [driverTrackingIntervalMs, normalizeLocation, pushDriverLocation, shouldSyncDriverLocation]);
 
-  const toggleOnlineStatus = async (nextValue) => {
-    if (availabilitySyncPending || availabilityToggleInFlightRef.current) {
+  const toggleDriverAvailability = useCallback(async (wantOnline) => {
+    if (availabilityToggleInFlightRef.current) {
       return;
     }
-    const next = typeof nextValue === 'boolean' ? nextValue : !displayIsOnline;
-    if (next === displayIsOnline && !pendingAvailabilitySyncRef.current) {
+
+    if (!token) {
+      setError('Missing authentication token');
       return;
     }
+
+    const next = !!wantOnline;
     const requestId = availabilityToggleRequestIdRef.current + 1;
     availabilityToggleRequestIdRef.current = requestId;
     availabilityToggleInFlightRef.current = requestId;
-    
-    // Immediately show optimistic UI
     availabilityUiOverrideUntilRef.current = Date.now() + 15000;
-    pendingAvailabilitySyncRef.current = {
-      desired: next,
-      attempts: 0,
-      lastAttemptAt: Date.now(),
-    };
+    pendingAvailabilitySyncRef.current = null;
+
     setIsOnline(next);
     setAvailabilitySyncPending(true);
     setError('');
     setMessage(next ? 'Going online...' : 'Going offline...');
 
     try {
-      const updated = await apiRequest('/drivers/availability', {
+      const response = await apiRequest('/drivers/availability', {
         method: 'PUT',
         token,
         body: { is_available: next },
       });
 
-      // Only process response if this is still the latest request
       if (requestId !== availabilityToggleRequestIdRef.current) {
         return;
       }
 
-      if (updated && typeof updated.is_available === 'boolean') {
-        const savedStatus = updated.is_available;
-        setServerIsOnline(savedStatus);
-        availabilityUiOverrideUntilRef.current = Date.now() + 15000;
-        setIsOnline(savedStatus);
-        setAvailabilitySyncPending(false);
-        pendingAvailabilitySyncRef.current = null;
-        setMessage(savedStatus ? 'You are online and discoverable.' : 'You are offline.');
-        
-        if (savedStatus) {
-          void pushDriverLocation({
-            fallbackLocation: updated?.current_location || driverLocation,
-            silent: true,
-          }).catch(() => null);
-        }
-        void refreshDriverDataSilently({ includeProfile: false }).catch(() => null);
-      } else {
-        // Fallback: assume success if no error thrown
-        setServerIsOnline(next);
-        availabilityUiOverrideUntilRef.current = Date.now() + 15000;
-        setIsOnline(next);
-        setAvailabilitySyncPending(false);
-        pendingAvailabilitySyncRef.current = null;
-        setMessage(next ? 'You are online and discoverable.' : 'You are offline.');
-        void refreshDriverDataSilently({ includeProfile: false }).catch(() => null);
+      const savedStatus =
+        typeof response?.is_available === 'boolean' ? response.is_available : next;
+
+      availabilityUiOverrideUntilRef.current = Date.now() + 15000;
+      setIsOnline(savedStatus);
+      setServerIsOnline(savedStatus);
+      setMessage(savedStatus ? 'You are now online.' : 'You are now offline.');
+      setError('');
+
+      if (savedStatus) {
+        await pushDriverLocation({ silent: true });
       }
     } catch (err) {
       if (requestId !== availabilityToggleRequestIdRef.current) {
         return;
       }
 
-      const errorDisplay = getAvailabilityErrorMessage(err);
-      setError(errorDisplay);
-
-      if (isRetriableAvailabilityError(err)) {
-        pendingAvailabilitySyncRef.current = {
-          desired: next,
-          attempts: 1,
-          lastAttemptAt: Date.now(),
-        };
-        availabilityUiOverrideUntilRef.current = Date.now() + AVAILABILITY_RETRY_WINDOW_MS;
-        setIsOnline(next);
-        setAvailabilitySyncPending(true);
-        setMessage('Availability sync queued. Retrying automatically.');
-        return;
-      }
-      
-      setMessage('');
-      
-      // Try to fetch current state from server
-      try {
-        const profile = await apiRequest('/drivers/profile', { token });
-        if (profile && typeof profile.is_available === 'boolean') {
-          setServerIsOnline(profile.is_available);
-          setIsOnline(profile.is_available);
-        }
-      } catch (_profileErr) {
-        // If we can't fetch profile, revert to opposite of what we tried to set
-        setIsOnline(!next);
-        setServerIsOnline(!next);
-      }
-      
-      setAvailabilitySyncPending(false);
-      pendingAvailabilitySyncRef.current = null;
+      setIsOnline(!next);
+      setError(getAvailabilityErrorMessage(err));
+      setMessage('Failed to update status. Please try again.');
     } finally {
       if (availabilityToggleInFlightRef.current === requestId) {
         availabilityToggleInFlightRef.current = null;
+        pendingAvailabilitySyncRef.current = null;
+        setAvailabilitySyncPending(false);
       }
     }
-  };
+  }, [pushDriverLocation, token]);
 
   const acceptRequest = async (bookingId) => {
     const accepted = await runAction(() =>
@@ -1141,7 +1098,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       <View style={styles.topBar}>
         <TouchableOpacity
           style={[styles.statusBadgeButton, { backgroundColor: displayIsOnline ? '#E8F5E9' : '#F5F5F5', borderColor: displayIsOnline ? COLORS.primary : '#BDBDBD' }]}
-          onPress={() => toggleOnlineStatus()}
+          onPress={() => toggleDriverAvailability(!displayIsOnline)}
           disabled={availabilitySyncPending}
         >
           <View style={[styles.statusDot, { backgroundColor: availabilitySyncPending ? '#FFA500' : displayIsOnline ? COLORS.primary : COLORS.textMuted }]} />
@@ -1497,7 +1454,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
               token={token}
               loading={loading}
               displayIsOnline={displayIsOnline}
-              onToggleOnline={toggleOnlineStatus}
+              onToggleOnline={() => toggleDriverAvailability(!displayIsOnline)}
               onNavigateToTab={setActiveTab}
             />
           )}
