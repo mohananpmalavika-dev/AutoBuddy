@@ -112,6 +112,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   const reverseGeocodeCacheRef = useRef(new Map());
   const availabilityUiOverrideUntilRef = useRef(0);
   const availabilityToggleRequestIdRef = useRef(0);
+  const availabilityToggleInFlightRef = useRef(null);
   const pendingAvailabilitySyncRef = useRef(null);
   const availabilityRetryInFlightRef = useRef(false);
 
@@ -866,7 +867,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   }, [driverTrackingIntervalMs, normalizeLocation, pushDriverLocation, shouldSyncDriverLocation]);
 
   const toggleOnlineStatus = async (nextValue) => {
-    if (availabilitySyncPending) {
+    if (availabilitySyncPending || availabilityToggleInFlightRef.current) {
       return;
     }
     const next = typeof nextValue === 'boolean' ? nextValue : !displayIsOnline;
@@ -875,6 +876,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     }
     const requestId = availabilityToggleRequestIdRef.current + 1;
     availabilityToggleRequestIdRef.current = requestId;
+    availabilityToggleInFlightRef.current = requestId;
     
     // Immediately show optimistic UI
     availabilityUiOverrideUntilRef.current = Date.now() + 15000;
@@ -909,15 +911,13 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
         pendingAvailabilitySyncRef.current = null;
         setMessage(savedStatus ? 'You are online and discoverable.' : 'You are offline.');
         
-        // If going online, push location
         if (savedStatus) {
-          await pushDriverLocation({
+          void pushDriverLocation({
             fallbackLocation: updated?.current_location || driverLocation,
             silent: true,
-          });
+          }).catch(() => null);
         }
-        // Don't refresh profile immediately - trust the API response to avoid stale data overwriting correct state
-        await refreshDriverDataSilently({ includeProfile: false });
+        void refreshDriverDataSilently({ includeProfile: false }).catch(() => null);
       } else {
         // Fallback: assume success if no error thrown
         setServerIsOnline(next);
@@ -926,8 +926,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
         setAvailabilitySyncPending(false);
         pendingAvailabilitySyncRef.current = null;
         setMessage(next ? 'You are online and discoverable.' : 'You are offline.');
-        // Don't refresh profile immediately - trust the API response to avoid stale data overwriting correct state
-        await refreshDriverDataSilently({ includeProfile: false });
+        void refreshDriverDataSilently({ includeProfile: false }).catch(() => null);
       }
     } catch (err) {
       if (requestId !== availabilityToggleRequestIdRef.current) {
@@ -967,6 +966,10 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       
       setAvailabilitySyncPending(false);
       pendingAvailabilitySyncRef.current = null;
+    } finally {
+      if (availabilityToggleInFlightRef.current === requestId) {
+        availabilityToggleInFlightRef.current = null;
+      }
     }
   };
 

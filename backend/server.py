@@ -5875,6 +5875,9 @@ async def _db_update_driver_location(
     longitude: float,
 ):
     """Database operations for location update with retry support."""
+    driver_insert_defaults = build_default_driver_profile(driver_id)
+    driver_insert_defaults.pop("current_location", None)
+
     await db.drivers.update_one(
         {"user_id": driver_id},
         {
@@ -5884,7 +5887,7 @@ async def _db_update_driver_location(
                 "last_location_at": now_utc,
                 "is_online": True,
             },
-            "$setOnInsert": build_default_driver_profile(driver_id),
+            "$setOnInsert": driver_insert_defaults,
         },
         upsert=True,
     )
