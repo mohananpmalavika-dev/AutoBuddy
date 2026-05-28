@@ -46,6 +46,10 @@ from app.routers.security import router as modular_security_router
 from app.routers.safety import router as modular_safety_router
 from app.routers.features_routes import router as modular_features_router
 from app.routers.notifications_addon import router as modular_notifications_router
+from app.routers.tier1_driver_features import router as modular_tier1_router
+from app.routers.tier2_driver_features import router as modular_tier2_router
+from app.routers.tier3_polish_features import router as modular_tier3_router
+from app.db.database import get_feature_database_status
 from app.services.ai_dispatch import build_demand_heatmap, heat_cell as dispatch_heat_cell
 from app.services.revenue_service import (
     apply_referral_signup,
@@ -637,6 +641,7 @@ async def seed_admin():
             pass
         try:
             await db.payment_orders.create_index("order_id", unique=True)
+            await db.payment_orders.create_index([("order_type", 1), ("status", 1), ("submitted_at", -1)])
         except OperationFailure:
             pass
         try:
@@ -1105,6 +1110,7 @@ class SOSSeverity(str, Enum):
 
 class PaymentOrderStatus(str, Enum):
     CREATED = "created"
+    PENDING_VERIFICATION = "pending_verification"
     PAID = "paid"
     FAILED = "failed"
 
@@ -1222,6 +1228,15 @@ class PhoneChangeVerifyRequest(BaseModel):
 class PhoneChangeReviewRequest(BaseModel):
     status: Literal["approved", "rejected"]
     reject_reason: Optional[str] = Field(default=None, max_length=200)
+
+class AccountDeletionConfirmation(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    confirmation: Literal["DELETE"]
+
+class AccountDeletionReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    status: Literal["approved", "rejected"]
+    reject_reason: Optional[str] = Field(default=None, max_length=250)
 
 class PassengerProfileUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
@@ -5514,13 +5529,23 @@ async def get_passenger_profile_photo(filename: str):
     )
 
 @api_router.delete("/passengers/profile/delete")
-async def request_passenger_account_deletion(current_user: dict = Depends(get_current_user)):
+async def request_passenger_account_deletion(
+    payload: AccountDeletionConfirmation,
+    current_user: dict = Depends(get_current_user),
+):
     require_passenger(current_user)
     now = get_ist_now()
     await db.account_deletion_requests.update_one(
         {"user_id": current_user["id"], "status": "pending"},
         {
-            "$set": {"updated_at": now},
+            "$set": {
+                "updated_at": now,
+                "confirmation": payload.confirmation,
+                "name": current_user.get("name"),
+                "email": current_user.get("email"),
+                "phone": current_user.get("phone"),
+                "role": current_user.get("role"),
+            },
             "$setOnInsert": {
                 "id": str(uuid.uuid4()),
                 "user_id": current_user["id"],
@@ -5529,6 +5554,10 @@ async def request_passenger_account_deletion(current_user: dict = Depends(get_cu
             },
         },
         upsert=True,
+    )
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$set": {"account_status": "deletion_pending", "updated_at": now}},
     )
     return {"success": True, "message": "Account deletion request submitted for review"}
 
@@ -5548,6 +5577,7 @@ async def get_passenger_kyc_status(current_user: dict = Depends(get_current_user
     return {
         "is_verified": bool(kyc.get("is_verified", False)),
         "verification_level": kyc.get("verification_level", "pending"),
+        "status": kyc.get("status", kyc.get("verification_level", "pending")),
         "document_type": kyc.get("document_type", ""),
         "document_number": kyc.get("document_number_masked", ""),
         "verification_date": kyc.get("verification_date"),
@@ -5573,6 +5603,7 @@ async def submit_passenger_kyc(
                 "document_number_masked": mask_document_number(payload.document_number),
                 "is_verified": False,
                 "verification_level": "pending",
+                "status": KYCStatus.PENDING,
                 "submitted_at": now,
                 "updated_at": now,
                 "reject_reason": None,
@@ -5647,6 +5678,56 @@ async def delete_passenger_document(document_id: str, current_user: dict = Depen
     await db.passenger_documents.delete_one({"user_id": current_user["id"], "id": document_id})
     await delete_stored_upload(document, PASSENGER_DOCUMENTS_DIR / current_user["id"])
     return {"success": True, "message": "Document deleted"}
+
+@api_router.get("/passengers/ratings/eligible-rides")
+async def get_passenger_rating_eligible_rides(
+    current_user: dict = Depends(get_current_user),
+    limit: int = Query(100, ge=1, le=200),
+    skip: int = Query(0, ge=0),
+):
+    require_passenger(current_user)
+    query = {
+        "passenger_id": current_user["id"],
+        "status": {"$in": [BookingStatus.COMPLETED, BookingStatus.COMPLETED.value]},
+        "driver_id": {"$exists": True, "$ne": None},
+    }
+    bookings = await db.bookings.find(query, {"_id": 0}).sort(
+        [("trip_completed_at", -1), ("updated_at", -1), ("created_at", -1)]
+    ).skip(skip).to_list(limit)
+
+    driver_ids = [booking.get("driver_id") for booking in bookings if booking.get("driver_id")]
+    drivers = {
+        user["id"]: user
+        for user in await db.users.find(
+            {"id": {"$in": driver_ids}},
+            {"_id": 0, "id": 1, "name": 1, "phone": 1},
+        ).to_list(None)
+    } if driver_ids else {}
+
+    rides = []
+    for booking in bookings:
+        driver = drivers.get(booking.get("driver_id")) or {}
+        rides.append(
+            {
+                "id": booking.get("id"),
+                "driver_id": booking.get("driver_id"),
+                "driver_name": driver.get("name") or booking.get("driver_name") or "Driver",
+                "driver_phone": driver.get("phone") or booking.get("driver_phone"),
+                "pickup_location": booking.get("pickup_location"),
+                "drop_location": booking.get("drop_location"),
+                "status": enum_response_value(booking.get("status")),
+                "estimated_fare": booking.get("estimated_fare"),
+                "final_fare": booking.get("final_fare"),
+                "distance_km": booking.get("distance_km"),
+                "actual_distance_km": booking.get("actual_distance_km"),
+                "payment_method": enum_response_value(booking.get("payment_method")),
+                "scheduled_for": booking.get("scheduled_for"),
+                "trip_completed_at": booking.get("trip_completed_at"),
+                "created_at": booking.get("created_at"),
+                "updated_at": booking.get("updated_at"),
+            }
+        )
+    return {"rides": rides, "has_more": len(rides) == limit, "limit": limit, "skip": skip}
 
 @api_router.get("/passengers/receipts")
 async def get_passenger_receipts(period: str = "all", current_user: dict = Depends(get_current_user)):
@@ -10049,6 +10130,198 @@ async def review_driver_kyc(driver_id: str, review: DriverKYCReview, current_use
     return {"message": "KYC updated", "status": review.status}
 
 
+@api_router.get("/admin/passengers/kyc/pending")
+async def get_pending_passenger_kyc(current_user: dict = Depends(get_current_user)):
+    if current_user["role"] != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    pending = await db.passenger_kyc.find(
+        {
+            "$or": [
+                {"status": KYCStatus.PENDING},
+                {"status": {"$exists": False}, "verification_level": "pending"},
+            ]
+        },
+        {"_id": 0, "document_number_encrypted": 0},
+    ).sort("submitted_at", -1).to_list(100)
+    passenger_ids = [item["user_id"] for item in pending if item.get("user_id")]
+    users = {u["id"]: u for u in await db.users.find({"id": {"$in": passenger_ids}}).to_list(None)} if passenger_ids else {}
+
+    out = []
+    for item in pending:
+        user = users.get(item["user_id"]) or {}
+        out.append(
+            {
+                **item,
+                "passenger_id": item["user_id"],
+                "passenger_name": user.get("name") or "Unknown",
+                "passenger_phone": user.get("phone") or "",
+                "passenger_email": user.get("email") or "",
+            }
+        )
+    return out
+
+
+@api_router.put("/admin/passengers/kyc/{passenger_id}")
+async def review_passenger_kyc(passenger_id: str, review: DriverKYCReview, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    existing = await db.passenger_kyc.find_one({"user_id": passenger_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Passenger KYC record not found")
+
+    if review.status == KYCStatus.REJECTED and not review.reject_reason:
+        raise HTTPException(status_code=400, detail="Reject reason is required")
+
+    now = get_ist_now()
+    approved = review.status == KYCStatus.APPROVED
+    update_fields = {
+        "status": review.status,
+        "is_verified": approved,
+        "verification_level": "verified" if approved else "rejected",
+        "verification_date": now if approved else None,
+        "reject_reason": review.reject_reason if review.status == KYCStatus.REJECTED else None,
+        "reviewed_by": current_user["id"],
+        "reviewed_at": now,
+        "updated_at": now,
+    }
+    await db.passenger_kyc.update_one({"user_id": passenger_id}, {"$set": update_fields})
+    await db.users.update_one({"id": passenger_id}, {"$set": {"kyc_status": review.status}})
+
+    await emit_to_user(
+        passenger_id,
+        "kyc_status_changed",
+        {
+            "status": review.status,
+            "reject_reason": review.reject_reason,
+            "timestamp": now.isoformat(),
+        },
+    )
+    await notify_user(
+        passenger_id,
+        title="KYC Status Updated",
+        body="Your passenger KYC was approved." if approved else "Your passenger KYC was rejected. Please review and resubmit.",
+        data={"status": review.status, "reject_reason": review.reject_reason},
+    )
+
+    return {"message": "Passenger KYC updated", "status": review.status}
+
+
+@api_router.get("/admin/account-deletions/pending")
+async def get_pending_account_deletions(current_user: dict = Depends(get_current_user)):
+    if current_user["role"] != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    pending = await db.account_deletion_requests.find(
+        {"status": "pending"},
+        {"_id": 0},
+    ).sort("created_at", -1).to_list(100)
+    user_ids = [item.get("user_id") for item in pending if item.get("user_id")]
+    users = {
+        user["id"]: user
+        for user in await db.users.find(
+            {"id": {"$in": user_ids}},
+            {"_id": 0, "id": 1, "name": 1, "email": 1, "phone": 1, "role": 1, "account_status": 1, "status": 1},
+        ).to_list(None)
+    } if user_ids else {}
+
+    requests = []
+    for item in pending:
+        user = users.get(item.get("user_id")) or {}
+        requests.append(
+            {
+                **item,
+                "name": user.get("name") or item.get("name") or "Unknown",
+                "email": user.get("email") or item.get("email") or "",
+                "phone": user.get("phone") or item.get("phone") or "",
+                "role": user.get("role") or item.get("role") or "passenger",
+                "account_status": user.get("account_status") or "deletion_pending",
+                "user_status": user.get("status") or "active",
+            }
+        )
+    return requests
+
+
+@api_router.put("/admin/account-deletions/{request_id}")
+async def review_account_deletion_request(
+    request_id: str,
+    payload: AccountDeletionReviewRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user["role"] != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    request_doc = await db.account_deletion_requests.find_one({"id": request_id, "status": "pending"})
+    if not request_doc:
+        raise HTTPException(status_code=404, detail="Pending account deletion request not found")
+
+    now = get_ist_now()
+    user_id = request_doc.get("user_id")
+    review_fields = {
+        "status": payload.status,
+        "reviewed_at": now,
+        "reviewed_by": current_user.get("id"),
+        "updated_at": now,
+    }
+
+    if payload.status == "approved":
+        await db.users.update_one(
+            {"id": user_id},
+            {
+                "$set": {
+                    "status": "blocked",
+                    "account_status": "deleted",
+                    "deleted_at": now,
+                    "deletion_reviewed_at": now,
+                    "deletion_reviewed_by": current_user.get("id"),
+                    "updated_at": now,
+                }
+            },
+        )
+        review_fields["message"] = "Account deletion approved and account access blocked."
+    else:
+        reject_reason = str(payload.reject_reason or "").strip() or "Rejected by admin review."
+        await db.users.update_one(
+            {"id": user_id},
+            {
+                "$set": {
+                    "account_status": "active",
+                    "deletion_rejected_at": now,
+                    "deletion_reviewed_by": current_user.get("id"),
+                    "updated_at": now,
+                }
+            },
+        )
+        review_fields["reject_reason"] = reject_reason
+        review_fields["message"] = "Account deletion request rejected."
+
+    await db.account_deletion_requests.update_one(
+        {"id": request_id},
+        {"$set": review_fields},
+    )
+
+    if user_id:
+        await emit_to_user(
+            user_id,
+            "account_deletion_reviewed",
+            {
+                "status": payload.status,
+                "message": review_fields["message"],
+                "timestamp": now.isoformat(),
+            },
+        )
+        if payload.status == "rejected":
+            await notify_user(
+                user_id,
+                title="Account Deletion Request Reviewed",
+                body="Your account deletion request was rejected. Your account remains active.",
+                data={"status": payload.status, "reject_reason": review_fields.get("reject_reason")},
+            )
+
+    return {"message": review_fields["message"], "status": payload.status}
+
+
 @api_router.post("/users/push-token")
 async def register_push_token(payload: PushTokenRegister, current_user: dict = Depends(get_current_user)):
     now = get_ist_now()
@@ -10422,6 +10695,18 @@ class WalletResponse(BaseModel):
 class WalletTopupRequest(BaseModel):
     amount: float = Field(gt=0)
 
+class WalletTopupOrderCreate(BaseModel):
+    amount: float = Field(gt=0, le=100000)
+    payment_channel: Literal["upi", "stripe"] = "upi"
+
+class WalletTopupVerifyRequest(BaseModel):
+    order_id: str = Field(min_length=4, max_length=120)
+    transaction_ref: Optional[str] = Field(default=None, max_length=120)
+
+class AdminWalletTopupReview(BaseModel):
+    status: Literal["verified", "rejected"]
+    reject_reason: Optional[str] = Field(default=None, max_length=250)
+
 
 class SpinWinPrizeConfig(BaseModel):
     id: Optional[str] = Field(default=None, min_length=2, max_length=80)
@@ -10641,37 +10926,278 @@ async def get_wallet(current_user: dict = Depends(get_current_user)):
         updated_at=wallet["updated_at"],
     )
 
-@api_router.post("/wallet/topup")
-async def topup_wallet(payload: WalletTopupRequest, current_user: dict = Depends(get_current_user)):
+async def credit_verified_wallet_topup(
+    order: Dict[str, Any],
+    transaction_ref: Optional[str],
+    verified_by: Optional[str] = None,
+) -> Dict[str, Any]:
+    if order.get("order_type") != "wallet_topup":
+        raise HTTPException(status_code=400, detail="Payment order is not a wallet top-up")
+
+    now = get_ist_now()
+    order_id = str(order.get("order_id") or "")
+    user_id = str(order.get("user_id") or order.get("passenger_id") or "")
+    amount = round(float(order.get("amount") or 0), 2)
+    if not order_id or not user_id or amount <= 0:
+        raise HTTPException(status_code=400, detail="Invalid wallet top-up order")
+
+    if order.get("status") != PaymentOrderStatus.PAID:
+        update_result = await db.payment_orders.update_one(
+            {
+                "order_id": order_id,
+                "order_type": "wallet_topup",
+                "status": {"$ne": PaymentOrderStatus.PAID},
+            },
+            {
+                "$set": {
+                    "status": PaymentOrderStatus.PAID,
+                    "transaction_ref": transaction_ref,
+                    "verified_by": verified_by,
+                    "paid_at": now,
+                    "updated_at": now,
+                }
+            },
+        )
+        if update_result.modified_count:
+            await db.user_wallets.update_one(
+                {"user_id": user_id},
+                {
+                    "$inc": {"balance": amount},
+                    "$set": {"updated_at": now},
+                    "$setOnInsert": {
+                        "id": str(uuid.uuid4()),
+                        "user_id": user_id,
+                        "currency": "INR",
+                        "created_at": now,
+                    },
+                },
+                upsert=True,
+            )
+            await db.wallet_transactions.insert_one(
+                {
+                    "id": str(uuid.uuid4()),
+                    "user_id": user_id,
+                    "type": "credit",
+                    "amount": amount,
+                    "reason": "wallet_topup",
+                    "metadata": {
+                        "source": "wallet_topup",
+                        "order_id": order_id,
+                        "provider": order.get("provider"),
+                        "transaction_ref": transaction_ref,
+                        "verified_by": verified_by,
+                    },
+                    "created_at": now,
+                }
+            )
+
+    wallet = await db.user_wallets.find_one({"user_id": user_id})
+    return {
+        "message": "Wallet top-up verified and credited.",
+        "order_id": order_id,
+        "status": PaymentOrderStatus.PAID,
+        "balance": round(float((wallet or {}).get("balance") or 0), 2),
+        "currency": (wallet or {}).get("currency", "INR"),
+        "updated_at": (wallet or {}).get("updated_at", now),
+    }
+
+
+@api_router.post("/wallet/topup/order")
+async def create_wallet_topup_order(payload: WalletTopupOrderCreate, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] == UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Admins cannot top up a user wallet from this endpoint")
+
     now = get_ist_now()
     amount = round(float(payload.amount), 2)
-    result = await db.user_wallets.update_one(
-        {"user_id": current_user["id"]},
+    order_id = f"wallet_{uuid.uuid4().hex[:16]}"
+    use_stripe = payload.payment_channel == "stripe" and bool(STRIPE_SECRET_KEY)
+    provider = "stripe" if use_stripe else "upi_intent"
+    upi_intent = build_upi_intent(order_id, amount)
+    stripe_client_secret = None
+    stripe_payment_intent_id = None
+
+    if use_stripe:
+        try:
+            payment_intent = stripe.PaymentIntent.create(
+                amount=max(1, int(round(amount * 100))),
+                currency="inr",
+                metadata={
+                    "order_type": "wallet_topup",
+                    "user_id": current_user["id"],
+                    "order_id": order_id,
+                },
+                automatic_payment_methods={"enabled": True},
+            )
+            stripe_client_secret = payment_intent.client_secret
+            stripe_payment_intent_id = payment_intent.id
+        except Exception as exc:
+            logger.warning("Stripe wallet top-up intent failed, falling back to UPI intent: %s", exc)
+            provider = "upi_intent"
+
+    order_doc = {
+        "id": str(uuid.uuid4()),
+        "order_id": order_id,
+        "order_type": "wallet_topup",
+        "booking_id": None,
+        "user_id": current_user["id"],
+        "passenger_id": current_user["id"],
+        "amount": amount,
+        "currency": "INR",
+        "status": PaymentOrderStatus.CREATED,
+        "provider": provider,
+        "upi_intent": upi_intent,
+        "stripe_client_secret": stripe_client_secret,
+        "stripe_payment_intent_id": stripe_payment_intent_id,
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.payment_orders.insert_one(order_doc)
+
+    return {
+        "message": "Wallet top-up order created. Complete payment before the balance is credited.",
+        "order_id": order_id,
+        "amount": amount,
+        "currency": "INR",
+        "status": PaymentOrderStatus.CREATED,
+        "provider": provider,
+        "upi_intent": upi_intent,
+        "stripe_client_secret": stripe_client_secret,
+        "stripe_payment_intent_id": stripe_payment_intent_id,
+    }
+
+
+@api_router.post("/wallet/topup/verify")
+async def verify_wallet_topup(payload: WalletTopupVerifyRequest, current_user: dict = Depends(get_current_user)):
+    order = await db.payment_orders.find_one({"order_id": payload.order_id, "order_type": "wallet_topup"})
+    if not order:
+        raise HTTPException(status_code=404, detail="Wallet top-up order not found")
+
+    if order.get("user_id") != current_user["id"] and current_user["role"] != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    if order.get("status") == PaymentOrderStatus.PAID:
+        wallet = await db.user_wallets.find_one({"user_id": order["user_id"]})
+        return {
+            "message": "Wallet top-up already verified.",
+            "order_id": payload.order_id,
+            "status": PaymentOrderStatus.PAID,
+            "balance": round(float((wallet or {}).get("balance") or 0), 2),
+        }
+
+    transaction_ref = str(payload.transaction_ref or "").strip()
+    if order.get("provider") == "stripe" and STRIPE_SECRET_KEY:
+        intent_id = order.get("stripe_payment_intent_id") or transaction_ref
+        if not intent_id:
+            raise HTTPException(status_code=400, detail="Missing Stripe payment intent reference")
+        try:
+            payment_intent = stripe.PaymentIntent.retrieve(intent_id)
+            if payment_intent.status not in {"succeeded", "processing", "requires_capture"}:
+                raise HTTPException(status_code=400, detail=f"Stripe payment not complete (status: {payment_intent.status})")
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Unable to verify Stripe payment: {exc}")
+        return await credit_verified_wallet_topup(order, intent_id, verified_by="stripe")
+
+    if len(transaction_ref) < 4:
+        raise HTTPException(status_code=400, detail="Enter a valid payment reference or UTR")
+
+    await db.payment_orders.update_one(
+        {"order_id": payload.order_id, "order_type": "wallet_topup"},
         {
-            "$inc": {"balance": amount},
-            "$set": {"updated_at": now},
-            "$setOnInsert": {"id": str(uuid.uuid4()), "currency": "INR", "created_at": now},
-        },
-        upsert=True,
-    )
-    await db.wallet_transactions.insert_one(
-        {
-            "id": str(uuid.uuid4()),
-            "user_id": current_user["id"],
-            "type": "credit",
-            "amount": amount,
-            "reason": "wallet_topup",
-            "metadata": {"source": "wallet_topup"},
-            "created_at": now,
+            "$set": {
+                "status": PaymentOrderStatus.PENDING_VERIFICATION,
+                "transaction_ref": transaction_ref,
+                "submitted_at": get_ist_now(),
+                "updated_at": get_ist_now(),
+            }
         }
     )
-    wallet = await db.user_wallets.find_one({"user_id": current_user["id"]})
     return {
-        "message": "Wallet topped up.",
-        "balance": round(wallet.get("balance", 0.0), 2),
-        "currency": wallet.get("currency", "INR"),
-        "updated_at": wallet.get("updated_at"),
+        "message": "Payment reference submitted. Wallet balance will update after admin verification.",
+        "order_id": payload.order_id,
+        "status": PaymentOrderStatus.PENDING_VERIFICATION,
     }
+
+
+@api_router.post("/wallet/topup")
+async def topup_wallet(payload: WalletTopupRequest, current_user: dict = Depends(get_current_user)):
+    raise HTTPException(
+        status_code=400,
+        detail="Direct wallet top-up is disabled. Create /wallet/topup/order and verify payment before crediting.",
+    )
+
+
+@api_router.get("/admin/wallet/topups/pending")
+async def get_pending_wallet_topups(current_user: dict = Depends(get_current_user)):
+    if current_user["role"] != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    pending = await db.payment_orders.find(
+        {"order_type": "wallet_topup", "status": PaymentOrderStatus.PENDING_VERIFICATION},
+        {"_id": 0, "stripe_client_secret": 0},
+    ).sort("submitted_at", -1).to_list(200)
+    user_ids = [item.get("user_id") for item in pending if item.get("user_id")]
+    users = {u["id"]: u for u in await db.users.find({"id": {"$in": user_ids}}).to_list(None)} if user_ids else {}
+
+    out = []
+    for item in pending:
+        user = users.get(item.get("user_id")) or {}
+        out.append(
+            {
+                **item,
+                "name": user.get("name") or "User",
+                "email": user.get("email") or "",
+                "phone": user.get("phone") or "",
+                "role": user.get("role") or "",
+            }
+        )
+    return out
+
+
+@api_router.put("/admin/wallet/topups/{order_id}")
+async def review_wallet_topup(order_id: str, payload: AdminWalletTopupReview, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    order = await db.payment_orders.find_one({"order_id": order_id, "order_type": "wallet_topup"})
+    if not order:
+        raise HTTPException(status_code=404, detail="Wallet top-up order not found")
+
+    if payload.status == "rejected":
+        reject_reason = str(payload.reject_reason or "Rejected by admin review.").strip()
+        await db.payment_orders.update_one(
+            {"order_id": order_id, "order_type": "wallet_topup"},
+            {
+                "$set": {
+                    "status": PaymentOrderStatus.FAILED,
+                    "reject_reason": reject_reason,
+                    "reviewed_by": current_user["id"],
+                    "reviewed_at": get_ist_now(),
+                    "updated_at": get_ist_now(),
+                }
+            },
+        )
+        await notify_user(
+            order["user_id"],
+            title="Wallet Top-up Rejected",
+            body=reject_reason,
+            data={"order_id": order_id, "status": PaymentOrderStatus.FAILED},
+        )
+        return {"message": "Wallet top-up rejected", "order_id": order_id, "status": PaymentOrderStatus.FAILED}
+
+    credited = await credit_verified_wallet_topup(
+        order,
+        str(order.get("transaction_ref") or ""),
+        verified_by=current_user["id"],
+    )
+    await notify_user(
+        order["user_id"],
+        title="Wallet Top-up Credited",
+        body=f"Rs {float(order.get('amount') or 0):.2f} has been added to your wallet.",
+        data={"order_id": order_id, "status": PaymentOrderStatus.PAID},
+    )
+    return credited
 
 
 @api_router.get("/spin-win/config")
@@ -12416,6 +12942,7 @@ async def health_check():
     now = get_ist_now().isoformat()
     uptime_seconds = max(0.0, time.time() - STARTUP_TS)
     redis_status = "ok" if runtime_state.is_redis_enabled else "degraded"
+    feature_database_status = get_feature_database_status()
     queue_pending: Optional[int] = None
     analytics_queue_pending: Optional[int] = None
     if redis_client:
@@ -12436,6 +12963,7 @@ async def health_check():
                 "redis": redis_status,
                 "redis_queue_pending": queue_pending,
                 "analytics_queue_pending": analytics_queue_pending,
+                "passenger_feature_database": feature_database_status,
                 "uptime_seconds": round(uptime_seconds, 2),
                 "timestamp": now,
             },
@@ -12449,6 +12977,7 @@ async def health_check():
                 "redis": redis_status,
                 "redis_queue_pending": queue_pending,
                 "analytics_queue_pending": analytics_queue_pending,
+                "passenger_feature_database": feature_database_status,
                 "uptime_seconds": round(uptime_seconds, 2),
                 "timestamp": now,
             },
@@ -12463,6 +12992,7 @@ async def health_check():
         "redis": redis_status,
         "redis_queue_pending": queue_pending,
         "analytics_queue_pending": analytics_queue_pending,
+        "passenger_feature_database": feature_database_status,
         "uptime_seconds": round(uptime_seconds, 2),
         "timestamp": now,
     }
@@ -12482,6 +13012,8 @@ def _worker_health(task: Optional[asyncio.Task]) -> str:
 async def readiness_check():
     started = time.perf_counter()
     now = get_ist_now().isoformat()
+    feature_database_status = get_feature_database_status()
+    feature_database_ok = bool(feature_database_status.get("production_ready"))
     worker_state = {
         "driver_health_monitor": _worker_health(driver_health_monitor_task),
         "ride_dispatch_worker": _worker_health(ride_dispatch_worker_task),
@@ -12498,10 +13030,11 @@ async def readiness_check():
         db_error = str(exc)
 
     workers_ok = all(state == "running" for state in worker_state.values())
-    ready = database_ok and redis_requirement_ok and workers_ok
+    ready = database_ok and redis_requirement_ok and workers_ok and feature_database_ok
     payload = {
         "status": "ready" if ready else "not_ready",
         "database": "ok" if database_ok else "error",
+        "passenger_feature_database": feature_database_status,
         "redis_runtime_state": "ok" if redis_runtime_ok else "degraded",
         "redis_required": bool(IS_PRODUCTION_ENV and REQUIRE_REDIS_IN_PRODUCTION),
         "workers": worker_state,
@@ -13451,6 +13984,9 @@ app.include_router(modular_security_router)
 app.include_router(modular_safety_router)
 app.include_router(modular_features_router)
 app.include_router(modular_notifications_router)
+app.include_router(modular_tier1_router)
+app.include_router(modular_tier2_router)
+app.include_router(modular_tier3_router)
 app.include_router(api_router)
 app.mount("/ws", socket_app)
 

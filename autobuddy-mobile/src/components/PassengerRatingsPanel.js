@@ -65,16 +65,37 @@ export default function PassengerRatingsPanel({ token, initialRideId = null, onR
 
   const fetchPastRides = useCallback(async () => {
     try {
-      const response = await apiRequest('/bookings', { token });
-      const rides = Array.isArray(response?.data) ? response.data : Array.isArray(response) ? response : [];
+      const response = await apiRequest('/passengers/ratings/eligible-rides', {
+        token,
+        query: { limit: 100 },
+      });
+      const rides = Array.isArray(response?.rides)
+        ? response.rides
+        : Array.isArray(response?.data)
+          ? response.data
+          : Array.isArray(response)
+            ? response
+            : [];
       setPastRides(
         rides
           .filter((ride) => String(ride.status || '').toLowerCase() === 'completed')
-          .filter((ride) => ride.driver_id)
-          .slice(0, 20),
+          .filter((ride) => ride.driver_id),
       );
     } catch (err) {
-      setError(err.message || 'Failed to load completed rides');
+      try {
+        const fallbackResponse = await apiRequest('/bookings', {
+          token,
+          query: { status: 'completed', limit: 100 },
+        });
+        const fallbackRides = Array.isArray(fallbackResponse?.data)
+          ? fallbackResponse.data
+          : Array.isArray(fallbackResponse)
+            ? fallbackResponse
+            : [];
+        setPastRides(fallbackRides.filter((ride) => ride.driver_id));
+      } catch (fallbackErr) {
+        setError(fallbackErr.message || err.message || 'Failed to load completed rides');
+      }
     }
   }, [token]);
 

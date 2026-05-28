@@ -69,9 +69,11 @@ const ADMIN_MENU_OPTIONS = [
   { key: 'spin', label: 'Spin & Win' },
   { key: 'subscriptions', label: 'Subscriptions' },
   { key: 'phone', label: 'Phone Requests' },
+  { key: 'account_deletions', label: 'Account Deletions' },
   { key: 'ride_products', label: 'Ride Products' },
   { key: 'pricing', label: 'Pricing & Fare' },
   { key: 'registration', label: 'Registration' },
+  { key: 'wallet', label: 'Wallet Top-ups' },
   { key: 'kyc', label: 'KYC' },
 ];
 const PRIMARY_ADMIN_MENU_KEY = 'analytics';
@@ -330,6 +332,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
   const [uploadedQrFilename, setUploadedQrFilename] = useState('');
   const qrUploadInputRef = useRef(null);
   const [pendingRegistrationPayments, setPendingRegistrationPayments] = useState([]);
+  const [pendingWalletTopups, setPendingWalletTopups] = useState([]);
   const [subscriptionConfig, setSubscriptionConfig] = useState({
     passenger: emptyRoleSubscriptionConfig(),
     driver: emptyRoleSubscriptionConfig(),
@@ -337,8 +340,10 @@ export default function AdminDashboard({ token, user, onLogout }) {
   const [pendingSubscriptionActivations, setPendingSubscriptionActivations] = useState([]);
   const [pendingSubscriptionPayments, setPendingSubscriptionPayments] = useState([]);
   const [pendingPhoneChangeRequests, setPendingPhoneChangeRequests] = useState([]);
+  const [pendingAccountDeletionRequests, setPendingAccountDeletionRequests] = useState([]);
   const [pendingDriverFareRequests, setPendingDriverFareRequests] = useState([]);
   const [approvedDriverFareConfigs, setApprovedDriverFareConfigs] = useState([]);
+  const [passengerKycRequests, setPassengerKycRequests] = useState([]);
   const [ongoingTrips, setOngoingTrips] = useState([]);
   const [tripCancelReasons, setTripCancelReasons] = useState({});
   const [activeAdminMenu, setActiveAdminMenu] = useState(PRIMARY_ADMIN_MENU_KEY);
@@ -382,13 +387,16 @@ export default function AdminDashboard({ token, user, onLogout }) {
   const refreshAdminData = async () => {
     const dashboard = await runAction(() => apiRequest('/admin/dashboard', { token }));
     const pending = await apiRequest('/admin/kyc/pending', { token }).catch(() => []);
+    const pendingPassengerKyc = await apiRequest('/admin/passengers/kyc/pending', { token }).catch(() => []);
     const pricingSettings = await apiRequest('/pricing/rules', { token }).catch(() => null);
     const feeSettings = await apiRequest('/admin/registration-fees/config', { token }).catch(() => null);
     const pendingRegistrations = await apiRequest('/admin/registration-payments/pending', { token }).catch(() => []);
+    const pendingWalletTopupRows = await apiRequest('/admin/wallet/topups/pending', { token }).catch(() => []);
     const subscriptionSettings = await apiRequest('/subscriptions/config', { token }).catch(() => null);
     const pendingSubscriptions = await apiRequest('/admin/subscriptions/pending', { token }).catch(() => []);
     const pendingSubscriptionPaymentRows = await apiRequest('/admin/subscriptions/payments/pending', { token }).catch(() => []);
     const pendingPhoneChanges = await apiRequest('/admin/phone-changes/pending', { token }).catch(() => []);
+    const pendingAccountDeletions = await apiRequest('/admin/account-deletions/pending', { token }).catch(() => []);
     const pendingDriverFare = await apiRequest('/admin/driver-fare-calculator/pending', { token }).catch(() => []);
     const approvedDriverFare = await apiRequest('/admin/driver-fare-calculator/approved', { token }).catch(() => []);
     const activeTrips = await apiRequest('/admin/bookings/ongoing', { token }).catch(() => []);
@@ -419,6 +427,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
       });
     }
     setKycRequests(pending || []);
+    setPassengerKycRequests(Array.isArray(pendingPassengerKyc) ? pendingPassengerKyc : []);
     if (feeSettings) {
       setRegistrationFees({
         passenger_registration_fee: String(feeSettings.passenger_registration_fee ?? 0),
@@ -433,6 +442,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
       });
     }
     setPendingRegistrationPayments(Array.isArray(pendingRegistrations) ? pendingRegistrations : []);
+    setPendingWalletTopups(Array.isArray(pendingWalletTopupRows) ? pendingWalletTopupRows : []);
     if (subscriptionSettings) {
       setSubscriptionConfig({
         passenger: normalizeRoleSubscriptionConfig(subscriptionSettings.passenger || {}),
@@ -442,6 +452,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
     setPendingSubscriptionActivations(Array.isArray(pendingSubscriptions) ? pendingSubscriptions : []);
     setPendingSubscriptionPayments(Array.isArray(pendingSubscriptionPaymentRows) ? pendingSubscriptionPaymentRows : []);
     setPendingPhoneChangeRequests(Array.isArray(pendingPhoneChanges) ? pendingPhoneChanges : []);
+    setPendingAccountDeletionRequests(Array.isArray(pendingAccountDeletions) ? pendingAccountDeletions : []);
     setPendingDriverFareRequests(Array.isArray(pendingDriverFare) ? pendingDriverFare : []);
     setApprovedDriverFareConfigs(Array.isArray(approvedDriverFare) ? approvedDriverFare : []);
     setOngoingTrips(Array.isArray(activeTrips) ? activeTrips : []);
@@ -1097,6 +1108,42 @@ export default function AdminDashboard({ token, user, onLogout }) {
     }
   };
 
+  const reviewPassengerKyc = async (passengerId, status) => {
+    const reviewed = await runAction(
+      () =>
+        apiRequest(`/admin/passengers/kyc/${passengerId}`, {
+          method: 'PUT',
+          token,
+          body: {
+            status,
+            reject_reason: status === 'rejected' ? 'Rejected by admin review.' : null,
+          },
+        }),
+      `Passenger KYC ${status}.`,
+    );
+    if (reviewed) {
+      await refreshAdminData();
+    }
+  };
+
+  const reviewWalletTopup = async (orderId, status) => {
+    const reviewed = await runAction(
+      () =>
+        apiRequest(`/admin/wallet/topups/${orderId}`, {
+          method: 'PUT',
+          token,
+          body: {
+            status,
+            reject_reason: status === 'rejected' ? 'Rejected by admin review.' : undefined,
+          },
+        }),
+      `Wallet top-up ${status}.`,
+    );
+    if (reviewed) {
+      await refreshAdminData();
+    }
+  };
+
   const reviewDriverFareRequest = async (driverId, status) => {
     const reviewed = await runAction(
       () =>
@@ -1127,6 +1174,24 @@ export default function AdminDashboard({ token, user, onLogout }) {
           },
         }),
       `Phone change ${status}.`,
+    );
+    if (reviewed) {
+      await refreshAdminData();
+    }
+  };
+
+  const reviewAccountDeletion = async (requestId, status) => {
+    const reviewed = await runAction(
+      () =>
+        apiRequest(`/admin/account-deletions/${requestId}`, {
+          method: 'PUT',
+          token,
+          body: {
+            status,
+            reject_reason: status === 'rejected' ? 'Rejected by admin review.' : undefined,
+          },
+        }),
+      `Account deletion ${status}.`,
     );
     if (reviewed) {
       await refreshAdminData();
@@ -1866,6 +1931,40 @@ export default function AdminDashboard({ token, user, onLogout }) {
           )}
         </View>
 
+        <View style={[styles.section, activeAdminMenu !== 'account_deletions' && styles.hiddenSection]}>
+          <Text style={styles.sectionTitle}>Pending Account Deletion Requests</Text>
+          {pendingAccountDeletionRequests.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyText}>No pending account deletion requests.</Text>
+            </View>
+          ) : (
+            pendingAccountDeletionRequests.map((item) => (
+              <View key={item.id} style={styles.kycCard}>
+                <Text style={styles.driverName}>{item.name || 'Passenger'}</Text>
+                <Text style={styles.kycDate}>{item.email || 'N/A'} | {item.phone || 'N/A'}</Text>
+                <Text style={styles.kycDate}>User ID: {item.user_id}</Text>
+                <Text style={styles.kycDate}>Role: {item.role || 'passenger'}</Text>
+                <Text style={styles.kycDate}>Account status: {item.account_status || 'deletion_pending'}</Text>
+                <Text style={styles.kycDate}>Requested: {String(item.created_at || '')}</Text>
+                <View style={styles.actionButtons}>
+                  <TouchableOpacity
+                    style={[styles.btn, styles.btnReject]}
+                    onPress={() => reviewAccountDeletion(item.id, 'rejected')}
+                    disabled={loading}>
+                    <Text style={styles.btnText}>Reject</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.btn, styles.btnApprove]}
+                    onPress={() => reviewAccountDeletion(item.id, 'approved')}
+                    disabled={loading}>
+                    <Text style={styles.btnText}>Approve & Block</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))
+          )}
+        </View>
+
         <View style={[styles.section, activeAdminMenu !== 'pricing' && styles.hiddenSection]}>
           <Text style={styles.sectionTitle}>Trip Pricing & Driver Radius</Text>
           <View style={styles.kycCard}>
@@ -2358,11 +2457,47 @@ export default function AdminDashboard({ token, user, onLogout }) {
           )}
         </View>
 
+        <View style={[styles.section, activeAdminMenu !== 'wallet' && styles.hiddenSection]}>
+          <Text style={styles.sectionTitle}>Pending Wallet Top-up Verifications</Text>
+          {pendingWalletTopups.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyText}>No pending wallet top-up verifications.</Text>
+            </View>
+          ) : (
+            pendingWalletTopups.map((item) => (
+              <View key={item.order_id} style={styles.kycCard}>
+                <Text style={styles.driverName}>{item.name || 'User'}</Text>
+                <Text style={styles.kycDate}>{item.email} | {item.phone}</Text>
+                <Text style={styles.kycDate}>Role: {item.role || 'N/A'}</Text>
+                <Text style={styles.kycDate}>Order: {item.order_id}</Text>
+                <Text style={styles.kycDate}>Amount: Rs {Number(item.amount || 0).toFixed(2)}</Text>
+                <Text style={styles.kycDate}>Provider: {item.provider || 'N/A'}</Text>
+                {!!item.transaction_ref && <Text style={styles.kycDate}>Reference: {item.transaction_ref}</Text>}
+                <Text style={styles.kycDate}>Submitted: {String(item.submitted_at || '')}</Text>
+                <View style={styles.actionButtons}>
+                  <TouchableOpacity
+                    style={[styles.btn, styles.btnReject]}
+                    onPress={() => reviewWalletTopup(item.order_id, 'rejected')}
+                    disabled={loading}>
+                    <Text style={styles.btnText}>Reject</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.btn, styles.btnApprove]}
+                    onPress={() => reviewWalletTopup(item.order_id, 'verified')}
+                    disabled={loading}>
+                    <Text style={styles.btnText}>Verify & Credit</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))
+          )}
+        </View>
+
         <View style={[styles.section, activeAdminMenu !== 'kyc' && styles.hiddenSection]}>
-          <Text style={styles.sectionTitle}>Pending KYC Approvals</Text>
+          <Text style={styles.sectionTitle}>Pending Driver KYC Approvals</Text>
           {kycRequests.length === 0 ? (
             <View style={styles.emptyCard}>
-              <Text style={styles.emptyText}>No pending KYC requests right now.</Text>
+              <Text style={styles.emptyText}>No pending driver KYC requests right now.</Text>
             </View>
           ) : (
             kycRequests.map((req) => (
@@ -2380,6 +2515,38 @@ export default function AdminDashboard({ token, user, onLogout }) {
                   <TouchableOpacity
                     style={[styles.btn, styles.btnApprove]}
                     onPress={() => reviewKyc(req.driver_id, 'approved')}
+                    disabled={loading}>
+                    <Text style={styles.btnText}>Approve</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))
+          )}
+
+          <Text style={styles.sectionTitle}>Pending Passenger KYC Approvals</Text>
+          {passengerKycRequests.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyText}>No pending passenger KYC requests right now.</Text>
+            </View>
+          ) : (
+            passengerKycRequests.map((req) => (
+              <View key={req.passenger_id} style={styles.kycCard}>
+                <Text style={styles.driverName}>{req.passenger_name}</Text>
+                <Text style={styles.kycDate}>Passenger ID: {req.passenger_id}</Text>
+                <Text style={styles.kycDate}>{req.passenger_email} | {req.passenger_phone}</Text>
+                <Text style={styles.kycDate}>Document: {String(req.document_type || '').toUpperCase()}</Text>
+                <Text style={styles.kycDate}>Masked number: {req.document_number_masked || 'N/A'}</Text>
+                <Text style={styles.kycDate}>Submitted: {String(req.submitted_at || '')}</Text>
+                <View style={styles.actionButtons}>
+                  <TouchableOpacity
+                    style={[styles.btn, styles.btnReject]}
+                    onPress={() => reviewPassengerKyc(req.passenger_id, 'rejected')}
+                    disabled={loading}>
+                    <Text style={styles.btnText}>Reject</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.btn, styles.btnApprove]}
+                    onPress={() => reviewPassengerKyc(req.passenger_id, 'approved')}
                     disabled={loading}>
                     <Text style={styles.btnText}>Approve</Text>
                   </TouchableOpacity>

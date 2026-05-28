@@ -48,11 +48,18 @@ import PassengerTrackingMap from '../components/PassengerTrackingMap';
 import MessageTemplatesPanel from '../components/MessageTemplatesPanel';
 import InTripNavigationDisplay from '../components/InTripNavigationDisplay';
 import DriverPerformanceDashboard from '../components/DriverPerformanceDashboard';
+import SOSButton from '../components/SOSButton';
+import RequestCountdownDisplay from '../components/RequestCountdownDisplay';
+import ExpenseTracker from '../components/ExpenseTracker';
 import { useNotifications } from '../contexts/NotificationContext';
 import { usePreferences } from '../contexts/PreferencesContext';
 import { DRIVER_QUICK_ACTIONS } from '../constants/driverQuickActions';
 import { useNotificationManager } from '../hooks/useNotificationManager';
 import { useDriverRideQueueSocket } from '../hooks/useDriverRideQueueSocket';
+import { useGPSTracking } from '../hooks/useGPSTracking';
+import { useSOSAlert } from '../hooks/useSOSAlert';
+import { useRequestCountdown } from '../hooks/useRequestCountdown';
+import { useExpenseTracking } from '../hooks/useExpenseTracking';
 import {
   filterBlockedPassengers,
   formatBlockedPassengerDate,
@@ -260,6 +267,41 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   const [spinWinStatus, setSpinWinStatus] = useState(null);
   const [spinWinLoading, setSpinWinLoading] = useState(false);
   const [spinningNow, setSpinningNow] = useState(false);
+
+  // TIER 1 FEATURES: GPS, SOS, Countdown, Expenses
+  const { location: driverGPSLocation, speed: driverSpeed, isTracking } = useGPSTracking({
+    token,
+    rideId: activeRideId,
+    enabled: driverAvailability.isOnline || !!activeRideId,
+  });
+
+  const { sosActive, sosError, sosMessage, triggerSOS, cancelSOS } = useSOSAlert({
+    token,
+    driverId: user?.id,
+    currentLocation: driverGPSLocation,
+  });
+
+  const {
+    secondsRemaining,
+    isExpired,
+    formattedTime,
+    percentage,
+  } = useRequestCountdown({
+    rideId: pendingRequests[0]?.id,
+    initialSeconds: 60,
+    onExpire: (reason) => {
+      if (reason === 'timeout') {
+        setMessage('Ride request expired');
+        setPendingRequests((prev) => prev.slice(1));
+      }
+    },
+    autoStart: pendingRequests.length > 0,
+  });
+
+  const { expenses, totalExpense, isLoading: expenseLoading, addExpense, removeExpense, expenseTypes } = useExpenseTracking({
+    token,
+    rideId: activeRideId,
+  });
   
   const setAvailabilitySyncPendingState = useCallback((value) => {
     const nextValue = !!value;
@@ -1920,7 +1962,13 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
           </View>
 
           <Text style={styles.title}>Driver Command Center</Text>
-          {!!driverLocation && (
+          {!!driverGPSLocation && (
+            <Text style={styles.locationText}>
+              📍 {driverGPSLocation.address || `${driverGPSLocation.latitude}, ${driverGPSLocation.longitude}`}
+              {driverSpeed ? ` • Speed: ${driverSpeed} km/h` : ''} {isTracking ? '✅ Tracking' : '⏸️ Paused'}
+            </Text>
+          )}
+          {!!driverLocation && !driverGPSLocation && (
             <Text style={styles.locationText}>
               Current location: {driverLocation.address || `${driverLocation.latitude}, ${driverLocation.longitude}`}
             </Text>
@@ -1981,6 +2029,18 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                   />
                   <View style={styles.requestCard}>
                     <RideProgressTimeline status={activeRideStatus || 'searching'} />
+
+                    {/* TIER 1: SOS Button - Emergency Alert */}
+                    <SOSButton
+                      onTriggerSOS={triggerSOS}
+                      onCancelSOS={cancelSOS}
+                      sosActive={sosActive}
+                      sosMessage={sosMessage}
+                      sosError={sosError}
+                      disabled={loading}
+                      compact={false}
+                    />
+
                     <Text style={styles.passengerName}>Active Ride: {activeRide.passenger_name || 'Passenger'}</Text>
                     <Text style={styles.requestDetails}>Status: {activeRide.status}</Text>
                     <Text style={styles.requestDetails}>
@@ -2027,7 +2087,16 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                           status={activeRideStatus}
                           eta={liveEtaLabel}
                           destination={normalizeLocation(activeRide.drop_location || activeRide.dropoff_location)}
-                          currentLocation={driverLocation}
+                          currentLocation={driverGPSLocation || driverLocation}
+                        />
+                        {/* TIER 1: Expense Tracking */}
+                        <ExpenseTracker
+                          expenses={expenses}
+                          totalExpense={totalExpense}
+                          onAddExpense={addExpense}
+                          onRemoveExpense={removeExpense}
+                          isLoading={expenseLoading}
+                          expenseTypes={expenseTypes}
                         />
                         <View style={styles.otpCard}>
                           <Text style={styles.otpCardLabel}>COMPLETION OTP (Optional)</Text>
@@ -2084,7 +2153,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                       malayalam="New requests will appear here shortly."
                     />
                   ) : (
-                    pendingRequests.map((req) => {
+                    pendingRequests.map((req, idx) => {
                       const pickup = normalizeLocation(
                         req.pickup_location || req.pickup || req.pickup_location_details,
                       );
@@ -2095,8 +2164,20 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                         req.drop_location_details,
                       );
                       const isBlocked = blockedPassengerIds.includes(req.passenger_id);
+                      const isFirstRequest = idx === 0;
+
                       return (
                         <View key={req.id} style={styles.requestCardNew}>
+                          {/* TIER 1: Request Countdown Timer */}
+                          {isFirstRequest && (
+                            <RequestCountdownDisplay
+                              secondsRemaining={secondsRemaining}
+                              isExpired={isExpired}
+                              formattedTime={formattedTime}
+                              percentage={percentage}
+                              style={styles.countdownDisplay}
+                            />
+                          )}
                           <View style={styles.requestCardHeader}>
                             <View style={styles.requestCardTitle}>
                               <Text style={styles.passengerNameNew}>{req.passenger_name}</Text>
@@ -2190,12 +2271,14 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
               <RevenueCard token={token} role={user?.role} />
               <DriverPerformanceDashboard
                 token={token}
-                performanceMetrics={{
-                  acceptanceRate: driverStats?.acceptance_rate || 0,
-                  cancellationRate: driverStats?.cancellation_rate || 0,
-                  onTimePercentage: driverStats?.on_time_percentage || 0,
-                  completionRate: driverStats?.completion_rate || 0,
-                  averageRating: driverStats?.rating || 0,
+                stats={{
+                  acceptanceRate: 0,
+                  cancellationRate: 0,
+                  onTimePercentage: 0,
+                  completionRate: 0,
+                  averageRating: Number(user?.rating || 0),
+                  rideCount: Number(earnings?.total_rides || 0),
+                  earningsToday: Number(earnings?.today_earnings || 0),
                 }}
               />
               <View style={styles.earningsPanel}>
@@ -2823,6 +2906,11 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 10,
     gap: 8,
+  },
+  // TIER 1: Countdown display style
+  countdownDisplay: {
+    marginTop: 0,
+    marginBottom: 12,
   },
   blockedPassengerHeader: {
     flexDirection: 'row',

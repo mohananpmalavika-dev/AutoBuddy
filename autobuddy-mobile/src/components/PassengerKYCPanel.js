@@ -93,6 +93,8 @@ export default function PassengerKYCPanel({ token }) {
         return '#FF9800';
       case 'pending':
         return '#2196F3';
+      case 'rejected':
+        return '#D32F2F';
       default:
         return '#F44336';
     }
@@ -106,6 +108,8 @@ export default function PassengerKYCPanel({ token }) {
         return 'Basic (Pending Full Verification)';
       case 'pending':
         return 'Verification Pending';
+      case 'rejected':
+        return 'Rejected';
       default:
         return 'Not Verified';
     }

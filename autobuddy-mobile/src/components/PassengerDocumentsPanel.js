@@ -189,7 +189,7 @@ export default function PassengerDocumentsPanel({ token }) {
       <View style={[styles.infoBlock, SHADOWS.card]}>
         <Text style={styles.sectionTitle}>Document Management</Text>
         <Text style={styles.descriptionText}>
-          Upload important documents to your AutoBuddy profile. All documents are encrypted and stored securely. Keep your profile updated with current documents for better safety and service quality.
+          Upload important documents to your AutoBuddy profile. Documents are stored in protected upload storage and used only for verification. Keep your profile updated with current documents for better safety and service quality.
         </Text>
       </View>
 
@@ -249,7 +249,7 @@ export default function PassengerDocumentsPanel({ token }) {
         </View>
         <View style={styles.guidelineItem}>
           <Text style={styles.guidelineTitle}>✓ Privacy</Text>
-          <Text style={styles.guidelineText}>Your documents are encrypted and only used for verification</Text>
+          <Text style={styles.guidelineText}>Your documents are protected and only used for verification</Text>
         </View>
       </View>
 

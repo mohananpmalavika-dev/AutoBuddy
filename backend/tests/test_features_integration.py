@@ -13,6 +13,14 @@ import json
 # This is a template showing test patterns
 # Adjust imports based on your actual project structure
 
+SCHEDULED_RIDES_DEPRECATED_MESSAGE = "Scheduled rides are managed as real bookings now"
+
+
+def assert_scheduled_rides_deprecated(response):
+    assert response.status_code == 410
+    assert SCHEDULED_RIDES_DEPRECATED_MESSAGE in response.json()["detail"]
+
+
 class TestPassengerRatings:
     """Test rating submission and retrieval"""
     
@@ -250,10 +258,10 @@ class TestPreferences:
 
 
 class TestScheduledRides:
-    """Test scheduled rides management"""
+    """Test scheduled ride feature route deprecation"""
     
-    def test_create_scheduled_ride(self, client: TestClient, auth_headers: dict):
-        """Test creating a scheduled ride"""
+    def test_create_scheduled_ride_route_is_deprecated(self, client: TestClient, auth_headers: dict):
+        """Scheduled rides are now created through the real booking flow"""
         future_time = datetime.utcnow() + timedelta(days=1)
         
         ride_data = {
@@ -273,43 +281,41 @@ class TestScheduledRides:
             headers=auth_headers
         )
         
-        assert response.status_code == 200
-        data = response.json()
-        
-        assert data["pickup_location"] == "123 Main St"
-        assert data["ride_type"] == "normal"
-        assert data["status"] == "scheduled"
+        assert_scheduled_rides_deprecated(response)
     
     
-    def test_get_upcoming_rides(self, client: TestClient, auth_headers: dict):
-        """Test retrieving upcoming scheduled rides"""
-        # Create multiple scheduled rides
-        future_time = datetime.utcnow() + timedelta(days=1)
-        
-        for i in range(2):
-            ride_data = {
-                "pickup_location": f"Location {i}",
-                "dropoff_location": f"Destination {i}",
-                "scheduled_time": (future_time + timedelta(hours=i)).isoformat(),
-                "ride_type": "normal"
-            }
-            client.post(
-                "/api/v1/passengers/scheduled-rides",
-                json=ride_data,
-                headers=auth_headers
-            )
-        
-        # Retrieve
+    def test_get_upcoming_rides_route_is_deprecated(self, client: TestClient, auth_headers: dict):
+        """Scheduled ride lists now come from /api/bookings"""
         response = client.get(
             "/api/v1/passengers/scheduled-rides?status=scheduled",
             headers=auth_headers
         )
         
-        assert response.status_code == 200
-        data = response.json()
-        
-        assert len(data) >= 2
-        assert all(r["status"] == "scheduled" for r in data)
+        assert_scheduled_rides_deprecated(response)
+
+
+    def test_update_and_cancel_scheduled_ride_routes_are_deprecated(self, client: TestClient, auth_headers: dict):
+        """Stale scheduled ride mutation routes should stay closed"""
+        future_time = datetime.utcnow() + timedelta(days=1)
+        payload = {
+            "pickup_location": "123 Main St",
+            "dropoff_location": "456 Park Ave",
+            "scheduled_time": future_time.isoformat(),
+            "ride_type": "normal"
+        }
+
+        update_response = client.patch(
+            "/api/v1/passengers/scheduled-rides/ride-123",
+            json=payload,
+            headers=auth_headers
+        )
+        delete_response = client.delete(
+            "/api/v1/passengers/scheduled-rides/ride-123",
+            headers=auth_headers
+        )
+
+        assert_scheduled_rides_deprecated(update_response)
+        assert_scheduled_rides_deprecated(delete_response)
 
 
 class TestPaymentMethods:
@@ -507,28 +513,12 @@ class TestEndToEndWorkflows:
     """Integration tests for complete feature workflows"""
     
     def test_complete_ride_and_rating_workflow(self, client: TestClient, auth_headers: dict):
-        """Test complete workflow: schedule ride -> complete -> rate"""
-        # Step 1: Schedule a ride for tomorrow
-        future_time = datetime.utcnow() + timedelta(days=1)
-        
-        ride_response = client.post(
-            "/api/v1/passengers/scheduled-rides",
-            json={
-                "pickup_location": "Home",
-                "dropoff_location": "Office",
-                "scheduled_time": future_time.isoformat(),
-                "ride_type": "normal"
-            },
-            headers=auth_headers
-        )
-        assert ride_response.status_code == 200
-        
-        # Step 2: (Simulated) Ride completes, now rate driver
+        """Test rating workflow against a real booking id supplied by dispatch"""
         rating_response = client.post(
             "/api/v1/passengers/ratings",
             json={
                 "driver_id": "driver-123",
-                "booking_id": ride_response.json()["id"],
+                "booking_id": "booking-456",
                 "score": 5,
                 "feedback": "Great ride!"
             },
@@ -536,7 +526,7 @@ class TestEndToEndWorkflows:
         )
         assert rating_response.status_code == 200
         
-        # Step 3: Verify rating was saved
+        # Verify rating was saved
         ratings = client.get(
             "/api/v1/passengers/ratings",
             headers=auth_headers
@@ -574,7 +564,7 @@ class TestEndToEndWorkflows:
         )
         assert office_response.status_code == 200
         
-        # Step 3: Schedule a ride between these places
+        # Step 3: Legacy scheduled ride route should tell clients to use real bookings
         future_time = datetime.utcnow() + timedelta(days=1)
         
         ride_response = client.post(
@@ -591,4 +581,4 @@ class TestEndToEndWorkflows:
             },
             headers=auth_headers
         )
-        assert ride_response.status_code == 200
+        assert_scheduled_rides_deprecated(ride_response)

@@ -105,6 +105,28 @@ def get_db():
         db.close()
 
 
+def get_feature_database_status() -> dict:
+    """Expose non-secret passenger feature database configuration for health checks."""
+    if _is_sqlite_url(DATABASE_URL):
+        engine_name = "sqlite"
+    elif _is_postgresql_url(DATABASE_URL):
+        engine_name = "postgresql"
+    else:
+        engine_name = "other"
+
+    production_environment = _is_production_environment()
+    durable = _is_postgresql_url(DATABASE_URL)
+    return {
+        "source": DATABASE_URL_SOURCE,
+        "engine": engine_name,
+        "durable": durable,
+        "local_fallback": DATABASE_URL_SOURCE == "development default",
+        "production_environment": production_environment,
+        "production_ready": (not production_environment) or durable,
+        "required_env_vars": list(FEATURE_DATABASE_ENV_VARS),
+    }
+
+
 def init_db():
     """Create all database tables"""
     Base.metadata.create_all(bind=engine)
