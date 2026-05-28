@@ -7381,21 +7381,16 @@ async def get_driver_earnings(current_user: dict = Depends(get_current_user)):
     }).to_list(5000)
 
     now = get_ist_now()
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    week_start = now - timedelta(days=7)
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    today_start = as_utc_naive(now.replace(hour=0, minute=0, second=0, microsecond=0))
+    week_start = as_utc_naive(now - timedelta(days=7))
+    month_start = as_utc_naive(now.replace(day=1, hour=0, minute=0, second=0, microsecond=0))
 
     def ride_updated_at(ride: Dict[str, Any]) -> datetime:
         value = ride.get("updated_at") or ride.get("created_at") or datetime.min
-        return value if isinstance(value, datetime) else datetime.min
+        normalized = as_utc_naive(value) if isinstance(value, (datetime, str)) else None
+        return normalized or datetime.min
 
-    def ride_fare(ride: Dict[str, Any]) -> float:
-        try:
-            return float(ride.get("final_fare", ride.get("estimated_fare", 0)) or 0)
-        except (TypeError, ValueError):
-            return 0.0
-
-    total_earnings = sum(ride_fare(ride) for ride in completed_rides)
+    total_earnings = sum(booking_fare_value(ride) for ride in completed_rides)
     total_rides = len(completed_rides)
     today_rides = [ride for ride in completed_rides if ride_updated_at(ride) >= today_start]
     weekly_rides = [ride for ride in completed_rides if ride_updated_at(ride) >= week_start]
@@ -7405,11 +7400,11 @@ async def get_driver_earnings(current_user: dict = Depends(get_current_user)):
     return {
         "total_earnings": round(total_earnings, 2),
         "total_rides": total_rides,
-        "today_earnings": round(sum(ride_fare(ride) for ride in today_rides), 2),
+        "today_earnings": round(sum(booking_fare_value(ride) for ride in today_rides), 2),
         "today_rides": len(today_rides),
-        "weekly_earnings": round(sum(ride_fare(ride) for ride in weekly_rides), 2),
+        "weekly_earnings": round(sum(booking_fare_value(ride) for ride in weekly_rides), 2),
         "weekly_rides": len(weekly_rides),
-        "monthly_earnings": round(sum(ride_fare(ride) for ride in monthly_rides), 2),
+        "monthly_earnings": round(sum(booking_fare_value(ride) for ride in monthly_rides), 2),
         "monthly_rides": len(monthly_rides),
         "wallet_balance": payout_overview["wallet_balance"],
         "pending_withdrawal": payout_overview["pending_withdrawal"],
@@ -7463,7 +7458,7 @@ def serialize_driver_withdrawal(row: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "id": row.get("id"),
-        "amount": round(float(row.get("amount", 0.0) or 0.0), 2),
+        "amount": round(safe_float(row.get("amount"), 0.0), 2),
         "method": row.get("method") or "bank_transfer",
         "status": status_value,
         "created_at": created_at,
@@ -7499,8 +7494,8 @@ async def build_driver_payout_overview(driver_id: str, limit: int = 8) -> Dict[s
     ).sort("created_at", -1).to_list(limit)
     withdrawals = [serialize_driver_withdrawal(row) for row in rows]
 
-    wallet_balance = round(float(wallet.get("balance", 0.0) or 0.0), 2)
-    pending_withdrawal = round(float(wallet.get("pending_withdrawal", 0.0) or 0.0), 2)
+    wallet_balance = round(safe_float(wallet.get("balance"), 0.0), 2)
+    pending_withdrawal = round(safe_float(wallet.get("pending_withdrawal"), 0.0), 2)
     bank_status = str(profile.get("bank_verification_status") or "not_submitted")
     blocker = get_driver_withdrawal_blocker(bank_status, wallet_balance)
     latest = withdrawals[0] if withdrawals else None
@@ -7541,7 +7536,7 @@ async def request_driver_withdrawal(
 
     now = get_ist_now()
     wallet = await db.driver_wallets.find_one({"driver_id": current_user["id"]}, {"_id": 0}) or {}
-    balance = round(float(wallet.get("balance", 0.0) or 0.0), 2)
+    balance = round(safe_float(wallet.get("balance"), 0.0), 2)
     driver_profile = await db.drivers.find_one({"user_id": current_user["id"]}, {"_id": 0}) or {}
     bank_status = str(driver_profile.get("bank_verification_status") or "not_submitted")
     bank_blocker = get_driver_withdrawal_blocker(bank_status, balance)
