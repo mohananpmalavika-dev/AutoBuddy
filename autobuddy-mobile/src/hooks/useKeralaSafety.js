@@ -19,10 +19,10 @@ const SOS_PHRASES = [
   'sos',
   'help me',
   'emergency',
-  'രക്ഷിക്കൂ',
-  'സഹായിക്കൂ',
-  'പോലീസിനെ വിളിക്കൂ',
-  'ആപത്താണ്',
+  '\u0D30\u0D15\u0D4D\u0D37\u0D3F\u0D15\u0D4D\u0D15\u0D42',
+  '\u0D38\u0D39\u0D3E\u0D2F\u0D3F\u0D15\u0D4D\u0D15\u0D42',
+  '\u0D2A\u0D4B\u0D32\u0D40\u0D38\u0D3F\u0D28\u0D46 \u0D35\u0D3F\u0D33\u0D3F\u0D15\u0D4D\u0D15\u0D42',
+  '\u0D06\u0D2A\u0D24\u0D4D\u0D24\u0D3E\u0D23\u0D4D',
   'rakshikku',
   'sahaayikku',
 ];
@@ -30,7 +30,7 @@ const SOS_PHRASES = [
 const WOMEN_MODE_PHRASES = [
   'women safety mode',
   'enable safety mode',
-  'സേഫ്റ്റി മോഡ്',
+  '\u0D38\u0D47\u0D2B\u0D4D\u0D31\u0D4D\u0D31\u0D3F \u0D2E\u0D4B\u0D21\u0D4D',
 ];
 
 function lower(value) {
@@ -145,7 +145,7 @@ export function useKeralaSafety({ token, userName, activeBooking }) {
       const response = await updateSafetyMode(token, next);
       setMode(response?.safety_mode || next);
       setMessage('Women Safety Mode enabled.');
-      speakMalayalam('സേഫ്റ്റി മോഡ് പ്രവർത്തനം ആരംഭിച്ചു');
+      speakMalayalam('\u0D38\u0D47\u0D2B\u0D4D\u0D31\u0D4D\u0D31\u0D3F \u0D2E\u0D4B\u0D21\u0D4D \u0D2A\u0D4D\u0D30\u0D35\u0D7C\u0D24\u0D4D\u0D24\u0D28\u0D02 \u0D06\u0D30\u0D02\u0D2D\u0D3F\u0D1A\u0D4D\u0D1A\u0D41');
     } catch (err) {
       setError(err.message || 'Could not enable women safety mode');
     } finally {
@@ -243,7 +243,7 @@ export function useKeralaSafety({ token, userName, activeBooking }) {
 
         const police = String(response?.kerala_emergency_numbers?.police || emergencyNumbers.police || '112');
         setMessage(`SOS activated. Emergency number: ${police}`);
-        speakMalayalam('എസ് ഒ എസ് ആക്ടിവേറ്റായി');
+        speakMalayalam('\u0D0E\u0D38\u0D4D \u0D12 \u0D0E\u0D38\u0D4D \u0D06\u0D15\u0D4D\u0D1F\u0D3F\u0D35\u0D47\u0D31\u0D4D\u0D31\u0D3E\u0D2F\u0D3F');
         return response;
       } catch (err) {
         setError(err.message || 'Could not activate SOS');
@@ -350,6 +350,6 @@ export function useKeralaSafety({ token, userName, activeBooking }) {
     startFamilyTracking,
     stopFamilyTracking,
     callEmergencyNumber,
-    speakMalayalam: (text) => speakMalayalam(text || `സുരക്ഷാ അറിയിപ്പ്. ${userName || ''}`),
+    speakMalayalam: (text) => speakMalayalam(text || `\u0D38\u0D41\u0D30\u0D15\u0D4D\u0D37\u0D3E \u0D05\u0D31\u0D3F\u0D2F\u0D3F\u0D2A\u0D4D\u0D2A\u0D4D. ${userName || ''}`),
   };
 }

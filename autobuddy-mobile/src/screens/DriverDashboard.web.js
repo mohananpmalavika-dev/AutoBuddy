@@ -10,7 +10,6 @@ import {
 } from 'react-native';
 
 import { apiRequest } from '../lib/api';
-import { createAutoBuddySocket } from '../lib/socket';
 import { isPlacesConfigured, reverseGeocodeLocation } from '../lib/places';
 import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme';
 import RideCommunicationCard from '../components/RideCommunicationCard';
@@ -41,18 +40,30 @@ import AnalyticsDashboard from '../components/AnalyticsDashboard';
 import RideHistoryPanel from '../components/RideHistoryPanel';
 import NotificationCenter from '../components/NotificationCenter';
 import ScheduledRidesPanel from '../components/ScheduledRidesPanel';
+import SubscriptionPanel from '../components/SubscriptionPanel';
+import DriverReviewsPanel from '../components/DriverReviewsPanel';
+import DriverCancelRidePanel from '../components/DriverCancelRidePanel';
 import { useNotifications } from '../contexts/NotificationContext';
 import { usePreferences } from '../contexts/PreferencesContext';
 import { DRIVER_QUICK_ACTIONS } from '../constants/driverQuickActions';
 import { useNotificationManager } from '../hooks/useNotificationManager';
+import { useDriverRideQueueSocket } from '../hooks/useDriverRideQueueSocket';
 import {
   filterBlockedPassengers,
   formatBlockedPassengerDate,
   getBlockedPassengerRideSummary,
   normalizeBlockedPassengerRows,
 } from '../lib/driverBlockedPassengers';
+import {
+  buildGoogleMapsDirectionsUrl,
+  canCancelRide,
+  getNextActionLabel,
+  getNextRideStatus,
+  getRideNavigationTarget,
+  getRideStatusMode,
+  runDriverQuickAction,
+} from '../lib/driverDashboardFlow';
 
-const STATUS_FLOW = ['accepted', 'driver_arrived', 'in_progress', 'completed'];
 const DEFAULT_CITY_LOCATION = {
   latitude: 13.0827,
   longitude: 80.2707,
@@ -133,6 +144,42 @@ function getAvailabilityErrorMessage(err) {
   return err?.message || 'Failed to update availability status.';
 }
 
+function readDriverAvailability(payload, fallback = false) {
+  if (typeof payload?.is_available === 'boolean') {
+    return payload.is_available;
+  }
+  if (typeof payload?.is_online === 'boolean') {
+    return payload.is_online;
+  }
+
+  const status = String(
+    payload?.availability_status ||
+      payload?.availability ||
+      payload?.online_status ||
+      payload?.status ||
+      '',
+  ).toLowerCase();
+
+  if (['online', 'available', 'active', 'ready'].includes(status)) {
+    return true;
+  }
+  if (['offline', 'unavailable', 'inactive', 'disabled'].includes(status)) {
+    return false;
+  }
+
+  return !!fallback;
+}
+
+function hasDriverAvailabilitySnapshot(payload) {
+  return (
+    typeof payload?.is_available === 'boolean' ||
+    typeof payload?.is_online === 'boolean' ||
+    typeof payload?.availability_status === 'string' ||
+    typeof payload?.availability === 'string' ||
+    typeof payload?.online_status === 'string'
+  );
+}
+
 function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefined }) {
   const refreshInFlightRef = useRef(false);
   const initialLocationSyncAttemptedRef = useRef(false);
@@ -197,6 +244,8 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   const [supportLaunchAction, setSupportLaunchAction] = useState('help');
   const [earningsLaunchAction, setEarningsLaunchAction] = useState('summary');
   const [expandedRideCard, setExpandedRideCard] = useState(false);
+  const [cancelRidePanelVisible, setCancelRidePanelVisible] = useState(false);
+  const [cancelRideBookingId, setCancelRideBookingId] = useState(null);
   const [spinWinStatus, setSpinWinStatus] = useState(null);
   const [spinWinLoading, setSpinWinLoading] = useState(false);
   const [spinningNow, setSpinningNow] = useState(false);
@@ -216,11 +265,14 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
 
   const googleMapsWebKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
   const placesConfigured = isPlacesConfigured();
-  const liveLocationRideStatuses = useMemo(() => new Set(['accepted', 'driver_arrived', 'in_progress']), []);
   const activeRideStatus = String(activeRide?.status || '').toLowerCase();
   const activeRideId = String(activeRide?.id || '').trim() || null;
   const shareLocationWhileOnline = driverSettings.share_location !== false;
-  const activeRideSharesLocation = liveLocationRideStatuses.has(activeRideStatus);
+  const {
+    navigatingToPickup,
+    navigatingToDrop,
+    sharesLocation: activeRideSharesLocation,
+  } = getRideStatusMode(activeRideStatus);
   const liveEtaLabel = useMemo(() => {
     const map = {
       accepted: '5 min',
@@ -235,9 +287,34 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     userName: user?.name,
     activeBooking: activeRide,
   });
+  const driverAvailability = useMemo(() => {
+    const syncing = availabilitySyncPending || availabilityToggleInFlight;
+    const nextIsOnline = syncing ? !!isOnline : !!serverIsOnline;
+    const status = syncing
+      ? nextIsOnline
+        ? 'going_online'
+        : 'going_offline'
+      : nextIsOnline
+        ? 'online'
+        : 'offline';
+
+    return {
+      isOnline: nextIsOnline,
+      label: syncing
+        ? nextIsOnline
+          ? 'GOING ONLINE...'
+          : 'GOING OFFLINE...'
+        : nextIsOnline
+          ? 'ONLINE & READY'
+          : 'OFFLINE',
+      status,
+      syncing,
+      tone: syncing ? 'syncing' : nextIsOnline ? 'online' : 'offline',
+    };
+  }, [availabilitySyncPending, availabilityToggleInFlight, isOnline, serverIsOnline]);
   const shouldSyncDriverLocation =
-    (shareLocationWhileOnline && isOnline && !availabilitySyncPending) || activeRideSharesLocation;
-  const displayIsOnline = availabilitySyncPending ? isOnline : serverIsOnline;
+    (shareLocationWhileOnline && driverAvailability.isOnline && !driverAvailability.syncing) ||
+    activeRideSharesLocation;
   const visibleBlockedPassengers = useMemo(
     () => filterBlockedPassengers(blockedPassengers, blockedPassengerSearch),
     [blockedPassengerSearch, blockedPassengers],
@@ -518,8 +595,6 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     const pickup = resolveCoords(activeRide?.pickup_location || activeRide?.pickup || activeRide?.pickup_location_details);
     const drop = resolveCoords(activeRide?.dropoff_location || activeRide?.dropoff || activeRide?.dropoff_location_details);
     const driverPlace = resolveCoords(driverLocation || activeRide?.driver_location);
-    const navigatingToPickup = activeRideStatus === 'accepted' || activeRideStatus === 'driver_arrived';
-    const navigatingToDrop = activeRideStatus === 'in_progress';
     const routeOrigin = navigatingToPickup || navigatingToDrop ? (driverPlace || pickup) : null;
     const routeDestination = navigatingToPickup ? pickup : navigatingToDrop ? drop : null;
     const hasRoute =
@@ -561,7 +636,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       routeDestination,
       fallbackUrl,
     };
-  }, [googleMapsWebKey, activeRide, activeRideStatus, driverLocation]);
+  }, [googleMapsWebKey, activeRide, driverLocation, navigatingToDrop, navigatingToPickup]);
 
   const runAction = useCallback(async (fn, successText) => {
     try {
@@ -647,8 +722,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         token,
         body: { is_available: !!pending.desired },
       });
-      const savedStatus =
-        typeof updated?.is_available === 'boolean' ? updated.is_available : !!pending.desired;
+      const savedStatus = readDriverAvailability(updated, !!pending.desired);
       pendingAvailabilitySyncRef.current = null;
       setAvailabilitySyncPendingState(false);
       availabilityLocalChangeAtRef.current = Date.now();
@@ -679,13 +753,15 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       } else {
         pendingAvailabilitySyncRef.current = null;
         setAvailabilitySyncPendingState(false);
+        setServerIsOnline(serverIsOnline);
+        setIsOnline(serverIsOnline);
         setError(getAvailabilityErrorMessage(err));
         setMessage('');
       }
     } finally {
       availabilityRetryInFlightRef.current = false;
     }
-  }, [driverLocation, pushDriverLocation, setAvailabilitySyncPendingState, token]);
+  }, [driverLocation, pushDriverLocation, serverIsOnline, setAvailabilitySyncPendingState, token]);
 
   const requestDriverData = useCallback(
     async (path, fallbackValue) => {
@@ -713,11 +789,12 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     const refreshStartedAt = Date.now();
     const profile = await runAction(() => apiRequest('/drivers/profile', { token }));
     if (profile) {
-      if (typeof profile.is_available === 'boolean') {
+      if (hasDriverAvailabilitySnapshot(profile)) {
         // Avoid overriding an in-flight toggle with stale profile snapshots.
         if (canApplyServerAvailabilitySnapshot(refreshStartedAt)) {
-          setServerIsOnline(profile.is_available);
-          setIsOnline(profile.is_available);
+          const profileIsOnline = readDriverAvailability(profile, false);
+          setServerIsOnline(profileIsOnline);
+          setIsOnline(profileIsOnline);
         }
       }
       const resolvedLocation = normalizeLocation(profile.current_location);
@@ -798,10 +875,11 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         ])
         : [null, null, null];
 
-      if (includeProfile && profile && typeof profile.is_available === 'boolean') {
+      if (includeProfile && profile && hasDriverAvailabilitySnapshot(profile)) {
         if (canApplyServerAvailabilitySnapshot(refreshStartedAt)) {
-          setServerIsOnline(profile.is_available);
-          setIsOnline(profile.is_available);
+          const profileIsOnline = readDriverAvailability(profile, false);
+          setServerIsOnline(profileIsOnline);
+          setIsOnline(profileIsOnline);
         }
       }
       if (includeProfile) {
@@ -1069,130 +1147,59 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   };
 
   const handleQuickActionPress = (action) => {
-    if (!action || typeof action !== 'object') {
-      return;
-    }
-    if (action.type === 'go_online') {
-      if (displayIsOnline) {
+    runDriverQuickAction(action, {
+      isOnline: driverAvailability.isOnline,
+      hasActiveRide: Boolean(activeRideId),
+      setError,
+      setMessage,
+      goOnline: () => toggleOnlineStatus().catch(() => null),
+      openRequests: () => setActiveTab('requests'),
+      resumeActiveRide: () => {
         setActiveTab('requests');
-        setMessage('You are already online and ready for ride requests.');
-        return;
-      }
-      toggleOnlineStatus().catch(() => null);
-      return;
-    }
-    if (action.type === 'resume_active_ride') {
-      if (!activeRideId) {
-        setError('No active ride to resume.');
-        return;
-      }
-      setActiveTab('requests');
-      setExpandedRideCard(true);
-      setMessage('Active ride controls opened.');
-      return;
-    }
-    if (action.type === 'navigate_active_ride') {
-      if (!activeRideId) {
-        setError('No active ride to navigate.');
-        return;
-      }
-      openActiveRideMap();
-      return;
-    }
-    if (action.type === 'call_passenger') {
-      if (!activeRideId) {
-        setError('No active ride passenger to call.');
-        return;
-      }
-      openActiveRideCall().catch(() => null);
-      return;
-    }
-    if (action.type === 'sos') {
-      setActiveTab('safety');
-      keralaSafety.activateSos('Driver quick action SOS', 'driver_quick_action').catch(() => null);
-      return;
-    }
-    if (action.type === 'support_contact') {
-      setSupportLaunchAction('contact');
-      setActiveTab('support');
-      setMessage('Support ticket form opened.');
-      return;
-    }
-    if (action.type === 'withdraw_earnings') {
-      setEarningsLaunchAction('withdraw');
-      setActiveTab('earnings');
-      setMessage('Withdrawal form opened. Enter the amount to submit a request.');
-      refreshDriverDataSilently({ includeMeta: true }).catch(() => null);
-      return;
-    }
-    if (action.type === 'earnings_report') {
-      requestDriverEarningsReport().catch(() => null);
-      return;
-    }
-    if (action.type === 'tab' && action.tab) {
-      if (action.tab === 'earnings') {
-        setEarningsLaunchAction('summary');
-      }
-      if (action.tab === 'support') {
-        setSupportLaunchAction('help');
-      }
-      setActiveTab(action.tab);
-    }
+        setExpandedRideCard(true);
+        setMessage('Active ride controls opened.');
+      },
+      navigateActiveRide: openActiveRideMap,
+      callPassenger: () => openActiveRideCall().catch(() => null),
+      activateSos: () => {
+        setActiveTab('safety');
+        keralaSafety.activateSos('Driver quick action SOS', 'driver_quick_action').catch(() => null);
+      },
+      contactSupport: () => {
+        setSupportLaunchAction('contact');
+        setActiveTab('support');
+        setMessage('Support ticket form opened.');
+      },
+      withdrawEarnings: () => {
+        setEarningsLaunchAction('withdraw');
+        setActiveTab('earnings');
+        setMessage('Withdrawal form opened. Enter the amount to submit a request.');
+        refreshDriverDataSilently({ includeMeta: true }).catch(() => null);
+      },
+      earningsReport: () => requestDriverEarningsReport().catch(() => null),
+      openTab: (tab) => {
+        if (tab === 'earnings') {
+          setEarningsLaunchAction('summary');
+        }
+        if (tab === 'support') {
+          setSupportLaunchAction('help');
+        }
+        setActiveTab(tab);
+      },
+    });
   };
 
-  
-  useEffect(() => {
-    if (!token) {
-      return undefined;
-    }
+  const handleDriverRideSocketError = useCallback((err) => {
+    console.warn('Driver ride request socket error:', err?.message || err);
+  }, []);
 
-    const socket = createAutoBuddySocket(token);
-    socketRef.current = socket;
-    const refreshFromRealtime = () => {
-      void refreshDriverRideQueueFromRealtime();
-    };
-    const handleSocketError = (err) => {
-      console.warn('Driver ride request socket error:', err?.message || err);
-    };
-
-    socket.on('connect', refreshFromRealtime);
-    socket.on('new_booking_available', refreshFromRealtime);
-    socket.on('booking_status_changed', refreshFromRealtime);
-    socket.on('connect_error', handleSocketError);
-
-    if (socket.connected) {
-      refreshFromRealtime();
-    }
-
-    return () => {
-      socket.off('connect', refreshFromRealtime);
-      socket.off('new_booking_available', refreshFromRealtime);
-      socket.off('booking_status_changed', refreshFromRealtime);
-      socket.off('connect_error', handleSocketError);
-      socket.disconnect();
-      if (socketRef.current === socket) {
-        socketRef.current = null;
-      }
-    };
-  }, [refreshDriverRideQueueFromRealtime, token]);
-
-  useEffect(() => {
-    const socket = socketRef.current;
-    const bookingId = activeRideId;
-    if (!socket || !bookingId) {
-      return undefined;
-    }
-    const joinBookingRoom = () => {
-      socket.emit('join_booking', { booking_id: bookingId });
-    };
-    socket.on('connect', joinBookingRoom);
-    if (socket.connected) {
-      joinBookingRoom();
-    }
-    return () => {
-      socket.off('connect', joinBookingRoom);
-    };
-  }, [activeRideId]);
+  useDriverRideQueueSocket({
+    token,
+    socketRef,
+    activeRideId,
+    refreshDriverRideQueueFromRealtime,
+    onSocketError: handleDriverRideSocketError,
+  });
 
   useEffect(() => {
     let unmounted = false;
@@ -1322,7 +1329,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       return;
     }
 
-    const next = !displayIsOnline;
+    const next = !driverAvailability.isOnline;
     const requestId = Date.now();
     const toggledAt = Date.now();
     availabilityToggleInFlightRef.current = requestId;
@@ -1348,8 +1355,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         return;
       }
 
-      const savedStatus =
-        typeof response?.is_available === 'boolean' ? response.is_available : next;
+      const savedStatus = readDriverAvailability(response, next);
 
       const savedAt = Date.now();
       availabilityLocalChangeAtRef.current = savedAt;
@@ -1370,6 +1376,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       const rollbackAt = Date.now();
       availabilityLocalChangeAtRef.current = rollbackAt;
       availabilityUiOverrideUntilRef.current = rollbackAt + 15000;
+      setServerIsOnline(serverIsOnline);
       setIsOnline(serverIsOnline);
       setError(err?.message || 'Failed to update driver status.');
       setMessage('Status update failed. Please try again.');
@@ -1380,7 +1387,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       setAvailabilitySyncPendingState(false);
     }
   }, [
-    displayIsOnline,
+    driverAvailability.isOnline,
     pushDriverLocation,
     serverIsOnline,
     setAvailabilitySyncPendingState,
@@ -1445,10 +1452,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     if (!activeRide?.id) {
       return;
     }
-    const currentIndex = STATUS_FLOW.indexOf(String(activeRide.status));
-    const nextStatus = currentIndex >= 0 && currentIndex < STATUS_FLOW.length - 1
-      ? STATUS_FLOW[currentIndex + 1]
-      : null;
+    const nextStatus = getNextRideStatus(activeRide.status);
     if (!nextStatus) {
       return;
     }
@@ -1512,15 +1516,8 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     }
   };
 
-  const cancelActiveRide = async () => {
+  const performCancelActiveRide = async (cancelPayload = {}) => {
     if (!activeRideId) {
-      return;
-    }
-    const proceed =
-      typeof window !== 'undefined' && typeof window.confirm === 'function'
-        ? window.confirm('Cancel this active ride? The passenger will be notified.')
-        : true;
-    if (!proceed) {
       return;
     }
     const cancelled = await runAction(
@@ -1528,10 +1525,13 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         apiRequest(`/bookings/${activeRideId}/cancel`, {
           method: 'PUT',
           token,
+          body: cancelPayload,
         }),
       'Ride cancelled. You are available for new requests.',
     );
     if (cancelled) {
+      setCancelRidePanelVisible(false);
+      setCancelRideBookingId(null);
       setRideStartOtp('');
       setRideEndOtp('');
       setActiveRide(null);
@@ -1541,19 +1541,19 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     }
   };
 
-  const nextActionLabel = useMemo(() => {
-    if (!activeRide?.status) {
-      return null;
+  const cancelActiveRide = () => {
+    if (!activeRideId) {
+      return;
     }
-    const map = {
-      accepted: 'Mark Arrived',
-      driver_arrived: 'Start Trip',
-      in_progress: 'Complete Trip',
-      completed: null,
-    };
-    return map[String(activeRide.status)] || null;
-  }, [activeRide]);
-  const canCancelActiveRide = Boolean(activeRideId) && !['completed', 'cancelled'].includes(activeRideStatus);
+    setActiveTab('requests');
+    setExpandedRideCard(true);
+    setCancelRideBookingId(activeRideId);
+    setCancelRidePanelVisible(true);
+    setMessage('Choose a cancellation reason and confirm the policy acknowledgement.');
+  };
+
+  const nextActionLabel = useMemo(() => getNextActionLabel(activeRide?.status), [activeRide?.status]);
+  const canCancelActiveRide = Boolean(activeRideId) && canCancelRide(activeRideStatus);
 
   const focusRideCommunication = useCallback(() => {
     if (!activeRideId) {
@@ -1583,21 +1583,24 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
 
   const openActiveRideMap = useCallback(() => {
     const origin = mapState.routeOrigin || mapState.driverPlace || mapState.pickup;
-    const destination = mapState.routeDestination || mapState.drop || mapState.pickup;
+    const { destination: fallbackDestination } = getRideNavigationTarget({
+      ride: activeRide,
+      status: activeRideStatus,
+      normalizeLocation,
+    });
+    const destination = mapState.routeDestination || fallbackDestination || mapState.drop || mapState.pickup;
     if (!destination) {
       setError('Ride location unavailable.');
       return;
     }
 
-    const mapsUrl = origin
-      ? `https://www.google.com/maps/dir/?api=1&origin=${origin.latitude},${origin.longitude}&destination=${destination.latitude},${destination.longitude}&travelmode=driving`
-      : `https://www.google.com/maps/search/?api=1&query=${destination.latitude},${destination.longitude}`;
+    const mapsUrl = buildGoogleMapsDirectionsUrl({ origin, destination });
     if (typeof window !== 'undefined' && typeof window.open === 'function') {
       window.open(mapsUrl, '_blank', 'noopener,noreferrer');
     } else {
       setMessage(`Route ready: ${mapsUrl}`);
     }
-  }, [mapState]);
+  }, [activeRide, activeRideStatus, mapState, normalizeLocation]);
 
   const resumeScheduledRide = useCallback((ride) => {
     if (!ride?.id) {
@@ -1610,23 +1613,16 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   }, []);
 
   const openScheduledRideNavigation = useCallback((ride) => {
-    const pickup = normalizeLocation(ride?.pickup_location || ride?.pickup || ride?.pickup_location_details);
-    const drop = normalizeLocation(
-      ride?.drop_location ||
-        ride?.dropoff_location ||
-        ride?.dropoff ||
-        ride?.drop_location_details,
-    );
-    const destination = String(ride?.status || '').toLowerCase() === 'in_progress' ? (drop || pickup) : (pickup || drop);
+    const { destination } = getRideNavigationTarget({
+      ride,
+      status: ride?.status,
+      normalizeLocation,
+    });
     if (!destination) {
       setError('Scheduled ride location unavailable.');
       return;
     }
-    const origin = driverLocation
-      ? `&origin=${driverLocation.latitude},${driverLocation.longitude}`
-      : '';
-    const mapsUrl =
-      `https://www.google.com/maps/dir/?api=1${origin}&destination=${destination.latitude},${destination.longitude}&travelmode=driving`;
+    const mapsUrl = buildGoogleMapsDirectionsUrl({ origin: driverLocation, destination });
     if (typeof window !== 'undefined' && typeof window.open === 'function') {
       window.open(mapsUrl, '_blank', 'noopener,noreferrer');
     } else {
@@ -1809,18 +1805,58 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
             keyboardShouldPersistTaps="handled">
           <View style={styles.topBar}>
             <TouchableOpacity 
-              style={[styles.statusBadgeButton, { backgroundColor: displayIsOnline ? '#E8F5E9' : '#F5F5F5', borderColor: displayIsOnline ? '#2E7D32' : '#BDBDBD' }]}
+              style={[
+                styles.statusBadgeButton,
+                {
+                  backgroundColor:
+                    driverAvailability.tone === 'online'
+                      ? '#E8F5E9'
+                      : driverAvailability.tone === 'syncing'
+                        ? '#FFF7E6'
+                        : '#F5F5F5',
+                  borderColor:
+                    driverAvailability.tone === 'online'
+                      ? '#2E7D32'
+                      : driverAvailability.tone === 'syncing'
+                        ? '#FFA500'
+                        : '#BDBDBD',
+                },
+              ]}
               onPress={toggleOnlineStatus}
               disabled={availabilityToggleInFlight}
             >
-              <View style={[styles.statusDot, { backgroundColor: availabilitySyncPending ? '#FFA500' : displayIsOnline ? '#2E7D32' : '#8A8A8A' }]} />
+              <View
+                style={[
+                  styles.statusDot,
+                  {
+                    backgroundColor:
+                      driverAvailability.tone === 'online'
+                        ? '#2E7D32'
+                        : driverAvailability.tone === 'syncing'
+                          ? '#FFA500'
+                          : '#8A8A8A',
+                  },
+                ]}
+              />
               <View style={styles.statusContent}>
-                <Text style={[styles.statusText, { color: displayIsOnline ? '#2E7D32' : '#666' }]}>
-                  {availabilitySyncPending ? (displayIsOnline ? 'GOING ONLINE...' : 'GOING OFFLINE...') : (displayIsOnline ? 'ONLINE & READY' : 'OFFLINE')}
+                <Text
+                  style={[
+                    styles.statusText,
+                    {
+                      color:
+                        driverAvailability.tone === 'online'
+                          ? '#2E7D32'
+                          : driverAvailability.tone === 'syncing'
+                            ? '#B26A00'
+                            : '#666',
+                    },
+                  ]}
+                >
+                  {driverAvailability.label}
                 </Text>
                 <Text style={styles.statusSub}>{user?.name || 'Driver'} - Tap to toggle</Text>
               </View>
-              {availabilitySyncPending && <ActivityIndicator size="small" color="#FFA500" />}
+              {driverAvailability.syncing && <ActivityIndicator size="small" color="#FFA500" />}
             </TouchableOpacity>
             <View style={styles.topActions}>
               <TouchableOpacity style={styles.refreshButton} onPress={refreshDriverData} disabled={loading}>
@@ -1854,7 +1890,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
               upcomingCount={upcomingRideCount}
               notificationCount={unreadCount}
               menuBadges={menuBadges}
-              isOnline={displayIsOnline}
+              isOnline={driverAvailability.isOnline}
               compact={true}
             />
           </View>
@@ -1954,6 +1990,16 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                         <Text style={styles.cancelRideButtonText}>Cancel Ride</Text>
                       </TouchableOpacity>
                     )}
+                    <DriverCancelRidePanel
+                      visible={cancelRidePanelVisible && canCancelActiveRide && cancelRideBookingId === activeRideId}
+                      booking={activeRide}
+                      loading={loading}
+                      onCancel={() => {
+                        setCancelRidePanelVisible(false);
+                        setCancelRideBookingId(null);
+                      }}
+                      onSubmit={(payload) => performCancelActiveRide(payload).catch(() => null)}
+                    />
                     <RideCommunicationCard
                       token={token}
                       booking={activeRide}
@@ -1965,7 +2011,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
               ) : null}
 
               {!activeRide && (
-                displayIsOnline ? (
+                driverAvailability.isOnline ? (
                   pendingRequests.length === 0 ? (
                     <PremiumEmptyState
                       title="No pending requests"
@@ -2226,6 +2272,12 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
             </>
           )}
 
+          {activeTab === 'subscription' && (
+            <View style={styles.earningsCard}>
+              <SubscriptionPanel token={token} audience="driver" />
+            </View>
+          )}
+
           {activeTab === 'history' && (
             <View style={styles.earningsCard}>
               <RideHistoryPanel
@@ -2286,6 +2338,19 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
             </View>
           )}
 
+          {activeTab === 'reviews' && (
+            <View style={styles.earningsCard}>
+              <DriverReviewsPanel
+                token={token}
+                onAppealReview={(review) => {
+                  setSupportLaunchAction('contact');
+                  setActiveTab('support');
+                  setMessage(`Support opened for review ${String(review?.id || review?.booking_id || '').slice(0, 12)}.`);
+                }}
+              />
+            </View>
+          )}
+
           {/* Actions Tab */}
           {activeTab === 'actions' && (
             <>
@@ -2305,7 +2370,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
             <EnhancedSettingsPanel
               token={token}
               loading={loading}
-              displayIsOnline={displayIsOnline}
+              displayIsOnline={driverAvailability.isOnline}
               onToggleOnline={toggleOnlineStatus}
               onNavigateToTab={handleSettingsNavigateToTab}
               onSettingsChange={handleDriverSettingsChange}

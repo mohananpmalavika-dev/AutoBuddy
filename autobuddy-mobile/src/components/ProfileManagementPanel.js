@@ -471,7 +471,7 @@ export default function ProfileManagementPanel({ token, loading: parentLoading =
 
   const stats = useMemo(
     () => [
-      { label: 'Passenger Rating', value: `${profile.rating.toFixed(1)}/5.0` },
+      { label: 'Driver Rating', value: `${profile.rating.toFixed(1)}/5.0` },
       { label: 'Total Rides', value: profile.total_rides },
       { label: 'Account Status', value: String(profile.account_status || 'active').toUpperCase() },
     ],

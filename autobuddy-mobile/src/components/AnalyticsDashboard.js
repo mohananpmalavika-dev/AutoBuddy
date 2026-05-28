@@ -60,6 +60,9 @@ export default function AnalyticsDashboard({ token, loading: parentLoading = fal
   const [period, setPeriod] = useState('week');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [driverAdvice, setDriverAdvice] = useState(null);
+  const [adviceLoading, setAdviceLoading] = useState(false);
+  const [adviceError, setAdviceError] = useState('');
 
   const fetchAnalytics = useCallback(async () => {
     try {
@@ -78,12 +81,50 @@ export default function AnalyticsDashboard({ token, loading: parentLoading = fal
     }
   }, [period, token]);
 
+  const fetchDriverAdvice = useCallback(async () => {
+    try {
+      setAdviceLoading(true);
+      setAdviceError('');
+      const payload = await apiRequest('/assistant/driver-advice', {
+        method: 'POST',
+        token,
+        body: {
+          city: 'Current service area',
+          available_hours: Math.max(1, Math.round(numberValue(analytics.hours_online) || 8)),
+          notes: [
+            `Period: ${period}`,
+            `Rides: ${numberValue(analytics.total_rides)}`,
+            `Earnings INR: ${numberValue(analytics.total_earnings)}`,
+            `Acceptance: ${numberValue(analytics.acceptance_rate)}%`,
+            `Cancellation: ${numberValue(analytics.cancellation_rate)}%`,
+            `Rating: ${numberValue(analytics.average_rating)}`,
+          ].join('; '),
+        },
+      });
+      setDriverAdvice(payload || null);
+    } catch (err) {
+      setAdviceError(err.message || 'Failed to load driver coaching');
+    } finally {
+      setAdviceLoading(false);
+    }
+  }, [analytics, period, token]);
+
   useEffect(() => {
     const timer = setTimeout(() => {
       fetchAnalytics().catch(() => null);
     }, 0);
     return () => clearTimeout(timer);
   }, [fetchAnalytics]);
+
+  useEffect(() => {
+    if (!token) {
+      return undefined;
+    }
+    const timer = setTimeout(() => {
+      fetchDriverAdvice().catch(() => null);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [fetchDriverAdvice, token]);
 
   const totalRides = numberValue(analytics.total_rides);
   const totalEarnings = numberValue(analytics.total_earnings);
@@ -219,6 +260,21 @@ export default function AnalyticsDashboard({ token, loading: parentLoading = fal
       ) : null}
 
       <View style={styles.tipsSection}>
+        <View style={styles.coachHeader}>
+          <Text style={styles.tipsTitle}>AI Driver Coach</Text>
+          <TouchableOpacity style={styles.coachButton} onPress={fetchDriverAdvice} disabled={adviceLoading}>
+            <Text style={styles.coachButtonText}>{adviceLoading ? 'Refreshing...' : 'Refresh'}</Text>
+          </TouchableOpacity>
+        </View>
+        {adviceError ? <Text style={[styles.message, styles.error]}>{adviceError}</Text> : null}
+        <View style={styles.tip}>
+          <Text style={styles.tipTitle}>Shift Plan</Text>
+          <Text style={styles.tipText}>
+            {driverAdvice?.advice || 'Driver coaching will appear here after analytics loads.'}
+          </Text>
+          {!!driverAdvice?.source && <Text style={styles.adviceSource}>Source: {driverAdvice.source}</Text>}
+        </View>
+
         <Text style={styles.tipsTitle}>Performance Tips</Text>
         <Tip title="Improve Acceptance Rate" text="Higher acceptance rates improve your visibility for matching." />
         <Tip title="Maintain Rating" text="Better ratings can improve passenger trust and repeat demand." />
@@ -521,6 +577,24 @@ const styles = StyleSheet.create({
     color: COLORS.textMain,
     marginBottom: 12,
   },
+  coachHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+  },
+  coachButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: COLORS.primary,
+    marginBottom: 10,
+  },
+  coachButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
+  },
   tip: {
     marginBottom: 12,
   },
@@ -534,5 +608,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: COLORS.textMain,
     lineHeight: 16,
+  },
+  adviceSource: {
+    marginTop: 6,
+    fontSize: 11,
+    color: COLORS.textMuted,
   },
 });

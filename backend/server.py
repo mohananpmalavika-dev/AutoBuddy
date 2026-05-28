@@ -1,7 +1,7 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Request, Response, UploadFile, File, Form, Query
 from fastapi.exceptions import RequestValidationError
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, PlainTextResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -1600,6 +1600,14 @@ class RatingCreate(BaseModel):
     rating: int = Field(ge=1, le=5)
     comment: Optional[str] = None
 
+class BookingCancelRequest(BaseModel):
+    reason_code: Optional[str] = Field(default=None, max_length=80)
+    reason_text: Optional[str] = Field(default=None, max_length=400)
+    policy_acknowledged: bool = False
+    policy_version: Optional[str] = Field(default="driver_cancel_v1", max_length=80)
+    support_context: Optional[Dict[str, Any]] = None
+    passenger_context: Optional[Dict[str, Any]] = None
+
 class NearbyDriverResponse(BaseModel):
     driver_id: str
     name: str
@@ -3196,6 +3204,45 @@ def serialize_subscription_for_response(user: Dict[str, Any], config: Subscripti
             else None
         ),
         "per_trip_blocked_due_to_unpaid": bool(per_trip_gate.get("blocked")) if per_trip_gate else False,
+    }
+
+def build_subscription_attention_summary(user: Dict[str, Any], config: SubscriptionConfig) -> Dict[str, Any]:
+    role = user.get("role", UserRole.PASSENGER)
+    role_config = get_role_subscription_config(config, role)
+    subscription = serialize_subscription_for_response(user, config)
+    paid_plan_required = has_paid_subscription_plan_for_current_period(role_config)
+    attention_reasons: List[str] = []
+
+    if paid_plan_required:
+        if not subscription.get("plan_type"):
+            attention_reasons.append("plan_required")
+        elif not subscription.get("activated_by_admin") or not subscription.get("is_active"):
+            attention_reasons.append("pending_activation")
+        elif not subscription.get("current_plan_active_in_admin_config"):
+            attention_reasons.append("plan_disabled")
+        elif subscription.get("period_expires_at"):
+            expires_at = as_utc_naive(subscription.get("period_expires_at"))
+            if expires_at and expires_at < get_ist_now():
+                attention_reasons.append("expired")
+
+    if float(subscription.get("outstanding_amount", 0.0) or 0.0) > 0:
+        attention_reasons.append("dues_pending")
+    if subscription.get("per_trip_blocked_due_to_unpaid"):
+        attention_reasons.append("per_trip_blocked")
+    if str(subscription.get("last_payment_status") or "").lower() == "rejected":
+        attention_reasons.append("payment_rejected")
+    if str(subscription.get("last_payment_status") or "").lower() == "pending_verification":
+        attention_reasons.append("payment_pending_verification")
+
+    unique_reasons = list(dict.fromkeys(attention_reasons))
+    return {
+        "count": 1 if unique_reasons else 0,
+        "paid_plan_required": paid_plan_required,
+        "reasons": unique_reasons,
+        "plan_type": subscription.get("plan_type"),
+        "status": "attention" if unique_reasons else "ok",
+        "outstanding_amount": subscription.get("outstanding_amount", 0.0),
+        "last_payment_status": subscription.get("last_payment_status"),
     }
 
 def get_time_multiplier() -> float:
@@ -5591,6 +5638,32 @@ async def pay_subscription_due(
         "message": "Subscription payment submitted for admin verification.",
         "submitted_amount": outstanding_amount,
         "payment_submission_id": submission_id,
+    }
+
+@api_router.post("/subscriptions/cancel")
+async def cancel_my_subscription(current_user: dict = Depends(get_current_user)):
+    if current_user["role"] == UserRole.ADMIN:
+        raise HTTPException(status_code=400, detail="Admin users do not have subscriptions")
+
+    now = get_ist_now()
+    role_label = current_user["role"].value if isinstance(current_user["role"], Enum) else str(current_user["role"])
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {
+            "$set": {
+                "subscription.plan_type": None,
+                "subscription.is_active": False,
+                "subscription.activated_by_admin": False,
+                "subscription.cancelled_at": now,
+                "subscription.activation_note": f"Cancelled by {role_label}",
+            }
+        },
+    )
+    refreshed = await db.users.find_one({"id": current_user["id"]})
+    config = await get_subscription_config()
+    return {
+        "message": "Subscription cancelled",
+        "subscription": serialize_subscription_for_response(refreshed or current_user, config),
     }
 
 # ==================== DRIVER ENDPOINTS ====================
@@ -8102,6 +8175,121 @@ async def get_booking(booking_id: str, current_user: dict = Depends(get_current_
         payload.pop("ride_end_otp", None)
     return payload
 
+def booking_location_label(booking: Dict[str, Any], key: str, fallback: str) -> str:
+    location = booking.get(key)
+    if isinstance(location, dict):
+        return (
+            str(location.get("address") or location.get("name") or "").strip()
+            or fallback
+        )
+    if isinstance(location, str) and location.strip():
+        return location.strip()
+    return fallback
+
+def receipt_money(value: Any) -> float:
+    try:
+        return round(float(value or 0.0), 2)
+    except (TypeError, ValueError):
+        return 0.0
+
+async def build_booking_receipt_payload(booking: Dict[str, Any], current_user: Dict[str, Any]) -> Dict[str, Any]:
+    ensure_booking_participant(booking, current_user)
+
+    passenger_id = booking.get("passenger_id")
+    driver_id = booking.get("driver_id")
+    users = {}
+    user_ids = [user_id for user_id in [passenger_id, driver_id] if user_id]
+    if user_ids:
+        users = {user["id"]: user for user in await db.users.find({"id": {"$in": user_ids}}, {"_id": 0, "id": 1, "name": 1, "phone": 1}).to_list(None)}
+
+    total = receipt_money(booking.get("final_fare") if booking.get("final_fare") is not None else booking.get("estimated_fare"))
+    pickup_surcharge = receipt_money(booking.get("pickup_surcharge"))
+    tax_amount = receipt_money(booking.get("tax_amount") or booking.get("taxes") or booking.get("gst_amount"))
+    discount = receipt_money(booking.get("discount"))
+    route_fare = receipt_money(
+        booking.get("base_route_fare")
+        or booking.get("base_estimated_fare")
+        or max(0.0, total - pickup_surcharge - tax_amount + discount)
+    )
+    distance_km = receipt_money(booking.get("actual_distance_km") or booking.get("distance_km"))
+    created_at = booking.get("trip_completed_at") or booking.get("updated_at") or booking.get("created_at") or get_ist_now()
+    status_value = enum_response_value(booking.get("status"))
+    payment_status = (
+        "completed"
+        if status_value == BookingStatus.COMPLETED.value
+        else str(booking.get("payment_status") or status_value or "pending")
+    )
+
+    breakdown = [
+        {"label": "Route fare", "amount": route_fare},
+    ]
+    if pickup_surcharge > 0:
+        breakdown.append({"label": "Pickup surcharge", "amount": pickup_surcharge})
+    if tax_amount > 0:
+        breakdown.append({"label": "Taxes", "amount": tax_amount})
+    if discount > 0:
+        breakdown.append({"label": "Discount", "amount": -discount})
+
+    return {
+        "id": f"RCP-{str(booking.get('id', ''))[:8].upper()}",
+        "booking_id": booking.get("id"),
+        "date": created_at,
+        "status": status_value,
+        "from": booking_location_label(booking, "pickup_location", "Pickup"),
+        "to": booking_location_label(booking, "drop_location", "Drop"),
+        "passenger_name": (users.get(passenger_id) or {}).get("name") or booking.get("passenger_name") or "Passenger",
+        "driver_name": (users.get(driver_id) or {}).get("name") or booking.get("driver_name") or "Driver",
+        "distance_km": distance_km,
+        "duration_minutes": int(booking.get("duration_minutes") or booking.get("eta_minutes") or 0),
+        "payment_method": str(booking.get("payment_method") or "cash").upper(),
+        "payment_status": payment_status,
+        "breakdown": breakdown,
+        "subtotal": receipt_money(sum(item["amount"] for item in breakdown)),
+        "total": total,
+        "currency": "INR",
+        "dispute_reference": f"booking:{booking.get('id')}",
+        "download_url": f"/api/bookings/{booking.get('id')}/receipt/export?format=text",
+    }
+
+@api_router.get("/bookings/{booking_id}/receipt")
+async def get_booking_receipt(booking_id: str, current_user: dict = Depends(get_current_user)):
+    booking = await db.bookings.find_one({"id": booking_id})
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    return await build_booking_receipt_payload(booking, current_user)
+
+@api_router.get("/bookings/{booking_id}/receipt/export")
+async def export_booking_receipt(
+    booking_id: str,
+    format: str = Query("text", pattern="^(text|txt)$"),
+    current_user: dict = Depends(get_current_user),
+):
+    booking = await db.bookings.find_one({"id": booking_id})
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    receipt = await build_booking_receipt_payload(booking, current_user)
+    lines = [
+        f"AutoBuddy Receipt {receipt['id']}",
+        f"Booking: {receipt['booking_id']}",
+        f"Date: {receipt['date']}",
+        f"Status: {receipt['status']}",
+        f"Ride: {receipt['from']} -> {receipt['to']}",
+        f"Passenger: {receipt['passenger_name']}",
+        f"Driver: {receipt['driver_name']}",
+        f"Distance: {receipt['distance_km']} km",
+        "Fare breakdown:",
+        *[f"- {item['label']}: INR {receipt_money(item['amount']):.2f}" for item in receipt["breakdown"]],
+        f"Total: INR {receipt['total']:.2f}",
+        f"Payment: {receipt['payment_method']} ({receipt['payment_status']})",
+        f"Dispute reference: {receipt['dispute_reference']}",
+    ]
+    return PlainTextResponse(
+        "\n".join(lines),
+        headers={
+            "Content-Disposition": f"attachment; filename=autobuddy-receipt-{str(booking_id)[:12]}.txt"
+        },
+    )
+
 @api_router.get("/bookings/{booking_id}/chat", response_model=List[BookingChatMessageResponse])
 async def list_booking_chat(booking_id: str, current_user: dict = Depends(get_current_user)):
     booking = await db.bookings.find_one({"id": booking_id})
@@ -8680,7 +8868,11 @@ async def update_booking_status(booking_id: str, status_update: BookingStatusUpd
     return response_payload
 
 @api_router.put("/bookings/{booking_id}/cancel")
-async def cancel_booking(booking_id: str, current_user: dict = Depends(get_current_user)):
+async def cancel_booking(
+    booking_id: str,
+    payload: Optional[BookingCancelRequest] = None,
+    current_user: dict = Depends(get_current_user),
+):
     """Cancel a booking"""
     booking = await db.bookings.find_one({"id": booking_id})
     if not booking:
@@ -8702,14 +8894,65 @@ async def cancel_booking(booking_id: str, current_user: dict = Depends(get_curre
     # Only passenger or assigned driver can cancel
     if current_user["id"] != booking["passenger_id"] and current_user["id"] != booking.get("driver_id"):
         raise HTTPException(status_code=403, detail="Not authorized to cancel")
+
+    now = get_ist_now()
+    payload = payload or BookingCancelRequest()
+    actor_role = current_user["role"].value if isinstance(current_user["role"], Enum) else str(current_user["role"])
+    reason_code = str(payload.reason_code or f"{actor_role}_cancelled").strip()[:80]
+    reason_text = str(payload.reason_text or "").strip()[:400]
+    status_before_cancel = enum_response_value(booking.get("status"))
+    is_driver_cancel = actor_role == UserRole.DRIVER.value and current_user["id"] == booking.get("driver_id")
+    fee_policy = {
+        "policy_version": str(payload.policy_version or "driver_cancel_v1")[:80],
+        "passenger_fee_amount": 0.0,
+        "driver_fee_amount": 0.0,
+        "review_required": bool(is_driver_cancel),
+        "summary": (
+            "Driver cancellation is logged for support review. "
+            "No automatic passenger fee is applied from this endpoint."
+        )
+        if is_driver_cancel
+        else "Cancellation is logged. Any fee review is handled by support policy.",
+    }
+    cancellation_details = {
+        "cancelled_by": current_user["id"],
+        "cancelled_by_role": actor_role,
+        "cancelled_by_name": current_user.get("name"),
+        "reason_code": reason_code,
+        "reason_text": reason_text,
+        "policy_acknowledged": bool(payload.policy_acknowledged),
+        "policy": fee_policy,
+        "passenger_context": payload.passenger_context or {},
+        "support_context": {
+            "booking_id": booking_id,
+            "status_before_cancel": status_before_cancel,
+            "driver_id": booking.get("driver_id"),
+            "passenger_id": booking.get("passenger_id"),
+            "estimated_fare": booking.get("estimated_fare"),
+            "pickup": booking_location_label(booking, "pickup_location", "Pickup"),
+            "drop": booking_location_label(booking, "drop_location", "Drop"),
+            **(payload.support_context or {}),
+        },
+        "created_at": now,
+    }
     
     await db.bookings.update_one(
         {"id": booking_id},
         {
             "$set": {
                 "status": BookingStatus.CANCELLED,
-                "updated_at": get_ist_now()
-            }
+                "cancelled_at": now,
+                "cancelled_by": current_user["id"],
+                "cancelled_by_role": actor_role,
+                "cancellation_reason_code": reason_code,
+                "cancellation_reason": reason_text,
+                "cancellation_policy": fee_policy,
+                "cancellation_details": cancellation_details,
+                "updated_at": now,
+            },
+            "$push": {
+                "cancellation_audit": cancellation_details,
+            },
         }
     )
     await remove_ride_from_queue(booking_id)
@@ -8729,19 +8972,28 @@ async def cancel_booking(booking_id: str, current_user: dict = Depends(get_curre
         {
             "booking_id": booking_id,
             "status": str(booking.get("status") or BookingStatus.CANCELLED),
+            "cancelled_by_role": actor_role,
+            "reason_code": reason_code,
+            "policy_version": fee_policy["policy_version"],
         },
     )
 
     status_payload = {
         "booking_id": booking_id,
         "status": BookingStatus.CANCELLED,
-        "timestamp": get_ist_now().isoformat(),
+        "reason_code": reason_code,
+        "reason": reason_text,
+        "timestamp": now.isoformat(),
     }
     await emit_to_user(booking["passenger_id"], "booking_status_changed", status_payload)
     if booking.get("driver_id"):
         await emit_to_user(booking["driver_id"], "booking_status_changed", status_payload)
 
-    return {"message": "Booking cancelled"}
+    return {
+        "message": "Booking cancelled",
+        "cancellation": cancellation_details,
+        "policy": fee_policy,
+    }
 
 @api_router.post("/route/estimate", response_model=RouteEstimateResponse)
 async def route_estimate(request: RouteEstimateRequest):
@@ -8804,6 +9056,61 @@ async def get_driver_menu_badges(request: Request, current_user: dict = Depends(
     )
     payout_bank_status = str(payout_overview.get("bank_verification_status") or "not_submitted").lower()
     payout_needs_attention = payout_bank_status != "verified"
+    subscription_config = await get_subscription_config()
+    subscription_badge = build_subscription_attention_summary(current_user, subscription_config)
+    vehicles = await db.driver_vehicles.find({"driver_id": driver_id}, {"_id": 0}).to_list(50)
+    active_vehicle = next((vehicle for vehicle in vehicles if vehicle.get("is_active")), None)
+    vehicle_issues = []
+    if not vehicles:
+        vehicle_issues.append("missing_vehicle")
+    elif not active_vehicle:
+        vehicle_issues.append("no_active_vehicle")
+    else:
+        for field_name in ["license_plate", "registration_number", "vehicle_type", "seating_capacity"]:
+            if not active_vehicle.get(field_name):
+                vehicle_issues.append(f"missing_{field_name}")
+
+    profile_issues = []
+    if not str(current_user.get("name") or "").strip():
+        profile_issues.append("missing_name")
+    if not str(current_user.get("phone") or "").strip():
+        profile_issues.append("missing_phone")
+    if not str(current_user.get("email") or "").strip():
+        profile_issues.append("missing_email")
+    if not driver_profile.get("profile_photo"):
+        profile_issues.append("missing_profile_photo")
+    if not driver_profile.get("emergency_contact_verified"):
+        profile_issues.append("missing_emergency_contact")
+    if not current_user.get("two_factor_enabled"):
+        profile_issues.append("two_factor_disabled")
+
+    recent_since = get_ist_now() - timedelta(days=30)
+    low_rating_count = await db.ratings.count_documents(
+        {
+            "to_user_id": driver_id,
+            "rating": {"$lte": 3},
+            "created_at": {"$gte": recent_since},
+        }
+    )
+    recent_review_count = await db.ratings.count_documents(
+        {
+            "to_user_id": driver_id,
+            "created_at": {"$gte": recent_since},
+        }
+    )
+
+    trusted_contact_count = await db.trusted_contacts.count_documents({"user_id": driver_id, "active": True})
+    active_sos_count = await db.sos_alerts.count_documents(
+        {
+            "user_id": driver_id,
+            "created_at": {"$gte": get_ist_now() - timedelta(hours=24)},
+        }
+    )
+    safety_issues = []
+    if trusted_contact_count == 0:
+        safety_issues.append("missing_trusted_contact")
+    if active_sos_count > 0:
+        safety_issues.append("recent_sos_alert")
 
     return {
         "documents": {
@@ -8831,6 +9138,28 @@ async def get_driver_menu_badges(request: Request, current_user: dict = Depends(
             "pending_withdrawal": payout_overview.get("pending_withdrawal", 0.0),
             "bank_verification_status": payout_overview.get("bank_verification_status"),
             "withdrawal_blocker": payout_overview.get("withdrawal_blocker"),
+        },
+        "subscription": subscription_badge,
+        "vehicle": {
+            "count": len(vehicle_issues),
+            "issues": vehicle_issues,
+            "vehicle_count": len(vehicles),
+            "active_vehicle_id": active_vehicle.get("id") if active_vehicle else None,
+        },
+        "profile": {
+            "count": len(profile_issues),
+            "issues": profile_issues,
+        },
+        "reviews": {
+            "count": int(low_rating_count),
+            "low_rating_count": int(low_rating_count),
+            "recent_review_count": int(recent_review_count),
+        },
+        "safety": {
+            "count": len(safety_issues),
+            "issues": safety_issues,
+            "trusted_contact_count": int(trusted_contact_count),
+            "recent_sos_count": int(active_sos_count),
         },
     }
 
@@ -10304,6 +10633,72 @@ async def get_admin_launch_visit_report(
     }
 
 # ==================== RATING ENDPOINTS ====================
+@api_router.get("/drivers/reviews")
+async def get_driver_reviews(
+    limit: int = Query(50, ge=1, le=100),
+    skip: int = Query(0, ge=0),
+    current_user: dict = Depends(get_current_user),
+):
+    require_driver(current_user)
+    driver_id = current_user["id"]
+    ratings = await db.ratings.find({"to_user_id": driver_id}, {"_id": 0}).sort("created_at", -1).skip(skip).to_list(limit)
+    total_count = await db.ratings.count_documents({"to_user_id": driver_id})
+    aggregate = await db.ratings.aggregate([
+        {"$match": {"to_user_id": driver_id}},
+        {
+            "$group": {
+                "_id": "$rating",
+                "count": {"$sum": 1},
+            }
+        },
+    ]).to_list(10)
+    distribution = {str(star): 0 for star in range(1, 6)}
+    weighted_total = 0
+    for row in aggregate:
+        rating_value = int(row.get("_id") or 0)
+        count = int(row.get("count") or 0)
+        if 1 <= rating_value <= 5:
+            distribution[str(rating_value)] = count
+            weighted_total += rating_value * count
+
+    average_rating = round(weighted_total / total_count, 2) if total_count else 0.0
+    booking_ids = [item.get("booking_id") for item in ratings if item.get("booking_id")]
+    passenger_ids = [item.get("from_user_id") for item in ratings if item.get("from_user_id")]
+    bookings = {
+        booking["id"]: booking
+        for booking in await db.bookings.find({"id": {"$in": booking_ids}}, {"_id": 0}).to_list(None)
+    } if booking_ids else {}
+    passengers = {
+        user["id"]: user
+        for user in await db.users.find({"id": {"$in": passenger_ids}}, {"_id": 0, "id": 1, "name": 1}).to_list(None)
+    } if passenger_ids else {}
+
+    reviews = []
+    for rating in ratings:
+        booking = bookings.get(rating.get("booking_id")) or {}
+        passenger = passengers.get(rating.get("from_user_id")) or {}
+        reviews.append({
+            "id": rating.get("id"),
+            "booking_id": rating.get("booking_id"),
+            "rating": int(rating.get("rating") or 0),
+            "comment": rating.get("comment") or "",
+            "created_at": rating.get("created_at"),
+            "passenger_name": passenger.get("name") or "Passenger",
+            "pickup": booking_location_label(booking, "pickup_location", "Pickup"),
+            "drop": booking_location_label(booking, "drop_location", "Drop"),
+            "booking_status": enum_response_value(booking.get("status")) if booking else None,
+            "fare": receipt_money(booking.get("final_fare") if booking.get("final_fare") is not None else booking.get("estimated_fare")) if booking else 0.0,
+            "appeal_reference": f"rating:{rating.get('id')}",
+        })
+
+    return {
+        "average_rating": average_rating,
+        "total_count": total_count,
+        "distribution": distribution,
+        "reviews": reviews,
+        "has_more": skip + len(reviews) < total_count,
+    }
+
 @api_router.post("/ratings")
 async def create_rating(rating_data: RatingCreate, current_user: dict = Depends(get_current_user)):
     """Rate a completed ride"""

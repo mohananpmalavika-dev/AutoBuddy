@@ -47,11 +47,12 @@ export default function DriverTabBar({
     { key: 'history', label: 'History', icon: 'L', badge: null },
     { key: 'notifications', label: 'Notifications', icon: 'N', badge: notificationCount > 0 ? notificationCount : null },
     { key: 'earnings', label: 'Earnings', icon: 'E', badge: getBadgeCount('earnings') },
+    { key: 'subscription', label: 'Subscription', icon: '$', badge: getBadgeCount('subscription') },
     
     // Account Management
-    { key: 'profile', label: 'Profile', icon: 'P', badge: null },
+    { key: 'profile', label: 'Profile', icon: 'P', badge: getBadgeCount('profile') },
     { key: 'documents', label: 'Documents', icon: 'D', badge: getBadgeCount('documents') },
-    { key: 'vehicle', label: 'Vehicle', icon: 'V', badge: null },
+    { key: 'vehicle', label: 'Vehicle', icon: 'V', badge: getBadgeCount('vehicle') },
     
     // Rewards & Tools
     { key: 'spin', label: 'Spin', icon: 'S', badge: null },
@@ -59,10 +60,11 @@ export default function DriverTabBar({
     
     // Performance & Analytics
     { key: 'analytics', label: 'Analytics', icon: 'A', badge: null },
+    { key: 'reviews', label: 'Reviews', icon: '*', badge: getBadgeCount('reviews') },
     
     // Management
     { key: 'blocked', label: 'Blocked', icon: 'B', badge: null },
-    { key: 'safety', label: 'Safety', icon: '!', badge: null },
+    { key: 'safety', label: 'Safety', icon: '!', badge: getBadgeCount('safety') },
     { key: 'trust', label: 'Trust', icon: 'T', badge: getBadgeCount('trust') },
     { key: 'support', label: 'Support', icon: 'H', badge: getBadgeCount('support') },
     
