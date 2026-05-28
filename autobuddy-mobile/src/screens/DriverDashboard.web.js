@@ -43,6 +43,11 @@ import ScheduledRidesPanel from '../components/ScheduledRidesPanel';
 import SubscriptionPanel from '../components/SubscriptionPanel';
 import DriverReviewsPanel from '../components/DriverReviewsPanel';
 import DriverCancelRidePanel from '../components/DriverCancelRidePanel';
+import AvailabilityStatusCard from '../components/AvailabilityStatusCard';
+import PassengerTrackingMap from '../components/PassengerTrackingMap';
+import MessageTemplatesPanel from '../components/MessageTemplatesPanel';
+import InTripNavigationDisplay from '../components/InTripNavigationDisplay';
+import DriverPerformanceDashboard from '../components/DriverPerformanceDashboard';
 import { useNotifications } from '../contexts/NotificationContext';
 import { usePreferences } from '../contexts/PreferencesContext';
 import { DRIVER_QUICK_ACTIONS } from '../constants/driverQuickActions';
@@ -1969,6 +1974,11 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                       <Text style={styles.premiumMalayalam}>Live trip controls are active.</Text>
                     </GlassCard>
                   </FadeSlideView>
+                  <AvailabilityStatusCard
+                    availability={driverAvailability}
+                    onToggle={toggleOnlineStatus}
+                    loading={availabilityToggleInFlight}
+                  />
                   <View style={styles.requestCard}>
                     <RideProgressTimeline status={activeRideStatus || 'searching'} />
                     <Text style={styles.passengerName}>Active Ride: {activeRide.passenger_name || 'Passenger'}</Text>
@@ -1988,6 +1998,12 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                     )}
                     {String(activeRide.status) === 'driver_arrived' && (
                       <>
+                        <PassengerTrackingMap
+                          passengerLocation={normalizeLocation(activeRide.pickup_location)}
+                          driverLocation={driverLocation}
+                          eta={liveEtaLabel}
+                          status="approaching_pickup"
+                        />
                         <View style={styles.otpCard}>
                           <Text style={styles.otpCardLabel}>PASSENGER OTP REQUIRED</Text>
                           <Text style={styles.otpCardHint}>Ask passenger to share their pickup OTP</Text>
@@ -2007,6 +2023,12 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                     )}
                     {String(activeRide.status) === 'in_progress' && (
                       <>
+                        <InTripNavigationDisplay
+                          status={activeRideStatus}
+                          eta={liveEtaLabel}
+                          destination={normalizeLocation(activeRide.drop_location || activeRide.dropoff_location)}
+                          currentLocation={driverLocation}
+                        />
                         <View style={styles.otpCard}>
                           <Text style={styles.otpCardLabel}>COMPLETION OTP (Optional)</Text>
                           <Text style={styles.otpCardHint}>Passenger drop-off OTP if available</Text>
@@ -2166,6 +2188,16 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
           {activeTab === 'earnings' && (
             <>
               <RevenueCard token={token} role={user?.role} />
+              <DriverPerformanceDashboard
+                token={token}
+                performanceMetrics={{
+                  acceptanceRate: driverStats?.acceptance_rate || 0,
+                  cancellationRate: driverStats?.cancellation_rate || 0,
+                  onTimePercentage: driverStats?.on_time_percentage || 0,
+                  completionRate: driverStats?.completion_rate || 0,
+                  averageRating: driverStats?.rating || 0,
+                }}
+              />
               <View style={styles.earningsPanel}>
                 <EarningsPanel
                   earnings={earnings}
@@ -2364,15 +2396,24 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
           )}
 
           {activeTab === 'support' && (
-            <View style={styles.earningsCard}>
-              <SupportTicketPanel
-                key={supportLaunchAction}
+            <>
+              <MessageTemplatesPanel
                 token={token}
-                loading={loading}
-                initialAction={supportLaunchAction}
-                onDataChanged={refreshDriverMenuBadges}
+                activeRide={activeRide}
+                onMessageSent={(message) => {
+                  setMessage(`Message sent: ${message}`);
+                }}
               />
-            </View>
+              <View style={styles.earningsCard}>
+                <SupportTicketPanel
+                  key={supportLaunchAction}
+                  token={token}
+                  loading={loading}
+                  initialAction={supportLaunchAction}
+                  onDataChanged={refreshDriverMenuBadges}
+                />
+              </View>
+            </>
           )}
 
           {activeTab === 'analytics' && (
