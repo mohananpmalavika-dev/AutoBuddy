@@ -18,7 +18,7 @@ const RideFilterPanel = ({ token, driverId, isVisible, onClose }) => {
     if (filters) {
       const timer = setTimeout(() => {
         setLocalFilters(filters);
-        setEditingDistance(String(filters.maxPickupDistance || 15));
+        setEditingDistance(String(filters.maxPickupDistanceKm || 15));
       }, 0);
       return () => clearTimeout(timer);
     }
@@ -26,9 +26,13 @@ const RideFilterPanel = ({ token, driverId, isVisible, onClose }) => {
   }, [filters]);
 
   const handleSave = useCallback(async () => {
+    if (!localFilters) {
+      return;
+    }
+
     const updatedFilters = {
       ...localFilters,
-      maxPickupDistance: parseFloat(editingDistance),
+      maxPickupDistanceKm: parseFloat(editingDistance),
     };
     
     const success = await saveFilters(updatedFilters);

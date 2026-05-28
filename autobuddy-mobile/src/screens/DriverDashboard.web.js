@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { apiRequest } from '../lib/api';
 import { isPlacesConfigured, reverseGeocodeLocation } from '../lib/places';
@@ -51,6 +51,16 @@ import DriverPerformanceDashboard from '../components/DriverPerformanceDashboard
 import SOSButton from '../components/SOSButton';
 import RequestCountdownDisplay from '../components/RequestCountdownDisplay';
 import ExpenseTracker from '../components/ExpenseTracker';
+import RideFilterPanel from '../components/RideFilterPanel';
+import EarningTargetWidget from '../components/EarningTargetWidget';
+import MaintenanceAlertPanel from '../components/MaintenanceAlertPanel';
+import PayoutScheduleWidget from '../components/PayoutScheduleWidget';
+import DriverPaymentMethodsPanel from '../components/DriverPaymentMethodsPanel';
+import { RidePoolingPanel } from '../components/RidePoolingPanel';
+import { TaxReportWidget } from '../components/TaxReportWidget';
+import { FavoritePassengersPanel } from '../components/FavoritePassengersPanel';
+import { ShiftScheduleCalendar } from '../components/ShiftScheduleCalendar';
+import { BadgesAchievementsWidget } from '../components/BadgesAchievementsWidget';
 import { useNotifications } from '../contexts/NotificationContext';
 import { usePreferences } from '../contexts/PreferencesContext';
 import { DRIVER_QUICK_ACTIONS } from '../constants/driverQuickActions';
@@ -118,6 +128,14 @@ function normalizeDriverSettings(rawSettings = {}) {
     ...source,
     share_location: source.share_location ?? DEFAULT_DRIVER_SETTINGS.share_location,
   };
+}
+
+function resolveActiveVehicleId(payload) {
+  const vehicles = Array.isArray(payload) ? payload : payload?.vehicles;
+  if (!Array.isArray(vehicles) || vehicles.length === 0) {
+    return null;
+  }
+  return String((vehicles.find((vehicle) => vehicle?.is_active) || vehicles[0])?.id || '').trim() || null;
 }
 
 function isRetriableAvailabilityError(err) {
@@ -241,6 +259,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   const [blockedPassengers, setBlockedPassengers] = useState([]);
   const [blockedPassengerSearch, setBlockedPassengerSearch] = useState('');
   const [activeRide, setActiveRide] = useState(null);
+  const [activeVehicleId, setActiveVehicleId] = useState(null);
   const [earnings, setEarnings] = useState(null);
   const [pricingRules, setPricingRules] = useState(null);
   const [driverFareConfig, setDriverFareConfig] = useState({
@@ -268,41 +287,6 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   const [spinWinLoading, setSpinWinLoading] = useState(false);
   const [spinningNow, setSpinningNow] = useState(false);
 
-  // TIER 1 FEATURES: GPS, SOS, Countdown, Expenses
-  const { location: driverGPSLocation, speed: driverSpeed, isTracking } = useGPSTracking({
-    token,
-    rideId: activeRideId,
-    enabled: driverAvailability.isOnline || !!activeRideId,
-  });
-
-  const { sosActive, sosError, sosMessage, triggerSOS, cancelSOS } = useSOSAlert({
-    token,
-    driverId: user?.id,
-    currentLocation: driverGPSLocation,
-  });
-
-  const {
-    secondsRemaining,
-    isExpired,
-    formattedTime,
-    percentage,
-  } = useRequestCountdown({
-    rideId: pendingRequests[0]?.id,
-    initialSeconds: 60,
-    onExpire: (reason) => {
-      if (reason === 'timeout') {
-        setMessage('Ride request expired');
-        setPendingRequests((prev) => prev.slice(1));
-      }
-    },
-    autoStart: pendingRequests.length > 0,
-  });
-
-  const { expenses, totalExpense, isLoading: expenseLoading, addExpense, removeExpense, expenseTypes } = useExpenseTracking({
-    token,
-    rideId: activeRideId,
-  });
-  
   const setAvailabilitySyncPendingState = useCallback((value) => {
     const nextValue = !!value;
     availabilitySyncPendingRef.current = nextValue;
@@ -368,6 +352,57 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   const shouldSyncDriverLocation =
     (shareLocationWhileOnline && driverAvailability.isOnline && !driverAvailability.syncing) ||
     activeRideSharesLocation;
+
+  // TIER 1 FEATURES: GPS, SOS, Countdown, Expenses
+  const { location: driverGPSLocation, speed: driverSpeed, isTracking } = useGPSTracking({
+    token,
+    rideId: activeRideId,
+    enabled: driverAvailability.isOnline || !!activeRideId,
+  });
+
+  const { sosActive, sosError, sosMessage, triggerSOS, cancelSOS } = useSOSAlert({
+    token,
+    driverId: user?.id,
+    rideId: activeRideId,
+    currentLocation: driverGPSLocation || driverLocation,
+  });
+
+  const {
+    secondsRemaining,
+    isExpired,
+    formattedTime,
+    percentage,
+  } = useRequestCountdown({
+    rideId: pendingRequests[0]?.id,
+    initialSeconds: 60,
+    onExpire: (reason) => {
+      if (reason === 'timeout') {
+        setMessage('Ride request expired');
+        setPendingRequests((prev) => prev.slice(1));
+      }
+    },
+    autoStart: pendingRequests.length > 0,
+  });
+
+  const {
+    expenses,
+    totalExpense,
+    isLoading: expenseLoading,
+    error: expenseError,
+    addExpense,
+    removeExpense,
+    fetchExpenses,
+    expenseTypes,
+  } = useExpenseTracking({
+    token,
+    rideId: activeRideId,
+  });
+
+  useEffect(() => {
+    if (activeRideId) {
+      fetchExpenses().catch(() => null);
+    }
+  }, [activeRideId, fetchExpenses]);
   const visibleBlockedPassengers = useMemo(
     () => filterBlockedPassengers(blockedPassengers, blockedPassengerSearch),
     [blockedPassengerSearch, blockedPassengers],
@@ -861,7 +896,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       }
     }
 
-    const [requests, scheduledPayload, ride, earningsSummary, pricing, fareCalc, blockedPassengersPayload, spinStatus, settingsPayload, menuBadgePayload] = await Promise.all([
+    const [requests, scheduledPayload, ride, earningsSummary, pricing, fareCalc, blockedPassengersPayload, spinStatus, settingsPayload, menuBadgePayload, vehiclesPayload] = await Promise.all([
       requestDriverData('/drivers/pending-requests', []),
       requestDriverData('/drivers/upcoming-rides', null),
       requestDriverData('/drivers/active-ride', null),
@@ -872,6 +907,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       requestDriverData('/spin-win/config', null),
       requestDriverData('/drivers/settings', null),
       requestDriverData('/drivers/menu-badges', null),
+      requestDriverData('/drivers/vehicles', null),
     ]);
 
     setPendingRequests(requests || []);
@@ -892,6 +928,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     if (menuBadgePayload) {
       setMenuBadges(menuBadgePayload);
     }
+    setActiveVehicleId(resolveActiveVehicleId(vehiclesPayload));
     setMessage('Driver dashboard refreshed.');
   }, [
     attachReadableAddress,
@@ -910,7 +947,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     }
     refreshInFlightRef.current = true;
     try {
-      const [profile, settingsPayload, requests, scheduledPayload, ride, blockedPassengersPayload, spinStatus, menuBadgePayload] = await Promise.all([
+      const [profile, settingsPayload, requests, scheduledPayload, ride, blockedPassengersPayload, spinStatus, menuBadgePayload, vehiclesPayload] = await Promise.all([
         includeProfile ? requestDriverData('/drivers/profile', null) : Promise.resolve(null),
         includeProfile ? requestDriverData('/drivers/settings', null) : Promise.resolve(null),
         requestDriverData('/drivers/pending-requests', []),
@@ -919,6 +956,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         requestDriverData('/drivers/blocked-passengers', { passenger_ids: [], passengers: [] }),
         requestDriverData('/spin-win/config', null),
         requestDriverData('/drivers/menu-badges', null),
+        requestDriverData('/drivers/vehicles', null),
       ]);
       const [earningsSummary, pricing, fareCalc] = includeMeta
         ? await Promise.all([
@@ -959,6 +997,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       if (menuBadgePayload) {
         setMenuBadges(menuBadgePayload);
       }
+      setActiveVehicleId(resolveActiveVehicleId(vehiclesPayload));
       if (includeMeta) {
         setEarnings(earningsSummary || null);
         setPricingRules(pricing || fareCalc?.default_pricing || null);
@@ -2059,10 +2098,10 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                     {String(activeRide.status) === 'driver_arrived' && (
                       <>
                         <PassengerTrackingMap
-                          passengerLocation={normalizeLocation(activeRide.pickup_location)}
                           driverLocation={driverLocation}
-                          eta={liveEtaLabel}
-                          status="approaching_pickup"
+                          pickupLocation={normalizeLocation(activeRide.pickup_location)}
+                          status={activeRideStatus || 'driver_arrived'}
+                          onNavigateToPassenger={openActiveRideMap}
                         />
                         <View style={styles.otpCard}>
                           <Text style={styles.otpCardLabel}>PASSENGER OTP REQUIRED</Text>
@@ -2084,10 +2123,11 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                     {String(activeRide.status) === 'in_progress' && (
                       <>
                         <InTripNavigationDisplay
-                          status={activeRideStatus}
-                          eta={liveEtaLabel}
+                          origin={normalizeLocation(activeRide.pickup_location)}
                           destination={normalizeLocation(activeRide.drop_location || activeRide.dropoff_location)}
                           currentLocation={driverGPSLocation || driverLocation}
+                          rideStatus={activeRideStatus}
+                          onOpenFullMap={openActiveRideMap}
                         />
                         {/* TIER 1: Expense Tracking */}
                         <ExpenseTracker
@@ -2096,6 +2136,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                           onAddExpense={addExpense}
                           onRemoveExpense={removeExpense}
                           isLoading={expenseLoading}
+                          error={expenseError}
                           expenseTypes={expenseTypes}
                         />
                         <View style={styles.otpCard}>
@@ -2294,6 +2335,48 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                 />
               </View>
             </>
+          )}
+
+          {activeTab === 'targets' && (
+            <View style={styles.earningsCard}>
+              <EarningTargetWidget token={token} driverId={user?.id} />
+            </View>
+          )}
+
+          {activeTab === 'payout' && (
+            <PayoutScheduleWidget
+              isVisible={true}
+              onClose={() => setActiveTab('earnings')}
+              token={token}
+              driverId={user?.id}
+            />
+          )}
+
+          {activeTab === 'paymethods' && (
+            <DriverPaymentMethodsPanel
+              isVisible={true}
+              onClose={() => setActiveTab('earnings')}
+              token={token}
+              driverId={user?.id}
+            />
+          )}
+
+          {activeTab === 'filters' && (
+            <RideFilterPanel
+              isVisible={true}
+              onClose={() => setActiveTab('requests')}
+              token={token}
+              driverId={user?.id}
+            />
+          )}
+
+          {activeTab === 'maintenance' && (
+            <MaintenanceAlertPanel
+              isVisible={true}
+              onClose={() => setActiveTab('vehicle')}
+              token={token}
+              vehicleId={activeVehicleId}
+            />
           )}
 
           {activeTab === 'spin' && (
@@ -2516,6 +2599,56 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                 }}
               />
             </View>
+          )}
+
+          {/* TIER 3: Ride Pooling Tab */}
+          {activeTab === 'pooling' && (
+            <RidePoolingPanel
+              isVisible={true}
+              onClose={() => setActiveTab('requests')}
+              token={token}
+              driverId={user?.id}
+            />
+          )}
+
+          {/* TIER 3: Tax Reporting Tab */}
+          {activeTab === 'taxreports' && (
+            <TaxReportWidget
+              isVisible={true}
+              onClose={() => setActiveTab('earnings')}
+              token={token}
+              driverId={user?.id}
+            />
+          )}
+
+          {/* TIER 3: Favorite Passengers Tab */}
+          {activeTab === 'favorites' && (
+            <FavoritePassengersPanel
+              isVisible={true}
+              onClose={() => setActiveTab('requests')}
+              token={token}
+              driverId={user?.id}
+            />
+          )}
+
+          {/* TIER 3: Shift Schedule Tab */}
+          {activeTab === 'shifts' && (
+            <ShiftScheduleCalendar
+              isVisible={true}
+              onClose={() => setActiveTab('earnings')}
+              token={token}
+              driverId={user?.id}
+            />
+          )}
+
+          {/* TIER 3: Gamification Badges Tab */}
+          {activeTab === 'badges' && (
+            <BadgesAchievementsWidget
+              isVisible={true}
+              onClose={() => setActiveTab('earnings')}
+              token={token}
+              driverId={user?.id}
+            />
           )}
 
           {/* Actions Tab */}

@@ -27,7 +27,7 @@ const PayoutScheduleWidget = ({ token, driverId, isVisible, onClose }) => {
   useEffect(() => {
     if (isVisible) {
       loadPaymentMethods();
-    loadPayoutSchedule();
+      loadPayoutSchedule();
     }
   }, [isVisible, loadPaymentMethods, loadPayoutSchedule]);
 
@@ -36,8 +36,13 @@ const PayoutScheduleWidget = ({ token, driverId, isVisible, onClose }) => {
       return {
         payment_method_id: String(payoutSchedule.payment_method_id),
         schedule_type: payoutSchedule.schedule_type,
-        schedule_day: String(payoutSchedule.schedule_day || '1'),
-        schedule_time: payoutSchedule.schedule_time || '09:00',
+        schedule_day: String(
+          payoutSchedule.schedule_day ||
+          payoutSchedule.day_of_week ||
+          payoutSchedule.day_of_month ||
+          '1'
+        ),
+        schedule_time: payoutSchedule.schedule_time || payoutSchedule.scheduled_time?.slice(0, 5) || '09:00',
         minimum_balance_threshold: String(payoutSchedule.minimum_balance_threshold),
       };
     }
@@ -75,7 +80,7 @@ const PayoutScheduleWidget = ({ token, driverId, isVisible, onClose }) => {
     }
 
     const success = await updatePayoutSchedule(
-      parseInt(scheduleConfig.payment_method_id),
+      String(scheduleConfig.payment_method_id),
       {
         schedule_type: scheduleConfig.schedule_type,
         schedule_day: parseInt(scheduleConfig.schedule_day),
@@ -98,12 +103,12 @@ const PayoutScheduleWidget = ({ token, driverId, isVisible, onClose }) => {
     
     switch (payoutSchedule.schedule_type) {
       case 'daily':
-        return `Daily at ${payoutSchedule.schedule_time}`;
+        return `Daily at ${payoutSchedule.schedule_time || payoutSchedule.scheduled_time || '09:00'}`;
       case 'weekly':
         const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-        return `Every ${days[payoutSchedule.schedule_day || 0]} at ${payoutSchedule.schedule_time}`;
+        return `Every ${days[payoutSchedule.schedule_day || payoutSchedule.day_of_week || 0]} at ${payoutSchedule.schedule_time || payoutSchedule.scheduled_time || '09:00'}`;
       case 'monthly':
-        return `${payoutSchedule.schedule_day}th of month at ${payoutSchedule.schedule_time}`;
+        return `${payoutSchedule.schedule_day || payoutSchedule.day_of_month || 1}th of month at ${payoutSchedule.schedule_time || payoutSchedule.scheduled_time || '09:00'}`;
       case 'manual':
         return 'On demand only';
       default:
@@ -186,7 +191,7 @@ const PayoutScheduleWidget = ({ token, driverId, isVisible, onClose }) => {
               <View style={styles.formGroup}>
                 <Text style={styles.formLabel}>Payment Method</Text>
                 <View style={styles.methodList}>
-                  {paymentMethods.map((method) => (
+                  {paymentMethods.length > 0 ? paymentMethods.map((method) => (
                     <TouchableOpacity
                       key={method.id}
                       style={[
@@ -207,7 +212,9 @@ const PayoutScheduleWidget = ({ token, driverId, isVisible, onClose }) => {
                         {method.account_holder_name} (...{method.account_number?.slice(-4)})
                       </Text>
                     </TouchableOpacity>
-                  ))}
+                  )) : (
+                    <Text style={styles.emptyText}>Add a payout method first.</Text>
+                  )}
                 </View>
               </View>
 

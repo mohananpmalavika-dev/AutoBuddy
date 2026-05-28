@@ -22,15 +22,21 @@ const MaintenanceAlertPanel = ({ token, vehicleId, isVisible, onClose }) => {
   });
   const expiryAlerts = useMemo(() => getExpiryAlerts(), [getExpiryAlerts]);
   const dueSoonCount = expiryAlerts.length;
+  const hasVehicle = Boolean(vehicleId);
 
   useEffect(() => {
-    if (isVisible) {
+    if (isVisible && hasVehicle) {
       loadMaintenanceHistory();
       loadDocumentExpiries();
     }
-  }, [isVisible, loadMaintenanceHistory, loadDocumentExpiries]);
+  }, [isVisible, hasVehicle, loadMaintenanceHistory, loadDocumentExpiries]);
 
   const handleAddMaintenance = async () => {
+    if (!hasVehicle) {
+      Alert.alert('Add vehicle', 'Add and activate a vehicle before logging maintenance.');
+      return;
+    }
+
     if (!formData.maintenanceType) {
       Alert.alert('Error', 'Please select maintenance type');
       return;
@@ -66,21 +72,29 @@ const MaintenanceAlertPanel = ({ token, vehicleId, isVisible, onClose }) => {
             <Text style={styles.headerButton}>← Back</Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Maintenance & Documents</Text>
-          <TouchableOpacity onPress={() => setShowAddForm(true)}>
-            <Text style={[styles.headerButton, { color: theme.COLORS.primary }]}>+ Add</Text>
+          <TouchableOpacity disabled={!hasVehicle} onPress={() => setShowAddForm(true)}>
+            <Text style={[styles.headerButton, { color: hasVehicle ? theme.COLORS.primary : theme.COLORS.grey4 }]}>+ Add</Text>
           </TouchableOpacity>
         </View>
 
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+          {!hasVehicle && (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyTitle}>No active vehicle</Text>
+              <Text style={styles.emptyText}>
+                Add and activate a vehicle profile before tracking maintenance or document renewals.
+              </Text>
+            </View>
+          )}
           {/* Alert Banner */}
-          {dueSoonCount > 0 && (
+          {hasVehicle && dueSoonCount > 0 && (
             <View style={styles.alertBanner}>
               <Text style={styles.alertText}>⚠ {dueSoonCount} item(s) due for renewal</Text>
             </View>
           )}
 
           {/* Document Expiry Alerts */}
-          {expiryAlerts.length > 0 && (
+          {hasVehicle && expiryAlerts.length > 0 && (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Expiring Documents</Text>
               {expiryAlerts.map((doc, idx) => (
@@ -100,7 +114,7 @@ const MaintenanceAlertPanel = ({ token, vehicleId, isVisible, onClose }) => {
           {/* Maintenance History */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Recent Maintenance</Text>
-            {maintenanceRecords && maintenanceRecords.length > 0 ? (
+            {hasVehicle && maintenanceRecords && maintenanceRecords.length > 0 ? (
               maintenanceRecords.slice(0, 5).map((record, idx) => (
                 <View key={idx} style={styles.maintenanceItem}>
                   <View style={styles.itemLeft}>
@@ -115,9 +129,9 @@ const MaintenanceAlertPanel = ({ token, vehicleId, isVisible, onClose }) => {
                   {record.cost && <Text style={styles.itemCost}>₹{record.cost}</Text>}
                 </View>
               ))
-            ) : (
+            ) : hasVehicle ? (
               <Text style={styles.emptyText}>No maintenance records yet</Text>
-            )}
+            ) : null}
           </View>
 
           {error && <Text style={styles.error}>{error}</Text>}
@@ -299,6 +313,19 @@ const styles = StyleSheet.create({
     color: theme.COLORS.grey5,
     textAlign: 'center',
     paddingVertical: 20,
+  },
+  emptyCard: {
+    backgroundColor: theme.COLORS.grey1,
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 16,
+  },
+  emptyTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: theme.COLORS.black,
+    textAlign: 'center',
+    marginBottom: 6,
   },
   error: {
     color: theme.COLORS.danger,

@@ -27,12 +27,13 @@ export function useVehicleMaintenance({ token, vehicleId }) {
     setError('');
 
     try {
-      const response = await apiRequest(`/drivers/vehicles/${vehicleId}/maintenance`, {
+      const response = await apiRequest(`/drivers-tier2/vehicles/${vehicleId}/maintenance`, {
         method: 'GET',
         token,
       });
 
-      setMaintenanceRecords(response.data.records || []);
+      const payload = response?.data || response;
+      setMaintenanceRecords(payload?.records || []);
     } catch (err) {
       setError(`Failed to load maintenance: ${err.message}`);
       console.warn('Load maintenance error:', err);
@@ -49,12 +50,13 @@ export function useVehicleMaintenance({ token, vehicleId }) {
     setError('');
 
     try {
-      const response = await apiRequest(`/drivers/vehicles/${vehicleId}/document-expiry`, {
+      const response = await apiRequest(`/drivers-tier2/vehicles/${vehicleId}/document-expiry`, {
         method: 'GET',
         token,
       });
 
-      setDocumentExpiries(response.data.documents || []);
+      const payload = response?.data || response;
+      setDocumentExpiries(payload?.documents || []);
     } catch (err) {
       setError(`Failed to load documents: ${err.message}`);
       console.warn('Load documents error:', err);
@@ -75,7 +77,7 @@ export function useVehicleMaintenance({ token, vehicleId }) {
       setError('');
 
       try {
-        await apiRequest(`/drivers/vehicles/${vehicleId}/maintenance`, {
+        await apiRequest(`/drivers-tier2/vehicles/${vehicleId}/maintenance`, {
           method: 'POST',
           token,
           body: {
@@ -105,12 +107,13 @@ export function useVehicleMaintenance({ token, vehicleId }) {
     if (!token || !vehicleId) return [];
 
     try {
-      const response = await apiRequest(`/drivers/vehicles/${vehicleId}/maintenance-due`, {
+      const response = await apiRequest(`/drivers-tier2/vehicles/${vehicleId}/maintenance-due`, {
         method: 'GET',
         token,
       });
 
-      return response.data.due_items || [];
+      const payload = response?.data || response;
+      return payload?.due_items || [];
     } catch (err) {
       console.warn('Failed to get maintenance due:', err);
       return [];

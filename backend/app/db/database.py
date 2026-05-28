@@ -10,6 +10,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.models_features import Base
+from app.db.tier1_models import Base as Tier1Base
+from app.db.tier2_models import Base as Tier2Base
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +132,8 @@ def get_feature_database_status() -> dict:
 def init_db():
     """Create all database tables"""
     Base.metadata.create_all(bind=engine)
+    Tier1Base.metadata.create_all(bind=engine)
+    Tier2Base.metadata.create_all(bind=engine)
 
 
 # Initialize tables on import

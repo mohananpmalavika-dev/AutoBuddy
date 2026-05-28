@@ -23,19 +23,20 @@ export function useRideFilters({ token, driverId }) {
     setError('');
 
     try {
-      const response = await apiRequest(`/drivers/ride-filters`, {
+      const response = await apiRequest(`/drivers-tier2/ride-filters`, {
         method: 'GET',
         token,
       });
 
-      if (response.data) {
+      const payload = response?.data || response;
+      if (payload) {
         setFilters({
-          maxPickupDistanceKm: response.data.max_pickup_distance_km,
-          minPassengerRating: response.data.min_passenger_rating,
-          allowedPickupAreas: response.data.allowed_pickup_areas || [],
-          blockedPickupAreas: response.data.blocked_pickup_areas || [],
-          timeSlotRestrictions: response.data.time_slot_restrictions,
-          autoDeclineEnabled: response.data.auto_decline_enabled,
+          maxPickupDistanceKm: payload.max_pickup_distance_km,
+          minPassengerRating: payload.min_passenger_rating,
+          allowedPickupAreas: payload.allowed_pickup_areas || payload.allowed_areas || [],
+          blockedPickupAreas: payload.blocked_pickup_areas || payload.blocked_areas || [],
+          timeSlotRestrictions: payload.time_slot_restrictions,
+          autoDeclineEnabled: payload.auto_decline_enabled,
         });
       }
     } catch (err) {
@@ -58,14 +59,14 @@ export function useRideFilters({ token, driverId }) {
       setError('');
 
       try {
-        await apiRequest(`/drivers/ride-filters`, {
+        await apiRequest(`/drivers-tier2/ride-filters`, {
           method: 'POST',
           token,
           body: {
             max_pickup_distance_km: updatedFilters.maxPickupDistanceKm,
             min_passenger_rating: updatedFilters.minPassengerRating,
-            allowed_pickup_areas: updatedFilters.allowedPickupAreas,
-            blocked_pickup_areas: updatedFilters.blockedPickupAreas,
+            allowed_areas: updatedFilters.allowedPickupAreas,
+            blocked_areas: updatedFilters.blockedPickupAreas,
             time_slot_restrictions: updatedFilters.timeSlotRestrictions,
             auto_decline_enabled: updatedFilters.autoDeclineEnabled,
           },

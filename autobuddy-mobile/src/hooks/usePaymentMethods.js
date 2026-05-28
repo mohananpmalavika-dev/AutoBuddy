@@ -30,12 +30,13 @@ export function usePaymentMethods({ token, driverId }) {
     setError('');
 
     try {
-      const response = await apiRequest(`/drivers/payment-methods`, {
+      const response = await apiRequest(`/drivers-tier2/payment-methods`, {
         method: 'GET',
         token,
       });
 
-      setPaymentMethods(response.data.methods || []);
+      const payload = response?.data || response;
+      setPaymentMethods(payload?.methods || []);
     } catch (err) {
       setError(`Failed to load payment methods: ${err.message}`);
       console.warn('Load payment methods error:', err);
@@ -61,7 +62,7 @@ export function usePaymentMethods({ token, driverId }) {
       setError('');
 
       try {
-        await apiRequest(`/drivers/payment-methods`, {
+        await apiRequest(`/drivers-tier2/payment-methods`, {
           method: 'POST',
           token,
           body: {
@@ -94,7 +95,7 @@ export function usePaymentMethods({ token, driverId }) {
       setError('');
 
       try {
-        await apiRequest(`/drivers/payment-methods/${methodId}`, {
+        await apiRequest(`/drivers-tier2/payment-methods/${methodId}`, {
           method: 'PATCH',
           token,
           body: updates,
@@ -124,7 +125,7 @@ export function usePaymentMethods({ token, driverId }) {
       setError('');
 
       try {
-        await apiRequest(`/drivers/payment-methods/${methodId}`, {
+        await apiRequest(`/drivers-tier2/payment-methods/${methodId}`, {
           method: 'DELETE',
           token,
         });
@@ -157,12 +158,13 @@ export function usePaymentMethods({ token, driverId }) {
     setError('');
 
     try {
-      const response = await apiRequest(`/drivers/payout-schedule`, {
+      const response = await apiRequest(`/drivers-tier2/payout-schedule`, {
         method: 'GET',
         token,
       });
 
-      setPayoutSchedule(response.data.schedule || null);
+      const payload = response?.data || response;
+      setPayoutSchedule(payload || null);
     } catch (err) {
       console.warn('Failed to load payout schedule:', err);
     } finally {
@@ -182,7 +184,7 @@ export function usePaymentMethods({ token, driverId }) {
       setError('');
 
       try {
-        await apiRequest(`/drivers/payout-schedule`, {
+        await apiRequest(`/drivers-tier2/payout-schedule`, {
           method: 'POST',
           token,
           body: {
@@ -210,12 +212,13 @@ export function usePaymentMethods({ token, driverId }) {
     setIsLoading(true);
 
     try {
-      const response = await apiRequest(`/drivers/payouts/history`, {
+      const response = await apiRequest(`/drivers-tier2/payouts/history`, {
         method: 'GET',
         token,
       });
 
-      setPayoutHistory(response.data.payouts || []);
+      const payload = response?.data || response;
+      setPayoutHistory(payload?.payouts || []);
     } catch (err) {
       console.warn('Failed to load payout history:', err);
     } finally {
@@ -240,7 +243,7 @@ export function usePaymentMethods({ token, driverId }) {
       setError('');
 
       try {
-        await apiRequest(`/drivers/payouts/request`, {
+        await apiRequest(`/drivers-tier2/payouts/request`, {
           method: 'POST',
           token,
           body: {

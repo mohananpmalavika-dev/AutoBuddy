@@ -21,9 +21,10 @@ export function useShiftSchedule({ token, driverId }) {
         token,
       });
 
-      if (response.data && response.data.schedules) {
-        setSchedules(response.data.schedules);
-        return response.data.schedules;
+      const payload = response?.data || response;
+      if (payload?.schedules) {
+        setSchedules(payload.schedules);
+        return payload.schedules;
       }
     } catch (err) {
       setError(`Failed to load schedules: ${err.message}`);
@@ -50,9 +51,10 @@ export function useShiftSchedule({ token, driverId }) {
         },
       });
 
-      if (response.data) {
-        setSchedules(prev => [...prev, response.data]);
-        return response.data;
+      const payload = response?.data || response;
+      if (payload) {
+        setSchedules(prev => [...prev, payload]);
+        return payload;
       }
     } catch (err) {
       setError(`Failed to create schedule: ${err.message}`);
@@ -75,11 +77,12 @@ export function useShiftSchedule({ token, driverId }) {
         },
       });
 
-      if (response.data) {
+      const payload = response?.data || response;
+      if (payload) {
         setSchedules(prev =>
-          prev.map(sch => (sch.id === scheduleId ? response.data : sch))
+          prev.map(sch => (sch.id === scheduleId ? payload : sch))
         );
-        return response.data;
+        return payload;
       }
     } catch (err) {
       setError(`Failed to update schedule: ${err.message}`);

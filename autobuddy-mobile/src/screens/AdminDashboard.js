@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Platform,
@@ -16,6 +16,11 @@ import AutoBuddyBrand from '../components/AutoBuddyBrand';
 import AdminAnalyticsPanel from '../components/AdminAnalyticsPanel';
 import WebCommandBar from '../components/WebCommandBar';
 import VoiceTextInput from '../components/VoiceTextInput';
+import AdminAuditLogger, { ACTION_TYPES } from '../utils/AdminAuditLogger';
+import PaginationControls from '../components/PaginationControls';
+import ConfirmationDialog from '../components/ConfirmationDialog';
+import AdminSearchBar from '../components/AdminSearchBar';
+import KycDocumentPreview from '../components/KycDocumentPreview';
 
 const SUBSCRIPTION_PERIOD_OPTIONS = ['monthly', 'quarterly', 'annually', 'per_trip'];
 const RIDE_PRODUCT_KEYS = [
@@ -343,7 +348,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
   const [pendingAccountDeletionRequests, setPendingAccountDeletionRequests] = useState([]);
   const [pendingDriverFareRequests, setPendingDriverFareRequests] = useState([]);
   const [approvedDriverFareConfigs, setApprovedDriverFareConfigs] = useState([]);
-  const [passengerKycRequests, setPassengerKycRequests] = useState([]);
+  const [, setPassengerKycRequests] = useState([]);
   const [ongoingTrips, setOngoingTrips] = useState([]);
   const [tripCancelReasons, setTripCancelReasons] = useState({});
   const [activeAdminMenu, setActiveAdminMenu] = useState(PRIMARY_ADMIN_MENU_KEY);
@@ -363,6 +368,57 @@ export default function AdminDashboard({ token, user, onLogout }) {
   );
   const [selectedDistrictForProducts, setSelectedDistrictForProducts] = useState(KERALA_DISTRICTS[0]);
   const [copySourceDistrictForProducts, setCopySourceDistrictForProducts] = useState(KERALA_DISTRICTS[1] || KERALA_DISTRICTS[0]);
+
+  // PHASE 1: PAGINATION & SEARCH STATE
+  // Trips pagination & search
+  const [tripsPage, setTripsPage] = useState(1);
+  const [tripsPageSize, setTripsPageSize] = useState(25);
+  const [tripsSearchTerm, setTripsSearchTerm] = useState('');
+  const [tripsFilterStatus, setTripsFilterStatus] = useState('all');
+
+  // Users pagination & search
+  const [usersPage, setUsersPage] = useState(1);
+  const [usersPageSize, setUsersPageSize] = useState(50);
+  const [usersSearchTerm, setUsersSearchTerm] = useState('');
+  const [usersFilterRole, setUsersFilterRole] = useState('all');
+
+  // KYC pagination & search
+  const [kycPage, setKycPage] = useState(1);
+  const [kycPageSize, setKycPageSize] = useState(25);
+  const [kycSearchTerm, setKycSearchTerm] = useState('');
+  const [kycFilterStatus, setKycFilterStatus] = useState('all');
+  const [showKycPreview, setShowKycPreview] = useState(false);
+  const [selectedKycForPreview, setSelectedKycForPreview] = useState(null);
+
+  // Confirmations
+  const [showConfirmTripsModal, setShowConfirmTripsModal] = useState(false);
+  const [confirmTripAction, setConfirmTripAction] = useState({ tripId: null, reason: '' });
+  const [showConfirmKycModal, setShowConfirmKycModal] = useState(false);
+  const [confirmKycAction, setConfirmKycAction] = useState({ kycId: null, decision: 'approve' });
+
+  // PHASE 2: PAGINATION & SEARCH STATE
+  // Phone Requests
+  const [phonePage, setPhonePage] = useState(1);
+  const [phonePageSize, setPhonePageSize] = useState(25);
+  const [phoneSearchTerm, setPhoneSearchTerm] = useState('');
+
+  // Account Deletions
+  const [deletionPage, setDeletionPage] = useState(1);
+  const [deletionPageSize, setDeletionPageSize] = useState(25);
+  const [deletionSearchTerm, setDeletionSearchTerm] = useState('');
+
+  // Wallet Top-ups
+  const [walletPage, setWalletPage] = useState(1);
+  const [walletPageSize, setWalletPageSize] = useState(25);
+  const [walletSearchTerm, setWalletSearchTerm] = useState('');
+
+  // Subscriptions
+  const [subscriptionPage, setSubscriptionPage] = useState(1);
+  const [subscriptionPageSize, setSubscriptionPageSize] = useState(25);
+  const [subscriptionSearchTerm, setSubscriptionSearchTerm] = useState('');
+
+  // Audit logging state
+  const [auditLogging, setAuditLogging] = useState(false);
 
   const runAction = async (fn, successText) => {
     try {
@@ -493,6 +549,380 @@ export default function AdminDashboard({ token, user, onLogout }) {
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // PHASE 1: FILTERING & PAGINATION FUNCTIONS
+  // Filter trips (without pagination)
+  const filterAndPaginateTrips = useCallback(() => {
+    const filtered = (ongoingTrips || []).filter((trip) => {
+      // Search filter
+      if (tripsSearchTerm.trim()) {
+        const search = tripsSearchTerm.toLowerCase();
+        const matchesSearch =
+          trip.id?.toLowerCase().includes(search) ||
+          trip.passenger_name?.toLowerCase().includes(search) ||
+          trip.passenger_phone?.includes(search) ||
+          trip.driver_name?.toLowerCase().includes(search) ||
+          trip.driver_phone?.includes(search);
+        if (!matchesSearch) return false;
+      }
+      // Status filter
+      if (tripsFilterStatus !== 'all' && trip.status !== tripsFilterStatus) {
+        return false;
+      }
+      return true;
+    });
+    return filtered;
+  }, [ongoingTrips, tripsSearchTerm, tripsFilterStatus]);
+
+  const filteredTrips = useMemo(() => {
+    const filtered = filterAndPaginateTrips();
+    const start = (tripsPage - 1) * tripsPageSize;
+    const end = start + tripsPageSize;
+    return filtered.slice(start, end);
+  }, [filterAndPaginateTrips, tripsPage, tripsPageSize]);
+
+  // Filter users (without pagination)
+  const filterAndPaginateUsers = useCallback(() => {
+    const allUsers = [
+      ...(driverUsers || []).map((u) => ({ ...u, role: 'driver' })),
+      ...(passengerUsers || []).map((u) => ({ ...u, role: 'passenger' })),
+    ];
+
+    const search = usersSearchTerm.toLowerCase();
+    const filtered = allUsers.filter((user) => {
+      // Search filter
+      if (search.trim()) {
+        const matchesSearch =
+          user.id?.toLowerCase().includes(search) ||
+          user.name?.toLowerCase().includes(search) ||
+          user.email?.toLowerCase().includes(search) ||
+          user.phone?.includes(search);
+        if (!matchesSearch) return false;
+      }
+      // Role filter
+      if (usersFilterRole !== 'all' && user.role !== usersFilterRole) {
+        return false;
+      }
+      return true;
+    });
+    return filtered;
+  }, [driverUsers, passengerUsers, usersSearchTerm, usersFilterRole]);
+
+  const filteredUsers = useMemo(() => {
+    const filtered = filterAndPaginateUsers();
+    const start = (usersPage - 1) * usersPageSize;
+    const end = start + usersPageSize;
+    return filtered.slice(start, end);
+  }, [filterAndPaginateUsers, usersPage, usersPageSize]);
+
+  // Filter KYC (without pagination)
+  const filterAndPaginateKyc = useCallback(() => {
+    const search = kycSearchTerm.toLowerCase();
+    const filtered = (kycRequests || []).filter((kyc) => {
+      // Search filter
+      if (search.trim()) {
+        const matchesSearch =
+          kyc.driver_id?.toLowerCase().includes(search) ||
+          kyc.driver_name?.toLowerCase().includes(search) ||
+          kyc.driver_phone?.includes(search) ||
+          kyc.driver_email?.toLowerCase().includes(search);
+        if (!matchesSearch) return false;
+      }
+      // Status filter
+      if (kycFilterStatus !== 'all' && kyc.status !== kycFilterStatus) {
+        return false;
+      }
+      return true;
+    });
+    return filtered;
+  }, [kycRequests, kycSearchTerm, kycFilterStatus]);
+
+  const filteredKyc = useMemo(() => {
+    const filtered = filterAndPaginateKyc();
+    const start = (kycPage - 1) * kycPageSize;
+    const end = start + kycPageSize;
+    return filtered.slice(start, end);
+  }, [filterAndPaginateKyc, kycPage, kycPageSize]);
+
+  // PHASE 2: FILTERING FUNCTIONS FOR REMAINING SECTIONS
+  // Filter phone change requests
+  const filterAndPaginatePhone = useCallback(() => {
+    const filtered = (pendingPhoneChangeRequests || []).filter((item) => {
+      if (phoneSearchTerm.trim()) {
+        const search = phoneSearchTerm.toLowerCase();
+        const matchesSearch =
+          item.name?.toLowerCase().includes(search) ||
+          item.email?.toLowerCase().includes(search) ||
+          item.current_phone?.includes(search) ||
+          item.new_phone?.includes(search) ||
+          item.user_id?.toLowerCase().includes(search);
+        if (!matchesSearch) return false;
+      }
+      return true;
+    });
+    return filtered;
+  }, [pendingPhoneChangeRequests, phoneSearchTerm]);
+
+  const filteredPhone = useMemo(() => {
+    const filtered = filterAndPaginatePhone();
+    const start = (phonePage - 1) * phonePageSize;
+    const end = start + phonePageSize;
+    return filtered.slice(start, end);
+  }, [filterAndPaginatePhone, phonePage, phonePageSize]);
+
+  // Filter account deletion requests
+  const filterAndPaginateDeletion = useCallback(() => {
+    const filtered = (pendingAccountDeletionRequests || []).filter((item) => {
+      if (deletionSearchTerm.trim()) {
+        const search = deletionSearchTerm.toLowerCase();
+        const matchesSearch =
+          item.name?.toLowerCase().includes(search) ||
+          item.email?.toLowerCase().includes(search) ||
+          item.phone?.includes(search) ||
+          item.user_id?.toLowerCase().includes(search) ||
+          item.role?.toLowerCase().includes(search);
+        if (!matchesSearch) return false;
+      }
+      return true;
+    });
+    return filtered;
+  }, [pendingAccountDeletionRequests, deletionSearchTerm]);
+
+  const filteredDeletion = useMemo(() => {
+    const filtered = filterAndPaginateDeletion();
+    const start = (deletionPage - 1) * deletionPageSize;
+    const end = start + deletionPageSize;
+    return filtered.slice(start, end);
+  }, [filterAndPaginateDeletion, deletionPage, deletionPageSize]);
+
+  // Filter wallet top-ups
+  const filterAndPaginateWallet = useCallback(() => {
+    const filtered = (pendingWalletTopups || []).filter((item) => {
+      if (walletSearchTerm.trim()) {
+        const search = walletSearchTerm.toLowerCase();
+        const matchesSearch =
+          item.name?.toLowerCase().includes(search) ||
+          item.email?.toLowerCase().includes(search) ||
+          item.phone?.includes(search) ||
+          item.order_id?.toLowerCase().includes(search) ||
+          item.provider?.toLowerCase().includes(search);
+        if (!matchesSearch) return false;
+      }
+      return true;
+    });
+    return filtered;
+  }, [pendingWalletTopups, walletSearchTerm]);
+
+  const filteredWallet = useMemo(() => {
+    const filtered = filterAndPaginateWallet();
+    const start = (walletPage - 1) * walletPageSize;
+    const end = start + walletPageSize;
+    return filtered.slice(start, end);
+  }, [filterAndPaginateWallet, walletPage, walletPageSize]);
+
+  // Filter subscriptions
+  const filterAndPaginateSubscription = useCallback(() => {
+    const filtered = (pendingSubscriptionActivations || []).filter((item) => {
+      if (subscriptionSearchTerm.trim()) {
+        const search = subscriptionSearchTerm.toLowerCase();
+        const matchesSearch =
+          item.user_name?.toLowerCase().includes(search) ||
+          item.email?.toLowerCase().includes(search) ||
+          item.phone?.includes(search) ||
+          item.user_id?.toLowerCase().includes(search) ||
+          item.plan_name?.toLowerCase().includes(search);
+        if (!matchesSearch) return false;
+      }
+      return true;
+    });
+    return filtered;
+  }, [pendingSubscriptionActivations, subscriptionSearchTerm]);
+
+  const filteredSubscription = useMemo(() => {
+    const filtered = filterAndPaginateSubscription();
+    const start = (subscriptionPage - 1) * subscriptionPageSize;
+    const end = start + subscriptionPageSize;
+    return filtered.slice(start, end);
+  }, [filterAndPaginateSubscription, subscriptionPage, subscriptionPageSize]);
+
+  // PHASE 1: AUDIT LOGGING HANDLERS
+  const handleCancelTripWithConfirm = async (tripId) => {
+    const trip = (ongoingTrips || []).find((t) => t.id === tripId);
+    const reason = tripCancelReasons[tripId] || 'Cancelled by admin';
+
+    setShowConfirmTripsModal(false);
+    setAuditLogging(true);
+
+    try {
+      // Log to audit trail
+      await AdminAuditLogger.logAction(ACTION_TYPES.TRIP_CANCELLED, {
+        trip_id: tripId,
+        passenger_id: trip?.passenger_id,
+        driver_id: trip?.driver_id,
+        reason: reason,
+        cancelled_at: new Date().toISOString(),
+      });
+
+      // Cancel the trip
+      await cancelOngoingTripByAdmin(tripId);
+      setMessage('✓ Trip cancelled and logged to audit trail');
+    } catch (err) {
+      setError('Failed to cancel trip: ' + err.message);
+    } finally {
+      setAuditLogging(false);
+    }
+  };
+
+  const handleApproveKyc = async (kycId) => {
+    const kyc = (kycRequests || []).find((k) => k.id === kycId);
+    setShowConfirmKycModal(false);
+    setAuditLogging(true);
+
+    try {
+      await AdminAuditLogger.logAction(ACTION_TYPES.KYC_APPROVED, {
+        kyc_id: kycId,
+        driver_id: kyc?.driver_id,
+        driver_name: kyc?.driver_name,
+        approved_at: new Date().toISOString(),
+      });
+
+      // Approve KYC
+      const result = await apiRequest('/admin/kyc/approve', {
+        method: 'POST',
+        token,
+        body: { kyc_id: kycId },
+      });
+
+      if (result?.success) {
+        setMessage('✓ KYC approved and logged');
+        await refreshAdminData();
+      } else {
+        setError(result?.error || 'Failed to approve KYC');
+      }
+    } catch (err) {
+      setError('Failed to approve KYC: ' + err.message);
+    } finally {
+      setAuditLogging(false);
+    }
+  };
+
+  const handleRejectKyc = async (kycId, reason) => {
+    const kyc = (kycRequests || []).find((k) => k.id === kycId);
+    setShowConfirmKycModal(false);
+    setAuditLogging(true);
+
+    try {
+      await AdminAuditLogger.logAction(ACTION_TYPES.KYC_REJECTED, {
+        kyc_id: kycId,
+        driver_id: kyc?.driver_id,
+        driver_name: kyc?.driver_name,
+        rejection_reason: reason,
+        rejected_at: new Date().toISOString(),
+      });
+
+      // Reject KYC
+      const result = await apiRequest('/admin/kyc/reject', {
+        method: 'POST',
+        token,
+        body: { kyc_id: kycId, reason },
+      });
+
+      if (result?.success) {
+        setMessage('✓ KYC rejected and logged');
+        await refreshAdminData();
+      } else {
+        setError(result?.error || 'Failed to reject KYC');
+      }
+    } catch (err) {
+      setError('Failed to reject KYC: ' + err.message);
+    } finally {
+      setAuditLogging(false);
+    }
+  };
+
+  // PHASE 2: AUDIT LOGGING HANDLERS FOR ADDITIONAL ACTIONS
+  const handlePhoneChangeApproval = async (userId, status) => {
+    setAuditLogging(true);
+    try {
+      const user = (pendingPhoneChangeRequests || []).find((item) => item.user_id === userId);
+      await AdminAuditLogger.logAction(ACTION_TYPES.PHONE_CHANGE_APPROVED, {
+        user_id: userId,
+        user_name: user?.name,
+        old_phone: user?.current_phone,
+        new_phone: user?.new_phone,
+        status: status,
+        approved_at: new Date().toISOString(),
+      });
+      await reviewPhoneChange(userId, status);
+    } catch (err) {
+      setError('Failed to process phone change: ' + err.message);
+    } finally {
+      setAuditLogging(false);
+    }
+  };
+
+  const handleAccountDeletionApproval = async (requestId, status) => {
+    setAuditLogging(true);
+    try {
+      const request = (pendingAccountDeletionRequests || []).find((item) => item.id === requestId);
+      await AdminAuditLogger.logAction(ACTION_TYPES.ACCOUNT_DELETION_APPROVED, {
+        deletion_request_id: requestId,
+        user_id: request?.user_id,
+        user_name: request?.name,
+        user_role: request?.role,
+        status: status,
+        approved_at: new Date().toISOString(),
+      });
+      await reviewAccountDeletion(requestId, status);
+    } catch (err) {
+      setError('Failed to process account deletion: ' + err.message);
+    } finally {
+      setAuditLogging(false);
+    }
+  };
+
+  const handleWalletTopupApproval = async (orderId, status) => {
+    setAuditLogging(true);
+    try {
+      const item = (pendingWalletTopups || []).find((w) => w.order_id === orderId);
+      await AdminAuditLogger.logAction(ACTION_TYPES.WALLET_TOP_UP_APPROVED, {
+        order_id: orderId,
+        user_id: item?.user_id,
+        user_name: item?.name,
+        amount: item?.amount,
+        provider: item?.provider,
+        status: status,
+        verified_at: new Date().toISOString(),
+      });
+      await reviewWalletTopup(orderId, status);
+    } catch (err) {
+      setError('Failed to process wallet top-up: ' + err.message);
+    } finally {
+      setAuditLogging(false);
+    }
+  };
+
+  const handleSubscriptionApproval = async (subscriptionId, status) => {
+    setAuditLogging(true);
+    try {
+      const sub = (pendingSubscriptionActivations || []).find((s) => s.id === subscriptionId);
+      await AdminAuditLogger.logAction(ACTION_TYPES.SUBSCRIPTION_UPDATED, {
+        subscription_id: subscriptionId,
+        user_id: sub?.user_id,
+        user_name: sub?.user_name,
+        plan_name: sub?.plan_name,
+        status: status,
+        updated_at: new Date().toISOString(),
+      });
+      // Add API call for subscription approval when available
+      setMessage(`✓ Subscription ${status} and logged`);
+      await refreshAdminData();
+    } catch (err) {
+      setError('Failed to process subscription: ' + err.message);
+    } finally {
+      setAuditLogging(false);
+    }
+  };
 
   const updatePricingField = (key, value) => {
     setPricingRules((prev) => ({ ...prev, [key]: value }));
@@ -1093,39 +1523,6 @@ export default function AdminDashboard({ token, user, onLogout }) {
   const farePreview = getFareLogicPreview();
   const selectedDistrictProducts = getSelectedDistrictProducts();
 
-  const reviewKyc = async (driverId, status) => {
-    const payload = { status, reject_reason: status === 'rejected' ? 'Rejected by admin review.' : null };
-    const reviewed = await runAction(() =>
-      apiRequest(`/admin/kyc/${driverId}`, {
-        method: 'PUT',
-        token,
-        body: payload,
-      }),
-    );
-    if (reviewed) {
-      setMessage(`KYC ${status} for driver ${driverId}.`);
-      await refreshAdminData();
-    }
-  };
-
-  const reviewPassengerKyc = async (passengerId, status) => {
-    const reviewed = await runAction(
-      () =>
-        apiRequest(`/admin/passengers/kyc/${passengerId}`, {
-          method: 'PUT',
-          token,
-          body: {
-            status,
-            reject_reason: status === 'rejected' ? 'Rejected by admin review.' : null,
-          },
-        }),
-      `Passenger KYC ${status}.`,
-    );
-    if (reviewed) {
-      await refreshAdminData();
-    }
-  };
-
   const reviewWalletTopup = async (orderId, status) => {
     const reviewed = await runAction(
       () =>
@@ -1339,56 +1736,94 @@ export default function AdminDashboard({ token, user, onLogout }) {
         </View>
 
         <View style={[styles.section, activeAdminMenu !== 'trips' && styles.hiddenSection]}>
-          <Text style={styles.sectionTitle}>All Ongoing Trips</Text>
-          {ongoingTrips.length === 0 ? (
+          <Text style={styles.sectionTitle}>All Ongoing Trips ({ongoingTrips.length})</Text>
+
+          <AdminSearchBar
+            placeholder="Search by trip ID, passenger, or driver..."
+            value={tripsSearchTerm}
+            onSearch={setTripsSearchTerm}
+            filterOptions={[
+              { label: 'All Status', value: 'all' },
+              { label: 'Active', value: 'active' },
+              { label: 'Waiting', value: 'waiting' },
+              { label: 'Pickup', value: 'pickup' },
+              { label: 'In Transit', value: 'in_transit' },
+            ]}
+            selectedFilter={tripsFilterStatus}
+            onFilterChange={setTripsFilterStatus}
+          />
+
+          {filteredTrips.length === 0 ? (
             <View style={styles.emptyCard}>
-              <Text style={styles.emptyText}>No ongoing trips right now.</Text>
+              <Text style={styles.emptyText}>
+                {ongoingTrips.length === 0 ? 'No ongoing trips.' : 'No trips match your search.'}
+              </Text>
             </View>
           ) : (
-            ongoingTrips.map((trip) => (
-              <View key={trip.id} style={styles.kycCard}>
-                <Text style={styles.driverName}>Trip ID: {trip.id}</Text>
-                <Text style={styles.kycDate}>Status: {String(trip.status || '').replace('_', ' ')}</Text>
-                <Text style={styles.kycDate}>
-                  Passenger: {trip.passenger_name || 'Unknown'} | {trip.passenger_phone || 'N/A'}
-                </Text>
-                <Text style={styles.kycDate}>
-                  Driver: {trip.driver_name || 'Not assigned'} | {trip.driver_phone || 'N/A'}
-                </Text>
-                <Text style={styles.kycDate}>
-                  Pickup: {trip.pickup_location?.address || `${trip.pickup_location?.latitude || ''}, ${trip.pickup_location?.longitude || ''}`}
-                </Text>
-                <Text style={styles.kycDate}>
-                  Drop: {trip.drop_location?.address || `${trip.drop_location?.latitude || ''}, ${trip.drop_location?.longitude || ''}`}
-                </Text>
-                <Text style={styles.kycDate}>
-                  Fare: Rs {Number(trip.estimated_fare || 0).toFixed(2)} | Distance: {Number(trip.distance_km || 0).toFixed(2)} km
-                </Text>
-                <Text style={styles.kycDate}>Created: {formatDateTime(trip.created_at)}</Text>
-                <Text style={styles.kycDate}>Updated: {formatDateTime(trip.updated_at)}</Text>
-                <Text style={styles.inputLabel}>Cancel reason (visible in audit trail)</Text>
-                <VoiceTextInput
-                  style={styles.input}
-                  value={tripCancelReasons[trip.id] || ''}
-                  onChangeText={(value) => updateTripCancelReason(trip.id, value)}
-                  placeholder="Cancelled by admin on user request."
-                  placeholderTextColor="#9AA7A0"
-                />
-                <View style={styles.actionButtons}>
-                  <TouchableOpacity
-                    style={[styles.btn, styles.btnReject]}
-                    onPress={() => cancelOngoingTripByAdmin(trip.id)}
-                    disabled={loading}>
-                    <Text style={styles.btnText}>Cancel Trip</Text>
-                  </TouchableOpacity>
+            <>
+              {filteredTrips.map((trip) => (
+                <View key={trip.id} style={styles.kycCard}>
+                  <Text style={styles.driverName}>Trip ID: {trip.id}</Text>
+                  <Text style={styles.kycDate}>Status: {String(trip.status || '').replace('_', ' ')}</Text>
+                  <Text style={styles.kycDate}>
+                    Passenger: {trip.passenger_name || 'Unknown'} | {trip.passenger_phone || 'N/A'}
+                  </Text>
+                  <Text style={styles.kycDate}>
+                    Driver: {trip.driver_name || 'Not assigned'} | {trip.driver_phone || 'N/A'}
+                  </Text>
+                  <Text style={styles.kycDate}>
+                    Fare: Rs {Number(trip.estimated_fare || 0).toFixed(2)} | Distance: {Number(trip.distance_km || 0).toFixed(2)} km
+                  </Text>
+                  <Text style={styles.kycDate}>Created: {formatDateTime(trip.created_at)}</Text>
+                  <Text style={styles.inputLabel}>Cancel reason</Text>
+                  <VoiceTextInput
+                    style={styles.input}
+                    value={tripCancelReasons[trip.id] || ''}
+                    onChangeText={(value) => updateTripCancelReason(trip.id, value)}
+                    placeholder="Reason for cancellation..."
+                    placeholderTextColor="#9AA7A0"
+                  />
+                  <View style={styles.actionButtons}>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.btnReject]}
+                      onPress={() => {
+                        setConfirmTripAction({ tripId: trip.id, reason: tripCancelReasons[trip.id] || '' });
+                        setShowConfirmTripsModal(true);
+                      }}
+                      disabled={loading || auditLogging}>
+                      <Text style={styles.btnText}>Cancel Trip</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              </View>
-            ))
+              ))}
+              <PaginationControls
+                currentPage={tripsPage}
+                pageSize={tripsPageSize}
+                totalItems={ongoingTrips.length}
+                onPageChange={setTripsPage}
+                onPageSizeChange={setTripsPageSize}
+                disabled={loading}
+              />
+            </>
           )}
+
+          <ConfirmationDialog
+            visible={showConfirmTripsModal}
+            title="Cancel Trip?"
+            message="Are you sure you want to cancel this trip?"
+            details={confirmTripAction.reason ? `Reason: ${confirmTripAction.reason}` : 'No reason provided'}
+            confirmText="YES, CANCEL"
+            confirmButtonColor="#FF3B30"
+            cancelText="NO, KEEP"
+            onConfirm={() => handleCancelTripWithConfirm(confirmTripAction.tripId)}
+            onCancel={() => setShowConfirmTripsModal(false)}
+            isLoading={auditLogging}
+            dangerous={true}
+          />
         </View>
 
         <View style={[styles.section, activeAdminMenu !== 'users' && styles.hiddenSection]}>
-          <Text style={styles.sectionTitle}>Drivers & Passengers</Text>
+          <Text style={styles.sectionTitle}>Drivers & Passengers ({driverUsers.length + passengerUsers.length})</Text>
           <View style={styles.statsGrid}>
             <View style={styles.statCard}>
               <Text style={styles.statLabel}>Drivers Live</Text>
@@ -1404,55 +1839,72 @@ export default function AdminDashboard({ token, user, onLogout }) {
             </View>
           </View>
 
-          <Text style={styles.sectionSubtitle}>Drivers ({driverUsers.length})</Text>
-          {driverUsers.length === 0 ? (
-            <View style={styles.emptyCard}>
-              <Text style={styles.emptyText}>No drivers found.</Text>
-            </View>
-          ) : (
-            driverUsers.map((driver) => (
-              <View key={driver.id} style={styles.kycCard}>
-                <View style={styles.userRowHeader}>
-                  <Text style={styles.driverName}>{driver.name || 'Unknown Driver'}</Text>
-                  <Text style={[styles.liveBadge, driver.is_live ? styles.liveBadgeOn : styles.liveBadgeOff]}>
-                    {driver.is_live ? 'LIVE' : 'OFFLINE'}
-                  </Text>
-                </View>
-                <Text style={styles.kycDate}>{driver.email} | {driver.phone}</Text>
-                <Text style={styles.kycDate}>Driver ID: {driver.id}</Text>
-                <Text style={styles.kycDate}>Available: {driver.is_available ? 'Yes' : 'No'}</Text>
-                <Text style={styles.kycDate}>KYC: {driver.kyc_status || 'pending'}</Text>
-                {!!driver.active_booking_id && (
-                  <Text style={styles.kycDate}>Active Trip: {driver.active_booking_id}</Text>
-                )}
-                {!!driver.live_location_updated_at && (
-                  <Text style={styles.kycDate}>Live Updated: {formatDateTime(driver.live_location_updated_at)}</Text>
-                )}
-              </View>
-            ))
-          )}
+          <AdminSearchBar
+            placeholder="Search by name, email, phone, or ID..."
+            value={usersSearchTerm}
+            onSearch={setUsersSearchTerm}
+            filterOptions={[
+              { label: 'All Users', value: 'all' },
+              { label: 'Drivers Only', value: 'driver' },
+              { label: 'Passengers Only', value: 'passenger' },
+            ]}
+            selectedFilter={usersFilterRole}
+            onFilterChange={setUsersFilterRole}
+          />
 
-          <Text style={styles.sectionSubtitle}>Passengers ({passengerUsers.length})</Text>
-          {passengerUsers.length === 0 ? (
+          {filteredUsers.length === 0 ? (
             <View style={styles.emptyCard}>
-              <Text style={styles.emptyText}>No passengers found.</Text>
+              <Text style={styles.emptyText}>
+                {driverUsers.length + passengerUsers.length === 0 ? 'No users found.' : 'No users match your search.'}
+              </Text>
             </View>
           ) : (
-            passengerUsers.map((passenger) => (
-              <View key={passenger.id} style={styles.kycCard}>
-                <View style={styles.userRowHeader}>
-                  <Text style={styles.driverName}>{passenger.name || 'Unknown Passenger'}</Text>
-                  <Text style={[styles.liveBadge, passenger.is_live ? styles.liveBadgeOn : styles.liveBadgeOff]}>
-                    {passenger.is_live ? 'LIVE' : 'OFFLINE'}
-                  </Text>
+            <>
+              {filteredUsers.map((user) => (
+                <View key={user.id} style={styles.kycCard}>
+                  <View style={styles.userRowHeader}>
+                    <View>
+                      <Text style={styles.driverName}>{user.name || 'Unknown User'}</Text>
+                      <Text style={styles.kycDate}>
+                        {user.role === 'driver' ? '🚗 Driver' : '👤 Passenger'}
+                      </Text>
+                    </View>
+                    <Text style={[styles.liveBadge, user.is_live ? styles.liveBadgeOn : styles.liveBadgeOff]}>
+                      {user.is_live ? 'LIVE' : 'OFFLINE'}
+                    </Text>
+                  </View>
+                  <Text style={styles.kycDate}>{user.email} | {user.phone}</Text>
+                  <Text style={styles.kycDate}>ID: {user.id}</Text>
+                  {user.role === 'driver' && (
+                    <>
+                      <Text style={styles.kycDate}>Available: {user.is_available ? 'Yes' : 'No'}</Text>
+                      <Text style={styles.kycDate}>KYC: {user.kyc_status || 'pending'}</Text>
+                      {!!user.active_booking_id && (
+                        <Text style={styles.kycDate}>Active Trip: {user.active_booking_id}</Text>
+                      )}
+                      {!!user.live_location_updated_at && (
+                        <Text style={styles.kycDate}>Live Updated: {formatDateTime(user.live_location_updated_at)}</Text>
+                      )}
+                    </>
+                  )}
+                  {user.role === 'passenger' && (
+                    <>
+                      {!!user.active_booking_id && (
+                        <Text style={styles.kycDate}>Active Trip: {user.active_booking_id}</Text>
+                      )}
+                    </>
+                  )}
                 </View>
-                <Text style={styles.kycDate}>{passenger.email} | {passenger.phone}</Text>
-                <Text style={styles.kycDate}>Passenger ID: {passenger.id}</Text>
-                {!!passenger.active_booking_id && (
-                  <Text style={styles.kycDate}>Active Trip: {passenger.active_booking_id}</Text>
-                )}
-              </View>
-            ))
+              ))}
+              <PaginationControls
+                currentPage={usersPage}
+                pageSize={usersPageSize}
+                totalItems={driverUsers.length + passengerUsers.length}
+                onPageChange={setUsersPage}
+                onPageSizeChange={setUsersPageSize}
+                disabled={loading}
+              />
+            </>
           )}
         </View>
 
@@ -1823,40 +2275,62 @@ export default function AdminDashboard({ token, user, onLogout }) {
         </View>
 
         <View style={[styles.section, activeAdminMenu !== 'subscriptions' && styles.hiddenSection]}>
-          <Text style={styles.sectionTitle}>Pending Subscription Activations</Text>
-          {pendingSubscriptionActivations.length === 0 ? (
+          <Text style={styles.sectionTitle}>Pending Subscription Activations ({pendingSubscriptionActivations.length})</Text>
+
+          <AdminSearchBar
+            placeholder="Search by name, email, phone, or ID..."
+            value={subscriptionSearchTerm}
+            onSearch={setSubscriptionSearchTerm}
+          />
+
+          {filteredSubscription.length === 0 ? (
             <View style={styles.emptyCard}>
-              <Text style={styles.emptyText}>No pending subscription activations.</Text>
+              <Text style={styles.emptyText}>
+                {pendingSubscriptionActivations.length === 0 ? 'No pending subscription activations.' : 'No results match your search.'}
+              </Text>
             </View>
           ) : (
-            pendingSubscriptionActivations.map((item) => (
-              <View key={item.id} style={styles.kycCard}>
-                <Text style={styles.driverName}>{item.name}</Text>
-                <Text style={styles.kycDate}>{item.email} | {item.phone}</Text>
-                <Text style={styles.kycDate}>Role: {item.role}</Text>
-                <Text style={styles.kycDate}>Plan: {item.subscription?.plan_type || 'Not selected'}</Text>
-                <Text style={styles.kycDate}>
-                  Admin Activated: {item.subscription?.activated_by_admin ? 'Yes' : 'No'}
-                </Text>
-                <Text style={styles.kycDate}>
-                  Due Amount: Rs {Number(item.subscription?.outstanding_amount || 0).toFixed(2)}
-                </Text>
-                <View style={styles.actionButtons}>
-                  <TouchableOpacity
-                    style={[styles.btn, styles.btnReject]}
-                    onPress={() => activateSubscriptionForUser(item.id, item.subscription?.plan_type, false)}
-                    disabled={loading}>
-                    <Text style={styles.btnText}>Deactivate</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.btn, styles.btnApprove]}
-                    onPress={() => activateSubscriptionForUser(item.id, item.subscription?.plan_type, true)}
-                    disabled={loading}>
-                    <Text style={styles.btnText}>Activate</Text>
-                  </TouchableOpacity>
+            <>
+              {filteredSubscription.map((item) => (
+                <View key={item.id} style={styles.kycCard}>
+                  <Text style={styles.driverName}>{item.name}</Text>
+                  <Text style={styles.kycDate}>{item.email} | {item.phone}</Text>
+                  <Text style={styles.kycDate}>Role: {item.role}</Text>
+                  <Text style={styles.kycDate}>Plan: {item.subscription?.plan_type || 'Not selected'}</Text>
+                  <Text style={styles.kycDate}>
+                    Admin Activated: {item.subscription?.activated_by_admin ? 'Yes' : 'No'}
+                  </Text>
+                  <Text style={styles.kycDate}>
+                    Due Amount: Rs {Number(item.subscription?.outstanding_amount || 0).toFixed(2)}
+                  </Text>
+                  <View style={styles.actionButtons}>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.btnReject]}
+                      onPress={() => activateSubscriptionForUser(item.id, item.subscription?.plan_type, false)}
+                      disabled={loading || auditLogging}>
+                      <Text style={styles.btnText}>Deactivate</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.btnApprove]}
+                      onPress={() => {
+                        handleSubscriptionApproval(item.id, 'approved');
+                        activateSubscriptionForUser(item.id, item.subscription?.plan_type, true);
+                      }}
+                      disabled={loading || auditLogging}>
+                      <Text style={styles.btnText}>Activate</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              </View>
-            ))
+              ))}
+              <PaginationControls
+                currentPage={subscriptionPage}
+                pageSize={subscriptionPageSize}
+                totalItems={pendingSubscriptionActivations.length}
+                onPageChange={setSubscriptionPage}
+                onPageSizeChange={setSubscriptionPageSize}
+                disabled={loading}
+              />
+            </>
           )}
         </View>
 
@@ -1899,69 +2373,107 @@ export default function AdminDashboard({ token, user, onLogout }) {
         </View>
 
         <View style={[styles.section, activeAdminMenu !== 'phone' && styles.hiddenSection]}>
-          <Text style={styles.sectionTitle}>Pending Phone Change Requests</Text>
-          {pendingPhoneChangeRequests.length === 0 ? (
+          <Text style={styles.sectionTitle}>Pending Phone Change Requests ({pendingPhoneChangeRequests.length})</Text>
+
+          <AdminSearchBar
+            placeholder="Search by name, email, phone, or ID..."
+            value={phoneSearchTerm}
+            onSearch={setPhoneSearchTerm}
+          />
+
+          {filteredPhone.length === 0 ? (
             <View style={styles.emptyCard}>
-              <Text style={styles.emptyText}>No pending phone change requests.</Text>
+              <Text style={styles.emptyText}>
+                {pendingPhoneChangeRequests.length === 0 ? 'No pending phone change requests.' : 'No results match your search.'}
+              </Text>
             </View>
           ) : (
-            pendingPhoneChangeRequests.map((item) => (
-              <View key={`${item.user_id}-${item.new_phone}`} style={styles.kycCard}>
-                <Text style={styles.driverName}>{item.name}</Text>
-                <Text style={styles.kycDate}>{item.email} | {item.current_phone}</Text>
-                <Text style={styles.kycDate}>Role: {item.role}</Text>
-                <Text style={styles.kycDate}>Requested new phone: {item.new_phone}</Text>
-                <Text style={styles.kycDate}>OTP verified: {item.verified ? 'Yes' : 'No'}</Text>
-                <View style={styles.actionButtons}>
-                  <TouchableOpacity
-                    style={[styles.btn, styles.btnReject]}
-                    onPress={() => reviewPhoneChange(item.user_id, 'rejected')}
-                    disabled={loading}>
-                    <Text style={styles.btnText}>Reject</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.btn, styles.btnApprove]}
-                    onPress={() => reviewPhoneChange(item.user_id, 'approved')}
-                    disabled={loading}>
-                    <Text style={styles.btnText}>Approve</Text>
-                  </TouchableOpacity>
+            <>
+              {filteredPhone.map((item) => (
+                <View key={`${item.user_id}-${item.new_phone}`} style={styles.kycCard}>
+                  <Text style={styles.driverName}>{item.name}</Text>
+                  <Text style={styles.kycDate}>{item.email} | {item.current_phone}</Text>
+                  <Text style={styles.kycDate}>Role: {item.role}</Text>
+                  <Text style={styles.kycDate}>Requested new phone: {item.new_phone}</Text>
+                  <Text style={styles.kycDate}>OTP verified: {item.verified ? 'Yes' : 'No'}</Text>
+                  <View style={styles.actionButtons}>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.btnReject]}
+                      onPress={() => handlePhoneChangeApproval(item.user_id, 'rejected')}
+                      disabled={loading || auditLogging}>
+                      <Text style={styles.btnText}>Reject</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.btnApprove]}
+                      onPress={() => handlePhoneChangeApproval(item.user_id, 'approved')}
+                      disabled={loading || auditLogging}>
+                      <Text style={styles.btnText}>Approve</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              </View>
-            ))
+              ))}
+              <PaginationControls
+                currentPage={phonePage}
+                pageSize={phonePageSize}
+                totalItems={pendingPhoneChangeRequests.length}
+                onPageChange={setPhonePage}
+                onPageSizeChange={setPhonePageSize}
+                disabled={loading}
+              />
+            </>
           )}
         </View>
 
         <View style={[styles.section, activeAdminMenu !== 'account_deletions' && styles.hiddenSection]}>
-          <Text style={styles.sectionTitle}>Pending Account Deletion Requests</Text>
-          {pendingAccountDeletionRequests.length === 0 ? (
+          <Text style={styles.sectionTitle}>Pending Account Deletion Requests ({pendingAccountDeletionRequests.length})</Text>
+
+          <AdminSearchBar
+            placeholder="Search by name, email, phone, or ID..."
+            value={deletionSearchTerm}
+            onSearch={setDeletionSearchTerm}
+          />
+
+          {filteredDeletion.length === 0 ? (
             <View style={styles.emptyCard}>
-              <Text style={styles.emptyText}>No pending account deletion requests.</Text>
+              <Text style={styles.emptyText}>
+                {pendingAccountDeletionRequests.length === 0 ? 'No pending account deletion requests.' : 'No results match your search.'}
+              </Text>
             </View>
           ) : (
-            pendingAccountDeletionRequests.map((item) => (
-              <View key={item.id} style={styles.kycCard}>
-                <Text style={styles.driverName}>{item.name || 'Passenger'}</Text>
-                <Text style={styles.kycDate}>{item.email || 'N/A'} | {item.phone || 'N/A'}</Text>
-                <Text style={styles.kycDate}>User ID: {item.user_id}</Text>
-                <Text style={styles.kycDate}>Role: {item.role || 'passenger'}</Text>
-                <Text style={styles.kycDate}>Account status: {item.account_status || 'deletion_pending'}</Text>
-                <Text style={styles.kycDate}>Requested: {String(item.created_at || '')}</Text>
-                <View style={styles.actionButtons}>
-                  <TouchableOpacity
-                    style={[styles.btn, styles.btnReject]}
-                    onPress={() => reviewAccountDeletion(item.id, 'rejected')}
-                    disabled={loading}>
-                    <Text style={styles.btnText}>Reject</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.btn, styles.btnApprove]}
-                    onPress={() => reviewAccountDeletion(item.id, 'approved')}
-                    disabled={loading}>
-                    <Text style={styles.btnText}>Approve & Block</Text>
-                  </TouchableOpacity>
+            <>
+              {filteredDeletion.map((item) => (
+                <View key={item.id} style={styles.kycCard}>
+                  <Text style={styles.driverName}>{item.name || 'Passenger'}</Text>
+                  <Text style={styles.kycDate}>{item.email || 'N/A'} | {item.phone || 'N/A'}</Text>
+                  <Text style={styles.kycDate}>User ID: {item.user_id}</Text>
+                  <Text style={styles.kycDate}>Role: {item.role || 'passenger'}</Text>
+                  <Text style={styles.kycDate}>Account status: {item.account_status || 'deletion_pending'}</Text>
+                  <Text style={styles.kycDate}>Requested: {String(item.created_at || '')}</Text>
+                  <View style={styles.actionButtons}>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.btnReject]}
+                      onPress={() => handleAccountDeletionApproval(item.id, 'rejected')}
+                      disabled={loading || auditLogging}>
+                      <Text style={styles.btnText}>Reject</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.btnApprove]}
+                      onPress={() => handleAccountDeletionApproval(item.id, 'approved')}
+                      disabled={loading || auditLogging}>
+                      <Text style={styles.btnText}>Approve & Block</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              </View>
-            ))
+              ))}
+              <PaginationControls
+                currentPage={deletionPage}
+                pageSize={deletionPageSize}
+                totalItems={pendingAccountDeletionRequests.length}
+                onPageChange={setDeletionPage}
+                onPageSizeChange={setDeletionPageSize}
+                disabled={loading}
+              />
+            </>
           )}
         </View>
 
@@ -2458,102 +2970,176 @@ export default function AdminDashboard({ token, user, onLogout }) {
         </View>
 
         <View style={[styles.section, activeAdminMenu !== 'wallet' && styles.hiddenSection]}>
-          <Text style={styles.sectionTitle}>Pending Wallet Top-up Verifications</Text>
-          {pendingWalletTopups.length === 0 ? (
+          <Text style={styles.sectionTitle}>Pending Wallet Top-up Verifications ({pendingWalletTopups.length})</Text>
+
+          <AdminSearchBar
+            placeholder="Search by name, email, phone, or order ID..."
+            value={walletSearchTerm}
+            onSearch={setWalletSearchTerm}
+          />
+
+          {filteredWallet.length === 0 ? (
             <View style={styles.emptyCard}>
-              <Text style={styles.emptyText}>No pending wallet top-up verifications.</Text>
+              <Text style={styles.emptyText}>
+                {pendingWalletTopups.length === 0 ? 'No pending wallet top-up verifications.' : 'No results match your search.'}
+              </Text>
             </View>
           ) : (
-            pendingWalletTopups.map((item) => (
-              <View key={item.order_id} style={styles.kycCard}>
-                <Text style={styles.driverName}>{item.name || 'User'}</Text>
-                <Text style={styles.kycDate}>{item.email} | {item.phone}</Text>
-                <Text style={styles.kycDate}>Role: {item.role || 'N/A'}</Text>
-                <Text style={styles.kycDate}>Order: {item.order_id}</Text>
-                <Text style={styles.kycDate}>Amount: Rs {Number(item.amount || 0).toFixed(2)}</Text>
-                <Text style={styles.kycDate}>Provider: {item.provider || 'N/A'}</Text>
-                {!!item.transaction_ref && <Text style={styles.kycDate}>Reference: {item.transaction_ref}</Text>}
-                <Text style={styles.kycDate}>Submitted: {String(item.submitted_at || '')}</Text>
-                <View style={styles.actionButtons}>
-                  <TouchableOpacity
-                    style={[styles.btn, styles.btnReject]}
-                    onPress={() => reviewWalletTopup(item.order_id, 'rejected')}
-                    disabled={loading}>
-                    <Text style={styles.btnText}>Reject</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.btn, styles.btnApprove]}
-                    onPress={() => reviewWalletTopup(item.order_id, 'verified')}
-                    disabled={loading}>
-                    <Text style={styles.btnText}>Verify & Credit</Text>
-                  </TouchableOpacity>
+            <>
+              {filteredWallet.map((item) => (
+                <View key={item.order_id} style={styles.kycCard}>
+                  <Text style={styles.driverName}>{item.name || 'User'}</Text>
+                  <Text style={styles.kycDate}>{item.email} | {item.phone}</Text>
+                  <Text style={styles.kycDate}>Role: {item.role || 'N/A'}</Text>
+                  <Text style={styles.kycDate}>Order: {item.order_id}</Text>
+                  <Text style={styles.kycDate}>Amount: Rs {Number(item.amount || 0).toFixed(2)}</Text>
+                  <Text style={styles.kycDate}>Provider: {item.provider || 'N/A'}</Text>
+                  {!!item.transaction_ref && <Text style={styles.kycDate}>Reference: {item.transaction_ref}</Text>}
+                  <Text style={styles.kycDate}>Submitted: {String(item.submitted_at || '')}</Text>
+                  <View style={styles.actionButtons}>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.btnReject]}
+                      onPress={() => handleWalletTopupApproval(item.order_id, 'rejected')}
+                      disabled={loading || auditLogging}>
+                      <Text style={styles.btnText}>Reject</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.btnApprove]}
+                      onPress={() => handleWalletTopupApproval(item.order_id, 'verified')}
+                      disabled={loading || auditLogging}>
+                      <Text style={styles.btnText}>Verify & Credit</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              </View>
-            ))
+              ))}
+              <PaginationControls
+                currentPage={walletPage}
+                pageSize={walletPageSize}
+                totalItems={pendingWalletTopups.length}
+                onPageChange={setWalletPage}
+                onPageSizeChange={setWalletPageSize}
+                disabled={loading}
+              />
+            </>
           )}
         </View>
 
         <View style={[styles.section, activeAdminMenu !== 'kyc' && styles.hiddenSection]}>
-          <Text style={styles.sectionTitle}>Pending Driver KYC Approvals</Text>
-          {kycRequests.length === 0 ? (
+          <Text style={styles.sectionTitle}>KYC Verification ({kycRequests.length})</Text>
+
+          <AdminSearchBar
+            placeholder="Search by driver name, phone, or ID..."
+            value={kycSearchTerm}
+            onSearch={setKycSearchTerm}
+            filterOptions={[
+              { label: 'All Status', value: 'all' },
+              { label: 'Pending', value: 'pending' },
+              { label: 'Approved', value: 'approved' },
+              { label: 'Rejected', value: 'rejected' },
+            ]}
+            selectedFilter={kycFilterStatus}
+            onFilterChange={setKycFilterStatus}
+          />
+
+          {filteredKyc.length === 0 ? (
             <View style={styles.emptyCard}>
-              <Text style={styles.emptyText}>No pending driver KYC requests right now.</Text>
+              <Text style={styles.emptyText}>
+                {kycRequests.length === 0 ? 'No KYC requests.' : 'No KYC requests match your search.'}
+              </Text>
             </View>
           ) : (
-            kycRequests.map((req) => (
-              <View key={req.driver_id} style={styles.kycCard}>
-                <Text style={styles.driverName}>{req.driver_name}</Text>
-                <Text style={styles.kycDate}>Driver ID: {req.driver_id}</Text>
-                <Text style={styles.kycDate}>Submitted: {req.submitted_at}</Text>
-                <View style={styles.actionButtons}>
-                  <TouchableOpacity
-                    style={[styles.btn, styles.btnReject]}
-                    onPress={() => reviewKyc(req.driver_id, 'rejected')}
-                    disabled={loading}>
-                    <Text style={styles.btnText}>Reject</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.btn, styles.btnApprove]}
-                    onPress={() => reviewKyc(req.driver_id, 'approved')}
-                    disabled={loading}>
-                    <Text style={styles.btnText}>Approve</Text>
-                  </TouchableOpacity>
+            <>
+              {filteredKyc.map((kyc) => (
+                <View key={kyc.driver_id || kyc.id} style={styles.kycCard}>
+                  <Text style={styles.driverName}>{kyc.driver_name}</Text>
+                  <Text style={styles.kycDate}>Driver ID: {kyc.driver_id}</Text>
+                  <Text style={styles.kycDate}>Phone: {kyc.driver_phone}</Text>
+                  <Text style={styles.kycDate}>Status: {kyc.status || 'Pending'}</Text>
+                  <Text style={styles.kycDate}>Submitted: {kyc.submitted_at}</Text>
+                  <View style={styles.actionButtons}>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.btnInfo]}
+                      onPress={() => {
+                        setSelectedKycForPreview(kyc);
+                        setShowKycPreview(true);
+                      }}>
+                      <Text style={styles.btnText}>👁 Documents</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.btnReject]}
+                      onPress={() => {
+                        setConfirmKycAction({ kycId: kyc.driver_id || kyc.id, decision: 'reject' });
+                        setShowConfirmKycModal(true);
+                      }}
+                      disabled={loading || auditLogging}>
+                      <Text style={styles.btnText}>Reject</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.btnApprove]}
+                      onPress={() => {
+                        setConfirmKycAction({ kycId: kyc.driver_id || kyc.id, decision: 'approve' });
+                        setShowConfirmKycModal(true);
+                      }}
+                      disabled={loading || auditLogging}>
+                      <Text style={styles.btnText}>✓ Approve</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              </View>
-            ))
+              ))}
+              <PaginationControls
+                currentPage={kycPage}
+                pageSize={kycPageSize}
+                totalItems={kycRequests.length}
+                onPageChange={setKycPage}
+                onPageSizeChange={setKycPageSize}
+                disabled={loading}
+              />
+            </>
           )}
 
-          <Text style={styles.sectionTitle}>Pending Passenger KYC Approvals</Text>
-          {passengerKycRequests.length === 0 ? (
-            <View style={styles.emptyCard}>
-              <Text style={styles.emptyText}>No pending passenger KYC requests right now.</Text>
-            </View>
-          ) : (
-            passengerKycRequests.map((req) => (
-              <View key={req.passenger_id} style={styles.kycCard}>
-                <Text style={styles.driverName}>{req.passenger_name}</Text>
-                <Text style={styles.kycDate}>Passenger ID: {req.passenger_id}</Text>
-                <Text style={styles.kycDate}>{req.passenger_email} | {req.passenger_phone}</Text>
-                <Text style={styles.kycDate}>Document: {String(req.document_type || '').toUpperCase()}</Text>
-                <Text style={styles.kycDate}>Masked number: {req.document_number_masked || 'N/A'}</Text>
-                <Text style={styles.kycDate}>Submitted: {String(req.submitted_at || '')}</Text>
-                <View style={styles.actionButtons}>
-                  <TouchableOpacity
-                    style={[styles.btn, styles.btnReject]}
-                    onPress={() => reviewPassengerKyc(req.passenger_id, 'rejected')}
-                    disabled={loading}>
-                    <Text style={styles.btnText}>Reject</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.btn, styles.btnApprove]}
-                    onPress={() => reviewPassengerKyc(req.passenger_id, 'approved')}
-                    disabled={loading}>
-                    <Text style={styles.btnText}>Approve</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ))
-          )}
+          <KycDocumentPreview
+            visible={showKycPreview}
+            documents={{
+              id_proof: selectedKycForPreview?.id_proof_url,
+              driving_license: selectedKycForPreview?.driving_license_url,
+              vehicle_rc: selectedKycForPreview?.vehicle_rc_url,
+              insurance: selectedKycForPreview?.insurance_url,
+              pollution_cert: selectedKycForPreview?.pollution_certificate_url,
+              badge_photo: selectedKycForPreview?.badge_photo_url,
+            }}
+            driverName={selectedKycForPreview?.driver_name}
+            onClose={() => setShowKycPreview(false)}
+            onApprove={(docType) => {
+              if (docType === 'all') {
+                handleApproveKyc(selectedKycForPreview?.driver_id || selectedKycForPreview?.id);
+                setShowKycPreview(false);
+              }
+            }}
+            onReject={(docType, reason) => {
+              if (docType === 'all') {
+                handleRejectKyc(selectedKycForPreview?.driver_id || selectedKycForPreview?.id, reason || 'Unclear documents');
+                setShowKycPreview(false);
+              }
+            }}
+          />
+
+          <ConfirmationDialog
+            visible={showConfirmKycModal}
+            title={confirmKycAction.decision === 'approve' ? 'Approve KYC?' : 'Reject KYC?'}
+            message={`Are you sure you want to ${confirmKycAction.decision} this driver's KYC?`}
+            confirmText={confirmKycAction.decision === 'approve' ? 'YES, APPROVE' : 'YES, REJECT'}
+            confirmButtonColor={confirmKycAction.decision === 'approve' ? '#4CAF50' : '#FF9800'}
+            cancelText="NO, CANCEL"
+            onConfirm={() => {
+              if (confirmKycAction.decision === 'approve') {
+                handleApproveKyc(confirmKycAction.kycId);
+              } else {
+                handleRejectKyc(confirmKycAction.kycId, 'Rejected by admin');
+              }
+            }}
+            onCancel={() => setShowConfirmKycModal(false)}
+            isLoading={auditLogging}
+          />
         </View>
       </ScrollView>
     </SafeAreaView>

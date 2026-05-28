@@ -3,14 +3,17 @@ import { apiRequest } from '../lib/api';
 
 const SOS_COOLDOWN_MS = 5000; // 5 second cooldown between SOS calls
 
-export function useSOSAlert({ token, driverId, currentLocation }) {
+const VALID_SOS_REASONS = ['emergency', 'accident', 'medical', 'harassment', 'other'];
+
+export function useSOSAlert({ token, driverId, rideId, currentLocation }) {
   const [sosActive, setSosActive] = useState(false);
   const [sosError, setSosError] = useState('');
   const [sosMessage, setSosMessage] = useState('');
   const [lastSOSTimestamp, setLastSOSTimestamp] = useState(0);
+  const [activeSosId, setActiveSosId] = useState(null);
 
   const triggerSOS = useCallback(
-    async (reason = 'Emergency - Driver needs assistance') => {
+    async (reason = 'emergency', description = 'Driver needs emergency assistance') => {
       // Check cooldown
       const now = Date.now();
       if (now - lastSOSTimestamp < SOS_COOLDOWN_MS) {
@@ -23,6 +26,16 @@ export function useSOSAlert({ token, driverId, currentLocation }) {
         return false;
       }
 
+      const latitude = Number(currentLocation?.latitude);
+      const longitude = Number(currentLocation?.longitude);
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+        setSosError('Current location is required before sending SOS.');
+        return false;
+      }
+
+      const normalizedReason = VALID_SOS_REASONS.includes(reason) ? reason : 'emergency';
+      const normalizedDescription = VALID_SOS_REASONS.includes(reason) ? description : String(reason || description);
+
       setSosActive(true);
       setSosError('');
       setSosMessage('SOS Alert sent. Help is on the way...');
@@ -33,14 +46,17 @@ export function useSOSAlert({ token, driverId, currentLocation }) {
           token,
           body: {
             driver_id: driverId,
-            reason,
-            latitude: currentLocation?.latitude,
-            longitude: currentLocation?.longitude,
+            reason: normalizedReason,
+            description: normalizedDescription,
+            ride_id: rideId || undefined,
+            latitude,
+            longitude,
             address: currentLocation?.address,
             timestamp: new Date().toISOString(),
           },
         });
 
+        setActiveSosId(response?.id || response?.sos_id || null);
         setLastSOSTimestamp(now);
         setSosMessage('SOS Alert sent successfully. Emergency services notified.');
         setTimeout(() => setSosMessage(''), 5000);
@@ -52,20 +68,24 @@ export function useSOSAlert({ token, driverId, currentLocation }) {
         return false;
       }
     },
-    [token, driverId, currentLocation, lastSOSTimestamp]
+    [token, driverId, rideId, currentLocation, lastSOSTimestamp]
   );
 
   const cancelSOS = useCallback(async () => {
     if (!token || !driverId) return false;
+    if (!activeSosId) {
+      setSosError('No active SOS alert to cancel.');
+      return false;
+    }
 
     try {
-      await apiRequest(`/drivers/sos/cancel`, {
+      await apiRequest(`/drivers/sos/${activeSosId}/cancel`, {
         method: 'POST',
         token,
-        body: { driver_id: driverId },
       });
 
       setSosActive(false);
+      setActiveSosId(null);
       setSosMessage('SOS cancelled');
       setTimeout(() => setSosMessage(''), 3000);
       return true;
@@ -73,7 +93,7 @@ export function useSOSAlert({ token, driverId, currentLocation }) {
       setSosError(`Cancel failed: ${err.message}`);
       return false;
     }
-  }, [token, driverId]);
+  }, [token, driverId, activeSosId]);
 
   return {
     sosActive,

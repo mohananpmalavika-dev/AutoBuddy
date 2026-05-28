@@ -474,14 +474,15 @@ export default function SubscriptionPanel({ token, audience = 'passenger' }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background, padding: 12 },
-  errorText: { color: '#D32F2F', fontSize: 12, marginBottom: 10 },
+  errorText: { color: '#F44336', fontSize: 12, marginBottom: 12, fontWeight: '600', padding: 8, backgroundColor: '#FFEBEE', borderRadius: 4 },
   messageText: {
-    color: '#2E7D32',
+    color: '#4CAF50',
     fontSize: 12,
-    marginBottom: 10,
-    padding: 10,
+    marginBottom: 12,
+    fontWeight: '600',
+    padding: 8,
     backgroundColor: '#E8F5E9',
-    borderRadius: 6,
+    borderRadius: 4,
   },
   currentStatusBlock: { backgroundColor: '#FFFFFF', borderRadius: 10, padding: 16, marginBottom: 16 },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: COLORS.textMain, marginBottom: 12 },

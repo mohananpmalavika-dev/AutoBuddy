@@ -32,6 +32,15 @@ async def get_current_user(
     return current_user
 
 
+async def verify_token(
+    current_user: dict = Depends(get_current_user_secure),
+):
+    user = dict(current_user or {})
+    if user.get("id") and not user.get("driver_id"):
+        user["driver_id"] = user["id"]
+    return user
+
+
 def get_request_ip(request: Request) -> str:
     forwarded_for = request.headers.get("x-forwarded-for")
     if forwarded_for:

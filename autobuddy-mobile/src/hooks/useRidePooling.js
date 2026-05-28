@@ -26,9 +26,10 @@ export function useRidePooling({ token, driverId }) {
         },
       });
 
-      if (response.data) {
-        setPoolOpportunities(prev => [...prev, response.data]);
-        return response.data;
+      const payload = response?.data || response;
+      if (payload) {
+        setPoolOpportunities(prev => [...prev, payload]);
+        return payload;
       }
     } catch (err) {
       setError(`Failed to detect pooling: ${err.message}`);
@@ -51,9 +52,10 @@ export function useRidePooling({ token, driverId }) {
         token,
       });
 
-      if (response.data) {
-        setPoolAnalytics(response.data);
-        return response.data;
+      const payload = response?.data || response;
+      if (payload) {
+        setPoolAnalytics(payload);
+        return payload;
       }
     } catch (err) {
       setError(`Failed to load pooling analytics: ${err.message}`);
@@ -74,7 +76,7 @@ export function useRidePooling({ token, driverId }) {
         body: { pool_id: poolId },
       });
 
-      return response.data;
+      return response?.data || response;
     } catch (err) {
       setError(`Failed to accept pool: ${err.message}`);
       console.warn('Accept pool error:', err);

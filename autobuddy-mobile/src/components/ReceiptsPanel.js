@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   FlatList,
   ScrollView,
@@ -20,7 +21,9 @@ export default function ReceiptsPanel({ token }) {
   const [receipts, setReceipts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [filterPeriod, setFilterPeriod] = useState('all'); // all, month, quarter, year
+  const [message, setMessage] = useState('');
+  const [filterPeriod, setFilterPeriod] = useState('all');
+  const [downloadingId, setDownloadingId] = useState(null); // all, month, quarter, year
 
   const fetchReceipts = useCallback(async () => {
     try {
@@ -41,6 +44,17 @@ export default function ReceiptsPanel({ token }) {
     }, 0);
     return () => clearTimeout(timer);
   }, [fetchReceipts]);
+
+  // Announce loading status for accessibility
+  useEffect(() => {
+    if (loading) {
+      AccessibilityInfo.announceForAccessibility('Loading receipts');
+    } else if (receipts.length > 0) {
+      AccessibilityInfo.announceForAccessibility(`${receipts.length} receipts loaded`);
+    } else if (!error) {
+      AccessibilityInfo.announceForAccessibility('No receipts found');
+    }
+  }, [loading, receipts.length, error]);
 
   const shareTextReceipt = async (receipt) => {
     try {
@@ -72,6 +86,25 @@ export default function ReceiptsPanel({ token }) {
       });
     } catch (err) {
       console.log('Share error:', err);
+    }
+  };
+
+  const downloadPDF = async (receipt) => {
+    try {
+      setDownloadingId(receipt.id);
+      setError('');
+      const response = await apiRequest(`/passengers/receipts/${receipt.id}/pdf`, { token });
+      if (response?.url) {
+        if (typeof window !== 'undefined') {
+          window.open(response.url, '_blank');
+        }
+        setMessage('PDF receipt downloaded successfully');
+        setTimeout(() => setMessage(''), 3000);
+      }
+    } catch (err) {
+      setError(err.message || 'PDF download not available');
+    } finally {
+      setDownloadingId(null);
     }
   };
 
@@ -150,17 +183,26 @@ export default function ReceiptsPanel({ token }) {
 
       <View style={styles.actionButtons}>
         <TouchableOpacity
-          style={[styles.actionButton, { flex: 1, marginRight: 8 }]}
+          style={[styles.actionButton, { flex: 1, marginRight: 4 }]}
           onPress={() => shareReceipt(item)}
         >
           <Text style={styles.actionButtonText}>Share</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.actionButton, { flex: 1 }]}
+          style={[styles.actionButton, { flex: 1, marginRight: 4 }]}
           onPress={() => shareTextReceipt(item)}
         >
-          <Text style={styles.actionButtonText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
-            Share Text Receipt
+          <Text style={styles.actionButtonText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+            📧 Text
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.actionButton, { flex: 1 }, downloadingId === item.id && styles.actionButtonDisabled]}
+          onPress={() => downloadPDF(item)}
+          disabled={downloadingId === item.id}
+        >
+          <Text style={styles.actionButtonText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+            {downloadingId === item.id ? '⏳' : '📄'} PDF
           </Text>
         </TouchableOpacity>
       </View>
@@ -180,7 +222,8 @@ export default function ReceiptsPanel({ token }) {
 
   return (
     <ScrollView style={styles.container}>
-      {error && <Text style={styles.errorText}>{error}</Text>}
+      {error && <Text style={styles.errorText}>❌ {error}</Text>}
+      {message && <Text style={styles.messageText}>✓ {message}</Text>}
       {/* Summary Cards */}
       {receipts.length > 0 && (
         <View style={styles.summaryRow}>
@@ -340,5 +383,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { fontSize: 16, fontWeight: 'bold', color: COLORS.text, marginBottom: 8 },
   infoText: { fontSize: 12, color: COLORS.text, lineHeight: 18, marginBottom: 4 },
-  errorText: { color: '#F44336', fontSize: 12, marginBottom: 12, fontWeight: '600' },
+  messageText: { color: '#4CAF50', fontSize: 12, marginBottom: 12, fontWeight: '600', padding: 8, backgroundColor: '#E8F5E9', borderRadius: 4 },
+  errorText: { color: '#F44336', fontSize: 12, marginBottom: 12, fontWeight: '600', padding: 8, backgroundColor: '#FFEBEE', borderRadius: 4 },
+  actionButtonDisabled: { opacity: 0.6 },
 });

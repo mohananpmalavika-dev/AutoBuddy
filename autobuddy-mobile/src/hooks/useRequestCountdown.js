@@ -13,6 +13,7 @@ export function useRequestCountdown({
   const [isExpired, setIsExpired] = useState(false);
   const countdownRef = useRef(null);
   const startTimeRef = useRef(null);
+  const lastRideIdRef = useRef(rideId);
 
   const start = useCallback(() => {
     if (isRunning) return;
@@ -47,6 +48,19 @@ export function useRequestCountdown({
       onExpire('aborted');
     }
   }, [onExpire, pause]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const rideChanged = lastRideIdRef.current !== rideId;
+      if (rideChanged) {
+        lastRideIdRef.current = rideId;
+        setSecondsRemaining(initialSeconds);
+        setIsExpired(false);
+      }
+      setIsRunning(Boolean(autoStart && rideId));
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [autoStart, initialSeconds, rideId]);
 
   // Main countdown logic
   useEffect(() => {

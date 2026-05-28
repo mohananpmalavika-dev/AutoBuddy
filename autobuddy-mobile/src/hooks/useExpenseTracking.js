@@ -9,6 +9,16 @@ const EXPENSE_TYPES = {
   other: 'Other',
 };
 
+function normalizeExpense(expense) {
+  if (!expense) return null;
+  const expenseType = expense.expense_type || expense.type;
+  return {
+    ...expense,
+    type: expenseType,
+    expense_type: expenseType,
+  };
+}
+
 export function useExpenseTracking({ token, rideId }) {
   const [expenses, setExpenses] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -35,9 +45,10 @@ export function useExpenseTracking({ token, rideId }) {
         return false;
       }
 
-      const newExpense = {
+      const pendingExpense = {
         id: `exp_${Date.now()}`,
         type,
+        expense_type: type,
         amount: Number(amount),
         description,
         receipt_url: receiptUrl,
@@ -48,21 +59,19 @@ export function useExpenseTracking({ token, rideId }) {
       setError('');
 
       try {
-        await apiRequest('/drivers/expenses', {
+        const response = await apiRequest(`/drivers/rides/${rideId}/expenses`, {
           method: 'POST',
           token,
           body: {
             ride_id: rideId,
-            type,
+            expense_type: type,
             amount: Number(amount),
             description,
             receipt_url: receiptUrl,
-            timestamp: newExpense.timestamp,
           },
         });
 
-        // Optimistically add to local state
-        setExpenses((prev) => [...prev, newExpense]);
+        setExpenses((prev) => [...prev, normalizeExpense(response) || pendingExpense]);
         setIsLoading(false);
         return true;
       } catch (err) {
@@ -105,14 +114,22 @@ export function useExpenseTracking({ token, rideId }) {
       setError('');
 
       try {
+        const body = {
+          ...updates,
+          ride_id: rideId,
+        };
+        if (body.type && !body.expense_type) {
+          body.expense_type = body.type;
+          delete body.type;
+        }
         await apiRequest(`/drivers/expenses/${expenseId}`, {
           method: 'PATCH',
           token,
-          body: updates,
+          body,
         });
 
         setExpenses((prev) =>
-          prev.map((e) => (e.id === expenseId ? { ...e, ...updates } : e))
+          prev.map((e) => (e.id === expenseId ? normalizeExpense({ ...e, ...body }) : e))
         );
         setIsLoading(false);
         return true;
@@ -122,7 +139,7 @@ export function useExpenseTracking({ token, rideId }) {
         return false;
       }
     },
-    [token]
+    [token, rideId]
   );
 
   // Fetch expenses for ride
@@ -138,7 +155,8 @@ export function useExpenseTracking({ token, rideId }) {
         token,
       });
 
-      setExpenses(response?.expenses || []);
+      const rows = Array.isArray(response) ? response : response?.expenses || [];
+      setExpenses(rows.map(normalizeExpense).filter(Boolean));
       setIsLoading(false);
     } catch (err) {
       setError(`Failed to fetch expenses: ${err.message}`);

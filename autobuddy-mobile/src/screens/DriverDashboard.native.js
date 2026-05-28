@@ -40,6 +40,23 @@ import ScheduledRidesPanel from '../components/ScheduledRidesPanel';
 import SubscriptionPanel from '../components/SubscriptionPanel';
 import DriverReviewsPanel from '../components/DriverReviewsPanel';
 import DriverCancelRidePanel from '../components/DriverCancelRidePanel';
+import PassengerTrackingMap from '../components/PassengerTrackingMap';
+import MessageTemplatesPanel from '../components/MessageTemplatesPanel';
+import InTripNavigationDisplay from '../components/InTripNavigationDisplay';
+import DriverPerformanceDashboard from '../components/DriverPerformanceDashboard';
+import SOSButton from '../components/SOSButton';
+import RequestCountdownDisplay from '../components/RequestCountdownDisplay';
+import ExpenseTracker from '../components/ExpenseTracker';
+import RideFilterPanel from '../components/RideFilterPanel';
+import EarningTargetWidget from '../components/EarningTargetWidget';
+import MaintenanceAlertPanel from '../components/MaintenanceAlertPanel';
+import PayoutScheduleWidget from '../components/PayoutScheduleWidget';
+import DriverPaymentMethodsPanel from '../components/DriverPaymentMethodsPanel';
+import { RidePoolingPanel } from '../components/RidePoolingPanel';
+import { TaxReportWidget } from '../components/TaxReportWidget';
+import { FavoritePassengersPanel } from '../components/FavoritePassengersPanel';
+import { ShiftScheduleCalendar } from '../components/ShiftScheduleCalendar';
+import { BadgesAchievementsWidget } from '../components/BadgesAchievementsWidget';
 import { useNotifications } from '../contexts/NotificationContext';
 import { usePreferences } from '../contexts/PreferencesContext';
 import { DRIVER_QUICK_ACTIONS } from '../constants/driverQuickActions';
@@ -47,6 +64,9 @@ import { useKeralaSafety } from '../hooks/useKeralaSafety';
 import { useDriverRealtimeTracking } from '../hooks/useDriverRealtimeTracking';
 import { useDriverRideQueueSocket } from '../hooks/useDriverRideQueueSocket';
 import { useNotificationManager } from '../hooks/useNotificationManager';
+import { useSOSAlert } from '../hooks/useSOSAlert';
+import { useRequestCountdown } from '../hooks/useRequestCountdown';
+import { useExpenseTracking } from '../hooks/useExpenseTracking';
 import {
   filterBlockedPassengers,
   formatBlockedPassengerDate,
@@ -118,6 +138,14 @@ function normalizeDriverSettings(rawSettings = {}) {
     ...source,
     share_location: source.share_location ?? DEFAULT_DRIVER_SETTINGS.share_location,
   };
+}
+
+function resolveActiveVehicleId(payload) {
+  const vehicles = Array.isArray(payload) ? payload : payload?.vehicles;
+  if (!Array.isArray(vehicles) || vehicles.length === 0) {
+    return null;
+  }
+  return String((vehicles.find((vehicle) => vehicle?.is_active) || vehicles[0])?.id || '').trim() || null;
 }
 
 function isRetriableAvailabilityError(err) {
@@ -205,6 +233,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   const [blockedPassengers, setBlockedPassengers] = useState([]);
   const [blockedPassengerSearch, setBlockedPassengerSearch] = useState('');
   const [activeRide, setActiveRide] = useState(null);
+  const [activeVehicleId, setActiveVehicleId] = useState(null);
   const [earnings, setEarnings] = useState(null);
   const [pricingRules, setPricingRules] = useState(null);
   const [driverFareConfig, setDriverFareConfig] = useState({
@@ -303,6 +332,50 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     manageLocationWatch: false,
     manageBackgroundTracking: activeRideSharesLocation,
   });
+
+  const { sosActive, sosError, sosMessage, triggerSOS, cancelSOS } = useSOSAlert({
+    token,
+    driverId: user?.id,
+    rideId: activeRideId,
+    currentLocation: driverLocation,
+  });
+
+  const {
+    secondsRemaining,
+    isExpired,
+    formattedTime,
+    percentage,
+  } = useRequestCountdown({
+    rideId: pendingRequests[0]?.id,
+    initialSeconds: 60,
+    onExpire: (reason) => {
+      if (reason === 'timeout') {
+        setMessage('Ride request expired');
+        setPendingRequests((prev) => prev.slice(1));
+      }
+    },
+    autoStart: pendingRequests.length > 0,
+  });
+
+  const {
+    expenses,
+    totalExpense,
+    isLoading: expenseLoading,
+    error: expenseError,
+    addExpense,
+    removeExpense,
+    fetchExpenses,
+    expenseTypes,
+  } = useExpenseTracking({
+    token,
+    rideId: activeRideId,
+  });
+
+  useEffect(() => {
+    if (activeRideId) {
+      fetchExpenses().catch(() => null);
+    }
+  }, [activeRideId, fetchExpenses]);
   
 
   const runAction = useCallback(async (fn, successText) => {
@@ -622,7 +695,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       }
     }
 
-    const [requests, scheduledPayload, ride, earningsSummary, pricing, fareCalc, blockedPassengersPayload, spinStatus, settingsPayload, menuBadgePayload] = await Promise.all([
+    const [requests, scheduledPayload, ride, earningsSummary, pricing, fareCalc, blockedPassengersPayload, spinStatus, settingsPayload, menuBadgePayload, vehiclesPayload] = await Promise.all([
       apiRequest('/drivers/pending-requests', { token }).catch(() => []),
       apiRequest('/drivers/upcoming-rides', { token }).catch(() => null),
       apiRequest('/drivers/active-ride', { token }).catch(() => null),
@@ -633,6 +706,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       apiRequest('/spin-win/config', { token }).catch(() => null),
       apiRequest('/drivers/settings', { token }).catch(() => null),
       apiRequest('/drivers/menu-badges', { token }).catch(() => null),
+      apiRequest('/drivers/vehicles', { token }).catch(() => null),
     ]);
     setPendingRequests(requests || []);
     setUpcomingRides(scheduledPayload || null);
@@ -652,6 +726,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     if (menuBadgePayload) {
       setMenuBadges(menuBadgePayload);
     }
+    setActiveVehicleId(resolveActiveVehicleId(vehiclesPayload));
     setMessage('Driver dashboard refreshed.');
   }, [canApplyServerAvailabilitySnapshot, hydrateDriverFareConfig, normalizeLocation, runAction, token]);
 
@@ -662,7 +737,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     }
     refreshInFlightRef.current = true;
     try {
-      const [profile, settingsPayload, requests, scheduledPayload, ride, blockedPassengersPayload, spinStatus, menuBadgePayload] = await Promise.all([
+      const [profile, settingsPayload, requests, scheduledPayload, ride, blockedPassengersPayload, spinStatus, menuBadgePayload, vehiclesPayload] = await Promise.all([
         includeProfile ? apiRequest('/drivers/profile', { token }).catch(() => null) : Promise.resolve(null),
         includeProfile ? apiRequest('/drivers/settings', { token }).catch(() => null) : Promise.resolve(null),
         apiRequest('/drivers/pending-requests', { token }).catch(() => []),
@@ -671,6 +746,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         apiRequest('/drivers/blocked-passengers', { token }).catch(() => ({ passenger_ids: [], passengers: [] })),
         apiRequest('/spin-win/config', { token }).catch(() => null),
         apiRequest('/drivers/menu-badges', { token }).catch(() => null),
+        apiRequest('/drivers/vehicles', { token }).catch(() => null),
       ]);
       const [earningsSummary, pricing, fareCalc] = includeMeta
         ? await Promise.all([
@@ -705,6 +781,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       if (menuBadgePayload) {
         setMenuBadges(menuBadgePayload);
       }
+      setActiveVehicleId(resolveActiveVehicleId(vehiclesPayload));
       if (includeMeta) {
         setEarnings(earningsSummary || null);
         setPricingRules(pricing || fareCalc?.default_pricing || null);
@@ -1841,6 +1918,15 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
               {activeRide ? (
                 <>
                   <View style={styles.requestCard}>
+                    <SOSButton
+                      onTriggerSOS={triggerSOS}
+                      onCancelSOS={cancelSOS}
+                      sosActive={sosActive}
+                      sosMessage={sosMessage}
+                      sosError={sosError}
+                      disabled={loading}
+                      compact={false}
+                    />
                     <Text style={styles.passengerName}>Active Ride: {activeRide.passenger_name || 'Passenger'}</Text>
                     <Text style={styles.requestDetails}>Status: {activeRide.status}</Text>
                     <Text style={styles.requestDetails}>
@@ -1858,6 +1944,12 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                     )}
                     {String(activeRide.status) === 'driver_arrived' && (
                       <>
+                        <PassengerTrackingMap
+                          driverLocation={driverLocation}
+                          pickupLocation={normalizeLocation(activeRide.pickup_location)}
+                          status={activeRideStatus || 'driver_arrived'}
+                          onNavigateToPassenger={openActiveRideNavigation}
+                        />
                         <View style={styles.otpCard}>
                           <Text style={styles.otpCardLabel}>PASSENGER OTP REQUIRED</Text>
                           <Text style={styles.otpCardHint}>Ask passenger to share their pickup OTP</Text>
@@ -1877,6 +1969,22 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                     )}
                     {String(activeRide.status) === 'in_progress' && (
                       <>
+                        <InTripNavigationDisplay
+                          origin={normalizeLocation(activeRide.pickup_location)}
+                          destination={normalizeLocation(activeRide.drop_location || activeRide.dropoff_location)}
+                          currentLocation={driverLocation}
+                          rideStatus={activeRideStatus}
+                          onOpenFullMap={openActiveRideNavigation}
+                        />
+                        <ExpenseTracker
+                          expenses={expenses}
+                          totalExpense={totalExpense}
+                          onAddExpense={addExpense}
+                          onRemoveExpense={removeExpense}
+                          isLoading={expenseLoading}
+                          error={expenseError}
+                          expenseTypes={expenseTypes}
+                        />
                         <View style={styles.otpCard}>
                           <Text style={styles.otpCardLabel}>COMPLETION OTP (Optional)</Text>
                           <Text style={styles.otpCardHint}>Passenger drop-off OTP if available</Text>
@@ -1930,7 +2038,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                       <Text style={styles.offlineText}>No pending requests right now.</Text>
                     </View>
                   ) : (
-                    pendingRequests.map((req) => {
+                    pendingRequests.map((req, idx) => {
                       const pickup = normalizeLocation(
                         req.pickup_location || req.pickup || req.pickup_location_details,
                       );
@@ -1943,6 +2051,15 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                       const isBlocked = blockedPassengerIds.includes(req.passenger_id);
                       return (
                         <View key={req.id} style={styles.requestCardNew}>
+                          {idx === 0 && (
+                            <RequestCountdownDisplay
+                              secondsRemaining={secondsRemaining}
+                              isExpired={isExpired}
+                              formattedTime={formattedTime}
+                              percentage={percentage}
+                              style={styles.countdownDisplay}
+                            />
+                          )}
                           <View style={styles.requestCardHeader}>
                             <View style={styles.requestCardTitle}>
                               <Text style={styles.passengerNameNew}>{req.passenger_name}</Text>
@@ -2032,6 +2149,17 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
           {activeTab === 'earnings' && (
             <>
               <RevenueCard token={token} role={user?.role} />
+              <DriverPerformanceDashboard
+                stats={{
+                  acceptanceRate: 0,
+                  cancellationRate: 0,
+                  onTimePercentage: 0,
+                  completionRate: 0,
+                  averageRating: Number(user?.rating || 0),
+                  rideCount: Number(earnings?.total_rides || 0),
+                  earningsToday: Number(earnings?.today_earnings || 0),
+                }}
+              />
               <View style={styles.earningsPanel}>
                 <EarningsPanel
                   earnings={earnings}
@@ -2045,6 +2173,48 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                 />
               </View>
             </>
+          )}
+
+          {activeTab === 'targets' && (
+            <View style={styles.earningsPanel}>
+              <EarningTargetWidget token={token} driverId={user?.id} />
+            </View>
+          )}
+
+          {activeTab === 'payout' && (
+            <PayoutScheduleWidget
+              isVisible={true}
+              onClose={() => setActiveTab('earnings')}
+              token={token}
+              driverId={user?.id}
+            />
+          )}
+
+          {activeTab === 'paymethods' && (
+            <DriverPaymentMethodsPanel
+              isVisible={true}
+              onClose={() => setActiveTab('earnings')}
+              token={token}
+              driverId={user?.id}
+            />
+          )}
+
+          {activeTab === 'filters' && (
+            <RideFilterPanel
+              isVisible={true}
+              onClose={() => setActiveTab('requests')}
+              token={token}
+              driverId={user?.id}
+            />
+          )}
+
+          {activeTab === 'maintenance' && (
+            <MaintenanceAlertPanel
+              isVisible={true}
+              onClose={() => setActiveTab('vehicle')}
+              token={token}
+              vehicleId={activeVehicleId}
+            />
           )}
 
           {activeTab === 'spin' && (
@@ -2248,13 +2418,23 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
 
           {/* Support Tab */}
           {activeTab === 'support' && (
-            <SupportTicketPanel
-              key={supportLaunchAction}
-              token={token}
-              loading={loading}
-              initialAction={supportLaunchAction}
-              onDataChanged={refreshDriverMenuBadges}
-            />
+            <>
+              <MessageTemplatesPanel
+                onSelectTemplate={(template) => {
+                  setMessage(`Template selected: ${template.text}`);
+                }}
+                onCustomMessage={(text) => {
+                  setMessage(`Template ready: ${text}`);
+                }}
+              />
+              <SupportTicketPanel
+                key={supportLaunchAction}
+                token={token}
+                loading={loading}
+                initialAction={supportLaunchAction}
+                onDataChanged={refreshDriverMenuBadges}
+              />
+            </>
           )}
 
           {/* Analytics Tab */}
@@ -2270,6 +2450,51 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                 setActiveTab('support');
                 setMessage(`Support opened for review ${String(review?.id || review?.booking_id || '').slice(0, 12)}.`);
               }}
+            />
+          )}
+
+          {activeTab === 'pooling' && (
+            <RidePoolingPanel
+              isVisible={true}
+              onClose={() => setActiveTab('requests')}
+              token={token}
+              driverId={user?.id}
+            />
+          )}
+
+          {activeTab === 'taxreports' && (
+            <TaxReportWidget
+              isVisible={true}
+              onClose={() => setActiveTab('earnings')}
+              token={token}
+              driverId={user?.id}
+            />
+          )}
+
+          {activeTab === 'favorites' && (
+            <FavoritePassengersPanel
+              isVisible={true}
+              onClose={() => setActiveTab('requests')}
+              token={token}
+              driverId={user?.id}
+            />
+          )}
+
+          {activeTab === 'shifts' && (
+            <ShiftScheduleCalendar
+              isVisible={true}
+              onClose={() => setActiveTab('earnings')}
+              token={token}
+              driverId={user?.id}
+            />
+          )}
+
+          {activeTab === 'badges' && (
+            <BadgesAchievementsWidget
+              isVisible={true}
+              onClose={() => setActiveTab('earnings')}
+              token={token}
+              driverId={user?.id}
             />
           )}
         </ScrollView>

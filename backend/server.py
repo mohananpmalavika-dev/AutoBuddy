@@ -49,6 +49,7 @@ from app.routers.notifications_addon import router as modular_notifications_rout
 from app.routers.tier1_driver_features import router as modular_tier1_router
 from app.routers.tier2_driver_features import router as modular_tier2_router
 from app.routers.tier3_polish_features import router as modular_tier3_router
+from app.routers.admin import router as modular_admin_router
 from app.db.database import get_feature_database_status
 from app.services.ai_dispatch import build_demand_heatmap, heat_cell as dispatch_heat_cell
 from app.services.revenue_service import (
@@ -328,6 +329,7 @@ sio = socketio.AsyncServer(
     logger=False,
     engineio_logger=False
 )
+app.state.sio = sio
 socket_app = socketio.ASGIApp(sio, socketio_path="/ws/socket.io")
 
 driver_health_monitor_task: Optional[asyncio.Task] = None
@@ -13987,6 +13989,7 @@ app.include_router(modular_notifications_router)
 app.include_router(modular_tier1_router)
 app.include_router(modular_tier2_router)
 app.include_router(modular_tier3_router)
+app.include_router(modular_admin_router)
 app.include_router(api_router)
 app.mount("/ws", socket_app)
 

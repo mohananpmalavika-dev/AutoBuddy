@@ -48,6 +48,9 @@ import PassengerKYCPanel from '../components/PassengerKYCPanel';
 import PassengerDocumentsPanel from '../components/PassengerDocumentsPanel';
 import ReceiptsPanel from '../components/ReceiptsPanel';
 import SubscriptionPanel from '../components/SubscriptionPanel';
+import RideNotesPanel from '../components/RideNotesPanel';
+import LocationSharingPanel from '../components/LocationSharingPanel';
+import RideStatsPanel from '../components/RideStatsPanel';
 import { NotificationProvider, useNotifications } from '../contexts/NotificationContext';
 import { useNotificationManager } from '../hooks/useNotificationManager';
 import { usePassengerRideRealtime } from '../hooks/usePassengerRideRealtime';
@@ -78,6 +81,9 @@ const PASSENGER_MENU_SYMBOLS = {
   documents: { ios: 'doc.text.fill', android: 'description', web: 'description' },
   receipts: { ios: 'list.bullet.rectangle.portrait.fill', android: 'receipt_long', web: 'receipt_long' },
   subscription: { ios: 'checkmark.seal.fill', android: 'workspace_premium', web: 'workspace_premium' },
+  notes: { ios: 'note.text', android: 'note', web: 'note' },
+  sharing: { ios: 'location.fill', android: 'location_on', web: 'location_on' },
+  stats: { ios: 'chart.bar.fill', android: 'bar_chart', web: 'bar_chart' },
 };
 const PASSENGER_MENU_OPTIONS = [
   { key: 'ride', label: 'Ride Booking', symbol: PASSENGER_MENU_SYMBOLS.ride },
@@ -103,15 +109,18 @@ const PASSENGER_MENU_OPTIONS = [
   { key: 'documents', label: 'Documents', symbol: PASSENGER_MENU_SYMBOLS.documents },
   { key: 'receipts', label: 'Receipts', symbol: PASSENGER_MENU_SYMBOLS.receipts },
   { key: 'subscription', label: 'Subscription', symbol: PASSENGER_MENU_SYMBOLS.subscription },
+  { key: 'notes', label: 'Ride Notes', symbol: PASSENGER_MENU_SYMBOLS.notes },
+  { key: 'sharing', label: 'Location Sharing', symbol: PASSENGER_MENU_SYMBOLS.sharing },
+  { key: 'stats', label: 'Ride Stats', symbol: PASSENGER_MENU_SYMBOLS.stats },
 ];
 const PRIMARY_PASSENGER_MENU_KEY = 'ride';
 const buildPassengerMenuOptions = (keys) =>
   keys.map((key) => PASSENGER_MENU_OPTIONS.find((menu) => menu.key === key)).filter(Boolean);
 const PINNED_PASSENGER_MENU_OPTIONS = buildPassengerMenuOptions(['drivers', 'favorites', 'safety', 'wallet']);
 const SECONDARY_PASSENGER_MENU_GROUPS = [
-  { key: 'trip', title: 'Trip', keys: ['scheduled', 'history', 'ratings', 'receipts'] },
+  { key: 'trip', title: 'Trip', keys: ['scheduled', 'history', 'stats', 'notes', 'ratings', 'receipts'] },
   { key: 'deals', title: 'Deals & Payment', keys: ['spin', 'promo', 'payment', 'subscription'] },
-  { key: 'account', title: 'Account', keys: ['profile', 'kyc', 'documents', 'preferences', 'places', 'accessibility'] },
+  { key: 'account', title: 'Account', keys: ['profile', 'kyc', 'documents', 'preferences', 'places', 'accessibility', 'sharing'] },
   { key: 'help', title: 'Help', keys: ['notifications', 'support', 'emergency'] },
 ].map((section) => ({
   ...section,
@@ -2414,6 +2423,23 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           {activePassengerMenu === 'documents' && <PassengerDocumentsPanel token={token} />}
           {activePassengerMenu === 'receipts' && <ReceiptsPanel token={token} />}
           {activePassengerMenu === 'subscription' && <SubscriptionPanel token={token} />}
+          {activePassengerMenu === 'notes' && (
+            <RideNotesPanel
+              token={token}
+              bookingId={activeBooking?.id}
+              onNotesUpdated={() => {
+                setMessage('Ride notes updated');
+              }}
+            />
+          )}
+          {activePassengerMenu === 'sharing' && (
+            <LocationSharingPanel
+              token={token}
+              activeBooking={activeBooking}
+              currentLocation={pickupLocation || activeBooking?.pickup_location}
+            />
+          )}
+          {activePassengerMenu === 'stats' && <RideStatsPanel token={token} />}
         </ScrollView>
 
         {/* Post-Ride Rating Modal */}

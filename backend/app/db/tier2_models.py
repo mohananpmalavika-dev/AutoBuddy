@@ -51,16 +51,21 @@ class RideFilterPreferences(Base):
     )
 
     def to_dict(self):
+        allowed_areas = self.allowed_pickup_areas or []
+        blocked_areas = self.blocked_pickup_areas or []
         return {
             "id": self.id,
             "driver_id": self.driver_id,
             "max_pickup_distance_km": self.max_pickup_distance_km,
             "min_passenger_rating": self.min_passenger_rating,
-            "allowed_pickup_areas": self.allowed_pickup_areas or [],
-            "blocked_pickup_areas": self.blocked_pickup_areas or [],
+            "allowed_areas": allowed_areas,
+            "blocked_areas": blocked_areas,
+            "allowed_pickup_areas": allowed_areas,
+            "blocked_pickup_areas": blocked_areas,
             "time_slot_restrictions": self.time_slot_restrictions,
             "auto_decline_enabled": self.auto_decline_enabled,
             "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
 
@@ -98,13 +103,17 @@ class VehicleMaintenance(Base):
         return {
             "id": self.id,
             "vehicle_id": self.vehicle_id,
+            "driver_id": self.driver_id,
             "maintenance_type": self.maintenance_type,
             "service_date": str(self.service_date),
             "next_due_date": str(self.next_due_date) if self.next_due_date else None,
             "details": self.details,
+            "notes": self.details,
             "cost": float(self.cost) if self.cost else None,
+            "receipt_url": self.receipt_url,
             "status": self.status,
             "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
 
@@ -136,11 +145,14 @@ class VehicleDocumentExpiry(Base):
         return {
             "id": self.id,
             "vehicle_id": self.vehicle_id,
+            "driver_id": self.driver_id,
             "document_type": self.document_type,
             "expiry_date": str(self.expiry_date),
             "days_until_expiry": (self.expiry_date - datetime.now().date()).days,
             "alert_days_before": self.alert_days_before,
             "document_url": self.document_url,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
 
@@ -179,12 +191,15 @@ class EarningTarget(Base):
             "id": self.id,
             "driver_id": self.driver_id,
             "target_amount": float(self.target_amount),
+            "target_period": self.target_period,
             "current_earnings": float(self.current_earnings),
             "progress_percentage": (float(self.current_earnings) / float(self.target_amount) * 100) if self.target_amount > 0 else 0,
             "bonus_earned": float(self.bonus_earned),
             "bonus_multiplier": self.bonus_multiplier,
             "status": self.status,
             "target_week_start": str(self.target_week_start),
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
 
@@ -238,6 +253,8 @@ class DriverPaymentMethod(Base):
             "is_default": self.is_default,
             "is_active": self.is_active,
             "verification_status": self.verification_status,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
 
@@ -282,8 +299,12 @@ class PayoutScheduleConfig(Base):
             "day_of_week": self.day_of_week,
             "day_of_month": self.day_of_month,
             "scheduled_time": str(self.scheduled_time) if self.scheduled_time else None,
+            "schedule_day": self.day_of_month if self.schedule_type == "monthly" else self.day_of_week,
+            "schedule_time": str(self.scheduled_time)[:5] if self.scheduled_time else None,
             "minimum_balance_threshold": float(self.minimum_balance_threshold),
             "is_active": self.is_active,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
 
@@ -319,6 +340,7 @@ class PayoutHistory(Base):
             "id": self.id,
             "driver_id": self.driver_id,
             "amount": float(self.amount),
+            "payment_method_id": self.payment_method_id,
             "status": self.status,
             "transaction_id": self.transaction_id,
             "scheduled_for": self.scheduled_for.isoformat() if self.scheduled_for else None,

@@ -19,9 +19,10 @@ export function useFavoritePassengers({ token, driverId }) {
         token,
       });
 
-      if (response.data && response.data.favorites) {
-        setFavorites(response.data.favorites);
-        return response.data.favorites;
+      const payload = response?.data || response;
+      if (payload?.favorites) {
+        setFavorites(payload.favorites);
+        return payload.favorites;
       }
     } catch (err) {
       setError(`Failed to load favorites: ${err.message}`);
@@ -46,9 +47,10 @@ export function useFavoritePassengers({ token, driverId }) {
         },
       });
 
-      if (response.data) {
-        setFavorites(prev => [...prev, response.data]);
-        return response.data;
+      const payload = response?.data || response;
+      if (payload) {
+        setFavorites(prev => [...prev, payload]);
+        return payload;
       }
     } catch (err) {
       setError(`Failed to add favorite: ${err.message}`);
@@ -70,11 +72,12 @@ export function useFavoritePassengers({ token, driverId }) {
         },
       });
 
-      if (response.data) {
+      const payload = response?.data || response;
+      if (payload) {
         setFavorites(prev =>
-          prev.map(fav => (fav.passenger_id === passengerId ? response.data : fav))
+          prev.map(fav => (fav.passenger_id === passengerId ? payload : fav))
         );
-        return response.data;
+        return payload;
       }
     } catch (err) {
       setError(`Failed to update favorite: ${err.message}`);

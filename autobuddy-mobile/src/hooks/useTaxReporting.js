@@ -26,10 +26,11 @@ export function useTaxReporting({ token, driverId }) {
         },
       });
 
-      if (response.data) {
-        setCurrentReport(response.data);
-        setTaxReports(prev => [response.data, ...prev]);
-        return response.data;
+      const payload = response?.data || response;
+      if (payload) {
+        setCurrentReport(payload);
+        setTaxReports(prev => [payload, ...prev]);
+        return payload;
       }
     } catch (err) {
       setError(`Failed to generate report: ${err.message}`);
@@ -52,9 +53,10 @@ export function useTaxReporting({ token, driverId }) {
         token,
       });
 
-      if (response.data && response.data.reports) {
-        setTaxReports(response.data.reports);
-        return response.data.reports;
+      const payload = response?.data || response;
+      if (payload?.reports) {
+        setTaxReports(payload.reports);
+        return payload.reports;
       }
     } catch (err) {
       setError(`Failed to load tax history: ${err.message}`);
@@ -74,8 +76,9 @@ export function useTaxReporting({ token, driverId }) {
         token,
       });
 
-      if (response.data) {
-        return response.data.download_url;
+      const payload = response?.data || response;
+      if (payload) {
+        return payload.download_url;
       }
     } catch (err) {
       setError(`Failed to download report: ${err.message}`);

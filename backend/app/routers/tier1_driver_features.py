@@ -3,9 +3,9 @@ TIER 1 Driver Features - API Endpoints
 Implements GPS tracking, SOS alerts, and expense tracking
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Query, status
+from fastapi import APIRouter, HTTPException, Depends, Query, Request, status
 from pydantic import BaseModel, Field, validator
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, and_, func
@@ -13,14 +13,21 @@ import uuid
 import asyncio
 
 # Import models
-from backend.app.db.tier1_models import (
+from app.db.tier1_models import (
     DriverGPSLocation, SOSAlert, DriverExpense, DriverLocationStats,
     ExpenseType, SOSStatus, get_ist_now
 )
-from backend.app.db.database import get_db
+from app.db.database import get_db
 
 # Import dependencies
-from backend.app.routers.auth import verify_token
+from app.routers.auth import verify_token
+
+
+async def get_driver_id_from_token(user_data: dict = Depends(verify_token)) -> str:
+    driver_id = str(user_data.get("driver_id") or user_data.get("id") or "").strip()
+    if not driver_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Driver authentication required")
+    return driver_id
 
 # ============================================================================
 # Pydantic Models (Request/Response)
@@ -43,7 +50,7 @@ class LocationUpdateRequest(BaseModel):
         return round(v, 6)  # 6 decimals ≈ 11cm precision
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "latitude": 12.9716,
                 "longitude": 77.5946,
@@ -88,7 +95,7 @@ class SOSAlertRequest(BaseModel):
         return v
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "reason": "accident",
                 "description": "Hit a pothole, possible injuries",
@@ -133,7 +140,7 @@ class ExpenseRequest(BaseModel):
         return v
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "expense_type": "toll",
                 "amount": 150.00,
@@ -170,15 +177,221 @@ SOS_COOLDOWN_SECONDS = 5
 last_sos_time = {}  # {driver_id: datetime}
 
 
+def _mongo_db(request: Request):
+    return getattr(getattr(request, "app", None), "state", None) and getattr(request.app.state, "db", None)
+
+
+def _socket_server(request: Request):
+    return getattr(getattr(request, "app", None), "state", None) and getattr(request.app.state, "sio", None)
+
+
+def _ride_room(booking_id: str) -> str:
+    return f"ride:{str(booking_id or '').strip()}"
+
+
+def _user_room(user_id: str) -> str:
+    return f"user:{str(user_id or '').strip()}"
+
+
+def _location_payload(driver_id: str, location: DriverGPSLocation) -> Dict[str, Any]:
+    created_at = location.created_at.isoformat() if location.created_at else get_ist_now().isoformat()
+    return {
+        "booking_id": location.ride_id,
+        "ride_id": location.ride_id,
+        "driver_id": driver_id,
+        "location": {
+            "latitude": location.latitude,
+            "longitude": location.longitude,
+            "accuracy": location.accuracy,
+            "speed": location.speed,
+            "altitude": location.altitude,
+            "address": location.address,
+            "updated_at": created_at,
+        },
+        "latitude": location.latitude,
+        "longitude": location.longitude,
+        "accuracy": location.accuracy,
+        "speed": location.speed,
+        "timestamp": created_at,
+    }
+
+
+async def _active_booking(mongo_db, driver_id: str, ride_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    if mongo_db is None:
+        return None
+    if ride_id:
+        booking = await mongo_db.bookings.find_one({"id": str(ride_id)}, {"_id": 0})
+        if booking:
+            return booking
+    return await mongo_db.bookings.find_one(
+        {
+            "driver_id": driver_id,
+            "status": {"$in": ["accepted", "driver_arrived", "in_progress", "BookingStatus.ACCEPTED", "BookingStatus.DRIVER_ARRIVED", "BookingStatus.IN_PROGRESS"]},
+        },
+        {"_id": 0},
+        sort=[("updated_at", -1), ("created_at", -1)],
+    )
+
+
+async def _broadcast_driver_location(request: Request, driver_id: str, location: DriverGPSLocation) -> None:
+    mongo_db = _mongo_db(request)
+    sio = _socket_server(request)
+    payload = _location_payload(driver_id, location)
+    booking = await _active_booking(mongo_db, driver_id, location.ride_id)
+    booking_id = str((booking or {}).get("id") or location.ride_id or "").strip()
+    if booking_id:
+        payload["booking_id"] = booking_id
+        payload["ride_id"] = booking_id
+
+    if mongo_db is not None:
+        location_doc = payload["location"]
+        geo_location = {
+            "type": "Point",
+            "coordinates": [float(location.longitude), float(location.latitude)],
+        }
+        await mongo_db.drivers.update_one(
+            {"user_id": driver_id},
+            {
+                "$set": {
+                    "current_location": location_doc,
+                    "current_location_geo": geo_location,
+                    "last_location_at": get_ist_now(),
+                    "is_online": True,
+                }
+            },
+            upsert=True,
+        )
+        if booking_id:
+            await mongo_db.bookings.update_one(
+                {"id": booking_id, "driver_id": driver_id},
+                {
+                    "$set": {
+                        "driver_live_location": location_doc,
+                        "driver_location": location_doc,
+                        "updated_at": get_ist_now(),
+                    }
+                },
+            )
+
+    if sio is None or not booking_id:
+        return
+
+    await sio.emit("driver_location_changed", payload, room=_ride_room(booking_id))
+    await sio.emit("driver_location", payload, room=_ride_room(booking_id))
+    await sio.emit("driver_location_changed", payload, room=f"booking:{booking_id}")
+    await sio.emit("driver_location", payload, room=f"booking:{booking_id}")
+    passenger_id = str((booking or {}).get("passenger_id") or "").strip()
+    if passenger_id:
+        await sio.emit("driver_location_changed", payload, room=_user_room(passenger_id))
+        await sio.emit("driver_location", payload, room=_user_room(passenger_id))
+
+
+async def _notify_sos(request: Request, sos: SOSAlert, *, cancelled: bool = False) -> None:
+    mongo_db = _mongo_db(request)
+    sio = _socket_server(request)
+    event_name = "sos_alert_cancelled" if cancelled else "sos_alert"
+    title = "SOS alert cancelled" if cancelled else "Driver SOS alert"
+    body = "A driver cancelled an SOS alert." if cancelled else "A driver triggered an SOS alert."
+    payload = {
+        "alert_id": sos.id,
+        "driver_id": sos.driver_id,
+        "booking_id": sos.ride_id,
+        "reason": sos.reason,
+        "status": sos.status,
+        "latitude": sos.latitude,
+        "longitude": sos.longitude,
+        "address": sos.address,
+        "timestamp": get_ist_now().isoformat(),
+    }
+
+    booking = await _active_booking(mongo_db, sos.driver_id, sos.ride_id)
+    recipient_ids: set[str] = set()
+    if mongo_db is not None:
+        admin_users = await mongo_db.users.find({"role": {"$in": ["admin", "ADMIN"]}}, {"_id": 0, "id": 1}).to_list(50)
+        recipient_ids.update(str(user.get("id") or "").strip() for user in admin_users)
+        passenger_id = str((booking or {}).get("passenger_id") or "").strip()
+        if passenger_id:
+            recipient_ids.add(passenger_id)
+
+        notification_docs = [
+            {
+                "id": str(uuid.uuid4()),
+                "user_id": recipient_id,
+                "type": event_name,
+                "title": title,
+                "body": body,
+                "data": payload,
+                "read": False,
+                "created_at": get_ist_now(),
+            }
+            for recipient_id in recipient_ids
+            if recipient_id
+        ]
+        if notification_docs:
+            await mongo_db.notifications.insert_many(notification_docs)
+
+    if sio is None:
+        return
+    booking_id = str(sos.ride_id or "").strip()
+    if booking_id:
+        await sio.emit(event_name, payload, room=_ride_room(booking_id))
+        await sio.emit(event_name, payload, room=f"booking:{booking_id}")
+    for recipient_id in recipient_ids:
+        if recipient_id:
+            await sio.emit(event_name, payload, room=_user_room(recipient_id))
+            await sio.emit("in_app_notification", {"title": title, "body": body, "data": payload}, room=_user_room(recipient_id))
+
+
+def _expense_total(db: Session, ride_id: str, driver_id: str) -> float:
+    total = db.query(func.coalesce(func.sum(DriverExpense.amount), 0.0)).filter(
+        DriverExpense.ride_id == ride_id,
+        DriverExpense.driver_id == driver_id,
+    ).scalar()
+    return float(total or 0.0)
+
+
+async def _sync_ride_expense_totals(request: Request, db: Session, ride_id: str, driver_id: str) -> None:
+    mongo_db = _mongo_db(request)
+    sio = _socket_server(request)
+    if mongo_db is None:
+        return
+
+    total_expenses = _expense_total(db, ride_id, driver_id)
+    booking = await mongo_db.bookings.find_one({"id": ride_id, "driver_id": driver_id}, {"_id": 0})
+    fare = float((booking or {}).get("final_fare") or (booking or {}).get("estimated_fare") or 0.0)
+    driver_net_earnings = max(0.0, fare - total_expenses) if fare else None
+    update = {
+        "driver_expenses_total": total_expenses,
+        "total_expenses": total_expenses,
+        "updated_at": get_ist_now(),
+    }
+    if driver_net_earnings is not None:
+        update["driver_net_earnings"] = driver_net_earnings
+    await mongo_db.bookings.update_one({"id": ride_id, "driver_id": driver_id}, {"$set": update})
+
+    if sio is not None:
+        payload = {
+            "booking_id": ride_id,
+            "ride_id": ride_id,
+            "driver_id": driver_id,
+            "total_expenses": total_expenses,
+            "driver_net_earnings": driver_net_earnings,
+            "timestamp": get_ist_now().isoformat(),
+        }
+        await sio.emit("driver_expenses_updated", payload, room=_ride_room(ride_id))
+        await sio.emit("driver_expenses_updated", payload, room=f"booking:{ride_id}")
+
+
 # ============================================================================
 # GPS Location Endpoints
 # ============================================================================
 
 @router.post("/location", response_model=LocationResponse, status_code=status.HTTP_201_CREATED)
 async def post_driver_location(
+    request: Request,
     location: LocationUpdateRequest,
     db: Session = Depends(get_db),
-    driver_id: str = Depends(verify_token)
+    driver_id: str = Depends(get_driver_id_from_token)
 ):
     """
     Store real-time GPS location for driver
@@ -210,8 +423,7 @@ async def post_driver_location(
         db.commit()
         db.refresh(db_location)
         
-        # TODO: Emit WebSocket event to passengers
-        # await broadcast_driver_location(driver_id, db_location.to_dict())
+        await _broadcast_driver_location(request, driver_id, db_location)
         
         return LocationResponse(**db_location.to_dict())
     
@@ -226,7 +438,7 @@ async def post_driver_location(
 @router.get("/location", response_model=LocationResponse)
 async def get_driver_location(
     db: Session = Depends(get_db),
-    driver_id: str = Depends(verify_token)
+    driver_id: str = Depends(get_driver_id_from_token)
 ):
     """
     Get current driver GPS location
@@ -255,7 +467,7 @@ async def get_location_history(
     ride_id: Optional[str] = Query(None, description="Optional ride ID filter"),
     limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
-    driver_id: str = Depends(verify_token)
+    driver_id: str = Depends(get_driver_id_from_token)
 ):
     """
     Get location history for a driver
@@ -290,9 +502,10 @@ async def get_location_history(
 
 @router.post("/sos", response_model=SOSAlertResponse, status_code=status.HTTP_201_CREATED)
 async def post_sos_alert(
+    request: Request,
     alert: SOSAlertRequest,
     db: Session = Depends(get_db),
-    driver_id: str = Depends(verify_token)
+    driver_id: str = Depends(get_driver_id_from_token)
 ):
     """
     Trigger SOS emergency alert
@@ -333,7 +546,7 @@ async def post_sos_alert(
             contact_phone=alert.contact_phone,
             contact_name=alert.contact_name,
             created_at=get_ist_now(),
-            authorities_notified=True,  # Mark for notification service
+            authorities_notified=False,
             admin_notified=True
         )
         
@@ -344,11 +557,7 @@ async def post_sos_alert(
         # Update cooldown
         last_sos_time[driver_id] = get_ist_now()
         
-        # TODO: Integrate with Twilio or emergency service provider
-        # await notify_emergency_services(db_sos)
-        # await notify_admin(db_sos)
-        # if alert.ride_id:
-        #     await notify_passenger(alert.ride_id, db_sos)
+        await _notify_sos(request, db_sos)
         
         return SOSAlertResponse(**db_sos.to_dict())
     
@@ -363,8 +572,9 @@ async def post_sos_alert(
 @router.post("/sos/{sos_id}/cancel", response_model=dict)
 async def cancel_sos_alert(
     sos_id: str,
+    request: Request,
     db: Session = Depends(get_db),
-    driver_id: str = Depends(verify_token)
+    driver_id: str = Depends(get_driver_id_from_token)
 ):
     """
     Cancel active SOS alert
@@ -405,10 +615,7 @@ async def cancel_sos_alert(
         sos.status = SOSStatus.CANCELLED.value
         sos.cancelled_at = get_ist_now()
         db.commit()
-        
-        # TODO: Notify emergency services and admin of cancellation
-        # await notify_emergency_services_cancel(sos_id)
-        # await notify_admin_cancel(sos_id)
+        await _notify_sos(request, sos, cancelled=True)
         
         return {
             "status": "cancelled",
@@ -430,7 +637,7 @@ async def get_sos_alerts(
     status_filter: Optional[str] = Query(None, description="Filter by status"),
     limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
-    driver_id: str = Depends(verify_token)
+    driver_id: str = Depends(get_driver_id_from_token)
 ):
     """
     Get SOS alert history for driver
@@ -463,9 +670,10 @@ async def get_sos_alerts(
 @router.post("/rides/{ride_id}/expenses", response_model=ExpenseResponse, status_code=status.HTTP_201_CREATED)
 async def add_expense(
     ride_id: str,
+    request: Request,
     expense: ExpenseRequest,
     db: Session = Depends(get_db),
-    driver_id: str = Depends(verify_token)
+    driver_id: str = Depends(get_driver_id_from_token)
 ):
     """
     Add expense record for a ride
@@ -501,9 +709,7 @@ async def add_expense(
         db.add(db_expense)
         db.commit()
         db.refresh(db_expense)
-        
-        # TODO: Update ride total_expenses
-        # TODO: Recalculate driver earnings (fare - total_expenses)
+        await _sync_ride_expense_totals(request, db, ride_id, driver_id)
         
         return ExpenseResponse(**db_expense.to_dict())
     
@@ -519,7 +725,7 @@ async def add_expense(
 async def get_ride_expenses(
     ride_id: str,
     db: Session = Depends(get_db),
-    driver_id: str = Depends(verify_token)
+    driver_id: str = Depends(get_driver_id_from_token)
 ):
     """
     Get all expenses for a ride
@@ -546,8 +752,9 @@ async def get_ride_expenses(
 @router.delete("/expenses/{expense_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_expense(
     expense_id: str,
+    request: Request,
     db: Session = Depends(get_db),
-    driver_id: str = Depends(verify_token)
+    driver_id: str = Depends(get_driver_id_from_token)
 ):
     """
     Delete expense record
@@ -580,12 +787,11 @@ async def delete_expense(
             detail="Cannot delete expense after 5 minutes. Contact support for manual adjustment."
         )
     
+    ride_id = expense.ride_id
     try:
         db.delete(expense)
         db.commit()
-        
-        # TODO: Update ride total_expenses
-        # TODO: Recalculate driver earnings
+        await _sync_ride_expense_totals(request, db, ride_id, driver_id)
         
     except Exception as e:
         db.rollback()
@@ -598,9 +804,10 @@ async def delete_expense(
 @router.patch("/expenses/{expense_id}", response_model=ExpenseResponse)
 async def update_expense(
     expense_id: str,
+    request: Request,
     expense_update: ExpenseRequest,
     db: Session = Depends(get_db),
-    driver_id: str = Depends(verify_token)
+    driver_id: str = Depends(get_driver_id_from_token)
 ):
     """
     Update expense record
@@ -646,9 +853,7 @@ async def update_expense(
         
         db.commit()
         db.refresh(expense)
-        
-        # TODO: Update ride total_expenses
-        # TODO: Recalculate driver earnings
+        await _sync_ride_expense_totals(request, db, expense.ride_id, driver_id)
         
         return ExpenseResponse(**expense.to_dict())
     
@@ -664,7 +869,7 @@ async def update_expense(
 async def get_expense_summary(
     ride_id: str,
     db: Session = Depends(get_db),
-    driver_id: str = Depends(verify_token)
+    driver_id: str = Depends(get_driver_id_from_token)
 ):
     """
     Get expense summary for a ride

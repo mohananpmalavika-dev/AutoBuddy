@@ -1,13 +1,11 @@
 import React, { useCallback, useMemo } from 'react';
 import {
-  Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
   ScrollView,
 } from 'react-native';
-import { SymbolView } from 'expo-symbols';
 import { COLORS, SHADOWS } from '../theme';
 
 const HIT_SLOP = { top: 8, right: 8, bottom: 8, left: 8 };
@@ -21,33 +19,228 @@ const SECTION_LABELS = {
   tools: 'Tools',
 };
 
+const ICON_KIND_BY_TAB = {
+  requests: 'car',
+  upcoming: 'calendar',
+  earnings: 'wallet',
+  support: 'support',
+  history: 'clock',
+  notifications: 'bell',
+  profile: 'person',
+  documents: 'document',
+  vehicle: 'car',
+  trust: 'shield',
+  subscription: 'card',
+  fare: 'tag',
+  analytics: 'chart',
+  reviews: 'medal',
+  targets: 'target',
+  payout: 'wallet',
+  paymethods: 'card',
+  blocked: 'block',
+  safety: 'shield',
+  spin: 'spark',
+  filters: 'filter',
+  maintenance: 'wrench',
+  actions: 'bolt',
+  settings: 'gear',
+  pooling: 'people',
+  taxreports: 'document',
+  favorites: 'heart',
+  shifts: 'calendar',
+  badges: 'medal',
+};
+
+function LineIcon({ kind, color, size }) {
+  const scale = size / 22;
+  const px = (value) => Math.max(1, Math.round(value * scale));
+
+  const line = (style) => <View style={[styles.iconLine, { backgroundColor: color }, style]} />;
+  const circle = (style) => <View style={[styles.iconCircle, { borderColor: color }, style]} />;
+  const fill = (style) => <View style={[styles.iconFill, { backgroundColor: color }, style]} />;
+  const box = (style) => <View style={[styles.iconBox, { borderColor: color }, style]} />;
+
+  switch (kind) {
+    case 'car':
+      return (
+        <>
+          {box({ left: px(3), top: px(8), width: px(16), height: px(7), borderRadius: px(4) })}
+          {line({ left: px(6), top: px(5), width: px(10), transform: [{ rotate: '0deg' }] })}
+          {fill({ left: px(5), top: px(16), width: px(4), height: px(4), borderRadius: px(2) })}
+          {fill({ right: px(5), top: px(16), width: px(4), height: px(4), borderRadius: px(2) })}
+        </>
+      );
+    case 'calendar':
+      return (
+        <>
+          {box({ left: px(4), top: px(5), width: px(14), height: px(14), borderRadius: px(3) })}
+          {line({ left: px(5), top: px(9), width: px(12) })}
+          {fill({ left: px(7), top: px(3), width: px(2), height: px(4), borderRadius: px(1) })}
+          {fill({ right: px(7), top: px(3), width: px(2), height: px(4), borderRadius: px(1) })}
+        </>
+      );
+    case 'wallet':
+    case 'card':
+      return (
+        <>
+          {box({ left: px(3), top: px(6), width: px(16), height: px(11), borderRadius: px(3) })}
+          {line({ left: px(5), top: kind === 'card' ? px(10) : px(9), width: px(12) })}
+          {fill({ right: px(6), top: px(13), width: px(3), height: px(3), borderRadius: px(2) })}
+        </>
+      );
+    case 'support':
+      return (
+        <>
+          {circle({ left: px(4), top: px(4), width: px(14), height: px(14), borderRadius: px(7) })}
+          {line({ left: px(2), top: px(11), width: px(4) })}
+          {line({ right: px(2), top: px(11), width: px(4) })}
+          {line({ right: px(5), top: px(16), width: px(6) })}
+        </>
+      );
+    case 'clock':
+      return (
+        <>
+          {circle({ left: px(3), top: px(3), width: px(16), height: px(16), borderRadius: px(8) })}
+          {line({ left: px(10), top: px(7), width: px(2), height: px(6) })}
+          {line({ left: px(11), top: px(12), width: px(5) })}
+        </>
+      );
+    case 'bell':
+      return (
+        <>
+          {box({ left: px(5), top: px(6), width: px(12), height: px(10), borderRadius: px(6) })}
+          {line({ left: px(4), top: px(16), width: px(14) })}
+          {fill({ left: px(10), top: px(18), width: px(3), height: px(3), borderRadius: px(2) })}
+        </>
+      );
+    case 'person':
+      return (
+        <>
+          {circle({ left: px(8), top: px(3), width: px(7), height: px(7), borderRadius: px(4) })}
+          {box({ left: px(5), top: px(12), width: px(12), height: px(7), borderRadius: px(6) })}
+        </>
+      );
+    case 'document':
+      return (
+        <>
+          {box({ left: px(5), top: px(3), width: px(12), height: px(16), borderRadius: px(2) })}
+          {line({ left: px(8), top: px(8), width: px(6) })}
+          {line({ left: px(8), top: px(12), width: px(6) })}
+          {line({ left: px(8), top: px(16), width: px(4) })}
+        </>
+      );
+    case 'shield':
+      return (
+        <>
+          {box({ left: px(5), top: px(3), width: px(12), height: px(16), borderRadius: px(5) })}
+          {line({ left: px(8), top: px(11), width: px(7), transform: [{ rotate: '-35deg' }] })}
+        </>
+      );
+    case 'tag':
+      return (
+        <>
+          {box({ left: px(6), top: px(6), width: px(11), height: px(11), borderRadius: px(2), transform: [{ rotate: '45deg' }] })}
+          {fill({ left: px(9), top: px(8), width: px(3), height: px(3), borderRadius: px(2) })}
+        </>
+      );
+    case 'chart':
+      return (
+        <>
+          {fill({ left: px(4), top: px(12), width: px(3), height: px(7), borderRadius: px(1) })}
+          {fill({ left: px(10), top: px(8), width: px(3), height: px(11), borderRadius: px(1) })}
+          {fill({ left: px(16), top: px(5), width: px(3), height: px(14), borderRadius: px(1) })}
+        </>
+      );
+    case 'target':
+      return (
+        <>
+          {circle({ left: px(3), top: px(3), width: px(16), height: px(16), borderRadius: px(8) })}
+          {circle({ left: px(7), top: px(7), width: px(8), height: px(8), borderRadius: px(4) })}
+          {fill({ left: px(10), top: px(10), width: px(3), height: px(3), borderRadius: px(2) })}
+        </>
+      );
+    case 'block':
+      return (
+        <>
+          {circle({ left: px(3), top: px(3), width: px(16), height: px(16), borderRadius: px(8) })}
+          {line({ left: px(6), top: px(11), width: px(11), transform: [{ rotate: '-35deg' }] })}
+        </>
+      );
+    case 'filter':
+      return (
+        <>
+          {line({ left: px(3), top: px(6), width: px(16) })}
+          {line({ left: px(6), top: px(11), width: px(10) })}
+          {line({ left: px(9), top: px(16), width: px(4) })}
+        </>
+      );
+    case 'wrench':
+      return (
+        <>
+          {line({ left: px(5), top: px(11), width: px(13), transform: [{ rotate: '-45deg' }] })}
+          {circle({ left: px(3), top: px(3), width: px(7), height: px(7), borderRadius: px(4) })}
+          {fill({ right: px(4), bottom: px(3), width: px(4), height: px(4), borderRadius: px(2) })}
+        </>
+      );
+    case 'gear':
+      return (
+        <>
+          {circle({ left: px(6), top: px(6), width: px(10), height: px(10), borderRadius: px(5) })}
+          {fill({ left: px(10), top: px(2), width: px(3), height: px(4), borderRadius: px(1) })}
+          {fill({ left: px(10), bottom: px(2), width: px(3), height: px(4), borderRadius: px(1) })}
+          {fill({ left: px(2), top: px(10), width: px(4), height: px(3), borderRadius: px(1) })}
+          {fill({ right: px(2), top: px(10), width: px(4), height: px(3), borderRadius: px(1) })}
+        </>
+      );
+    case 'people':
+      return (
+        <>
+          {circle({ left: px(5), top: px(4), width: px(6), height: px(6), borderRadius: px(3) })}
+          {circle({ right: px(5), top: px(4), width: px(6), height: px(6), borderRadius: px(3) })}
+          {box({ left: px(3), top: px(12), width: px(8), height: px(6), borderRadius: px(4) })}
+          {box({ right: px(3), top: px(12), width: px(8), height: px(6), borderRadius: px(4) })}
+        </>
+      );
+    case 'heart':
+      return (
+        <>
+          {circle({ left: px(5), top: px(5), width: px(7), height: px(7), borderRadius: px(4) })}
+          {circle({ right: px(5), top: px(5), width: px(7), height: px(7), borderRadius: px(4) })}
+          {box({ left: px(7), top: px(9), width: px(8), height: px(8), borderRadius: px(2), transform: [{ rotate: '45deg' }] })}
+        </>
+      );
+    case 'medal':
+      return (
+        <>
+          {line({ left: px(6), top: px(3), width: px(4), transform: [{ rotate: '55deg' }] })}
+          {line({ right: px(6), top: px(3), width: px(4), transform: [{ rotate: '-55deg' }] })}
+          {circle({ left: px(6), top: px(9), width: px(10), height: px(10), borderRadius: px(5) })}
+        </>
+      );
+    case 'spark':
+    case 'bolt':
+    default:
+      return (
+        <>
+          {line({ left: px(10), top: px(3), width: px(2), height: px(16) })}
+          {line({ left: px(3), top: px(10), width: px(16) })}
+          {line({ left: px(6), top: px(6), width: px(10), transform: [{ rotate: '45deg' }] })}
+        </>
+      );
+  }
+}
+
 function TabIcon({ tab, active, compact = false }) {
   const color = active ? COLORS.primary : COLORS.textMuted;
   const size = compact ? 22 : 20;
-  const symbolName =
-    typeof tab.symbol === 'string'
-      ? tab.symbol
-      : tab.symbol?.[Platform.OS] || tab.symbol?.web || tab.symbol?.android || tab.symbol?.ios;
-
-  if (Platform.OS === 'web') {
-    return (
-      <Text style={[styles.fallbackIcon, active && styles.fallbackIconActive]}>
-        {tab.fallbackIcon}
-      </Text>
-    );
-  }
-
+  const kind = ICON_KIND_BY_TAB[tab.key] || 'spark';
   return (
-    <SymbolView
-      name={symbolName}
-      size={size}
-      tintColor={color}
-      fallback={
-        <Text style={[styles.fallbackIcon, active && styles.fallbackIconActive]}>
-          {tab.fallbackIcon}
-        </Text>
-      }
-    />
+    <View
+      style={[styles.iconFrame, { width: size, height: size }]}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants">
+      <LineIcon kind={kind} color={color} size={size} />
+    </View>
   );
 }
 
@@ -94,6 +287,33 @@ function TabButton({ tab, active, onPress, compact = false, primary = false }) {
   );
 }
 
+function SectionButton({ section, selected, badgeCount, onPress, compact = false }) {
+  const badgePhrase = badgeCount ? `, ${badgeCount} attention ${badgeCount === 1 ? 'item' : 'items'}` : '';
+  return (
+    <TouchableOpacity
+      style={[
+        compact ? styles.sidebarSectionButton : styles.sectionButton,
+        selected && (compact ? styles.sidebarSectionButtonActive : styles.sectionButtonActive),
+      ]}
+      onPress={() => onPress(section.key)}
+      accessibilityRole="button"
+      accessibilityLabel={`${section.label} driver tools${badgePhrase}`}
+      accessibilityHint={`Show ${section.label.toLowerCase()} driver tools.`}
+      accessibilityState={{ selected }}
+      hitSlop={HIT_SLOP}>
+      <Text
+        style={[
+          compact ? styles.sidebarSectionButtonText : styles.sectionButtonText,
+          selected && (compact ? styles.sidebarSectionButtonTextActive : styles.sectionButtonTextActive),
+        ]}
+        numberOfLines={1}>
+        {section.label}
+      </Text>
+      <TabBadge count={badgeCount} />
+    </TouchableOpacity>
+  );
+}
+
 export default function DriverTabBar({
   activeTab = 'requests',
   onTabChange,
@@ -116,8 +336,6 @@ export default function DriverTabBar({
       label: 'Ride Flow',
       section: 'drive',
       pinned: true,
-      symbol: { ios: 'car.fill', android: 'directions_car', web: 'directions_car' },
-      fallbackIcon: 'RF',
       badge: requestCount > 0 ? requestCount : null,
       hint: 'Open active rides and incoming requests.',
     },
@@ -126,8 +344,6 @@ export default function DriverTabBar({
       label: 'Upcoming',
       section: 'drive',
       pinned: true,
-      symbol: { ios: 'calendar', android: 'event_upcoming', web: 'event_upcoming' },
-      fallbackIcon: 'UP',
       badge: upcomingCount > 0 ? upcomingCount : null,
       hint: 'Open scheduled and upcoming rides.',
     },
@@ -136,8 +352,6 @@ export default function DriverTabBar({
       label: 'Earnings',
       section: 'money',
       pinned: true,
-      symbol: { ios: 'creditcard.fill', android: 'payments', web: 'payments' },
-      fallbackIcon: 'INR',
       badge: getBadgeCount('earnings'),
       hint: 'Open earnings, payouts, and withdrawals.',
     },
@@ -146,8 +360,6 @@ export default function DriverTabBar({
       label: 'Support',
       section: 'safety',
       pinned: true,
-      symbol: { ios: 'headphones', android: 'support_agent', web: 'support_agent' },
-      fallbackIcon: 'HP',
       badge: getBadgeCount('support'),
       hint: 'Open driver support and help tickets.',
     },
@@ -155,8 +367,6 @@ export default function DriverTabBar({
       key: 'history',
       label: 'History',
       section: 'drive',
-      symbol: { ios: 'clock.arrow.circlepath', android: 'history', web: 'history' },
-      fallbackIcon: 'HI',
       badge: null,
       hint: 'Open completed and past rides.',
     },
@@ -164,8 +374,6 @@ export default function DriverTabBar({
       key: 'notifications',
       label: 'Alerts',
       section: 'drive',
-      symbol: { ios: 'bell.fill', android: 'notifications', web: 'notifications' },
-      fallbackIcon: 'AL',
       badge: notificationCount > 0 ? notificationCount : null,
       hint: 'Open driver notifications.',
     },
@@ -173,8 +381,6 @@ export default function DriverTabBar({
       key: 'profile',
       label: 'Profile',
       section: 'account',
-      symbol: { ios: 'person.crop.circle', android: 'account_circle', web: 'account_circle' },
-      fallbackIcon: 'PR',
       badge: getBadgeCount('profile'),
       hint: 'Open driver profile details.',
     },
@@ -182,8 +388,6 @@ export default function DriverTabBar({
       key: 'documents',
       label: 'Documents',
       section: 'account',
-      symbol: { ios: 'doc.text.fill', android: 'description', web: 'description' },
-      fallbackIcon: 'DO',
       badge: getBadgeCount('documents'),
       hint: 'Open driver documents.',
     },
@@ -191,8 +395,6 @@ export default function DriverTabBar({
       key: 'vehicle',
       label: 'Vehicle',
       section: 'account',
-      symbol: { ios: 'car.side.fill', android: 'directions_car_filled', web: 'directions_car_filled' },
-      fallbackIcon: 'VE',
       badge: getBadgeCount('vehicle'),
       hint: 'Open vehicle details.',
     },
@@ -200,8 +402,6 @@ export default function DriverTabBar({
       key: 'trust',
       label: 'Trust',
       section: 'account',
-      symbol: { ios: 'checkmark.shield.fill', android: 'verified_user', web: 'verified_user' },
-      fallbackIcon: 'TR',
       badge: getBadgeCount('trust'),
       hint: 'Open KYC and trust checks.',
     },
@@ -209,8 +409,6 @@ export default function DriverTabBar({
       key: 'subscription',
       label: 'Plan',
       section: 'account',
-      symbol: { ios: 'creditcard', android: 'card_membership', web: 'card_membership' },
-      fallbackIcon: 'PL',
       badge: getBadgeCount('subscription'),
       hint: 'Open subscription status.',
     },
@@ -218,8 +416,6 @@ export default function DriverTabBar({
       key: 'fare',
       label: 'Fare',
       section: 'money',
-      symbol: { ios: 'tag.fill', android: 'local_offer', web: 'local_offer' },
-      fallbackIcon: 'FA',
       badge: null,
       hint: 'Open fare pricing controls.',
     },
@@ -227,8 +423,6 @@ export default function DriverTabBar({
       key: 'analytics',
       label: 'Analytics',
       section: 'money',
-      symbol: { ios: 'chart.bar.xaxis', android: 'analytics', web: 'analytics' },
-      fallbackIcon: 'AN',
       badge: null,
       hint: 'Open driver analytics.',
     },
@@ -236,17 +430,34 @@ export default function DriverTabBar({
       key: 'reviews',
       label: 'Reviews',
       section: 'money',
-      symbol: { ios: 'star.fill', android: 'reviews', web: 'reviews' },
-      fallbackIcon: 'RV',
       badge: getBadgeCount('reviews'),
       hint: 'Open driver ratings and reviews.',
+    },
+    {
+      key: 'targets',
+      label: 'Targets',
+      section: 'money',
+      badge: null,
+      hint: 'Open earning targets and progress.',
+    },
+    {
+      key: 'payout',
+      label: 'Payout',
+      section: 'money',
+      badge: null,
+      hint: 'Open payout methods and schedule.',
+    },
+    {
+      key: 'paymethods',
+      label: 'Pay Methods',
+      section: 'money',
+      badge: null,
+      hint: 'Open driver payout methods.',
     },
     {
       key: 'blocked',
       label: 'Blocked',
       section: 'safety',
-      symbol: { ios: 'nosign', android: 'block', web: 'block' },
-      fallbackIcon: 'BL',
       badge: null,
       hint: 'Open blocked passengers.',
     },
@@ -254,8 +465,6 @@ export default function DriverTabBar({
       key: 'safety',
       label: 'Safety',
       section: 'safety',
-      symbol: { ios: 'shield.fill', android: 'shield', web: 'shield' },
-      fallbackIcon: 'SF',
       badge: getBadgeCount('safety'),
       hint: 'Open safety tools.',
     },
@@ -263,17 +472,27 @@ export default function DriverTabBar({
       key: 'spin',
       label: 'Spin',
       section: 'tools',
-      symbol: { ios: 'sparkles', android: 'stars', web: 'stars' },
-      fallbackIcon: 'SP',
       badge: null,
       hint: 'Open Spin rewards.',
+    },
+    {
+      key: 'filters',
+      label: 'Filters',
+      section: 'tools',
+      badge: null,
+      hint: 'Open ride filter and auto-decline settings.',
+    },
+    {
+      key: 'maintenance',
+      label: 'Maintenance',
+      section: 'account',
+      badge: getBadgeCount('maintenance'),
+      hint: 'Open vehicle maintenance and document expiry tools.',
     },
     {
       key: 'actions',
       label: 'Actions',
       section: 'tools',
-      symbol: { ios: 'bolt.fill', android: 'bolt', web: 'bolt' },
-      fallbackIcon: 'AC',
       badge: null,
       hint: 'Open quick driver actions.',
     },
@@ -281,10 +500,44 @@ export default function DriverTabBar({
       key: 'settings',
       label: 'Settings',
       section: 'tools',
-      symbol: { ios: 'gearshape.fill', android: 'settings', web: 'settings' },
-      fallbackIcon: 'ST',
       badge: null,
       hint: 'Open driver settings.',
+    },
+    // TIER 3 FEATURES
+    {
+      key: 'pooling',
+      label: 'Pooling',
+      section: 'tools',
+      badge: null,
+      hint: 'Open ride pooling opportunities.',
+    },
+    {
+      key: 'taxreports',
+      label: 'Tax Reports',
+      section: 'money',
+      badge: null,
+      hint: 'Open tax reports and summaries.',
+    },
+    {
+      key: 'favorites',
+      label: 'Favorites',
+      section: 'drive',
+      badge: null,
+      hint: 'Open favorite passengers.',
+    },
+    {
+      key: 'shifts',
+      label: 'Shifts',
+      section: 'drive',
+      badge: null,
+      hint: 'Open shift schedules.',
+    },
+    {
+      key: 'badges',
+      label: 'Badges',
+      section: 'tools',
+      badge: null,
+      hint: 'Open earned badges and achievements.',
     },
   ], [getBadgeCount, notificationCount, requestCount, upcomingCount]);
 
@@ -294,12 +547,33 @@ export default function DriverTabBar({
     label: SECTION_LABELS[sectionKey],
     tabs: tabs.filter((tab) => tab.section === sectionKey && !tab.pinned),
   })).filter((section) => section.tabs.length > 0), [tabs]);
+  const activeTabSection = useMemo(
+    () => tabs.find((tab) => tab.key === activeTab)?.section || 'drive',
+    [activeTab, tabs]
+  );
+  const selectedGroup = useMemo(
+    () => groupedTabs.find((section) => section.key === activeTabSection) || groupedTabs[0] || null,
+    [activeTabSection, groupedTabs]
+  );
+
+  const getSectionBadgeCount = useCallback((section) => {
+    const total = section.tabs.reduce((sum, tab) => sum + Number(tab.badge || 0), 0);
+    return total > 0 ? total : null;
+  }, []);
 
   const handleTabPress = useCallback((tabKey) => {
     if (typeof onTabChange === 'function') {
       onTabChange(tabKey);
     }
   }, [onTabChange]);
+
+  const handleSectionPress = useCallback((sectionKey) => {
+    const section = groupedTabs.find((item) => item.key === sectionKey);
+    const firstTabKey = section?.tabs?.[0]?.key;
+    if (firstTabKey) {
+      handleTabPress(firstTabKey);
+    }
+  }, [groupedTabs, handleTabPress]);
 
   if (compact) {
     return (
@@ -319,10 +593,22 @@ export default function DriverTabBar({
             />
           ))}
         </View>
-        {groupedTabs.map((section) => (
-          <View key={section.key} style={styles.sidebarGroup}>
-            <Text style={styles.sidebarSectionLabel}>{section.label}</Text>
-            {section.tabs.map((tab) => (
+        <View style={styles.sidebarSectionPicker}>
+          {groupedTabs.map((section) => (
+            <SectionButton
+              key={section.key}
+              section={section}
+              selected={activeTabSection === section.key}
+              badgeCount={getSectionBadgeCount(section)}
+              onPress={handleSectionPress}
+              compact
+            />
+          ))}
+        </View>
+        {selectedGroup && (
+          <View style={styles.sidebarGroup}>
+            <Text style={styles.sidebarSectionLabel}>{selectedGroup.label}</Text>
+            {selectedGroup.tabs.map((tab) => (
               <TabButton
                 key={tab.key}
                 tab={tab}
@@ -332,7 +618,7 @@ export default function DriverTabBar({
               />
             ))}
           </View>
-        ))}
+        )}
       </View>
     );
   }
@@ -353,24 +639,34 @@ export default function DriverTabBar({
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={styles.sectionPickerContent}
         scrollEventThrottle={16}>
         {groupedTabs.map((section) => (
-          <View key={section.key} style={styles.mobileGroup}>
-            <Text style={styles.mobileSectionLabel}>{section.label}</Text>
-            <View style={styles.mobileGroupTabs}>
-              {section.tabs.map((tab) => (
-                <TabButton
-                  key={tab.key}
-                  tab={tab}
-                  active={activeTab === tab.key}
-                  onPress={handleTabPress}
-                />
-              ))}
-            </View>
-          </View>
+          <SectionButton
+            key={section.key}
+            section={section}
+            selected={activeTabSection === section.key}
+            badgeCount={getSectionBadgeCount(section)}
+            onPress={handleSectionPress}
+          />
         ))}
       </ScrollView>
+      {selectedGroup && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+          scrollEventThrottle={16}>
+          {selectedGroup.tabs.map((tab) => (
+            <TabButton
+              key={tab.key}
+              tab={tab}
+              active={activeTab === tab.key}
+              onPress={handleTabPress}
+            />
+          ))}
+        </ScrollView>
+      )}
     </View>
   );
 }
@@ -389,10 +685,41 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingBottom: 8,
   },
+  sectionPickerContent: {
+    paddingHorizontal: 2,
+    paddingBottom: 8,
+    gap: 6,
+  },
+  sectionButton: {
+    minWidth: 78,
+    minHeight: 34,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surface,
+    position: 'relative',
+  },
+  sectionButtonActive: {
+    backgroundColor: COLORS.overlaySoft,
+    borderColor: COLORS.primary,
+  },
+  sectionButtonText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: COLORS.textMuted,
+  },
+  sectionButtonTextActive: {
+    color: COLORS.primary,
+    fontWeight: '900',
+  },
   scrollContent: {
     paddingHorizontal: 2,
     paddingBottom: 2,
-    gap: 8,
+    gap: 6,
   },
   mobileGroup: {
     minWidth: 176,
@@ -445,17 +772,26 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
     fontWeight: '900',
   },
-  fallbackIcon: {
-    minWidth: 22,
-    height: 22,
-    fontSize: 10,
-    lineHeight: 22,
-    fontWeight: '900',
-    color: COLORS.textMuted,
-    textAlign: 'center',
+  iconFrame: {
+    position: 'relative',
   },
-  fallbackIconActive: {
-    color: COLORS.primary,
+  iconLine: {
+    position: 'absolute',
+    height: 2,
+    borderRadius: 2,
+  },
+  iconCircle: {
+    position: 'absolute',
+    borderWidth: 2,
+    backgroundColor: 'transparent',
+  },
+  iconBox: {
+    position: 'absolute',
+    borderWidth: 2,
+    backgroundColor: 'transparent',
+  },
+  iconFill: {
+    position: 'absolute',
   },
   activeIndicator: {
     position: 'absolute',
@@ -491,6 +827,41 @@ const styles = StyleSheet.create({
   },
   sidebarPinned: {
     paddingBottom: 8,
+  },
+  sidebarSectionPicker: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingBottom: 10,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    paddingTop: 10,
+  },
+  sidebarSectionButton: {
+    minWidth: 56,
+    minHeight: 30,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    position: 'relative',
+  },
+  sidebarSectionButtonActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.overlaySoft,
+  },
+  sidebarSectionButtonText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: COLORS.textMuted,
+  },
+  sidebarSectionButtonTextActive: {
+    color: COLORS.primary,
+    fontWeight: '900',
   },
   sidebarGroup: {
     paddingTop: 8,

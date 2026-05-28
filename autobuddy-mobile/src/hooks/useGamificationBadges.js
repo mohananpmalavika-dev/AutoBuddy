@@ -21,9 +21,10 @@ export function useGamificationBadges({ token, driverId }) {
         token,
       });
 
-      if (response.data && response.data.badges) {
-        setEarnedBadges(response.data.badges);
-        return response.data.badges;
+      const payload = response?.data || response;
+      if (payload?.badges) {
+        setEarnedBadges(payload.badges);
+        return payload.badges;
       }
     } catch (err) {
       setError(`Failed to load badges: ${err.message}`);
@@ -46,9 +47,10 @@ export function useGamificationBadges({ token, driverId }) {
         token,
       });
 
-      if (response.data && response.data.in_progress_badges) {
-        setInProgressBadges(response.data.in_progress_badges);
-        return response.data.in_progress_badges;
+      const payload = response?.data || response;
+      if (payload?.in_progress_badges) {
+        setInProgressBadges(payload.in_progress_badges);
+        return payload.in_progress_badges;
       }
     } catch (err) {
       setError(`Failed to load badge progress: ${err.message}`);
@@ -71,9 +73,10 @@ export function useGamificationBadges({ token, driverId }) {
         token,
       });
 
-      if (response.data) {
-        setLeaderboard(response.data.leaderboard || []);
-        return response.data;
+      const payload = response?.data || response;
+      if (payload) {
+        setLeaderboard(payload.leaderboard || []);
+        return payload;
       }
     } catch (err) {
       setError(`Failed to load leaderboard: ${err.message}`);

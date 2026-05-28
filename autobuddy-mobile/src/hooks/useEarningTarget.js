@@ -15,20 +15,21 @@ export function useEarningTarget({ token, driverId }) {
     setError('');
 
     try {
-      const response = await apiRequest(`/drivers/earning-targets/current`, {
+      const response = await apiRequest(`/drivers-tier2/earning-targets/current`, {
         method: 'GET',
         token,
       });
 
-      if (response.data) {
+      const payload = response?.data || response;
+      if (payload) {
         setCurrentTarget({
-          id: response.data.id,
-          targetAmount: response.data.target_amount,
-          currentEarnings: response.data.current_earnings,
-          bonusMultiplier: response.data.bonus_multiplier,
-          bonusEarned: response.data.bonus_earned,
-          status: response.data.status,
-          weekStart: response.data.target_week_start,
+          id: payload.id,
+          targetAmount: payload.target_amount,
+          currentEarnings: payload.current_earnings,
+          bonusMultiplier: payload.bonus_multiplier,
+          bonusEarned: payload.bonus_earned,
+          status: payload.status,
+          weekStart: payload.target_week_start,
         });
       }
     } catch (err) {
@@ -56,7 +57,7 @@ export function useEarningTarget({ token, driverId }) {
       setError('');
 
       try {
-        await apiRequest(`/drivers/earning-targets`, {
+        await apiRequest(`/drivers-tier2/earning-targets`, {
           method: 'POST',
           token,
           body: {
@@ -123,12 +124,13 @@ export function useEarningTarget({ token, driverId }) {
     setIsLoading(true);
 
     try {
-      const response = await apiRequest(`/drivers/earning-targets/history`, {
+      const response = await apiRequest(`/drivers-tier2/earning-targets/history`, {
         method: 'GET',
         token,
       });
 
-      setTargetHistory(response.data.history || []);
+      const payload = response?.data || response;
+      setTargetHistory(payload?.history || []);
     } catch (err) {
       console.warn('Failed to load history:', err);
     } finally {
