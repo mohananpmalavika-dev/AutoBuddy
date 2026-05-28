@@ -18,7 +18,9 @@ import { COLORS, SHADOWS } from '../theme';
  *   - activeTab: driver dashboard tab key
  *   - onTabChange: (tabKey) => void
  *   - requestCount: number (pending requests)
+ *   - upcomingCount: number (scheduled/upcoming rides)
  *   - notificationCount: number (unread notifications)
+ *   - menuBadges: object (documents/support/trust/earnings badge counts)
  *   - isOnline: boolean
  *   - compact: boolean (use compact styling for web sidebar)
  */
@@ -26,20 +28,29 @@ export default function DriverTabBar({
   activeTab = 'requests',
   onTabChange,
   requestCount = 0,
+  upcomingCount = 0,
   notificationCount = 0,
+  menuBadges = {},
   isOnline = false,
   compact = false,
 }) {
+  const getBadgeCount = useCallback((key) => {
+    const value = menuBadges?.[key];
+    const count = typeof value === 'number' ? value : Number(value?.count || 0);
+    return Number.isFinite(count) && count > 0 ? count : null;
+  }, [menuBadges]);
+
   const tabs = useMemo(() => [
     // Core Operation
     { key: 'requests', label: 'Ride Flow', icon: 'R', badge: requestCount > 0 ? requestCount : null },
+    { key: 'upcoming', label: 'Upcoming', icon: 'U', badge: upcomingCount > 0 ? upcomingCount : null },
     { key: 'history', label: 'History', icon: 'L', badge: null },
     { key: 'notifications', label: 'Notifications', icon: 'N', badge: notificationCount > 0 ? notificationCount : null },
-    { key: 'earnings', label: 'Earnings', icon: 'E', badge: null },
+    { key: 'earnings', label: 'Earnings', icon: 'E', badge: getBadgeCount('earnings') },
     
     // Account Management
     { key: 'profile', label: 'Profile', icon: 'P', badge: null },
-    { key: 'documents', label: 'Documents', icon: 'D', badge: null },
+    { key: 'documents', label: 'Documents', icon: 'D', badge: getBadgeCount('documents') },
     { key: 'vehicle', label: 'Vehicle', icon: 'V', badge: null },
     
     // Rewards & Tools
@@ -52,13 +63,13 @@ export default function DriverTabBar({
     // Management
     { key: 'blocked', label: 'Blocked', icon: 'B', badge: null },
     { key: 'safety', label: 'Safety', icon: '!', badge: null },
-    { key: 'trust', label: 'Trust', icon: 'T', badge: null },
-    { key: 'support', label: 'Support', icon: 'H', badge: null },
+    { key: 'trust', label: 'Trust', icon: 'T', badge: getBadgeCount('trust') },
+    { key: 'support', label: 'Support', icon: 'H', badge: getBadgeCount('support') },
     
     // Preferences
     { key: 'settings', label: 'Settings', icon: '⚙️', badge: null },
     { key: 'actions', label: 'Actions', icon: '+', badge: null },
-  ], [notificationCount, requestCount]);
+  ], [getBadgeCount, notificationCount, requestCount, upcomingCount]);
 
   const handleTabPress = useCallback((tabKey) => {
     if (typeof onTabChange === 'function') {

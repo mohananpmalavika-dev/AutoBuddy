@@ -3209,14 +3209,21 @@ def get_time_multiplier() -> float:
 def as_utc_naive(timestamp: Optional[datetime]) -> Optional[datetime]:
     if not timestamp:
         return None
+    if isinstance(timestamp, str):
+        try:
+            timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        except ValueError:
+            return None
     if timestamp.tzinfo is None:
         return timestamp
     return timestamp.astimezone(timezone.utc).replace(tzinfo=None)
 
 def schedule_is_in_future(scheduled_for: Optional[datetime], now: datetime) -> bool:
-    if not scheduled_for:
+    scheduled_at = as_utc_naive(scheduled_for)
+    now_at = as_utc_naive(now)
+    if not scheduled_at or not now_at:
         return False
-    return scheduled_for > (now + timedelta(minutes=2))
+    return scheduled_at > (now_at + timedelta(minutes=2))
 
 def generate_fallback_trip_tips(request: TripTipsRequest) -> str:
     """Return deterministic tips using free local logic."""
@@ -7172,7 +7179,10 @@ async def get_pending_requests(current_user: dict = Depends(get_current_user)):
     cache_key = f"driver_pending_requests:{current_user['id']}"
     cached = await cache_get(cache_key)
     if cached is not None:
-        return cached
+        return [
+            booking for booking in cached
+            if not schedule_is_in_future(booking.get("scheduled_for"), get_ist_now())
+        ]
 
     # Get pending bookings that haven't been assigned
     pending = await db.bookings.find({
@@ -7184,6 +7194,11 @@ async def get_pending_requests(current_user: dict = Depends(get_current_user)):
             {"candidate_driver_ids": current_user["id"]},
         ],
     }).sort("created_at", -1).to_list(20)
+    now_for_schedule = get_ist_now()
+    pending = [
+        booking for booking in pending
+        if not schedule_is_in_future(booking.get("scheduled_for"), now_for_schedule)
+    ]
     blocked_passenger_ids = set(await get_driver_blocked_passenger_ids(current_user["id"]))
     passengers_blocked_driver_ids = set(await get_passengers_who_blocked_driver_ids(current_user["id"]))
     pending = [
@@ -7213,6 +7228,120 @@ async def get_pending_requests(current_user: dict = Depends(get_current_user)):
 
     await cache_set(cache_key, results, ttl_seconds=10)
     return results
+
+
+def enum_response_value(value: Any) -> Any:
+    return value.value if isinstance(value, Enum) else value
+
+
+def serialize_driver_upcoming_ride(
+    booking: Dict[str, Any],
+    passenger: Optional[Dict[str, Any]],
+    bucket: str,
+    now: datetime,
+) -> Dict[str, Any]:
+    scheduled_at = as_utc_naive(booking.get("scheduled_for"))
+    now_at = as_utc_naive(now)
+    minutes_until = None
+    if scheduled_at and now_at:
+        minutes_until = int((scheduled_at - now_at).total_seconds() / 60)
+
+    return {
+        "id": booking.get("id"),
+        "passenger_id": booking.get("passenger_id"),
+        "passenger_name": passenger.get("name") if passenger else "Unknown",
+        "passenger_phone": passenger.get("phone") if passenger else "",
+        "driver_id": booking.get("driver_id"),
+        "pickup_location": booking.get("pickup_location"),
+        "drop_location": booking.get("drop_location"),
+        "status": enum_response_value(booking.get("status")),
+        "dispatch_status": booking.get("dispatch_status"),
+        "estimated_fare": booking.get("estimated_fare"),
+        "final_fare": booking.get("final_fare"),
+        "distance_km": booking.get("distance_km"),
+        "payment_method": enum_response_value(booking.get("payment_method")),
+        "scheduled_for": booking.get("scheduled_for"),
+        "created_at": booking.get("created_at"),
+        "updated_at": booking.get("updated_at"),
+        "requested_driver_id": booking.get("requested_driver_id"),
+        "bucket": bucket,
+        "can_accept": bucket == "scheduled_request" and enum_response_value(booking.get("status")) == BookingStatus.PENDING.value,
+        "minutes_until": minutes_until,
+        "_id": str(booking.get("_id")) if booking.get("_id") is not None else None,
+    }
+
+
+@api_router.get("/drivers/upcoming-rides")
+async def get_driver_upcoming_rides(current_user: dict = Depends(get_current_user)):
+    if current_user["role"] != UserRole.DRIVER:
+        raise HTTPException(status_code=403, detail="Only drivers can view upcoming rides")
+
+    now = get_ist_now()
+    now_utc = as_utc_naive(now) or datetime.utcnow()
+    lookback = now_utc - timedelta(hours=3)
+    active_statuses = [BookingStatus.PENDING, BookingStatus.ACCEPTED, BookingStatus.DRIVER_ARRIVED, BookingStatus.IN_PROGRESS]
+
+    scheduled_request_query: Dict[str, Any] = {
+        "status": BookingStatus.PENDING,
+        "driver_id": None,
+        "scheduled_for": {"$ne": None, "$gte": lookback},
+        "$or": [
+            {"candidate_driver_ids": {"$exists": False}},
+            {"candidate_driver_ids": []},
+            {"candidate_driver_ids": current_user["id"]},
+        ],
+    }
+    assigned_query: Dict[str, Any] = {
+        "driver_id": current_user["id"],
+        "status": {"$in": active_statuses},
+        "scheduled_for": {"$ne": None, "$gte": lookback},
+    }
+
+    scheduled_requests, assigned_rides = await asyncio.gather(
+        db.bookings.find(scheduled_request_query).sort("scheduled_for", 1).to_list(100),
+        db.bookings.find(assigned_query).sort("scheduled_for", 1).to_list(100),
+    )
+
+    blocked_passenger_ids = set(await get_driver_blocked_passenger_ids(current_user["id"]))
+    passengers_blocked_driver_ids = set(await get_passengers_who_blocked_driver_ids(current_user["id"]))
+    driver_gender = str(current_user.get("gender") or "").strip().lower()
+
+    scheduled_requests = [
+        booking for booking in scheduled_requests
+        if booking.get("passenger_id") not in blocked_passenger_ids
+        and booking.get("passenger_id") not in passengers_blocked_driver_ids
+        and ((not bool(booking.get("women_only_required"))) or driver_gender == "female")
+    ]
+
+    passenger_ids = list({
+        booking.get("passenger_id")
+        for booking in [*scheduled_requests, *assigned_rides]
+        if booking.get("passenger_id")
+    })
+    passengers = {
+        user["id"]: user
+        for user in await db.users.find({"id": {"$in": passenger_ids}}).to_list(None)
+    } if passenger_ids else {}
+
+    request_payload = [
+        serialize_driver_upcoming_ride(booking, passengers.get(booking.get("passenger_id")), "scheduled_request", now)
+        for booking in scheduled_requests
+    ]
+    assigned_payload = [
+        serialize_driver_upcoming_ride(booking, passengers.get(booking.get("passenger_id")), "assigned", now)
+        for booking in assigned_rides
+    ]
+
+    return {
+        "scheduled_requests": request_payload,
+        "assigned_rides": assigned_payload,
+        "upcoming": [*assigned_payload, *request_payload],
+        "counts": {
+            "scheduled_requests": len(request_payload),
+            "assigned_rides": len(assigned_payload),
+            "total": len(request_payload) + len(assigned_payload),
+        },
+    }
 
 @api_router.get("/drivers/active-ride")
 async def get_driver_active_ride(current_user: dict = Depends(get_current_user)):
@@ -7271,7 +7400,7 @@ async def get_driver_earnings(current_user: dict = Depends(get_current_user)):
     today_rides = [ride for ride in completed_rides if ride_updated_at(ride) >= today_start]
     weekly_rides = [ride for ride in completed_rides if ride_updated_at(ride) >= week_start]
     monthly_rides = [ride for ride in completed_rides if ride_updated_at(ride) >= month_start]
-    wallet = await db.driver_wallets.find_one({"driver_id": current_user["id"]}, {"_id": 0}) or {}
+    payout_overview = await build_driver_payout_overview(current_user["id"], limit=8)
 
     return {
         "total_earnings": round(total_earnings, 2),
@@ -7282,8 +7411,11 @@ async def get_driver_earnings(current_user: dict = Depends(get_current_user)):
         "weekly_rides": len(weekly_rides),
         "monthly_earnings": round(sum(ride_fare(ride) for ride in monthly_rides), 2),
         "monthly_rides": len(monthly_rides),
-        "wallet_balance": round(float(wallet.get("balance", 0.0) or 0.0), 2),
-        "pending_withdrawal": round(float(wallet.get("pending_withdrawal", 0.0) or 0.0), 2),
+        "wallet_balance": payout_overview["wallet_balance"],
+        "pending_withdrawal": payout_overview["pending_withdrawal"],
+        "bank_verification_status": payout_overview["bank_verification_status"],
+        "payout": payout_overview,
+        "withdrawals": payout_overview["recent_withdrawals"],
     }
 
 
@@ -7312,6 +7444,89 @@ async def create_driver_earnings_report(
     }
 
 
+PAYOUT_REVIEW_SLA_DAYS = 2
+
+
+def serialize_driver_withdrawal(row: Dict[str, Any]) -> Dict[str, Any]:
+    status_value = str(row.get("status") or "pending").strip().lower()
+    created_at = row.get("created_at")
+    payout_eta = row.get("payout_eta") or row.get("estimated_payout_at")
+    if not payout_eta and status_value in {"pending", "approved", "processing"} and isinstance(created_at, datetime):
+        payout_eta = created_at + timedelta(days=PAYOUT_REVIEW_SLA_DAYS)
+
+    failure_reason = (
+        row.get("failure_reason")
+        or row.get("rejection_reason")
+        or row.get("reject_reason")
+        or row.get("failed_reason")
+    )
+
+    return {
+        "id": row.get("id"),
+        "amount": round(float(row.get("amount", 0.0) or 0.0), 2),
+        "method": row.get("method") or "bank_transfer",
+        "status": status_value,
+        "created_at": created_at,
+        "updated_at": row.get("updated_at"),
+        "reviewed_at": row.get("reviewed_at"),
+        "processed_at": row.get("processed_at"),
+        "payout_eta": payout_eta,
+        "failure_reason": failure_reason,
+        "admin_note": row.get("admin_note") or row.get("review_note"),
+        "bank_account_masked": row.get("bank_account_masked") or row.get("account_masked"),
+    }
+
+
+def get_driver_withdrawal_blocker(bank_status: str, wallet_balance: float) -> Optional[str]:
+    normalized_status = str(bank_status or "not_submitted").strip().lower()
+    if normalized_status != "verified":
+        if normalized_status == "pending_verification":
+            return "Bank details are pending verification before payouts can be requested."
+        if normalized_status in {"rejected", "failed"}:
+            return "Bank verification failed. Update payout bank details before requesting a withdrawal."
+        return "Add and verify payout bank details before requesting a withdrawal."
+    if wallet_balance <= 0:
+        return "No available wallet balance to withdraw."
+    return None
+
+
+async def build_driver_payout_overview(driver_id: str, limit: int = 8) -> Dict[str, Any]:
+    wallet = await db.driver_wallets.find_one({"driver_id": driver_id}, {"_id": 0}) or {}
+    profile = await db.drivers.find_one({"user_id": driver_id}, {"_id": 0}) or {}
+    rows = await db.driver_withdrawal_requests.find(
+        {"driver_id": driver_id},
+        {"_id": 0},
+    ).sort("created_at", -1).to_list(limit)
+    withdrawals = [serialize_driver_withdrawal(row) for row in rows]
+
+    wallet_balance = round(float(wallet.get("balance", 0.0) or 0.0), 2)
+    pending_withdrawal = round(float(wallet.get("pending_withdrawal", 0.0) or 0.0), 2)
+    bank_status = str(profile.get("bank_verification_status") or "not_submitted")
+    blocker = get_driver_withdrawal_blocker(bank_status, wallet_balance)
+    latest = withdrawals[0] if withdrawals else None
+
+    return {
+        "wallet_balance": wallet_balance,
+        "pending_withdrawal": pending_withdrawal,
+        "bank_verification_status": bank_status,
+        "bank_account_masked": profile.get("bank_account_masked") or "",
+        "bank_name": profile.get("bank_name") or "",
+        "can_withdraw": blocker is None,
+        "withdrawal_blocker": blocker,
+        "latest_status": latest.get("status") if latest else None,
+        "latest_failure_reason": latest.get("failure_reason") if latest else None,
+        "payout_eta": latest.get("payout_eta") if latest and latest.get("status") in {"pending", "approved", "processing"} else None,
+        "recent_withdrawals": withdrawals,
+    }
+
+
+@api_router.get("/drivers/withdrawals")
+async def get_driver_withdrawals(current_user: dict = Depends(get_current_user)):
+    if current_user["role"] != UserRole.DRIVER:
+        raise HTTPException(status_code=403, detail="Only drivers can view withdrawal requests")
+    return await build_driver_payout_overview(current_user["id"], limit=50)
+
+
 @api_router.post("/drivers/withdraw")
 async def request_driver_withdrawal(
     payload: DriverWithdrawalRequest,
@@ -7327,10 +7542,16 @@ async def request_driver_withdrawal(
     now = get_ist_now()
     wallet = await db.driver_wallets.find_one({"driver_id": current_user["id"]}, {"_id": 0}) or {}
     balance = round(float(wallet.get("balance", 0.0) or 0.0), 2)
+    driver_profile = await db.drivers.find_one({"user_id": current_user["id"]}, {"_id": 0}) or {}
+    bank_status = str(driver_profile.get("bank_verification_status") or "not_submitted")
+    bank_blocker = get_driver_withdrawal_blocker(bank_status, balance)
+    if bank_blocker:
+        raise HTTPException(status_code=400, detail=bank_blocker)
     if amount > balance:
         raise HTTPException(status_code=400, detail="Withdrawal amount exceeds wallet balance")
 
     withdrawal_id = str(uuid.uuid4())
+    payout_eta = now + timedelta(days=PAYOUT_REVIEW_SLA_DAYS)
     update_result = await db.driver_wallets.update_one(
         {"driver_id": current_user["id"], "balance": {"$gte": amount}},
         {
@@ -7349,6 +7570,18 @@ async def request_driver_withdrawal(
         "amount": amount,
         "method": payload.method,
         "status": "pending",
+        "approval_status": "pending_admin_review",
+        "bank_verification_status": bank_status,
+        "bank_account_masked": driver_profile.get("bank_account_masked") or "",
+        "payout_eta": payout_eta,
+        "failure_reason": None,
+        "status_history": [
+            {
+                "status": "pending",
+                "at": now,
+                "note": "Submitted for admin payout review",
+            }
+        ],
         "created_at": now,
         "updated_at": now,
     }
@@ -7358,6 +7591,8 @@ async def request_driver_withdrawal(
         "withdrawal_id": withdrawal_id,
         "status": "pending",
         "amount": amount,
+        "payout_eta": payout_eta,
+        "withdrawal": serialize_driver_withdrawal(request_doc),
     }
 
 # ==================== BOOKING ENDPOINTS ====================
@@ -8409,6 +8644,85 @@ async def get_driver_documents(request: Request, current_user: dict = Depends(ge
     documents = await get_driver_documents_map(current_user["id"], request)
     reminders = build_driver_document_reminders(documents)
     return {"documents": documents, "reminders": reminders, "renewal_count": len(reminders)}
+
+
+@api_router.get("/drivers/menu-badges")
+async def get_driver_menu_badges(request: Request, current_user: dict = Depends(get_current_user)):
+    require_driver(current_user)
+    driver_id = current_user["id"]
+
+    documents = await get_driver_documents_map(driver_id, request)
+    reminders = build_driver_document_reminders(documents)
+    document_values = list(documents.values())
+    missing_documents = [
+        document for document in document_values
+        if not document.get("id") and not document.get("download_url") and not document.get("filename")
+    ]
+    rejected_documents = [
+        document for document in document_values
+        if str(document.get("verification_status") or document.get("status") or "").lower() == "rejected"
+    ]
+    pending_documents = [
+        document for document in document_values
+        if document.get("id")
+        and str(document.get("verification_status") or document.get("status") or "").lower() == "pending"
+    ]
+
+    support_tickets = await db.driver_support_tickets.find({"driver_id": driver_id}, {"_id": 0}).to_list(200)
+    active_support_tickets = [
+        ticket for ticket in support_tickets
+        if str(ticket.get("status") or "").lower() in {"open", "in_progress"}
+    ]
+    escalated_support_tickets = [ticket for ticket in support_tickets if bool(ticket.get("escalated"))]
+    support_replied_tickets = []
+    for ticket in active_support_tickets:
+        messages = ticket.get("messages") if isinstance(ticket.get("messages"), list) else []
+        last_message = messages[-1] if messages else {}
+        if str(last_message.get("sender_type") or last_message.get("from") or "").lower() in {"support", "admin"}:
+            support_replied_tickets.append(ticket)
+
+    kyc_doc = await db.driver_kyc.find_one({"driver_id": driver_id}, {"_id": 0})
+    driver_profile = await db.drivers.find_one({"user_id": driver_id}, {"_id": 0}) or {}
+    kyc_status = enum_response_value(
+        (kyc_doc or {}).get("status") or driver_profile.get("kyc_status") or "not_submitted"
+    )
+    trust_needs_attention = str(kyc_status or "").lower() not in {"approved"}
+
+    payout_overview = await build_driver_payout_overview(driver_id, limit=8)
+    pending_withdrawal_count = await db.driver_withdrawal_requests.count_documents(
+        {"driver_id": driver_id, "status": {"$in": ["pending", "approved", "processing"]}}
+    )
+    payout_bank_status = str(payout_overview.get("bank_verification_status") or "not_submitted").lower()
+    payout_needs_attention = payout_bank_status != "verified"
+
+    return {
+        "documents": {
+            "count": len(reminders) + len(rejected_documents) + len(missing_documents),
+            "renewal_count": len(reminders),
+            "missing_count": len(missing_documents),
+            "rejected_count": len(rejected_documents),
+            "pending_count": len(pending_documents),
+        },
+        "support": {
+            "count": len(active_support_tickets),
+            "open_count": len([ticket for ticket in support_tickets if str(ticket.get("status") or "").lower() == "open"]),
+            "in_progress_count": len([ticket for ticket in support_tickets if str(ticket.get("status") or "").lower() == "in_progress"]),
+            "escalated_count": len(escalated_support_tickets),
+            "needs_response_count": len(support_replied_tickets),
+        },
+        "trust": {
+            "count": 1 if trust_needs_attention else 0,
+            "kyc_status": kyc_status,
+            "reject_reason": (kyc_doc or {}).get("reject_reason"),
+        },
+        "earnings": {
+            "count": int(pending_withdrawal_count) + (1 if payout_needs_attention else 0),
+            "pending_withdrawal_count": int(pending_withdrawal_count),
+            "pending_withdrawal": payout_overview.get("pending_withdrawal", 0.0),
+            "bank_verification_status": payout_overview.get("bank_verification_status"),
+            "withdrawal_blocker": payout_overview.get("withdrawal_blocker"),
+        },
+    }
 
 
 @api_router.get("/drivers/documents/{doc_type}")

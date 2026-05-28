@@ -125,7 +125,7 @@ function formatFileSize(size) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export default function DocumentUploadPanel({ token, loading: parentLoading = false }) {
+export default function DocumentUploadPanel({ token, loading: parentLoading = false, onDataChanged }) {
   const [documents, setDocuments] = useState(buildEmptyDocuments);
   const [reminders, setReminders] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -172,6 +172,7 @@ export default function DocumentUploadPanel({ token, loading: parentLoading = fa
       setError('');
       const data = await apiRequest('/drivers/documents', { token });
       applyDocumentsResponse(data);
+      onDataChanged?.();
     } catch (err) {
       setError(err.message || 'Could not load documents.');
       const emptyDocuments = buildEmptyDocuments();
@@ -181,7 +182,7 @@ export default function DocumentUploadPanel({ token, loading: parentLoading = fa
     } finally {
       setLoading(false);
     }
-  }, [applyDocumentsResponse, mergeExpiryDrafts, token]);
+  }, [applyDocumentsResponse, mergeExpiryDrafts, onDataChanged, token]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -247,6 +248,7 @@ export default function DocumentUploadPanel({ token, loading: parentLoading = fa
           setDetailDocument(response.document);
         }
         await fetchDocuments();
+        onDataChanged?.();
         setTimedMessage(`${DOCUMENT_LABELS[docType]} uploaded for verification.`);
       } catch (err) {
         setError(err.message || 'Upload failed');
@@ -255,7 +257,7 @@ export default function DocumentUploadPanel({ token, loading: parentLoading = fa
         setUploadingDocType(null);
       }
     },
-    [expiryDrafts, fetchDocuments, setTimedMessage, token, updateDocumentState],
+    [expiryDrafts, fetchDocuments, onDataChanged, setTimedMessage, token, updateDocumentState],
   );
 
   const openDocumentDetail = useCallback(
@@ -305,6 +307,7 @@ export default function DocumentUploadPanel({ token, loading: parentLoading = fa
               updateDocumentState(docType, emptyDocument);
               setDetailDocument(emptyDocument);
               setExpiryDrafts((previous) => ({ ...previous, [docType]: '' }));
+              onDataChanged?.();
               setTimedMessage(`${DOCUMENT_LABELS[docType]} removed.`);
             } catch (err) {
               setError(err.message || 'Failed to delete document');
@@ -315,7 +318,7 @@ export default function DocumentUploadPanel({ token, loading: parentLoading = fa
         },
       ]);
     },
-    [setTimedMessage, token, updateDocumentState],
+    [onDataChanged, setTimedMessage, token, updateDocumentState],
   );
 
   const openDownload = useCallback(async (document) => {

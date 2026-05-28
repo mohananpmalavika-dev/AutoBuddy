@@ -79,7 +79,7 @@ function getMimeType(asset, fallbackType) {
   return asset?.mimeType || asset?.type || fallbackType;
 }
 
-export default function DriverKycPanel({ token }) {
+export default function DriverKycPanel({ token, onDataChanged }) {
   const [loading, setLoading] = useState(false);
   const [uploadingDocType, setUploadingDocType] = useState(null);
   const [error, setError] = useState('');
@@ -216,6 +216,7 @@ export default function DriverKycPanel({ token }) {
           }
         }
         await refreshDocuments().catch(() => null);
+        onDataChanged?.();
         setTimedMessage(`${requirement.label} uploaded for verification.`);
       } catch (err) {
         setError(err.message || 'Upload failed');
@@ -224,7 +225,7 @@ export default function DriverKycPanel({ token }) {
         setUploadingDocType(null);
       }
     },
-    [pickDocumentAsset, refreshDocuments, setTimedMessage, token],
+    [onDataChanged, pickDocumentAsset, refreshDocuments, setTimedMessage, token],
   );
 
   const submitKyc = async () => {
@@ -254,6 +255,7 @@ export default function DriverKycPanel({ token }) {
       });
       setTimedMessage(result?.message || 'KYC submitted for admin review.');
       await refreshKyc();
+      onDataChanged?.();
     } catch (err) {
       setError(err.message || 'Could not submit KYC.');
     } finally {

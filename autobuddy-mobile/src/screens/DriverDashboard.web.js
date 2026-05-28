@@ -40,6 +40,7 @@ import ProfileManagementPanel from '../components/ProfileManagementPanel';
 import AnalyticsDashboard from '../components/AnalyticsDashboard';
 import RideHistoryPanel from '../components/RideHistoryPanel';
 import NotificationCenter from '../components/NotificationCenter';
+import ScheduledRidesPanel from '../components/ScheduledRidesPanel';
 import { NotificationProvider, useNotifications } from '../contexts/NotificationContext';
 import { DRIVER_QUICK_ACTIONS } from '../constants/driverQuickActions';
 import { useNotificationManager } from '../hooks/useNotificationManager';
@@ -152,9 +153,12 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   const [isOnline, setIsOnline] = useState(false);
   const [serverIsOnline, setServerIsOnline] = useState(false);
   const [availabilitySyncPending, setAvailabilitySyncPending] = useState(false);
+  const [availabilityToggleInFlight, setAvailabilityToggleInFlight] = useState(false);
+  const [menuBadges, setMenuBadges] = useState({});
   const [driverSettings, setDriverSettings] = useState(DEFAULT_DRIVER_SETTINGS);
   const [driverLocation, setDriverLocation] = useState(null);
   const [pendingRequests, setPendingRequests] = useState([]);
+  const [upcomingRides, setUpcomingRides] = useState(null);
   const [blockedPassengerIds, setBlockedPassengerIds] = useState([]);
   const [blockedPassengers, setBlockedPassengers] = useState([]);
   const [blockedPassengerSearch, setBlockedPassengerSearch] = useState('');
@@ -220,12 +224,21 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   });
   const shouldSyncDriverLocation =
     (shareLocationWhileOnline && isOnline && !availabilitySyncPending) || activeRideSharesLocation;
-  const shouldPushAvailabilityLocation = shareLocationWhileOnline || activeRideSharesLocation;
   const displayIsOnline = availabilitySyncPending ? isOnline : serverIsOnline;
   const visibleBlockedPassengers = useMemo(
     () => filterBlockedPassengers(blockedPassengers, blockedPassengerSearch),
     [blockedPassengerSearch, blockedPassengers],
   );
+  const upcomingRideCount = useMemo(() => {
+    const counts = upcomingRides?.counts;
+    if (counts && Number.isFinite(Number(counts.total))) {
+      return Number(counts.total);
+    }
+    return (
+      (Array.isArray(upcomingRides?.scheduled_requests) ? upcomingRides.scheduled_requests.length : 0) +
+      (Array.isArray(upcomingRides?.assigned_rides) ? upcomingRides.assigned_rides.length : 0)
+    );
+  }, [upcomingRides]);
   const normalizeLocation = useCallback((location) => {
     if (!location) {
       return null;
@@ -533,6 +546,14 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     }
   }, []);
 
+  const refreshDriverMenuBadges = useCallback(async () => {
+    const payload = await apiRequest('/drivers/menu-badges', { token }).catch(() => null);
+    if (payload && typeof payload === 'object') {
+      setMenuBadges(payload);
+    }
+    return payload;
+  }, [token]);
+
   const handleDriverSettingsChange = useCallback((nextSettings = {}) => {
     setDriverSettings((currentSettings) =>
       normalizeDriverSettings({ ...currentSettings, ...(nextSettings || {}) }),
@@ -673,8 +694,9 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       }
     }
 
-    const [requests, ride, earningsSummary, pricing, fareCalc, blockedPassengersPayload, spinStatus, settingsPayload] = await Promise.all([
+    const [requests, scheduledPayload, ride, earningsSummary, pricing, fareCalc, blockedPassengersPayload, spinStatus, settingsPayload, menuBadgePayload] = await Promise.all([
       requestDriverData('/drivers/pending-requests', []),
+      requestDriverData('/drivers/upcoming-rides', null),
       requestDriverData('/drivers/active-ride', null),
       requestDriverData('/drivers/earnings', null),
       requestDriverData('/pricing/rules', null),
@@ -682,9 +704,11 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       requestDriverData('/drivers/blocked-passengers', { passenger_ids: [], passengers: [] }),
       requestDriverData('/spin-win/config', null),
       requestDriverData('/drivers/settings', null),
+      requestDriverData('/drivers/menu-badges', null),
     ]);
 
     setPendingRequests(requests || []);
+    setUpcomingRides(scheduledPayload || null);
     const nextBlockedPassengers = normalizeBlockedPassengerRows(blockedPassengersPayload);
     setBlockedPassengers(nextBlockedPassengers);
     setBlockedPassengerIds(nextBlockedPassengers.map((item) => item.passenger_id));
@@ -697,6 +721,9 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     setSpinWinStatus(spinStatus || null);
     if (settingsPayload) {
       setDriverSettings(normalizeDriverSettings(settingsPayload));
+    }
+    if (menuBadgePayload) {
+      setMenuBadges(menuBadgePayload);
     }
     setMessage('Driver dashboard refreshed.');
   }, [
@@ -716,13 +743,15 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     }
     refreshInFlightRef.current = true;
     try {
-      const [profile, settingsPayload, requests, ride, blockedPassengersPayload, spinStatus] = await Promise.all([
+      const [profile, settingsPayload, requests, scheduledPayload, ride, blockedPassengersPayload, spinStatus, menuBadgePayload] = await Promise.all([
         includeProfile ? requestDriverData('/drivers/profile', null) : Promise.resolve(null),
         includeProfile ? requestDriverData('/drivers/settings', null) : Promise.resolve(null),
         requestDriverData('/drivers/pending-requests', []),
+        requestDriverData('/drivers/upcoming-rides', null),
         requestDriverData('/drivers/active-ride', null),
         requestDriverData('/drivers/blocked-passengers', { passenger_ids: [], passengers: [] }),
         requestDriverData('/spin-win/config', null),
+        requestDriverData('/drivers/menu-badges', null),
       ]);
       const [earningsSummary, pricing, fareCalc] = includeMeta
         ? await Promise.all([
@@ -753,11 +782,15 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         setDriverSettings(normalizeDriverSettings(settingsPayload));
       }
       setPendingRequests(Array.isArray(requests) ? requests : []);
+      setUpcomingRides(scheduledPayload || null);
       const nextBlockedPassengers = normalizeBlockedPassengerRows(blockedPassengersPayload);
       setBlockedPassengers(nextBlockedPassengers);
       setBlockedPassengerIds(nextBlockedPassengers.map((item) => item.passenger_id));
       setActiveRide(ride || null);
       setSpinWinStatus(spinStatus || null);
+      if (menuBadgePayload) {
+        setMenuBadges(menuBadgePayload);
+      }
       if (includeMeta) {
         setEarnings(earningsSummary || null);
         setPricingRules(pricing || fareCalc?.default_pricing || null);
@@ -779,12 +812,14 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   ]);
 
   const refreshRideStageValidation = useCallback(async () => {
-    const [ride, requests] = await Promise.all([
+    const [ride, requests, scheduledPayload] = await Promise.all([
       requestDriverData('/drivers/active-ride', null),
       requestDriverData('/drivers/pending-requests', []),
+      requestDriverData('/drivers/upcoming-rides', null),
     ]);
     setActiveRide(ride || null);
     setPendingRequests(Array.isArray(requests) ? requests : []);
+    setUpcomingRides(scheduledPayload || null);
   }, [requestDriverData]);
 
   const refreshDriverRideQueueFromRealtime = useCallback(async () => {
@@ -1006,7 +1041,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         setMessage('You are already online and ready for ride requests.');
         return;
       }
-      toggleDriverAvailability(true).catch(() => null);
+      toggleOnlineStatus().catch(() => null);
       return;
     }
     if (action.type === 'resume_active_ride') {
@@ -1240,7 +1275,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     };
   }, [normalizeLocation, pushDriverLocation, shouldSyncDriverLocation]);
 
-  const toggleDriverAvailability = useCallback(async (wantOnline) => {
+  const toggleOnlineStatus = useCallback(async () => {
     if (availabilityToggleInFlightRef.current) {
       return;
     }
@@ -1250,17 +1285,16 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       return;
     }
 
-    const next = !!wantOnline;
-    const previousLocalStatus = isOnline;
-    const previousServerStatus = serverIsOnline;
-    const requestId = availabilityToggleRequestIdRef.current + 1;
+    const next = !displayIsOnline;
+    const requestId = Date.now();
     const toggledAt = Date.now();
-    availabilityToggleRequestIdRef.current = requestId;
     availabilityToggleInFlightRef.current = requestId;
+    availabilityToggleRequestIdRef.current = requestId;
     availabilityLocalChangeAtRef.current = toggledAt;
     availabilityUiOverrideUntilRef.current = toggledAt + 15000;
     pendingAvailabilitySyncRef.current = null;
 
+    setAvailabilityToggleInFlight(true);
     setIsOnline(next);
     setAvailabilitySyncPendingState(true);
     setError('');
@@ -1273,7 +1307,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         body: { is_available: next },
       });
 
-      if (requestId !== availabilityToggleRequestIdRef.current) {
+      if (availabilityToggleRequestIdRef.current !== requestId) {
         return;
       }
 
@@ -1288,34 +1322,31 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       setMessage(savedStatus ? 'You are now online.' : 'You are now offline.');
       setError('');
 
-      if (savedStatus && shouldPushAvailabilityLocation) {
-        await pushDriverLocation({ silent: true });
+      if (savedStatus) {
+        pushDriverLocation({ silent: true }).catch(() => null);
       }
     } catch (err) {
-      if (requestId !== availabilityToggleRequestIdRef.current) {
+      if (availabilityToggleRequestIdRef.current !== requestId) {
         return;
       }
 
       const rollbackAt = Date.now();
       availabilityLocalChangeAtRef.current = rollbackAt;
       availabilityUiOverrideUntilRef.current = rollbackAt + 15000;
-      setIsOnline(previousLocalStatus);
-      setServerIsOnline(previousServerStatus);
-      setError(getAvailabilityErrorMessage(err));
-      setMessage('Failed to update status. Please try again.');
+      setIsOnline(serverIsOnline);
+      setError(err?.message || 'Failed to update driver status.');
+      setMessage('Status update failed. Please try again.');
     } finally {
-      if (availabilityToggleInFlightRef.current === requestId) {
-        availabilityToggleInFlightRef.current = null;
-        pendingAvailabilitySyncRef.current = null;
-        setAvailabilitySyncPendingState(false);
-      }
+      availabilityToggleInFlightRef.current = null;
+      pendingAvailabilitySyncRef.current = null;
+      setAvailabilityToggleInFlight(false);
+      setAvailabilitySyncPendingState(false);
     }
   }, [
-    isOnline,
+    displayIsOnline,
     pushDriverLocation,
     serverIsOnline,
     setAvailabilitySyncPendingState,
-    shouldPushAvailabilityLocation,
     token,
   ]);
 
@@ -1655,8 +1686,8 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
           <View style={styles.topBar}>
             <TouchableOpacity 
               style={[styles.statusBadgeButton, { backgroundColor: displayIsOnline ? '#E8F5E9' : '#F5F5F5', borderColor: displayIsOnline ? '#2E7D32' : '#BDBDBD' }]}
-              onPress={() => toggleDriverAvailability(!displayIsOnline)}
-              disabled={availabilitySyncPending}
+              onPress={toggleOnlineStatus}
+              disabled={availabilityToggleInFlight}
             >
               <View style={[styles.statusDot, { backgroundColor: availabilitySyncPending ? '#FFA500' : displayIsOnline ? '#2E7D32' : '#8A8A8A' }]} />
               <View style={styles.statusContent}>
@@ -1696,7 +1727,9 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
               activeTab={activeTab}
               onTabChange={setActiveTab}
               requestCount={pendingRequests.length}
+              upcomingCount={upcomingRideCount}
               notificationCount={unreadCount}
+              menuBadges={menuBadges}
               isOnline={displayIsOnline}
               compact={true}
             />
@@ -1901,6 +1934,16 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
             </>
           )}
 
+          {activeTab === 'upcoming' && (
+            <ScheduledRidesPanel
+              upcomingRides={upcomingRides}
+              loading={loading}
+              onAcceptRequest={acceptRequest}
+              onRejectRequest={rejectRequest}
+              onRefresh={refreshRideStageValidation}
+            />
+          )}
+
           {/* Earnings Tab */}
           {activeTab === 'earnings' && (
             <>
@@ -1914,6 +1957,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                   initialAction={earningsLaunchAction}
                   onRequestReport={requestDriverEarningsReport}
                   onRequestWithdraw={requestDriverWithdrawal}
+                  onManageBankDetails={() => setActiveTab('profile')}
                 />
               </View>
             </>
@@ -2048,7 +2092,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
 
           {activeTab === 'trust' && (
             <>
-              <DriverKycPanel token={token} />
+              <DriverKycPanel token={token} onDataChanged={refreshDriverMenuBadges} />
               <DriverTrustCard token={token} />
             </>
           )}
@@ -2085,7 +2129,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
 
           {activeTab === 'documents' && (
             <View style={styles.earningsCard}>
-              <DocumentUploadPanel token={token} loading={loading} />
+              <DocumentUploadPanel token={token} loading={loading} onDataChanged={refreshDriverMenuBadges} />
             </View>
           )}
 
@@ -2102,6 +2146,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                 token={token}
                 loading={loading}
                 initialAction={supportLaunchAction}
+                onDataChanged={refreshDriverMenuBadges}
               />
             </View>
           )}
@@ -2132,7 +2177,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
               token={token}
               loading={loading}
               displayIsOnline={displayIsOnline}
-              onToggleOnline={() => toggleDriverAvailability(!displayIsOnline)}
+              onToggleOnline={toggleOnlineStatus}
               onNavigateToTab={handleSettingsNavigateToTab}
               onSettingsChange={handleDriverSettingsChange}
             />

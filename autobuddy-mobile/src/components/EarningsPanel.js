@@ -10,6 +10,57 @@ import {
 } from 'react-native';
 import { COLORS, SHADOWS } from '../theme';
 
+function formatMoney(value) {
+  const amount = Number(value || 0);
+  return `Rs. ${Number.isFinite(amount) ? amount.toFixed(2) : '0.00'}`;
+}
+
+function formatDateTime(value) {
+  if (!value) {
+    return 'Not available';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return 'Not available';
+  }
+  return date.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function formatStatusLabel(value) {
+  return String(value || 'not_submitted')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function getStatusTone(status) {
+  const normalized = String(status || '').toLowerCase();
+  if (['approved', 'processed', 'paid', 'completed', 'verified'].includes(normalized)) {
+    return {
+      backgroundColor: '#E8F5E9',
+      borderColor: COLORS.success,
+      color: COLORS.success,
+    };
+  }
+  if (['failed', 'rejected', 'cancelled'].includes(normalized)) {
+    return {
+      backgroundColor: '#FFF5F5',
+      borderColor: COLORS.danger,
+      color: COLORS.danger,
+    };
+  }
+  return {
+    backgroundColor: '#FFF8E1',
+    borderColor: COLORS.warning,
+    color: '#8A5A00',
+  };
+}
+
 /**
  * EarningsPanel Component
  * 
@@ -24,6 +75,7 @@ import { COLORS, SHADOWS } from '../theme';
  *   - initialAction: 'summary' | 'withdraw'
  *   - onRequestReport: () => void
  *   - onRequestWithdraw: () => void
+ *   - onManageBankDetails: () => void
  */
 export default function EarningsPanel({
   earnings = null,
@@ -33,6 +85,7 @@ export default function EarningsPanel({
   initialAction = 'summary',
   onRequestReport,
   onRequestWithdraw,
+  onManageBankDetails,
 }) {
   const [showFareDetails, setShowFareDetails] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState('');
@@ -87,6 +140,51 @@ export default function EarningsPanel({
       nightMultiplier: driverFareConfig.night_multiplier || 1,
     };
   }, [driverFareConfig]);
+
+  const payout = useMemo(() => {
+    const source = earnings?.payout && typeof earnings.payout === 'object' ? earnings.payout : {};
+    const withdrawals = Array.isArray(earnings?.withdrawals)
+      ? earnings.withdrawals
+      : Array.isArray(source.recent_withdrawals)
+        ? source.recent_withdrawals
+        : [];
+    const walletBalance = Number(source.wallet_balance ?? earnings?.wallet_balance ?? 0);
+    const pendingWithdrawal = Number(source.pending_withdrawal ?? earnings?.pending_withdrawal ?? 0);
+    const bankStatus = String(source.bank_verification_status || earnings?.bank_verification_status || 'not_submitted');
+    const blocker =
+      source.withdrawal_blocker ||
+      (bankStatus !== 'verified'
+        ? 'Bank details must be verified before withdrawals can be requested.'
+        : walletBalance <= 0
+          ? 'No available wallet balance to withdraw.'
+          : '');
+
+    return {
+      walletBalance: Number.isFinite(walletBalance) ? walletBalance : 0,
+      pendingWithdrawal: Number.isFinite(pendingWithdrawal) ? pendingWithdrawal : 0,
+      bankStatus,
+      bankName: source.bank_name || '',
+      bankAccountMasked: source.bank_account_masked || '',
+      canWithdraw: source.can_withdraw !== false && bankStatus === 'verified' && walletBalance > 0,
+      blocker,
+      payoutEta: source.payout_eta || null,
+      latestFailureReason: source.latest_failure_reason || null,
+      withdrawals,
+    };
+  }, [earnings]);
+
+  const withdrawSubmitDisabled = loading || !payout.canWithdraw;
+
+  const focusWithdrawInput = () => {
+    withdrawInputRef.current?.focus?.();
+  };
+
+  const submitWithdrawal = () => {
+    if (withdrawSubmitDisabled) {
+      return;
+    }
+    onRequestWithdraw?.(Number(withdrawAmount || 0), 'bank_transfer');
+  };
 
   useEffect(() => {
     if (initialAction !== 'withdraw') {
@@ -167,28 +265,117 @@ export default function EarningsPanel({
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.actionButton}
-          onPress={onRequestWithdraw}
+          onPress={focusWithdrawInput}
           disabled={loading}>
           <Text style={styles.actionButtonIcon}>💳</Text>
           <Text style={styles.actionButtonText}>Withdraw</Text>
         </TouchableOpacity>
       </View>
-      <TextInput
-        ref={withdrawInputRef}
-        style={styles.withdrawInput}
-        value={withdrawAmount}
-        onChangeText={setWithdrawAmount}
-        placeholder="Withdrawal amount"
-        placeholderTextColor={COLORS.gray}
-        keyboardType="decimal-pad"
-        editable={!loading}
-      />
-      <TouchableOpacity
-        style={[styles.actionButton, styles.withdrawSubmitButton]}
-        onPress={() => onRequestWithdraw?.(Number(withdrawAmount || 0), 'bank_transfer')}
-        disabled={loading}>
-        <Text style={styles.actionButtonText}>Submit Withdrawal Request</Text>
-      </TouchableOpacity>
+      <View style={styles.card}>
+        <View style={styles.payoutHeaderRow}>
+          <Text style={styles.cardTitle}>Payouts</Text>
+          <View style={[styles.statusPill, getStatusTone(payout.bankStatus)]}>
+            <Text style={[styles.statusPillText, { color: getStatusTone(payout.bankStatus).color }]}>
+              {formatStatusLabel(payout.bankStatus)}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.walletGrid}>
+          <View style={styles.walletMetric}>
+            <Text style={styles.walletValue}>{formatMoney(payout.walletBalance)}</Text>
+            <Text style={styles.walletLabel}>Available</Text>
+          </View>
+          <View style={styles.walletMetric}>
+            <Text style={styles.walletValue}>{formatMoney(payout.pendingWithdrawal)}</Text>
+            <Text style={styles.walletLabel}>Pending payout</Text>
+          </View>
+        </View>
+
+        {!!payout.bankAccountMasked && (
+          <Text style={styles.payoutMeta}>
+            Bank: {payout.bankName || 'Bank account'} {payout.bankAccountMasked}
+          </Text>
+        )}
+        {!!payout.payoutEta && (
+          <Text style={styles.payoutMeta}>Next payout ETA: {formatDateTime(payout.payoutEta)}</Text>
+        )}
+        {!!payout.latestFailureReason && (
+          <Text style={styles.failureText}>Latest failure: {payout.latestFailureReason}</Text>
+        )}
+
+        {!!payout.blocker && (
+          <View style={styles.blockerBox}>
+            <Text style={styles.blockerTitle}>Payout blocked</Text>
+            <Text style={styles.blockerText}>{payout.blocker}</Text>
+            {!!onManageBankDetails && payout.bankStatus !== 'verified' && (
+              <TouchableOpacity
+                style={styles.secondaryButton}
+                onPress={onManageBankDetails}
+                disabled={loading}>
+                <Text style={styles.secondaryButtonText}>Manage Bank Details</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
+        <TextInput
+          ref={withdrawInputRef}
+          style={[styles.withdrawInput, withdrawSubmitDisabled && styles.inputDisabled]}
+          value={withdrawAmount}
+          onChangeText={setWithdrawAmount}
+          placeholder="Withdrawal amount"
+          placeholderTextColor={COLORS.gray || COLORS.textMuted}
+          keyboardType="decimal-pad"
+          editable={!withdrawSubmitDisabled}
+        />
+        <TouchableOpacity
+          style={[styles.actionButton, styles.withdrawSubmitButton, withdrawSubmitDisabled && styles.actionButtonDisabled]}
+          onPress={submitWithdrawal}
+          disabled={withdrawSubmitDisabled}>
+          <Text style={styles.actionButtonText}>Submit Withdrawal Request</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Withdrawal History</Text>
+        {payout.withdrawals.length === 0 ? (
+          <Text style={styles.smallText}>No withdrawal requests yet.</Text>
+        ) : (
+          payout.withdrawals.map((item) => {
+            const tone = getStatusTone(item.status);
+            return (
+              <View key={item.id || `${item.created_at}-${item.amount}`} style={styles.withdrawalItem}>
+                <View style={styles.withdrawalHeader}>
+                  <View style={styles.withdrawalTitleBlock}>
+                    <Text style={styles.withdrawalAmount}>{formatMoney(item.amount)}</Text>
+                    <Text style={styles.withdrawalMeta}>
+                      {formatDateTime(item.created_at)} | {String(item.method || 'bank_transfer').replace(/_/g, ' ')}
+                    </Text>
+                  </View>
+                  <View style={[styles.statusPill, tone]}>
+                    <Text style={[styles.statusPillText, { color: tone.color }]}>
+                      {formatStatusLabel(item.status)}
+                    </Text>
+                  </View>
+                </View>
+                {!!item.payout_eta && (
+                  <Text style={styles.withdrawalMeta}>Payout ETA: {formatDateTime(item.payout_eta)}</Text>
+                )}
+                {!!item.processed_at && (
+                  <Text style={styles.withdrawalMeta}>Processed: {formatDateTime(item.processed_at)}</Text>
+                )}
+                {!!item.failure_reason && (
+                  <Text style={styles.failureText}>Failure reason: {item.failure_reason}</Text>
+                )}
+                {!!item.admin_note && (
+                  <Text style={styles.withdrawalMeta}>Admin note: {item.admin_note}</Text>
+                )}
+              </View>
+            );
+          })
+        )}
+      </View>
 
       {/* Fare Details Section */}
       <TouchableOpacity
@@ -392,6 +579,10 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     ...SHADOWS.card,
   },
+  actionButtonDisabled: {
+    backgroundColor: COLORS.textMuted,
+    opacity: 0.7,
+  },
   actionButtonIcon: {
     fontSize: 20,
     marginBottom: 4,
@@ -412,8 +603,129 @@ const styles = StyleSheet.create({
     color: COLORS.textMain,
     backgroundColor: COLORS.surface,
   },
+  inputDisabled: {
+    backgroundColor: '#F1F5F2',
+    opacity: 0.8,
+  },
   withdrawSubmitButton: {
     marginBottom: 12,
+  },
+  payoutHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  statusPill: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  statusPillText: {
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  walletGrid: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 10,
+  },
+  walletMetric: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#D7E2DA',
+    borderRadius: 12,
+    padding: 12,
+    backgroundColor: '#F8FBF9',
+  },
+  walletValue: {
+    color: COLORS.primary,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  walletLabel: {
+    color: COLORS.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  payoutMeta: {
+    color: COLORS.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  blockerBox: {
+    borderWidth: 1,
+    borderColor: '#F3D27A',
+    backgroundColor: '#FFF8E1',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+  },
+  blockerTitle: {
+    color: '#8A5A00',
+    fontSize: 13,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  blockerText: {
+    color: '#6B4A00',
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 18,
+  },
+  secondaryButton: {
+    marginTop: 10,
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: COLORS.surface,
+  },
+  secondaryButtonText: {
+    color: COLORS.primary,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  withdrawalItem: {
+    borderWidth: 1,
+    borderColor: '#D7E2DA',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+    backgroundColor: '#F8FBF9',
+  },
+  withdrawalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginBottom: 6,
+  },
+  withdrawalTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  withdrawalAmount: {
+    color: COLORS.textMain,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  withdrawalMeta: {
+    color: COLORS.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 3,
+  },
+  failureText: {
+    color: COLORS.danger,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 4,
   },
 
   // Fare Details

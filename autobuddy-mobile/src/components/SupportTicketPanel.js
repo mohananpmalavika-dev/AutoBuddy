@@ -89,7 +89,12 @@ function AttachmentList({ attachments = [] }) {
   );
 }
 
-export default function SupportTicketPanel({ token, loading: parentLoading = false, initialAction = 'help' }) {
+export default function SupportTicketPanel({
+  token,
+  loading: parentLoading = false,
+  initialAction = 'help',
+  onDataChanged,
+}) {
   const normalizedInitialAction =
     initialAction === 'contact' ? 'contact' : initialAction === 'tickets' ? 'tickets' : 'help';
   const [activeTab, setActiveTab] = useState(normalizedInitialAction === 'help' ? 'help' : 'tickets');
@@ -252,6 +257,7 @@ export default function SupportTicketPanel({ token, loading: parentLoading = fal
       setShowCreateForm(false);
       setActiveTab('tickets');
       await fetchTickets();
+      onDataChanged?.();
       if (response?.ticket?.id) {
         setSelectedTicketId(response.ticket.id);
       }
@@ -280,6 +286,7 @@ export default function SupportTicketPanel({ token, loading: parentLoading = fal
       setReplyText('');
       setReplyAttachments([]);
       await fetchTickets();
+      onDataChanged?.();
     } catch (err) {
       setError(err.message || 'Failed to add reply');
     } finally {
@@ -297,6 +304,7 @@ export default function SupportTicketPanel({ token, loading: parentLoading = fal
       });
       setTimedMessage('Ticket closed.');
       await fetchTickets();
+      onDataChanged?.();
       setSelectedTicketId(null);
     } catch (err) {
       setError(err.message || 'Failed to close ticket');
@@ -322,6 +330,7 @@ export default function SupportTicketPanel({ token, loading: parentLoading = fal
       setTimedMessage('Ticket escalated to senior support.');
       setEscalationReason('');
       await fetchTickets();
+      onDataChanged?.();
     } catch (err) {
       setError(err.message || 'Failed to escalate ticket');
     } finally {
