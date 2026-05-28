@@ -5972,6 +5972,8 @@ async def update_driver_availability(availability: DriverAvailabilityUpdate, cur
     if availability.is_available:
         await ensure_user_can_take_ride_actions(current_user, "going online")
     now_utc = datetime.utcnow()
+    driver_insert_defaults = build_default_driver_profile(current_user["id"])
+    driver_insert_defaults.pop("is_available", None)
 
     await db.drivers.update_one(
         {"user_id": current_user["id"]},
@@ -5983,7 +5985,7 @@ async def update_driver_availability(availability: DriverAvailabilityUpdate, cur
                 "last_online_at": now_utc if availability.is_available else None,
                 "last_offline_at": now_utc if not availability.is_available else None,
             },
-            "$setOnInsert": build_default_driver_profile(current_user["id"]),
+            "$setOnInsert": driver_insert_defaults,
         },
         upsert=True,
     )
