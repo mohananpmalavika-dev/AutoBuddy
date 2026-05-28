@@ -6,8 +6,18 @@ import {
   View,
   ActivityIndicator,
 } from 'react-native';
-import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme';
+import { COLORS, SHADOWS } from '../theme';
 import KeralaSafetyCard from './KeralaSafetyCard';
+
+const RIDE_STATUS_MAP = {
+  pending: { label: 'New Request', color: '#FF6B6B', icon: '📍' },
+  accepted: { label: 'Accepted', color: '#4ECDC4', icon: '✓' },
+  driver_arrived: { label: 'You Arrived', color: '#45B7D1', icon: '📍' },
+  in_progress: { label: 'Trip Started', color: '#95E1D3', icon: '🚗' },
+  completed: { label: 'Completed', color: '#6BCF7F', icon: '✓' },
+};
+
+const UNKNOWN_RIDE_STATUS = { label: 'Unknown', color: COLORS.gray, icon: '?' };
 
 /**
  * RideCard Component
@@ -47,17 +57,8 @@ export default function RideCard({
   expanded = false,
   onToggleExpand,
 }) {
-  const rideStatus = useMemo(() => {
-    if (!ride?.status) return null;
-    const map = {
-      pending: { label: 'New Request', color: '#FF6B6B', icon: '📍' },
-      accepted: { label: 'Accepted', color: '#4ECDC4', icon: '✓' },
-      driver_arrived: { label: 'You Arrived', color: '#45B7D1', icon: '📍' },
-      in_progress: { label: 'Trip Started', color: '#95E1D3', icon: '🚗' },
-      completed: { label: 'Completed', color: '#6BCF7F', icon: '✓' },
-    };
-    return map[String(ride.status).toLowerCase()] || { label: 'Unknown', color: COLORS.gray, icon: '?' };
-  }, [ride?.status]);
+  const rideStatusKey = String(ride?.status || '').toLowerCase();
+  const rideStatus = rideStatusKey ? RIDE_STATUS_MAP[rideStatusKey] || UNKNOWN_RIDE_STATUS : null;
 
   const passenger = useMemo(() => ({
     name: ride?.passenger_name || 'Passenger',

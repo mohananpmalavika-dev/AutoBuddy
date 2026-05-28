@@ -75,6 +75,7 @@ export default function EnhancedSettingsPanel({
   displayIsOnline,
   onToggleOnline,
   onNavigateToTab,
+  onSettingsChange,
 }) {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [quietHoursDraft, setQuietHoursDraft] = useState({
@@ -84,6 +85,7 @@ export default function EnhancedSettingsPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
 
   const languages = [
     { value: 'en', label: 'English' },
@@ -105,6 +107,7 @@ export default function EnhancedSettingsPanel({
       const data = await apiRequest('/drivers/settings', { token });
       const nextSettings = normalizeSettings(data?.settings || {});
       setSettings(nextSettings);
+      onSettingsChange?.(nextSettings);
       setQuietHoursDraft({
         quiet_hours_start: nextSettings.quiet_hours_start,
         quiet_hours_end: nextSettings.quiet_hours_end,
@@ -114,7 +117,7 @@ export default function EnhancedSettingsPanel({
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [onSettingsChange, token]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -134,6 +137,7 @@ export default function EnhancedSettingsPanel({
       });
       const nextSettings = normalizeSettings(response?.settings || { ...settings, ...updates });
       setSettings(nextSettings);
+      onSettingsChange?.(nextSettings);
       setQuietHoursDraft({
         quiet_hours_start: nextSettings.quiet_hours_start,
         quiet_hours_end: nextSettings.quiet_hours_end,
@@ -174,53 +178,52 @@ export default function EnhancedSettingsPanel({
     Alert.alert('Security', 'Use Profile > Account Security to change your password.');
   };
 
+  const navigateToTab = (tab, options = {}, fallbackTitle, fallbackMessage) => {
+    if (typeof onNavigateToTab === 'function') {
+      onNavigateToTab(tab, options);
+      return true;
+    }
+    Alert.alert(fallbackTitle, fallbackMessage);
+    return false;
+  };
+
   const handlePaymentMethods = () => {
-    Alert.alert(
+    navigateToTab(
+      'profile',
+      { section: 'payout' },
       'Payment Methods',
-      'Manage your payment methods and account',
-      [
-        { text: 'Add Payment Method', onPress: () => console.log('Add payment method') },
-        { text: 'View Linked Accounts', onPress: () => console.log('View linked accounts') },
-        { text: 'Cancel', style: 'cancel' },
-      ],
+      'Open Profile > Payout Details to manage the bank account used for driver payments and withdrawals.',
     );
   };
 
   const handleViewPrivacy = () => {
-    Alert.alert(
-      'Privacy Policy',
-      'AutoBuddy is committed to protecting your privacy. Tap OK to view the full policy in your browser.',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'OK',
-          onPress: () => {
-            console.log('Open privacy policy');
-          },
-        },
-      ],
-    );
+    setShowPrivacyPolicy((current) => !current);
   };
 
   const handleHelpFaq = () => {
-    Alert.alert(
+    navigateToTab(
+      'support',
+      { supportAction: 'help' },
       'Help & FAQ',
-      'Common questions and support resources',
-      [
-        { text: 'View FAQ', onPress: () => console.log('View FAQ') },
-        { text: 'Contact Support', onPress: () => console.log('Contact support') },
-        { text: 'Close', style: 'cancel' },
-      ],
+      'Open the Support tab to search FAQs and view help-center answers.',
+    );
+  };
+
+  const handleContactSupport = () => {
+    navigateToTab(
+      'support',
+      { supportAction: 'contact' },
+      'Contact Support',
+      'Open the Support tab to create a support ticket.',
     );
   };
 
   const handleDeleteAccount = () => {
-    Alert.alert(
+    navigateToTab(
+      'support',
+      { supportAction: 'contact' },
       'Delete Account',
-      'Account deletion requires support verification right now. Please contact support from the Support tab.',
+      'Account deletion requires support verification. Open the Support tab to create a ticket.',
     );
   };
 
@@ -339,7 +342,7 @@ export default function EnhancedSettingsPanel({
           disabled={parentLoading}
         />
         <Text style={styles.privacyNote}>
-          Your location is only shared during active rides. Promotional offers help you earn more.
+          When Share Location is off, location is only shared during active rides. Promotional offers help you earn more.
         </Text>
       </View>
 
@@ -411,8 +414,25 @@ export default function EnhancedSettingsPanel({
           onPress={handleViewPrivacy}
           disabled={parentLoading || loading}
         >
-          <Text style={styles.actionButtonText}>📋 View Privacy Policy</Text>
+          <Text style={styles.actionButtonText}>{showPrivacyPolicy ? 'Hide Privacy Policy' : 'View Privacy Policy'}</Text>
         </TouchableOpacity>
+        {showPrivacyPolicy && (
+          <View style={styles.policyPanel}>
+            <Text style={styles.policyTitle}>AutoBuddy Privacy Policy</Text>
+            <Text style={styles.policyText}>
+              AutoBuddy uses your account, vehicle, document, ride, payment, safety, and location data to run driver matching, trips, payouts, fraud prevention, and support.
+            </Text>
+            <Text style={styles.policyText}>
+              Location sharing follows your Share Location setting while you are online, and remains active during live rides so passengers and safety tools can track the trip.
+            </Text>
+            <Text style={styles.policyText}>
+              Documents, bank details, and support attachments are used for verification, compliance, payouts, and account help. Promotional preferences control whether offer messages are sent.
+            </Text>
+            <Text style={styles.policyText}>
+              For account export, correction, or deletion requests, use Contact Support so the team can verify ownership before making changes.
+            </Text>
+          </View>
+        )}
         <TouchableOpacity 
           style={[styles.actionButton, styles.dangerButton]}
           onPress={handleDeleteAccount}
@@ -439,6 +459,13 @@ export default function EnhancedSettingsPanel({
           disabled={parentLoading || loading}
         >
           <Text style={styles.actionButtonText}>❓ Help & FAQ</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={handleContactSupport}
+          disabled={parentLoading || loading}
+        >
+          <Text style={styles.actionButtonText}>Contact Support</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -626,6 +653,26 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: COLORS.error,
+  },
+  policyPanel: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 10,
+  },
+  policyTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: COLORS.textMain,
+    marginBottom: 8,
+  },
+  policyText: {
+    fontSize: 12,
+    color: COLORS.textMuted,
+    lineHeight: 17,
+    marginBottom: 8,
   },
   aboutItem: {
     flexDirection: 'row',

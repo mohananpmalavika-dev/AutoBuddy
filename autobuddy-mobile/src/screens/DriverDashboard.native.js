@@ -50,11 +50,32 @@ const DEFAULT_DRIVER_LOCATION = {
   address: 'Current location unavailable',
 };
 
+const DEFAULT_DRIVER_SETTINGS = {
+  share_location: true,
+};
+
 const STATUS_FLOW = ['accepted', 'driver_arrived', 'in_progress', 'completed'];
 const DRIVER_MOVING_TRACK_INTERVAL_MS = 5000;
 const DRIVER_IDLE_TRACK_INTERVAL_MS = 20000;
 const DRIVER_IDLE_SPEED_THRESHOLD_KMH = 2;
 const AVAILABILITY_RETRY_WINDOW_MS = 300000;
+
+function normalizeDriverSettings(rawSettings = {}) {
+  const source =
+    rawSettings?.settings && typeof rawSettings.settings === 'object'
+      ? rawSettings.settings
+      : rawSettings;
+
+  if (!source || typeof source !== 'object') {
+    return DEFAULT_DRIVER_SETTINGS;
+  }
+
+  return {
+    ...DEFAULT_DRIVER_SETTINGS,
+    ...source,
+    share_location: source.share_location ?? DEFAULT_DRIVER_SETTINGS.share_location,
+  };
+}
 
 function isRetriableAvailabilityError(err) {
   const status = Number(err?.status || 0);
@@ -124,6 +145,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   const [isOnline, setIsOnline] = useState(false);
   const [serverIsOnline, setServerIsOnline] = useState(false);
   const [availabilitySyncPending, setAvailabilitySyncPending] = useState(false);
+  const [driverSettings, setDriverSettings] = useState(DEFAULT_DRIVER_SETTINGS);
   const [driverLocation, setDriverLocation] = useState(DEFAULT_DRIVER_LOCATION);
   const [pendingRequests, setPendingRequests] = useState([]);
   const [blockedPassengerIds, setBlockedPassengerIds] = useState([]);
@@ -146,6 +168,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   const [rideStartOtp, setRideStartOtp] = useState('');
   const [rideEndOtp, setRideEndOtp] = useState('');
   const [activeTab, setActiveTab] = useState('requests');
+  const [supportLaunchAction, setSupportLaunchAction] = useState('help');
   const [expandedRideCard, setExpandedRideCard] = useState(false);
   const [spinWinStatus, setSpinWinStatus] = useState(null);
   const [spinWinLoading, setSpinWinLoading] = useState(false);
@@ -154,10 +177,14 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   const liveLocationRideStatuses = useMemo(() => new Set(['accepted', 'driver_arrived', 'in_progress']), []);
   const activeRideStatus = String(activeRide?.status || '').toLowerCase();
   const activeRideId = String(activeRide?.id || '').trim() || null;
+  const shareLocationWhileOnline = driverSettings.share_location !== false;
+  const activeRideSharesLocation = liveLocationRideStatuses.has(activeRideStatus);
   const navigatingToPickup = activeRideStatus === 'accepted' || activeRideStatus === 'driver_arrived';
   const navigatingToDrop = activeRideStatus === 'in_progress';
   const showStageRoute = navigatingToPickup || navigatingToDrop;
-  const shouldSyncDriverLocation = (isOnline && !availabilitySyncPending) || liveLocationRideStatuses.has(activeRideStatus);
+  const shouldSyncDriverLocation =
+    (shareLocationWhileOnline && isOnline && !availabilitySyncPending) || activeRideSharesLocation;
+  const shouldPushAvailabilityLocation = shareLocationWhileOnline || activeRideSharesLocation;
   const displayIsOnline = availabilitySyncPending ? isOnline : serverIsOnline;
   const keralaSafety = useKeralaSafety({
     token,
@@ -173,6 +200,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     activeRideId,
     enabled: shouldSyncDriverLocation,
     manageLocationWatch: false,
+    manageBackgroundTracking: activeRideSharesLocation,
   });
   
 
@@ -194,6 +222,23 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  const handleDriverSettingsChange = useCallback((nextSettings = {}) => {
+    setDriverSettings((currentSettings) =>
+      normalizeDriverSettings({ ...currentSettings, ...(nextSettings || {}) }),
+    );
+  }, []);
+
+  const handleSettingsNavigateToTab = useCallback((tab, options = {}) => {
+    const nextTab = String(tab || '').trim();
+    if (!nextTab) {
+      return;
+    }
+    if (nextTab === 'support') {
+      setSupportLaunchAction(options?.supportAction === 'contact' ? 'contact' : 'help');
+    }
+    setActiveTab(nextTab);
   }, []);
 
   const hydrateDriverFareConfig = useCallback((payload) => {
@@ -429,7 +474,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       }
     }
 
-    const [requests, ride, earningsSummary, pricing, fareCalc, blockedPassengers, spinStatus] = await Promise.all([
+    const [requests, ride, earningsSummary, pricing, fareCalc, blockedPassengers, spinStatus, settingsPayload] = await Promise.all([
       apiRequest('/drivers/pending-requests', { token }).catch(() => []),
       apiRequest('/drivers/active-ride', { token }).catch(() => null),
       apiRequest('/drivers/earnings', { token }).catch(() => null),
@@ -437,6 +482,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       apiRequest('/drivers/fare-calculator', { token }).catch(() => null),
       apiRequest('/drivers/blocked-passengers', { token }).catch(() => ({ passenger_ids: [] })),
       apiRequest('/spin-win/config', { token }).catch(() => null),
+      apiRequest('/drivers/settings', { token }).catch(() => null),
     ]);
     await Promise.all([
       apiRequest('/subscriptions/config', { token }).catch(() => null),
@@ -452,6 +498,9 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     setDriverFareRequestInfo(fareCalc?.request || null);
     hydrateDriverFareConfig(fareCalc?.request?.payload || fareCalc?.effective_pricing || fareCalc?.default_pricing || null);
     setSpinWinStatus(spinStatus || null);
+    if (settingsPayload) {
+      setDriverSettings(normalizeDriverSettings(settingsPayload));
+    }
     setMessage('Driver dashboard refreshed.');
   }, [hydrateDriverFareConfig, normalizeLocation, runAction, token, availabilitySyncPending]);
 
@@ -461,8 +510,9 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     }
     refreshInFlightRef.current = true;
     try {
-      const [profile, requests, ride, blockedPassengers, spinStatus] = await Promise.all([
+      const [profile, settingsPayload, requests, ride, blockedPassengers, spinStatus] = await Promise.all([
         includeProfile ? apiRequest('/drivers/profile', { token }).catch(() => null) : Promise.resolve(null),
+        includeProfile ? apiRequest('/drivers/settings', { token }).catch(() => null) : Promise.resolve(null),
         apiRequest('/drivers/pending-requests', { token }).catch(() => []),
         apiRequest('/drivers/active-ride', { token }).catch(() => null),
         apiRequest('/drivers/blocked-passengers', { token }).catch(() => ({ passenger_ids: [] })),
@@ -493,6 +543,9 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
         if (resolvedLocation) {
           setDriverLocation(resolvedLocation);
         }
+      }
+      if (settingsPayload) {
+        setDriverSettings(normalizeDriverSettings(settingsPayload));
       }
       setPendingRequests(Array.isArray(requests) ? requests : []);
       setBlockedPassengerIds(Array.isArray(blockedPassengers?.passenger_ids) ? blockedPassengers.passenger_ids : []);
@@ -712,12 +765,15 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   
 
   useEffect(() => {
+    if (!shouldSyncDriverLocation) {
+      return;
+    }
     if (initialLocationSyncAttemptedRef.current) {
       return;
     }
     initialLocationSyncAttemptedRef.current = true;
     pushDriverLocation({ fallbackLocation: driverLocation, silent: true }).catch(() => null);
-  }, [driverLocation, pushDriverLocation]);
+  }, [driverLocation, pushDriverLocation, shouldSyncDriverLocation]);
 
   useEffect(() => {
     let unmounted = false;
@@ -912,7 +968,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       setMessage(savedStatus ? 'You are now online.' : 'You are now offline.');
       setError('');
 
-      if (savedStatus) {
+      if (savedStatus && shouldPushAvailabilityLocation) {
         await pushDriverLocation({ silent: true });
       }
     } catch (err) {
@@ -930,7 +986,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
         setAvailabilitySyncPending(false);
       }
     }
-  }, [pushDriverLocation, token]);
+  }, [pushDriverLocation, shouldPushAvailabilityLocation, token]);
 
   const acceptRequest = async (bookingId) => {
     const accepted = await runAction(() =>
@@ -1067,6 +1123,48 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     }
   };
 
+  const performCancelActiveRide = async () => {
+    if (!activeRideId) {
+      return;
+    }
+    const cancelled = await runAction(
+      () =>
+        apiRequest(`/bookings/${activeRideId}/cancel`, {
+          method: 'PUT',
+          token,
+        }),
+      'Ride cancelled. You are available for new requests.',
+    );
+    if (cancelled) {
+      setRideStartOtp('');
+      setRideEndOtp('');
+      setActiveRide(null);
+      setIsOnline(true);
+      setServerIsOnline(true);
+      await refreshDriverDataSilently({ includeProfile: true, includeMeta: true });
+    }
+  };
+
+  const cancelActiveRide = () => {
+    if (!activeRideId) {
+      return;
+    }
+    Alert.alert(
+      'Cancel Ride?',
+      'This will cancel the active ride and notify the passenger.',
+      [
+        { text: 'Keep Ride', style: 'cancel' },
+        {
+          text: 'Cancel Ride',
+          style: 'destructive',
+          onPress: () => {
+            performCancelActiveRide().catch(() => null);
+          },
+        },
+      ],
+    );
+  };
+
   const nextActionLabel = useMemo(() => {
     if (!activeRide?.status) {
       return null;
@@ -1079,6 +1177,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     };
     return map[String(activeRide.status)] || null;
   }, [activeRide]);
+  const canCancelActiveRide = Boolean(activeRideId) && !['completed', 'cancelled'].includes(activeRideStatus);
 
   const focusRideCommunication = useCallback(() => {
     if (!activeRideId) {
@@ -1323,6 +1422,11 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
                         <Text style={styles.nextActionButtonText}>{nextActionLabel}</Text>
                       </TouchableOpacity>
                     )}
+                    {canCancelActiveRide && (
+                      <TouchableOpacity style={styles.cancelRideButton} onPress={cancelActiveRide} disabled={loading}>
+                        <Text style={styles.cancelRideButtonText}>Cancel Ride</Text>
+                      </TouchableOpacity>
+                    )}
                     <RideCommunicationCard
                       token={token}
                       booking={activeRide}
@@ -1545,7 +1649,8 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
               loading={loading}
               displayIsOnline={displayIsOnline}
               onToggleOnline={() => toggleDriverAvailability(!displayIsOnline)}
-              onNavigateToTab={setActiveTab}
+              onNavigateToTab={handleSettingsNavigateToTab}
+              onSettingsChange={handleDriverSettingsChange}
             />
           )}
 
@@ -1566,7 +1671,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
 
           {/* Support Tab */}
           {activeTab === 'support' && (
-            <SupportTicketPanel token={token} loading={loading} />
+            <SupportTicketPanel token={token} loading={loading} initialAction={supportLaunchAction} />
           )}
 
           {/* Analytics Tab */}
@@ -1847,6 +1952,17 @@ const styles = StyleSheet.create({
     ...SHADOWS.soft,
   },
   nextActionButtonText: { color: '#fff', fontWeight: '800', fontSize: 15 },
+  cancelRideButton: {
+    marginTop: 10,
+    backgroundColor: '#FFF5F5',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.danger,
+    alignItems: 'center',
+  },
+  cancelRideButtonText: { color: COLORS.danger, fontWeight: '800', fontSize: 15 },
   acceptButton: {
     marginTop: 8,
     backgroundColor: COLORS.primary,

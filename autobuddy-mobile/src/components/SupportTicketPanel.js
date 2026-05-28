@@ -89,12 +89,14 @@ function AttachmentList({ attachments = [] }) {
   );
 }
 
-export default function SupportTicketPanel({ token, loading: parentLoading = false }) {
-  const [activeTab, setActiveTab] = useState('help');
+export default function SupportTicketPanel({ token, loading: parentLoading = false, initialAction = 'help' }) {
+  const normalizedInitialAction =
+    initialAction === 'contact' ? 'contact' : initialAction === 'tickets' ? 'tickets' : 'help';
+  const [activeTab, setActiveTab] = useState(normalizedInitialAction === 'help' ? 'help' : 'tickets');
   const [tickets, setTickets] = useState([]);
   const [faqs, setFaqs] = useState([]);
   const [selectedTicketId, setSelectedTicketId] = useState(null);
-  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [showCreateForm, setShowCreateForm] = useState(normalizedInitialAction === 'contact');
   const [loading, setLoading] = useState(false);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [error, setError] = useState('');
@@ -327,7 +329,7 @@ export default function SupportTicketPanel({ token, loading: parentLoading = fal
     }
   };
 
-  const startContactSupport = (source = {}) => {
+  const startContactSupport = useCallback((source = {}) => {
     setFormData((previous) => ({
       ...previous,
       subject: source.subject || previous.subject,
@@ -338,7 +340,7 @@ export default function SupportTicketPanel({ token, loading: parentLoading = fal
     setShowCreateForm(true);
     setActiveTab('tickets');
     setSelectedTicketId(null);
-  };
+  }, []);
 
   const renderCreateForm = () => (
     <View style={styles.createForm}>

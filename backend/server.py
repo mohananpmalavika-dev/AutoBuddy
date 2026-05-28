@@ -4610,6 +4610,7 @@ DRIVER_DOCUMENT_TYPES: Dict[str, Dict[str, Any]] = {
     "pollution_certificate": {"label": "Pollution Certificate", "expires": True, "renewal_window_days": 30},
     "aadhar": {"label": "Aadhar/ID Proof", "expires": False, "renewal_window_days": 0},
     "pan": {"label": "PAN Card", "expires": False, "renewal_window_days": 0},
+    "selfie": {"label": "Selfie/Liveness Photo", "expires": False, "renewal_window_days": 0},
 }
 
 def normalize_driver_doc_type(doc_type: str) -> str:
@@ -8405,7 +8406,18 @@ async def submit_driver_kyc(payload: DriverKYCSubmission, current_user: dict = D
 
     await db.drivers.update_one(
         {"user_id": current_user["id"]},
-        {"$set": {"kyc_status": KYCStatus.PENDING}},
+        {
+            "$set": {
+                "kyc_status": KYCStatus.PENDING,
+                "license_number": payload.license_number,
+                "rc_number": payload.rc_number,
+                "aadhaar_masked": mask_document_number(payload.aadhaar_number),
+                "aadhaar_document_url": payload.aadhaar_image_url,
+                "license_document_url": payload.license_image_url,
+                "rc_document_url": payload.rc_image_url,
+                "selfie_url": payload.selfie_image_url,
+            }
+        },
     )
 
     return {"message": "KYC submitted", "status": KYCStatus.PENDING}

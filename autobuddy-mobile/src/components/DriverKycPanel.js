@@ -1,62 +1,153 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
+import * as ImagePicker from 'expo-image-picker';
 
 import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
 import VoiceTextInput from './VoiceTextInput';
 
+const REQUIRED_KYC_FILES = [
+  {
+    payloadKey: 'aadhaar_image_url',
+    docType: 'aadhar',
+    label: 'Aadhaar / ID proof',
+    description: 'Upload a clear front/back scan or photo.',
+    picker: 'document',
+  },
+  {
+    payloadKey: 'license_image_url',
+    docType: 'driver_license',
+    label: 'Driving license',
+    description: 'Upload the license image or PDF.',
+    picker: 'document',
+  },
+  {
+    payloadKey: 'rc_image_url',
+    docType: 'vehicle_registration',
+    label: 'Vehicle RC',
+    description: 'Upload the registration certificate.',
+    picker: 'document',
+  },
+  {
+    payloadKey: 'selfie_image_url',
+    docType: 'selfie',
+    label: 'Live selfie',
+    description: 'Take a current selfie for face and liveness review.',
+    picker: 'selfie',
+  },
+];
+
+const EMPTY_FORM = {
+  aadhaar_number: '',
+  license_number: '',
+  rc_number: '',
+  aadhaar_image_url: '',
+  license_image_url: '',
+  rc_image_url: '',
+  selfie_image_url: '',
+};
+
 function digitsOnly(value, maxLength) {
   return String(value || '').replace(/\D/g, '').slice(0, maxLength);
 }
 
+function normalizeDocuments(payload = {}) {
+  const source = payload?.documents && typeof payload.documents === 'object' ? payload.documents : {};
+  return REQUIRED_KYC_FILES.reduce((documents, item) => {
+    documents[item.docType] = source[item.docType] || null;
+    return documents;
+  }, {});
+}
+
+function getFileName(asset, fallbackName) {
+  return asset?.name || asset?.fileName || fallbackName;
+}
+
+function getFileSize(asset) {
+  return Number(asset?.size || asset?.fileSize || 0);
+}
+
+function getMimeType(asset, fallbackType) {
+  return asset?.mimeType || asset?.type || fallbackType;
+}
+
 export default function DriverKycPanel({ token }) {
   const [loading, setLoading] = useState(false);
+  const [uploadingDocType, setUploadingDocType] = useState(null);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [kycStatus, setKycStatus] = useState(null);
-  const [form, setForm] = useState({
-    aadhaar_number: '',
-    license_number: '',
-    rc_number: '',
-    aadhaar_image_url: '',
-    license_image_url: '',
-    rc_image_url: '',
-    selfie_image_url: '',
-  });
+  const [documents, setDocuments] = useState({});
+  const [form, setForm] = useState(EMPTY_FORM);
+
+  const setTimedMessage = useCallback((nextMessage) => {
+    setMessage(nextMessage);
+    setTimeout(() => setMessage(''), 3000);
+  }, []);
 
   const updateField = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
+
+  const applyDocumentsPayload = useCallback((payload) => {
+    const nextDocuments = normalizeDocuments(payload);
+    const nextUrls = {};
+    REQUIRED_KYC_FILES.forEach((item) => {
+      const downloadUrl = nextDocuments[item.docType]?.download_url;
+      if (downloadUrl) {
+        nextUrls[item.payloadKey] = downloadUrl;
+      }
+    });
+    setDocuments(nextDocuments);
+    if (Object.keys(nextUrls).length > 0) {
+      setForm((prev) => ({ ...prev, ...nextUrls }));
+    }
+    return nextDocuments;
+  }, []);
+
+  const refreshDocuments = useCallback(async () => {
+    if (!token) {
+      return null;
+    }
+    const payload = await apiRequest('/drivers/documents', { token });
+    applyDocumentsPayload(payload);
+    return payload;
+  }, [applyDocumentsPayload, token]);
 
   const refreshKyc = useCallback(async () => {
     if (!token) {
       return;
     }
     try {
-      const payload = await apiRequest('/drivers/kyc', { token });
-      setKycStatus(payload || null);
-      if (payload && payload.status !== 'not_submitted') {
+      const [kycPayload] = await Promise.all([
+        apiRequest('/drivers/kyc', { token }),
+        refreshDocuments().catch(() => null),
+      ]);
+      setKycStatus(kycPayload || null);
+      if (kycPayload && kycPayload.status !== 'not_submitted') {
         setForm((prev) => ({
           ...prev,
-          aadhaar_number: String(payload.aadhaar_number || prev.aadhaar_number || ''),
-          license_number: String(payload.license_number || prev.license_number || ''),
-          rc_number: String(payload.rc_number || prev.rc_number || ''),
-          aadhaar_image_url: String(payload.aadhaar_image_url || prev.aadhaar_image_url || ''),
-          license_image_url: String(payload.license_image_url || prev.license_image_url || ''),
-          rc_image_url: String(payload.rc_image_url || prev.rc_image_url || ''),
-          selfie_image_url: String(payload.selfie_image_url || prev.selfie_image_url || ''),
+          aadhaar_number: String(kycPayload.aadhaar_number || prev.aadhaar_number || ''),
+          license_number: String(kycPayload.license_number || prev.license_number || ''),
+          rc_number: String(kycPayload.rc_number || prev.rc_number || ''),
+          aadhaar_image_url: String(kycPayload.aadhaar_image_url || prev.aadhaar_image_url || ''),
+          license_image_url: String(kycPayload.license_image_url || prev.license_image_url || ''),
+          rc_image_url: String(kycPayload.rc_image_url || prev.rc_image_url || ''),
+          selfie_image_url: String(kycPayload.selfie_image_url || prev.selfie_image_url || ''),
         }));
       }
     } catch (err) {
       setError(err.message || 'Could not load KYC status.');
     }
-  }, [token]);
+  }, [refreshDocuments, token]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -64,6 +155,77 @@ export default function DriverKycPanel({ token }) {
     }, 0);
     return () => clearTimeout(timer);
   }, [refreshKyc]);
+
+  const pickDocumentAsset = useCallback(async (requirement) => {
+    if (requirement.picker === 'selfie') {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Camera access is required to take a verification selfie.');
+        return null;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.85,
+      });
+      return result.canceled ? null : result.assets?.[0] || null;
+    }
+
+    const result = await DocumentPicker.getDocumentAsync({
+      type: ['application/pdf', 'image/*'],
+      copyToCacheDirectory: true,
+    });
+    return result.canceled ? null : result.assets?.[0] || null;
+  }, []);
+
+  const uploadRequirementFile = useCallback(
+    async (requirement) => {
+      try {
+        const asset = await pickDocumentAsset(requirement);
+        if (!asset) {
+          return;
+        }
+        if (getFileSize(asset) > 5 * 1024 * 1024) {
+          Alert.alert('File Too Large', 'File size must be less than 5MB.');
+          return;
+        }
+
+        setUploadingDocType(requirement.docType);
+        setError('');
+        setMessage('');
+
+        const formData = new FormData();
+        formData.append('file', {
+          uri: asset.uri,
+          type: getMimeType(asset, requirement.picker === 'selfie' ? 'image/jpeg' : 'application/octet-stream'),
+          name: getFileName(asset, `${requirement.docType}.jpg`),
+        });
+
+        const response = await apiRequest(`/drivers/documents/${requirement.docType}`, {
+          method: 'POST',
+          token,
+          body: formData,
+          isFormData: true,
+        });
+
+        if (response?.document) {
+          setDocuments((prev) => ({ ...prev, [requirement.docType]: response.document }));
+          if (response.document.download_url) {
+            setForm((prev) => ({ ...prev, [requirement.payloadKey]: response.document.download_url }));
+          }
+        }
+        await refreshDocuments().catch(() => null);
+        setTimedMessage(`${requirement.label} uploaded for verification.`);
+      } catch (err) {
+        setError(err.message || 'Upload failed');
+        Alert.alert('Upload Failed', err.message || 'Could not upload document');
+      } finally {
+        setUploadingDocType(null);
+      }
+    },
+    [pickDocumentAsset, refreshDocuments, setTimedMessage, token],
+  );
 
   const submitKyc = async () => {
     const payload = {
@@ -75,16 +237,9 @@ export default function DriverKycPanel({ token }) {
       rc_image_url: String(form.rc_image_url || '').trim(),
       selfie_image_url: String(form.selfie_image_url || '').trim(),
     };
-    if (
-      payload.aadhaar_number.length !== 12 ||
-      !payload.license_number ||
-      !payload.rc_number ||
-      !payload.aadhaar_image_url ||
-      !payload.license_image_url ||
-      !payload.rc_image_url ||
-      !payload.selfie_image_url
-    ) {
-      setError('Complete Aadhaar, license, RC, selfie, and document image URLs.');
+    const missingFile = REQUIRED_KYC_FILES.find((item) => !payload[item.payloadKey]);
+    if (payload.aadhaar_number.length !== 12 || !payload.license_number || !payload.rc_number || missingFile) {
+      setError('Complete Aadhaar, license, RC, and upload all required files before submitting.');
       return;
     }
 
@@ -97,7 +252,7 @@ export default function DriverKycPanel({ token }) {
         token,
         body: payload,
       });
-      setMessage(result?.message || 'KYC submitted for admin review.');
+      setTimedMessage(result?.message || 'KYC submitted for admin review.');
       await refreshKyc();
     } catch (err) {
       setError(err.message || 'Could not submit KYC.');
@@ -106,16 +261,52 @@ export default function DriverKycPanel({ token }) {
     }
   };
 
+  const readyFilesCount = useMemo(
+    () => REQUIRED_KYC_FILES.filter((item) => Boolean(form[item.payloadKey])).length,
+    [form],
+  );
+
+  const renderUploadRequirement = (requirement) => {
+    const document = documents[requirement.docType] || {};
+    const isUploaded = Boolean(form[requirement.payloadKey] || document.download_url);
+    const isUploading = uploadingDocType === requirement.docType;
+
+    return (
+      <View key={requirement.docType} style={styles.uploadRow}>
+        <View style={styles.uploadCopy}>
+          <Text style={styles.uploadTitle}>{requirement.label}</Text>
+          <Text style={styles.uploadMeta}>
+            {isUploaded ? document.filename || 'File attached' : requirement.description}
+          </Text>
+        </View>
+        <Text style={[styles.statusBadge, isUploaded ? styles.statusReady : styles.statusMissing]}>
+          {isUploaded ? 'Ready' : 'Needed'}
+        </Text>
+        <TouchableOpacity
+          style={[styles.uploadButton, (loading || isUploading) && styles.buttonDisabled]}
+          onPress={() => uploadRequirementFile(requirement)}
+          disabled={loading || isUploading}
+        >
+          <Text style={styles.uploadButtonText}>
+            {isUploading ? 'Uploading...' : isUploaded ? 'Reupload' : requirement.picker === 'selfie' ? 'Take Selfie' : 'Upload'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
   return (
     <View style={styles.card}>
       <Text style={styles.title}>KYC & Driver Documents</Text>
-      <Text style={styles.subtitle}>Status: {String(kycStatus?.status || 'not submitted')}</Text>
+      <Text style={styles.subtitle}>
+        Status: {String(kycStatus?.status || 'not submitted')} · {readyFilesCount}/{REQUIRED_KYC_FILES.length} files ready
+      </Text>
       {!!kycStatus?.reject_reason && (
         <Text style={styles.error}>Rejected: {kycStatus.reject_reason}</Text>
       )}
       {!!error && <Text style={styles.error}>{error}</Text>}
       {!!message && <Text style={styles.message}>{message}</Text>}
-      {loading && <ActivityIndicator color={COLORS.primary} style={styles.loader} />}
+      {(loading || uploadingDocType) && <ActivityIndicator color={COLORS.primary} style={styles.loader} />}
 
       <Text style={styles.label}>Aadhaar Number</Text>
       <VoiceTextInput
@@ -131,7 +322,7 @@ export default function DriverKycPanel({ token }) {
       <Text style={styles.label}>Driving License Number</Text>
       <VoiceTextInput
         value={form.license_number}
-        onChangeText={(value) => updateField('license_number', value)}
+        onChangeText={(value) => updateField('license_number', value.toUpperCase())}
         placeholder="License number"
         placeholderTextColor={COLORS.textMuted}
         style={styles.input}
@@ -140,49 +331,25 @@ export default function DriverKycPanel({ token }) {
       <Text style={styles.label}>Vehicle RC Number</Text>
       <VoiceTextInput
         value={form.rc_number}
-        onChangeText={(value) => updateField('rc_number', value)}
+        onChangeText={(value) => updateField('rc_number', value.toUpperCase())}
         placeholder="RC number"
         placeholderTextColor={COLORS.textMuted}
         style={styles.input}
       />
 
-      <Text style={styles.label}>Aadhaar Image URL</Text>
-      <VoiceTextInput
-        value={form.aadhaar_image_url}
-        onChangeText={(value) => updateField('aadhaar_image_url', value)}
-        placeholder="https://.../aadhaar.jpg"
-        placeholderTextColor={COLORS.textMuted}
-        style={styles.input}
-      />
+      <View style={styles.uploadSection}>
+        <Text style={styles.sectionTitle}>Required uploads</Text>
+        <Text style={styles.sectionHint}>
+          Files are uploaded securely to your driver document vault. No pasted image URLs are required.
+        </Text>
+        {REQUIRED_KYC_FILES.map(renderUploadRequirement)}
+      </View>
 
-      <Text style={styles.label}>License Image URL</Text>
-      <VoiceTextInput
-        value={form.license_image_url}
-        onChangeText={(value) => updateField('license_image_url', value)}
-        placeholder="https://.../license.jpg"
-        placeholderTextColor={COLORS.textMuted}
-        style={styles.input}
-      />
-
-      <Text style={styles.label}>RC Image URL</Text>
-      <VoiceTextInput
-        value={form.rc_image_url}
-        onChangeText={(value) => updateField('rc_image_url', value)}
-        placeholder="https://.../rc.jpg"
-        placeholderTextColor={COLORS.textMuted}
-        style={styles.input}
-      />
-
-      <Text style={styles.label}>Selfie Image URL</Text>
-      <VoiceTextInput
-        value={form.selfie_image_url}
-        onChangeText={(value) => updateField('selfie_image_url', value)}
-        placeholder="https://.../selfie.jpg"
-        placeholderTextColor={COLORS.textMuted}
-        style={styles.input}
-      />
-
-      <TouchableOpacity style={styles.button} onPress={submitKyc} disabled={loading}>
+      <TouchableOpacity
+        style={[styles.button, (loading || uploadingDocType) && styles.buttonDisabled]}
+        onPress={submitKyc}
+        disabled={loading || Boolean(uploadingDocType)}
+      >
         <Text style={styles.buttonText}>Submit KYC For Review</Text>
       </TouchableOpacity>
     </View>
@@ -212,12 +379,61 @@ const styles = StyleSheet.create({
     color: COLORS.textMain,
     marginBottom: 9,
   },
+  uploadSection: {
+    borderWidth: 1,
+    borderColor: '#D7E2DA',
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+    padding: 10,
+    marginBottom: 12,
+  },
+  sectionTitle: { color: COLORS.textMain, fontSize: 14, fontWeight: '900', marginBottom: 4 },
+  sectionHint: { color: COLORS.textMuted, fontSize: 12, fontWeight: '600', marginBottom: 10, lineHeight: 17 },
+  uploadRow: {
+    borderTopWidth: 1,
+    borderTopColor: '#E5ECE7',
+    paddingTop: 10,
+    marginTop: 10,
+  },
+  uploadCopy: {
+    marginBottom: 8,
+  },
+  uploadTitle: { color: COLORS.textMain, fontSize: 13, fontWeight: '800' },
+  uploadMeta: { color: COLORS.textMuted, fontSize: 12, fontWeight: '600', marginTop: 2 },
+  statusBadge: {
+    alignSelf: 'flex-start',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '900',
+    marginBottom: 8,
+  },
+  statusReady: {
+    backgroundColor: COLORS.success,
+  },
+  statusMissing: {
+    backgroundColor: COLORS.warning,
+  },
+  uploadButton: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    paddingVertical: 10,
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  uploadButtonText: { color: COLORS.primary, fontWeight: '900' },
   button: {
     borderRadius: 10,
     backgroundColor: COLORS.primary,
     paddingVertical: 12,
     alignItems: 'center',
     marginTop: 4,
+  },
+  buttonDisabled: {
+    opacity: 0.6,
   },
   buttonText: { color: '#FFFFFF', fontWeight: '800' },
   error: { color: COLORS.danger, fontWeight: '700', marginBottom: 8 },

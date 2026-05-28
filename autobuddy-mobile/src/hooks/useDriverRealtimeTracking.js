@@ -22,6 +22,7 @@ export function useDriverRealtimeTracking({
   activeRideId,
   enabled = true,
   manageLocationWatch = true,
+  manageBackgroundTracking = manageLocationWatch,
 }) {
   const socketRef = useRef(null);
   const locationSubRef = useRef(null);
@@ -146,19 +147,6 @@ export function useDriverRealtimeTracking({
       return;
     }
 
-    if (!hasRequestedBgPermRef.current) {
-      hasRequestedBgPermRef.current = true;
-      const bg = await Location.requestBackgroundPermissionsAsync();
-      if (bg.status !== 'granted') {
-        setTrackingError('Background location not granted. Live tracking works only while app is open.');
-      } else if (Platform.OS !== 'web' && activeRideId) {
-        await startBackgroundDriverTracking({
-          token,
-          activeRideId,
-        });
-      }
-    }
-
     const current = await Location.getCurrentPositionAsync({
       accuracy: Location.Accuracy.High,
     });
@@ -172,7 +160,36 @@ export function useDriverRealtimeTracking({
       },
       emitLocation,
     );
-  }, [activeRideId, emitLocation, manageLocationWatch, token, trackingInterval]);
+  }, [emitLocation, manageLocationWatch, trackingInterval]);
+
+  const startBackgroundTracking = useCallback(async () => {
+    if (!manageBackgroundTracking || Platform.OS === 'web' || !token || !activeRideId || !enabled) {
+      return;
+    }
+
+    const fg = await Location.requestForegroundPermissionsAsync();
+    if (fg.status !== 'granted') {
+      setTrackingError('Location permission denied.');
+      return;
+    }
+
+    let bg = await Location.getBackgroundPermissionsAsync().catch(() => null);
+    if (bg?.status !== 'granted' && !hasRequestedBgPermRef.current) {
+      hasRequestedBgPermRef.current = true;
+      bg = await Location.requestBackgroundPermissionsAsync();
+    }
+
+    if (bg?.status !== 'granted') {
+      setTrackingError('Background location not granted. Live tracking works only while app is open.');
+      await stopBackgroundDriverTracking().catch(() => null);
+      return;
+    }
+
+    await startBackgroundDriverTracking({
+      token,
+      activeRideId,
+    });
+  }, [activeRideId, enabled, manageBackgroundTracking, token]);
 
   useEffect(() => {
     if (!token || !enabled) {
@@ -234,7 +251,7 @@ export function useDriverRealtimeTracking({
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [token, enabled, activeRideId, manageLocationWatch, startLocationWatch]);
+  }, [token, enabled, activeRideId]);
 
   useEffect(() => {
     if (!token || !enabled || !manageLocationWatch) {
@@ -251,6 +268,30 @@ export function useDriverRealtimeTracking({
       }
     };
   }, [token, enabled, manageLocationWatch, trackingInterval, startLocationWatch]);
+
+  useEffect(() => {
+    if (Platform.OS === 'web' || !manageBackgroundTracking) {
+      return undefined;
+    }
+
+    if (!token || !enabled || !activeRideId) {
+      stopBackgroundDriverTracking().catch(() => null);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const startTimer = setTimeout(() => {
+      if (!cancelled) {
+        startBackgroundTracking().catch(() => null);
+      }
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(startTimer);
+      stopBackgroundDriverTracking().catch(() => null);
+    };
+  }, [activeRideId, enabled, manageBackgroundTracking, startBackgroundTracking, token]);
 
   return {
     connected,

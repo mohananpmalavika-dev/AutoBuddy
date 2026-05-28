@@ -21,8 +21,6 @@ class AadhaarVerifyPayload(BaseModel):
 class SelfiePayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
     selfie_url: str = Field(..., min_length=8, max_length=500)
-    liveness_score: Optional[float] = Field(default=0.75, ge=0.0, le=1.0)
-    face_match_score: Optional[float] = Field(default=0.85, ge=0.0, le=1.0)
 
 
 class ComplaintPayload(BaseModel):
@@ -88,30 +86,26 @@ async def verify_selfie(
     db: AsyncIOMotorDatabase = Depends(get_db),
     user: dict = Depends(require_roles("driver")),
 ):
-    liveness_ok = float(payload.liveness_score or 0.0) >= 0.70
-    face_match_ok = float(payload.face_match_score or 0.0) >= 0.80
-    verified = liveness_ok and face_match_ok
-
     await db.drivers.update_one(
         {"user_id": user["id"]},
         {
             "$set": {
                 "selfie_url": payload.selfie_url,
-                "selfie_liveness_score": float(payload.liveness_score or 0.0),
-                "selfie_face_match_score": float(payload.face_match_score or 0.0),
-                "selfie_verified": verified,
+                "selfie_liveness_score": None,
+                "selfie_face_match_score": None,
+                "selfie_verification_status": "manual_review",
+                "selfie_verified": False,
                 "selfie_verified_at": datetime.utcnow(),
-                "kyc_status": "selfie_verified" if verified else "manual_review",
+                "kyc_status": "manual_review",
             }
         },
         upsert=True,
     )
 
     return {
-        "message": "Selfie verification completed" if verified else "Selfie sent for manual review",
-        "selfie_verified": verified,
-        "liveness_score": payload.liveness_score,
-        "face_match_score": payload.face_match_score,
+        "message": "Selfie submitted for secure liveness review",
+        "selfie_verified": False,
+        "status": "manual_review",
     }
 
 

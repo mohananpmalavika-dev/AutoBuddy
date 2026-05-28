@@ -21,6 +21,7 @@ const DOCUMENT_TYPES = [
   { key: 'pollution_certificate', label: 'Pollution Certificate', requiresExpiry: true },
   { key: 'aadhar', label: 'Aadhar/ID Proof', requiresExpiry: false },
   { key: 'pan', label: 'PAN Card', requiresExpiry: false },
+  { key: 'selfie', label: 'Selfie/Liveness Photo', requiresExpiry: false },
 ];
 
 const DOCUMENT_LABELS = DOCUMENT_TYPES.reduce((labels, item) => {
