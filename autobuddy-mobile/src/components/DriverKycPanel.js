@@ -11,6 +11,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 
 import { apiRequest } from '../lib/api';
+import { appendPickerAssetToFormData } from '../lib/uploadFormData';
 import { COLORS, SHADOWS } from '../theme';
 import VoiceTextInput from './VoiceTextInput';
 
@@ -199,11 +200,13 @@ export default function DriverKycPanel({ token, onDataChanged }) {
         setMessage('');
 
         const formData = new FormData();
-        formData.append('file', {
-          uri: asset.uri,
-          type: getMimeType(asset, requirement.picker === 'selfie' ? 'image/jpeg' : 'application/octet-stream'),
-          name: getFileName(asset, `${requirement.docType}.jpg`),
-        });
+        await appendPickerAssetToFormData(
+          formData,
+          'file',
+          asset,
+          getFileName(asset, `${requirement.docType}.jpg`),
+          getMimeType(asset, requirement.picker === 'selfie' ? 'image/jpeg' : 'application/octet-stream'),
+        );
 
         const response = await apiRequest(`/drivers/documents/${requirement.docType}`, {
           method: 'POST',

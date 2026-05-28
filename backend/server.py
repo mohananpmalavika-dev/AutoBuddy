@@ -32,6 +32,7 @@ import re
 from urllib.parse import urlparse, parse_qs
 from cryptography.fernet import Fernet
 from bson import ObjectId
+from bson.binary import Binary
 from bson.errors import InvalidId
 from app.core.config import get_settings
 from app.db.client import create_mongo_client, create_database
@@ -81,6 +82,13 @@ try:
 except Exception:  # pragma: no cover - optional dependency in local/dev
     redis_async = None
 
+try:
+    import boto3
+    from botocore.exceptions import BotoCoreError, ClientError
+except Exception:  # pragma: no cover - optional dependency in local/dev
+    boto3 = None
+    BotoCoreError = ClientError = Exception
+
 
 def _clean_env_token(value: str) -> str:
     token = str(value or "").strip()
@@ -109,6 +117,32 @@ PASSENGER_DOCUMENTS_DIR = UPLOADS_DIR / "passenger_documents"
 DRIVER_DOCUMENTS_DIR = UPLOADS_DIR / "driver_documents"
 DRIVER_PROFILE_PHOTO_DIR = UPLOADS_DIR / "driver_profile_photos"
 SUPPORT_ATTACHMENTS_DIR = UPLOADS_DIR / "support_attachments"
+UPLOAD_STORAGE_BACKEND = os.environ.get("UPLOAD_STORAGE_BACKEND", "local").strip().lower() or "local"
+UPLOADS_OBJECT_BUCKET = (
+    os.environ.get("UPLOADS_S3_BUCKET")
+    or os.environ.get("AWS_S3_BUCKET")
+    or os.environ.get("S3_BUCKET")
+    or ""
+).strip()
+UPLOADS_OBJECT_PREFIX = os.environ.get("UPLOADS_OBJECT_PREFIX", "autobuddy-uploads").strip().strip("/")
+UPLOADS_OBJECT_REGION = (
+    os.environ.get("UPLOADS_S3_REGION")
+    or os.environ.get("AWS_REGION")
+    or os.environ.get("AWS_DEFAULT_REGION")
+    or ""
+).strip()
+UPLOADS_OBJECT_ENDPOINT_URL = (
+    os.environ.get("UPLOADS_S3_ENDPOINT_URL")
+    or os.environ.get("AWS_ENDPOINT_URL")
+    or os.environ.get("S3_ENDPOINT_URL")
+    or ""
+).strip()
+DEFAULT_DRIVER_UPLOAD_STORAGE_BACKEND = "s3" if UPLOADS_OBJECT_BUCKET else "mongo"
+DRIVER_UPLOAD_STORAGE_BACKEND = (
+    os.environ.get("DRIVER_UPLOAD_STORAGE_BACKEND")
+    or os.environ.get("UPLOAD_STORAGE_BACKEND")
+    or DEFAULT_DRIVER_UPLOAD_STORAGE_BACKEND
+).strip().lower()
 
 # MongoDB connection
 mongo_url = settings.mongo_url
@@ -657,6 +691,11 @@ async def seed_admin():
             pass
         try:
             await db.support_attachments.create_index([("user_id", 1), ("created_at", -1)])
+        except OperationFailure:
+            pass
+        try:
+            await db.upload_files.create_index("id", unique=True)
+            await db.upload_files.create_index([("created_at", -1)])
         except OperationFailure:
             pass
         try:
@@ -2120,11 +2159,19 @@ def decrypt_profile_value(value: Any) -> str:
     try:
         return decrypt_value(str(value))
     except Exception:
-        return str(value or "")
+        return ""
 
 def build_driver_profile_response(user: Dict[str, Any], profile: Dict[str, Any]) -> Dict[str, Any]:
-    bank_account_number = decrypt_profile_value(profile.get("bank_account_number_encrypted"))
+    bank_account_masked = str(profile.get("bank_account_masked") or "").strip()
+    if not bank_account_masked:
+        encrypted_bank_account = profile.get("bank_account_number_encrypted")
+        legacy_bank_account = profile.get("bank_account_number")
+        bank_account_masked = mask_bank_account(
+            decrypt_profile_value(encrypted_bank_account) if encrypted_bank_account else legacy_bank_account
+        )
     response = without_mongo_id(profile)
+    response.pop("bank_account_number", None)
+    response.pop("bank_account_number_encrypted", None)
     response.update(
         {
             "id": user.get("id"),
@@ -2139,8 +2186,8 @@ def build_driver_profile_response(user: Dict[str, Any], profile: Dict[str, Any])
             "two_factor_enabled": bool(user.get("two_factor_enabled", False)),
             "bank_name": profile.get("bank_name", ""),
             "bank_account_holder": profile.get("bank_account_holder", ""),
-            "bank_account_number": bank_account_number,
-            "bank_account_masked": profile.get("bank_account_masked") or mask_bank_account(bank_account_number),
+            "bank_account_number": "",
+            "bank_account_masked": bank_account_masked,
             "bank_ifsc_code": profile.get("bank_ifsc_code", ""),
             "bank_verification_status": profile.get("bank_verification_status", "not_submitted"),
             "bank_updated_at": profile.get("bank_updated_at"),
@@ -4684,6 +4731,46 @@ def safe_upload_filename(original_name: str, prefix: str) -> str:
     safe_prefix = re.sub(r"[^a-zA-Z0-9_-]+", "-", prefix).strip("-") or "upload"
     return f"{safe_prefix}-{uuid.uuid4().hex}{suffix}"
 
+def normalize_upload_storage_backend(value: Optional[str]) -> str:
+    backend = str(value or "").strip().lower()
+    if backend in {"s3", "object", "object-storage", "object_storage"}:
+        return "s3"
+    if backend in {"mongo", "mongodb", "db", "database"}:
+        return "mongo"
+    return "local"
+
+_upload_s3_client = None
+
+def get_upload_s3_client():
+    global _upload_s3_client
+    if boto3 is None:
+        raise HTTPException(status_code=500, detail="S3 upload storage dependency is not available")
+    if not UPLOADS_OBJECT_BUCKET:
+        raise HTTPException(status_code=500, detail="UPLOADS_S3_BUCKET must be configured for S3 upload storage")
+    if _upload_s3_client is None:
+        kwargs: Dict[str, Any] = {}
+        if UPLOADS_OBJECT_REGION:
+            kwargs["region_name"] = UPLOADS_OBJECT_REGION
+        if UPLOADS_OBJECT_ENDPOINT_URL:
+            kwargs["endpoint_url"] = UPLOADS_OBJECT_ENDPOINT_URL
+        _upload_s3_client = boto3.client("s3", **kwargs)
+    return _upload_s3_client
+
+def build_upload_object_key(target_dir: Path, filename: str) -> str:
+    try:
+        relative_path = target_dir.resolve().relative_to(UPLOADS_DIR.resolve())
+        path_parts = [part for part in relative_path.parts if part and part != "."]
+    except ValueError:
+        safe_path = re.sub(r"[^a-zA-Z0-9_/-]+", "-", str(target_dir)).strip("/-")
+        path_parts = [part for part in safe_path.split("/") if part]
+    parts = [UPLOADS_OBJECT_PREFIX, *path_parts, filename]
+    return "/".join(part.strip("/") for part in parts if part and part.strip("/"))
+
+def response_download_headers(filename: str, as_attachment: bool = True) -> Dict[str, str]:
+    safe_name = Path(str(filename or "download")).name.replace('"', "") or "download"
+    disposition = "attachment" if as_attachment else "inline"
+    return {"Content-Disposition": f'{disposition}; filename="{safe_name}"'}
+
 def mask_document_number(document_number: str) -> str:
     cleaned = re.sub(r"\s+", "", str(document_number or ""))
     if len(cleaned) <= 4:
@@ -4735,21 +4822,171 @@ async def build_passenger_profile_response(user: Dict[str, Any]) -> Dict[str, An
         "updated_at": profile.get("updated_at") or user.get("updated_at"),
     }
 
-async def save_upload_file(upload: UploadFile, target_dir: Path, prefix: str, max_bytes: int = 5 * 1024 * 1024) -> Dict[str, Any]:
-    target_dir.mkdir(parents=True, exist_ok=True)
+async def save_upload_file(
+    upload: UploadFile,
+    target_dir: Path,
+    prefix: str,
+    max_bytes: int = 5 * 1024 * 1024,
+    storage_backend: Optional[str] = None,
+) -> Dict[str, Any]:
     contents = await upload.read()
     if len(contents) > max_bytes:
         raise HTTPException(status_code=400, detail="File size must be less than 5MB")
     filename = safe_upload_filename(upload.filename or "upload", prefix)
+    original_filename = upload.filename or filename
+    content_type = upload.content_type or "application/octet-stream"
+    backend = normalize_upload_storage_backend(storage_backend or UPLOAD_STORAGE_BACKEND)
+
+    if backend == "s3" and not UPLOADS_OBJECT_BUCKET:
+        backend = "mongo"
+
+    if backend == "s3":
+        object_key = build_upload_object_key(target_dir, filename)
+        try:
+            await asyncio.to_thread(
+                get_upload_s3_client().put_object,
+                Bucket=UPLOADS_OBJECT_BUCKET,
+                Key=object_key,
+                Body=contents,
+                ContentType=content_type,
+                Metadata={"original_filename": original_filename[:1024]},
+            )
+        except (BotoCoreError, ClientError) as exc:
+            logger.error("S3 upload failed: %s", exc)
+            raise HTTPException(status_code=502, detail="Upload storage is temporarily unavailable")
+        return {
+            "filename": filename,
+            "original_filename": original_filename,
+            "content_type": content_type,
+            "size": len(contents),
+            "path": object_key,
+            "storage_backend": "s3",
+            "storage_key": object_key,
+            "storage_bucket": UPLOADS_OBJECT_BUCKET,
+        }
+
+    if backend == "mongo":
+        storage_id = f"upload-{uuid.uuid4()}"
+        await db.upload_files.insert_one(
+            {
+                "id": storage_id,
+                "stored_filename": filename,
+                "original_filename": original_filename,
+                "content_type": content_type,
+                "size": len(contents),
+                "data": Binary(contents),
+                "created_at": get_ist_now(),
+            }
+        )
+        return {
+            "filename": filename,
+            "original_filename": original_filename,
+            "content_type": content_type,
+            "size": len(contents),
+            "path": storage_id,
+            "storage_backend": "mongo",
+            "storage_id": storage_id,
+        }
+
+    target_dir.mkdir(parents=True, exist_ok=True)
     target_path = target_dir / filename
     target_path.write_bytes(contents)
     return {
         "filename": filename,
-        "original_filename": upload.filename or filename,
-        "content_type": upload.content_type or "application/octet-stream",
+        "original_filename": original_filename,
+        "content_type": content_type,
         "size": len(contents),
         "path": str(target_path),
+        "storage_backend": "local",
     }
+
+async def delete_stored_upload(
+    document: Optional[Dict[str, Any]],
+    target_dir: Path,
+    stored_filename_field: str = "stored_filename",
+    storage_backend_field: str = "storage_backend",
+    storage_id_field: str = "storage_id",
+    storage_key_field: str = "storage_key",
+) -> None:
+    if not document:
+        return
+    backend = normalize_upload_storage_backend(document.get(storage_backend_field))
+    if backend == "s3" and document.get(storage_key_field):
+        try:
+            await asyncio.to_thread(
+                get_upload_s3_client().delete_object,
+                Bucket=str(document.get("storage_bucket") or UPLOADS_OBJECT_BUCKET),
+                Key=str(document.get(storage_key_field)),
+            )
+        except (BotoCoreError, ClientError) as exc:
+            logger.warning("Failed to delete S3 upload %s: %s", document.get(storage_key_field), exc)
+        return
+    if backend == "mongo" and document.get(storage_id_field):
+        await db.upload_files.delete_one({"id": document.get(storage_id_field)})
+        return
+
+    stored_filename = Path(str(document.get(stored_filename_field) or "")).name
+    if not stored_filename:
+        return
+    target = target_dir / stored_filename
+    if target.exists() and target.is_file():
+        target.unlink()
+
+async def stored_upload_response(
+    document: Dict[str, Any],
+    target_dir: Path,
+    filename: Optional[str] = None,
+    stored_filename_field: str = "stored_filename",
+    storage_backend_field: str = "storage_backend",
+    storage_id_field: str = "storage_id",
+    storage_key_field: str = "storage_key",
+    as_attachment: bool = True,
+) -> Response:
+    backend = normalize_upload_storage_backend(document.get(storage_backend_field))
+    download_name = filename or document.get("filename") or document.get(stored_filename_field) or "download"
+    media_type = document.get("content_type") or "application/octet-stream"
+
+    if backend == "s3" and document.get(storage_key_field):
+        key = str(document.get(storage_key_field))
+        bucket = str(document.get("storage_bucket") or UPLOADS_OBJECT_BUCKET)
+        try:
+            def read_object():
+                response = get_upload_s3_client().get_object(Bucket=bucket, Key=key)
+                stream = response["Body"]
+                try:
+                    body = stream.read()
+                finally:
+                    stream.close()
+                return body, response.get("ContentType") or media_type
+
+            contents, resolved_media_type = await asyncio.to_thread(read_object)
+        except (BotoCoreError, ClientError) as exc:
+            logger.warning("S3 upload fetch failed for %s: %s", key, exc)
+            raise HTTPException(status_code=404, detail="Uploaded file not found")
+        return Response(
+            content=contents,
+            media_type=resolved_media_type,
+            headers=response_download_headers(download_name, as_attachment),
+        )
+
+    if backend == "mongo" and document.get(storage_id_field):
+        stored = await db.upload_files.find_one({"id": document.get(storage_id_field)}, {"_id": 0})
+        if not stored:
+            raise HTTPException(status_code=404, detail="Uploaded file not found")
+        contents = bytes(stored.get("data") or b"")
+        return Response(
+            content=contents,
+            media_type=stored.get("content_type") or media_type,
+            headers=response_download_headers(download_name, as_attachment),
+        )
+
+    stored_filename = Path(str(document.get(stored_filename_field) or "")).name
+    target = target_dir / stored_filename
+    if not stored_filename or not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="Uploaded file not found")
+    if as_attachment:
+        return FileResponse(target, filename=download_name)
+    return FileResponse(target, media_type=media_type)
 
 DRIVER_DOCUMENT_TYPES: Dict[str, Dict[str, Any]] = {
     "driver_license": {"label": "Driver License", "expires": True, "renewal_window_days": 30},
@@ -4823,6 +5060,8 @@ def build_driver_document_response(document: Optional[Dict[str, Any]], request: 
 
     if document:
         base.update(without_mongo_id(document))
+        for internal_key in ["storage_backend", "storage_id", "storage_key", "storage_bucket", "path"]:
+            base.pop(internal_key, None)
         base["type"] = resolved_type
         base["doc_type"] = resolved_type
         base["label"] = config["label"]
@@ -4873,6 +5112,201 @@ def build_driver_document_reminders(documents: Dict[str, Dict[str, Any]]) -> Lis
                 }
             )
     return sorted(reminders, key=lambda item: item.get("days_until_expiry") or 0)
+
+def build_driver_readiness_issue(code: str, message: str, tab: str, severity: str = "blocker") -> Dict[str, Any]:
+    return {
+        "code": code,
+        "message": message,
+        "tab": tab,
+        "severity": severity,
+    }
+
+def is_driver_vehicle_ready(vehicle: Optional[Dict[str, Any]]) -> bool:
+    if not vehicle:
+        return False
+    required_fields = ["license_plate", "registration_number", "vehicle_type", "seating_capacity"]
+    return all(bool(vehicle.get(field_name)) for field_name in required_fields)
+
+async def build_driver_ready_to_drive_status(
+    driver_id: str,
+    current_user: Dict[str, Any],
+    request: Request,
+) -> Dict[str, Any]:
+    driver_profile = await db.drivers.find_one({"user_id": driver_id}, {"_id": 0}) or {}
+    kyc_doc = await db.driver_kyc.find_one({"driver_id": driver_id}, {"_id": 0}) or {}
+    kyc_status = str(enum_response_value(kyc_doc.get("status") or driver_profile.get("kyc_status") or "not_submitted")).lower()
+    blockers: List[Dict[str, Any]] = []
+    warnings: List[Dict[str, Any]] = []
+
+    if kyc_status != KYCStatus.APPROVED.value:
+        blockers.append(
+            build_driver_readiness_issue(
+                "kyc_not_approved",
+                "KYC must be approved before you can receive ride matches.",
+                "trust",
+            )
+        )
+
+    vehicles = await db.driver_vehicles.find({"driver_id": driver_id}, {"_id": 0}).to_list(50)
+    active_vehicle = next((vehicle for vehicle in vehicles if vehicle.get("is_active")), None)
+    if not vehicles:
+        blockers.append(
+            build_driver_readiness_issue(
+                "missing_vehicle",
+                "Add a vehicle before going online.",
+                "vehicle",
+            )
+        )
+    elif not active_vehicle:
+        blockers.append(
+            build_driver_readiness_issue(
+                "no_active_vehicle",
+                "Activate one vehicle before going online.",
+                "vehicle",
+            )
+        )
+    elif not is_driver_vehicle_ready(active_vehicle):
+        blockers.append(
+            build_driver_readiness_issue(
+                "incomplete_vehicle",
+                "Complete license plate, registration, type, and seating details for the active vehicle.",
+                "vehicle",
+            )
+        )
+    else:
+        profile_vehicle_info = driver_profile.get("vehicle_info")
+        if not isinstance(profile_vehicle_info, dict) or not profile_vehicle_info.get("vehicle_number"):
+            await sync_driver_primary_vehicle(driver_id, active_vehicle)
+            driver_profile["vehicle_info"] = build_driver_vehicle_info(active_vehicle)
+
+    documents = await get_driver_documents_map(driver_id, request)
+    missing_documents = []
+    rejected_documents = []
+    pending_documents = []
+    expired_documents = []
+    expiring_documents = []
+    for document in documents.values():
+        label = document.get("label") or document.get("doc_type") or "Document"
+        doc_type = document.get("doc_type") or document.get("type")
+        status_value = str(document.get("verification_status") or document.get("status") or "pending").lower()
+        has_file = bool(document.get("id") or document.get("filename") or document.get("download_url"))
+        if not has_file:
+            missing_documents.append(document)
+            blockers.append(
+                build_driver_readiness_issue(
+                    f"missing_document_{doc_type}",
+                    f"Upload {label}.",
+                    "documents",
+                )
+            )
+            continue
+        if status_value == "rejected":
+            rejected_documents.append(document)
+            blockers.append(
+                build_driver_readiness_issue(
+                    f"rejected_document_{doc_type}",
+                    f"Replace rejected {label}.",
+                    "documents",
+                )
+            )
+        elif status_value != "approved":
+            pending_documents.append(document)
+            blockers.append(
+                build_driver_readiness_issue(
+                    f"pending_document_{doc_type}",
+                    f"{label} is waiting for approval.",
+                    "documents",
+                )
+            )
+        if document.get("is_expired"):
+            expired_documents.append(document)
+            blockers.append(
+                build_driver_readiness_issue(
+                    f"expired_document_{doc_type}",
+                    f"Renew expired {label}.",
+                    "documents",
+                )
+            )
+        elif document.get("is_expiring_soon"):
+            expiring_documents.append(document)
+            warnings.append(
+                build_driver_readiness_issue(
+                    f"expiring_document_{doc_type}",
+                    f"{label} expires soon.",
+                    "documents",
+                    severity="warning",
+                )
+            )
+
+    if not str(current_user.get("name") or "").strip():
+        blockers.append(build_driver_readiness_issue("missing_name", "Add your legal name.", "profile"))
+    if not str(current_user.get("phone") or "").strip():
+        blockers.append(build_driver_readiness_issue("missing_phone", "Add a verified phone number.", "profile"))
+    if not driver_profile.get("profile_photo"):
+        warnings.append(
+            build_driver_readiness_issue(
+                "missing_profile_photo",
+                "Add a driver profile photo.",
+                "profile",
+                severity="warning",
+            )
+        )
+    if not driver_profile.get("emergency_contact_verified"):
+        warnings.append(
+            build_driver_readiness_issue(
+                "missing_emergency_contact",
+                "Add and verify an emergency contact.",
+                "profile",
+                severity="warning",
+            )
+        )
+
+    tab_priority = ["trust", "vehicle", "documents", "profile", "subscription"]
+    next_tab = None
+    for tab in tab_priority:
+        if any(issue.get("tab") == tab for issue in blockers):
+            next_tab = tab
+            break
+    if not next_tab and warnings:
+        next_tab = warnings[0].get("tab")
+
+    ready = len(blockers) == 0
+    first_blocker = blockers[0] if blockers else None
+    message = (
+        "Ready to Drive checks passed."
+        if ready
+        else first_blocker.get("message") if first_blocker else "Complete Ready to Drive requirements before going online."
+    )
+
+    return {
+        "ready": ready,
+        "message": message,
+        "next_tab": next_tab,
+        "blockers": blockers,
+        "warnings": warnings,
+        "checks": {
+            "kyc_status": kyc_status,
+            "documents": {
+                "missing_count": len(missing_documents),
+                "rejected_count": len(rejected_documents),
+                "pending_count": len(pending_documents),
+                "expired_count": len(expired_documents),
+                "expiring_count": len(expiring_documents),
+                "required_count": len(DRIVER_DOCUMENT_TYPES),
+            },
+            "vehicle": {
+                "vehicle_count": len(vehicles),
+                "active_vehicle_id": active_vehicle.get("id") if active_vehicle else None,
+                "ready": bool(active_vehicle and is_driver_vehicle_ready(active_vehicle)),
+            },
+            "profile": {
+                "has_name": bool(str(current_user.get("name") or "").strip()),
+                "has_phone": bool(str(current_user.get("phone") or "").strip()),
+                "has_profile_photo": bool(driver_profile.get("profile_photo")),
+                "has_emergency_contact": bool(driver_profile.get("emergency_contact_verified")),
+            },
+        },
+    }
 
 @api_router.get("/users/profile")
 async def get_user_profile(current_user: dict = Depends(get_current_user)):
@@ -5765,27 +6199,54 @@ async def upload_driver_profile_photo(
     current_user: dict = Depends(get_current_user),
 ):
     require_driver(current_user)
-    saved = await save_upload_file(file, DRIVER_PROFILE_PHOTO_DIR / current_user["id"], current_user["id"])
+    saved = await save_upload_file(
+        file,
+        DRIVER_PROFILE_PHOTO_DIR / current_user["id"],
+        current_user["id"],
+        storage_backend=DRIVER_UPLOAD_STORAGE_BACKEND,
+    )
     photo_url = f"{str(request.base_url).rstrip('/')}/api/drivers/profile/photo/{saved['filename']}"
     now = get_ist_now()
-    existing = await db.drivers.find_one({"user_id": current_user["id"]}, {"_id": 0, "profile_photo_filename": 1})
+    existing = await db.drivers.find_one(
+        {"user_id": current_user["id"]},
+        {
+            "_id": 0,
+            "profile_photo_filename": 1,
+            "profile_photo_storage_backend": 1,
+            "profile_photo_storage_id": 1,
+            "profile_photo_storage_key": 1,
+            "storage_bucket": 1,
+        },
+    )
     await db.drivers.update_one(
         {"user_id": current_user["id"]},
         {
             "$set": {
                 "profile_photo": photo_url,
                 "profile_photo_filename": saved["filename"],
+                "profile_photo_storage_backend": saved.get("storage_backend"),
+                "profile_photo_storage_id": saved.get("storage_id"),
+                "profile_photo_storage_key": saved.get("storage_key"),
+                "storage_bucket": saved.get("storage_bucket"),
                 "updated_at": now,
             },
             "$setOnInsert": build_default_driver_profile(current_user["id"]),
         },
         upsert=True,
     )
-    old_filename = existing.get("profile_photo_filename") if existing else None
-    if old_filename and old_filename != saved["filename"]:
-        old_target = DRIVER_PROFILE_PHOTO_DIR / current_user["id"] / Path(old_filename).name
-        if old_target.exists() and old_target.is_file():
-            old_target.unlink()
+    if existing and (
+        existing.get("profile_photo_filename") != saved["filename"]
+        or existing.get("profile_photo_storage_id") != saved.get("storage_id")
+        or existing.get("profile_photo_storage_key") != saved.get("storage_key")
+    ):
+        await delete_stored_upload(
+            existing,
+            DRIVER_PROFILE_PHOTO_DIR / current_user["id"],
+            stored_filename_field="profile_photo_filename",
+            storage_backend_field="profile_photo_storage_backend",
+            storage_id_field="profile_photo_storage_id",
+            storage_key_field="profile_photo_storage_key",
+        )
     await cache_delete(f"driver_profile:{current_user['id']}")
     return {"profile_photo": photo_url}
 
@@ -5794,14 +6255,28 @@ async def get_driver_profile_photo(filename: str):
     safe_name = Path(filename).name
     document = await db.drivers.find_one(
         {"profile_photo_filename": safe_name},
-        {"_id": 0, "user_id": 1, "profile_photo_filename": 1},
+        {
+            "_id": 0,
+            "user_id": 1,
+            "profile_photo_filename": 1,
+            "profile_photo_storage_backend": 1,
+            "profile_photo_storage_id": 1,
+            "profile_photo_storage_key": 1,
+            "storage_bucket": 1,
+        },
     )
     if not document:
         raise HTTPException(status_code=404, detail="Profile photo not found")
-    target = DRIVER_PROFILE_PHOTO_DIR / document["user_id"] / safe_name
-    if not target.exists() or not target.is_file():
-        raise HTTPException(status_code=404, detail="Profile photo file not found")
-    return FileResponse(target)
+    return await stored_upload_response(
+        document,
+        DRIVER_PROFILE_PHOTO_DIR / document["user_id"],
+        filename=safe_name,
+        stored_filename_field="profile_photo_filename",
+        storage_backend_field="profile_photo_storage_backend",
+        storage_id_field="profile_photo_storage_id",
+        storage_key_field="profile_photo_storage_key",
+        as_attachment=False,
+    )
 
 @api_router.put("/drivers/profile/bank")
 async def update_driver_bank_details(payload: DriverBankDetailsUpdate, current_user: dict = Depends(get_current_user)):
@@ -6221,11 +6696,29 @@ async def _db_get_driver_for_geo(driver_id: str):
     return await db.drivers.find_one({"user_id": driver_id}, {"_id": 0, "current_location": 1})
 
 
+@api_router.get("/drivers/readiness")
+async def get_driver_readiness(request: Request, current_user: dict = Depends(get_current_user)):
+    require_driver(current_user)
+    return await build_driver_ready_to_drive_status(current_user["id"], current_user, request)
+
 @api_router.put("/drivers/availability")
-async def update_driver_availability(availability: DriverAvailabilityUpdate, current_user: dict = Depends(get_current_user)):
+async def update_driver_availability(
+    availability: DriverAvailabilityUpdate,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
     if current_user["role"] != UserRole.DRIVER:
         raise HTTPException(status_code=403, detail="Only drivers can update availability")
     if availability.is_available:
+        readiness = await build_driver_ready_to_drive_status(current_user["id"], current_user, request)
+        if not readiness.get("ready"):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": readiness.get("message") or "Complete Ready to Drive requirements before going online.",
+                    "readiness": readiness,
+                },
+            )
         await ensure_user_can_take_ride_actions(current_user, "going online")
     now_utc = get_ist_now()
     driver_insert_defaults = build_default_driver_profile(current_user["id"])
@@ -6561,7 +7054,12 @@ async def upload_driver_support_attachment(
     current_user: dict = Depends(get_current_user),
 ):
     require_driver_user(current_user)
-    saved = await save_upload_file(file, SUPPORT_ATTACHMENTS_DIR / current_user["id"], "driver-support")
+    saved = await save_upload_file(
+        file,
+        SUPPORT_ATTACHMENTS_DIR / current_user["id"],
+        "driver-support",
+        storage_backend=DRIVER_UPLOAD_STORAGE_BACKEND,
+    )
     attachment_url = f"{str(request.base_url).rstrip('/')}/api/drivers/support/attachments/{saved['filename']}"
     attachment = {
         "id": f"drv-att-{uuid.uuid4()}",
@@ -6571,11 +7069,18 @@ async def upload_driver_support_attachment(
         "filename": saved["original_filename"],
         "content_type": saved["content_type"],
         "size": saved["size"],
+        "storage_backend": saved.get("storage_backend"),
+        "storage_id": saved.get("storage_id"),
+        "storage_key": saved.get("storage_key"),
+        "storage_bucket": saved.get("storage_bucket"),
         "url": attachment_url,
         "created_at": get_ist_now(),
     }
     await db.support_attachments.insert_one(attachment)
-    return without_mongo_id({**attachment, "attachment_url": attachment_url})
+    response_attachment = without_mongo_id({**attachment, "attachment_url": attachment_url})
+    for key in ["storage_backend", "storage_id", "storage_key", "storage_bucket"]:
+        response_attachment.pop(key, None)
+    return response_attachment
 
 @api_router.get("/drivers/support/attachments/{filename}")
 async def download_driver_support_attachment(filename: str, current_user: dict = Depends(get_current_user)):
@@ -6585,10 +7090,12 @@ async def download_driver_support_attachment(filename: str, current_user: dict =
     )
     if not attachment:
         raise HTTPException(status_code=404, detail="Attachment not found")
-    target = SUPPORT_ATTACHMENTS_DIR / current_user["id"] / attachment["stored_filename"]
-    if not target.exists() or not target.is_file():
-        raise HTTPException(status_code=404, detail="Attachment file not found")
-    return FileResponse(target, filename=attachment.get("filename") or attachment["stored_filename"])
+    return await stored_upload_response(
+        attachment,
+        SUPPORT_ATTACHMENTS_DIR / current_user["id"],
+        filename=attachment.get("filename") or attachment.get("stored_filename"),
+        as_attachment=True,
+    )
 
 @api_router.get("/drivers/support/tickets")
 async def get_driver_support_tickets(
@@ -9179,11 +9686,12 @@ async def download_driver_document(doc_type: str, current_user: dict = Depends(g
     document = await db.driver_documents.find_one({"driver_id": current_user["id"], "doc_type": normalized_type})
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
-    stored_filename = Path(str(document.get("stored_filename") or "")).name
-    target = DRIVER_DOCUMENTS_DIR / current_user["id"] / stored_filename
-    if not stored_filename or not target.exists() or not target.is_file():
-        raise HTTPException(status_code=404, detail="Document file not found")
-    return FileResponse(target, filename=document.get("filename") or stored_filename)
+    return await stored_upload_response(
+        document,
+        DRIVER_DOCUMENTS_DIR / current_user["id"],
+        filename=document.get("filename") or document.get("stored_filename"),
+        as_attachment=True,
+    )
 
 
 @api_router.post("/drivers/documents/{doc_type}")
@@ -9198,7 +9706,12 @@ async def upload_driver_document(
     normalized_type = normalize_driver_doc_type(doc_type)
     normalized_expiry = normalize_expiry_date(expiry_date)
     existing = await db.driver_documents.find_one({"driver_id": current_user["id"], "doc_type": normalized_type})
-    saved = await save_upload_file(file, DRIVER_DOCUMENTS_DIR / current_user["id"], normalized_type)
+    saved = await save_upload_file(
+        file,
+        DRIVER_DOCUMENTS_DIR / current_user["id"],
+        normalized_type,
+        storage_backend=DRIVER_UPLOAD_STORAGE_BACKEND,
+    )
     now = get_ist_now()
     document = {
         "id": existing.get("id") if existing else f"driver-doc-{uuid.uuid4()}",
@@ -9209,6 +9722,10 @@ async def upload_driver_document(
         "stored_filename": saved["filename"],
         "content_type": saved["content_type"],
         "size": saved["size"],
+        "storage_backend": saved.get("storage_backend"),
+        "storage_id": saved.get("storage_id"),
+        "storage_key": saved.get("storage_key"),
+        "storage_bucket": saved.get("storage_bucket"),
         "expiry_date": normalized_expiry,
         "status": "pending",
         "verification_status": "pending",
@@ -9222,11 +9739,12 @@ async def upload_driver_document(
         upsert=True,
     )
 
-    old_filename = existing.get("stored_filename") if existing else None
-    if old_filename and old_filename != saved["filename"]:
-        old_target = DRIVER_DOCUMENTS_DIR / current_user["id"] / Path(old_filename).name
-        if old_target.exists() and old_target.is_file():
-            old_target.unlink()
+    if existing and (
+        existing.get("stored_filename") != saved["filename"]
+        or existing.get("storage_id") != saved.get("storage_id")
+        or existing.get("storage_key") != saved.get("storage_key")
+    ):
+        await delete_stored_upload(existing, DRIVER_DOCUMENTS_DIR / current_user["id"])
 
     response_document = await db.driver_documents.find_one({"driver_id": current_user["id"], "doc_type": normalized_type})
     return {"document": build_driver_document_response(response_document, request, normalized_type)}
@@ -9245,11 +9763,7 @@ async def delete_driver_document(doc_type: str, request: Request, current_user: 
         }
 
     await db.driver_documents.delete_one({"driver_id": current_user["id"], "doc_type": normalized_type})
-    stored_filename = document.get("stored_filename")
-    if stored_filename:
-        target = DRIVER_DOCUMENTS_DIR / current_user["id"] / Path(stored_filename).name
-        if target.exists() and target.is_file():
-            target.unlink()
+    await delete_stored_upload(document, DRIVER_DOCUMENTS_DIR / current_user["id"])
 
     return {
         "success": True,

@@ -63,6 +63,12 @@ import {
   getRideStatusMode,
   runDriverQuickAction,
 } from '../lib/driverDashboardFlow';
+import {
+  extractDriverReadinessFromError,
+  formatDriverReadinessMessage,
+  getDriverReadinessTab,
+  isDriverReadyToDrive,
+} from '../lib/driverReadiness';
 
 const DEFAULT_CITY_LOCATION = {
   latitude: 13.0827,
@@ -1330,6 +1336,8 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     }
 
     const next = !driverAvailability.isOnline;
+    const previousLocalStatus = isOnline;
+    const previousServerStatus = serverIsOnline;
     const requestId = Date.now();
     const toggledAt = Date.now();
     availabilityToggleInFlightRef.current = requestId;
@@ -1339,12 +1347,33 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     pendingAvailabilitySyncRef.current = null;
 
     setAvailabilityToggleInFlight(true);
-    setIsOnline(next);
     setAvailabilitySyncPendingState(true);
     setError('');
-    setMessage(next ? 'Going online...' : 'Going offline...');
+    setMessage(next ? 'Checking Ready to Drive...' : 'Going offline...');
 
     try {
+      if (next) {
+        const readiness = await apiRequest('/drivers/readiness', { token });
+        if (availabilityToggleRequestIdRef.current !== requestId) {
+          return;
+        }
+        if (!isDriverReadyToDrive(readiness)) {
+          const rollbackAt = Date.now();
+          availabilityLocalChangeAtRef.current = rollbackAt;
+          availabilityUiOverrideUntilRef.current = rollbackAt + 15000;
+          setServerIsOnline(previousServerStatus);
+          setIsOnline(previousLocalStatus);
+          setActiveTab(getDriverReadinessTab(readiness));
+          setError(formatDriverReadinessMessage(readiness));
+          setMessage('Complete Ready to Drive before going online.');
+          refreshDriverMenuBadges().catch(() => null);
+          return;
+        }
+      }
+
+      setIsOnline(next);
+      setMessage(next ? 'Going online...' : 'Going offline...');
+
       const response = await apiRequest('/drivers/availability', {
         method: 'PUT',
         token,
@@ -1376,8 +1405,20 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       const rollbackAt = Date.now();
       availabilityLocalChangeAtRef.current = rollbackAt;
       availabilityUiOverrideUntilRef.current = rollbackAt + 15000;
-      setServerIsOnline(serverIsOnline);
-      setIsOnline(serverIsOnline);
+
+      setServerIsOnline(previousServerStatus);
+      setIsOnline(previousLocalStatus);
+      setAvailabilityToggleInFlight(false);
+      setAvailabilitySyncPendingState(false);
+
+      const readiness = extractDriverReadinessFromError(err);
+      if (next && !isDriverReadyToDrive(readiness)) {
+        setActiveTab(getDriverReadinessTab(readiness));
+        setError(formatDriverReadinessMessage(readiness));
+        setMessage('Complete Ready to Drive before going online.');
+        refreshDriverMenuBadges().catch(() => null);
+        return;
+      }
       setError(err?.message || 'Failed to update driver status.');
       setMessage('Status update failed. Please try again.');
     } finally {
@@ -1388,7 +1429,9 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     }
   }, [
     driverAvailability.isOnline,
+    isOnline,
     pushDriverLocation,
+    refreshDriverMenuBadges,
     serverIsOnline,
     setAvailabilitySyncPendingState,
     token,

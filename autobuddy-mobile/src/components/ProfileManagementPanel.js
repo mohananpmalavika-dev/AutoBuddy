@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { apiRequest } from '../lib/api';
+import { appendPickerAssetToFormData } from '../lib/uploadFormData';
 import { COLORS, SHADOWS } from '../theme';
 
 const EMPTY_PROFILE = {
@@ -205,11 +206,13 @@ export default function ProfileManagementPanel({ token, loading: parentLoading =
         setError('');
 
         const formData = new FormData();
-        formData.append('file', {
-          uri: asset.uri,
-          type: asset.mimeType || 'image/jpeg',
-          name: asset.fileName || `profile-${Date.now()}.jpg`,
-        });
+        await appendPickerAssetToFormData(
+          formData,
+          'file',
+          asset,
+          asset.fileName || `profile-${Date.now()}.jpg`,
+          asset.mimeType || 'image/jpeg',
+        );
 
         const response = await apiRequest('/drivers/profile/photo', {
           token,
@@ -291,12 +294,18 @@ export default function ProfileManagementPanel({ token, loading: parentLoading =
   };
 
   const updateBankDetails = async () => {
+    const bankAccountNumber = String(tempProfile.bank_account_number || '').replace(/\D+/g, '');
+    if (bankAccountNumber.length < 6) {
+      setError('Re-enter the full bank account number to update payout details.');
+      return;
+    }
+
     try {
       setLoading(true);
       setError('');
       const payload = {
         bank_account_holder: tempProfile.bank_account_holder,
-        bank_account_number: tempProfile.bank_account_number,
+        bank_account_number: bankAccountNumber,
         bank_ifsc_code: tempProfile.bank_ifsc_code,
         bank_name: tempProfile.bank_name,
       };
@@ -307,6 +316,7 @@ export default function ProfileManagementPanel({ token, loading: parentLoading =
       });
       updateProfileFromResponse(response, {
         ...tempProfile,
+        bank_account_number: '',
         bank_account_masked: maskAccountNumber(payload.bank_account_number),
         bank_verification_status: 'pending_verification',
         bank_updated_at: new Date().toISOString(),
@@ -592,7 +602,7 @@ export default function ProfileManagementPanel({ token, loading: parentLoading =
           title="Bank Account Details"
           editing={editMode.bankDetails}
           onEdit={() => {
-            setTempProfile(profile);
+            setTempProfile({ ...profile, bank_account_number: '' });
             setEditMode((previous) => ({ ...previous, bankDetails: true }));
           }}
         />
@@ -609,10 +619,11 @@ export default function ProfileManagementPanel({ token, loading: parentLoading =
           <View style={styles.editForm}>
             <FormField disabled={loading || securityLoading} label="Bank Name" value={tempProfile.bank_name} placeholder="e.g., HDFC Bank" onChange={(text) => setTempProfile({ ...tempProfile, bank_name: text })} />
             <FormField disabled={loading || securityLoading} label="Account Holder Name" value={tempProfile.bank_account_holder} placeholder="Name as per bank records" onChange={(text) => setTempProfile({ ...tempProfile, bank_account_holder: text })} />
-            <FormField disabled={loading || securityLoading} label="Account Number" value={tempProfile.bank_account_number} placeholder="Your bank account number" onChange={(text) => setTempProfile({ ...tempProfile, bank_account_number: text })} keyboardType="number-pad" />
+            <InfoRow label="Current Account" value={maskAccountNumber('', profile.bank_account_masked)} />
+            <FormField disabled={loading || securityLoading} label="Account Number" value={tempProfile.bank_account_number} placeholder="Re-enter full account number" onChange={(text) => setTempProfile({ ...tempProfile, bank_account_number: text })} keyboardType="number-pad" />
             <FormField disabled={loading || securityLoading} label="IFSC Code" value={tempProfile.bank_ifsc_code} placeholder="e.g., HDFC0001234" onChange={(text) => setTempProfile({ ...tempProfile, bank_ifsc_code: text.toUpperCase() })} />
             <View style={styles.noticeBlock}>
-              <Text style={styles.noticeText}>Bank details are encrypted and submitted for payout verification before withdrawals use them.</Text>
+              <Text style={styles.noticeText}>For security, AutoBuddy never displays your full account number. Re-enter it to submit payout changes for verification.</Text>
             </View>
             <ActionButtons onSave={updateBankDetails} onCancel={() => cancelEdit('bankDetails')} loading={loading} />
           </View>

@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { apiRequest } from '../lib/api';
+import { appendPickerAssetToFormData } from '../lib/uploadFormData';
 import { COLORS, SHADOWS } from '../theme';
 
 const DOCUMENT_TYPES = [
@@ -222,11 +223,13 @@ export default function DocumentUploadPanel({ token, loading: parentLoading = fa
         setError('');
 
         const formData = new FormData();
-        formData.append('file', {
-          uri: asset.uri,
-          type: asset.mimeType || 'application/octet-stream',
-          name: asset.name || `${docType}.pdf`,
-        });
+        await appendPickerAssetToFormData(
+          formData,
+          'file',
+          asset,
+          asset.name || `${docType}.pdf`,
+          asset.mimeType || 'application/octet-stream',
+        );
         formData.append('doc_type', docType);
         if (expiryDrafts[docType]) {
           if (!/^\d{4}-\d{2}-\d{2}$/.test(expiryDrafts[docType])) {

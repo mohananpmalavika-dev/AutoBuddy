@@ -9,6 +9,7 @@ import {
   verifyAadhaar,
   verifySelfie,
 } from '../lib/driverTrustApi';
+import { appendPickerAssetToFormData } from '../lib/uploadFormData';
 import { COLORS, SHADOWS } from '../theme';
 import VoiceTextInput from './VoiceTextInput';
 
@@ -101,11 +102,13 @@ export default function DriverTrustCard({ token }) {
         setUploadingSelfie(true);
         setMessage('');
         const formData = new FormData();
-        formData.append('file', {
-          uri: asset.uri,
-          type: asset.mimeType || 'image/jpeg',
-          name: getAssetFileName(asset),
-        });
+        await appendPickerAssetToFormData(
+          formData,
+          'file',
+          asset,
+          getAssetFileName(asset),
+          asset.mimeType || 'image/jpeg',
+        );
 
         const response = await apiRequest(`/drivers/documents/${SELFIE_DOC_TYPE}`, {
           method: 'POST',

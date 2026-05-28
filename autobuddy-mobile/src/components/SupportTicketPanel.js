@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { apiRequest } from '../lib/api';
+import { appendPickerAssetToFormData } from '../lib/uploadFormData';
 import { COLORS, SHADOWS } from '../theme';
 import VoiceTextInput from './VoiceTextInput';
 
@@ -194,11 +195,13 @@ export default function SupportTicketPanel({
         setUploadingAttachment(true);
         setError('');
         const formDataPayload = new FormData();
-        formDataPayload.append('file', {
-          uri: asset.uri,
-          type: asset.mimeType || 'application/octet-stream',
-          name: asset.name || `support-${Date.now()}`,
-        });
+        await appendPickerAssetToFormData(
+          formDataPayload,
+          'file',
+          asset,
+          asset.name || `support-${Date.now()}`,
+          asset.mimeType || 'application/octet-stream',
+        );
         const response = await apiRequest('/drivers/support/attachments', {
           token,
           method: 'POST',

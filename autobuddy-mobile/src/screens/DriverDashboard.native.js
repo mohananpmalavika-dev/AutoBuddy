@@ -60,6 +60,12 @@ import {
   getRideStatusMode,
   runDriverQuickAction,
 } from '../lib/driverDashboardFlow';
+import {
+  extractDriverReadinessFromError,
+  formatDriverReadinessMessage,
+  getDriverReadinessTab,
+  isDriverReadyToDrive,
+} from '../lib/driverReadiness';
 
 const driverMapStyle = [
   { elementType: 'geometry', stylers: [{ color: '#242f3e' }] },
@@ -1141,12 +1147,33 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     availabilityUiOverrideUntilRef.current = toggledAt + 15000;
     pendingAvailabilitySyncRef.current = null;
 
-    setIsOnline(next);
     setAvailabilitySyncPendingState(true);
     setError('');
-    setMessage(next ? 'Going online...' : 'Going offline...');
+    setMessage(next ? 'Checking Ready to Drive...' : 'Going offline...');
 
     try {
+      if (next) {
+        const readiness = await apiRequest('/drivers/readiness', { token });
+        if (requestId !== availabilityToggleRequestIdRef.current) {
+          return;
+        }
+        if (!isDriverReadyToDrive(readiness)) {
+          const rollbackAt = Date.now();
+          availabilityLocalChangeAtRef.current = rollbackAt;
+          availabilityUiOverrideUntilRef.current = rollbackAt + 15000;
+          setIsOnline(previousLocalStatus);
+          setServerIsOnline(previousServerStatus);
+          setActiveTab(getDriverReadinessTab(readiness));
+          setError(formatDriverReadinessMessage(readiness));
+          setMessage('Complete Ready to Drive before going online.');
+          refreshDriverMenuBadges().catch(() => null);
+          return;
+        }
+      }
+
+      setIsOnline(next);
+      setMessage(next ? 'Going online...' : 'Going offline...');
+
       const response = await apiRequest('/drivers/availability', {
         method: 'PUT',
         token,
@@ -1181,6 +1208,19 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       availabilityUiOverrideUntilRef.current = rollbackAt + 15000;
       setIsOnline(previousLocalStatus);
       setServerIsOnline(previousServerStatus);
+      if (availabilityToggleInFlightRef.current === requestId) {
+        availabilityToggleInFlightRef.current = null;
+        pendingAvailabilitySyncRef.current = null;
+        setAvailabilitySyncPendingState(false);
+      }
+      const readiness = extractDriverReadinessFromError(err);
+      if (next && !isDriverReadyToDrive(readiness)) {
+        setActiveTab(getDriverReadinessTab(readiness));
+        setError(formatDriverReadinessMessage(readiness));
+        setMessage('Complete Ready to Drive before going online.');
+        refreshDriverMenuBadges().catch(() => null);
+        return;
+      }
       setError(getAvailabilityErrorMessage(err));
       setMessage('Failed to update status. Please try again.');
     } finally {
@@ -1193,6 +1233,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   }, [
     isOnline,
     pushDriverLocation,
+    refreshDriverMenuBadges,
     serverIsOnline,
     setAvailabilitySyncPendingState,
     shouldPushAvailabilityLocation,
