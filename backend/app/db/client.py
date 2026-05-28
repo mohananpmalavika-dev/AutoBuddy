@@ -8,7 +8,7 @@ def create_mongo_client(settings: Settings) -> AsyncIOMotorClient:
     return AsyncIOMotorClient(
         settings.mongo_url,
         # Timeouts
-        serverSelectionTimeoutMS=max(1000, settings.mongo_server_selection_timeout_ms),
+        serverSelectionTimeoutMS=max(5000, settings.mongo_server_selection_timeout_ms),
         connectTimeoutMS=max(1000, settings.mongo_connect_timeout_ms),
         socketTimeoutMS=max(2000, settings.mongo_socket_timeout_ms),
         # Connection pooling
@@ -18,8 +18,7 @@ def create_mongo_client(settings: Settings) -> AsyncIOMotorClient:
         # Retries
         retryWrites=True,
         retryReads=True,
-        # Load balancing
-        serverSelectionTimeoutMS=max(5000, settings.mongo_server_selection_timeout_ms),
+        # Health monitoring
         heartbeatFrequencyMS=10000,  # Health check every 10 seconds
     )
 
