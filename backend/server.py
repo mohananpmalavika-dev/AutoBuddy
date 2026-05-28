@@ -176,6 +176,12 @@ REALTIME_HEALTH_MONITOR_INTERVAL_SECONDS = max(
     int(os.environ.get("REALTIME_HEALTH_MONITOR_INTERVAL_SECONDS", "15")),
 )
 IST_TZ = timezone(timedelta(hours=5, minutes=30))
+
+# Helper function to get current time in IST
+def get_ist_now():
+    """Returns current time in IST timezone."""
+    return datetime.now(IST_TZ)
+
 SPIN_WIN_CONFIG_ID = "default"
 SPIN_WIN_MAX_PRIZES = 24
 SPIN_WIN_MAX_DAILY_LIMIT = 20
@@ -298,7 +304,7 @@ class RequestIdFilter(logging.Filter):
 class JsonLogFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         payload: Dict[str, Any] = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": get_ist_now().isoformat() + "Z",
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
@@ -425,7 +431,7 @@ def build_error_response(
         "detail": message,
         "request_id": request_id,
         "path": request.url.path,
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": get_ist_now().isoformat() + "Z",
     }
     if details is not None:
         payload["error"]["details"] = details
@@ -462,7 +468,7 @@ async def seed_admin():
                 "name": entry["name"],
                 "phone": entry["phone"],
                 "role": entry["role"],
-                "created_at": datetime.utcnow(),
+                "created_at": get_ist_now(),
                 "is_verified": True,
             }
             await db.users.insert_one(user_doc)
@@ -1524,7 +1530,7 @@ class PricingRule(BaseModel):
     registration_qr_code_url: Optional[str] = None
     registration_upi_id: Optional[str] = None
     razorpay_payment_link: Optional[str] = None
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=get_ist_now)
 
 class RegistrationFeeSettings(BaseModel):
     passenger_registration_fee: float = Field(default=0.0, ge=0.0)
@@ -1560,7 +1566,7 @@ class RoleSubscriptionConfig(BaseModel):
 class SubscriptionConfig(BaseModel):
     passenger: RoleSubscriptionConfig = Field(default_factory=RoleSubscriptionConfig)
     driver: RoleSubscriptionConfig = Field(default_factory=RoleSubscriptionConfig)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=get_ist_now)
 
 class SubscriptionSelectionRequest(BaseModel):
     plan_type: SubscriptionPlanType
@@ -1709,8 +1715,8 @@ def create_access_token_for_user(user_id: str, role: str) -> str:
         "sub": user_id,
         "role": role,
         "type": "access",
-        "iat": datetime.utcnow(),
-        "exp": datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+        "iat": get_ist_now(),
+        "exp": get_ist_now() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
@@ -1722,8 +1728,8 @@ def create_refresh_token_for_user(user_id: str, role: str) -> str:
         "jti": token_id,
         "role": role,
         "type": "refresh",
-        "iat": datetime.utcnow(),
-        "exp": datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
+        "iat": get_ist_now(),
+        "exp": get_ist_now() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
     }
     return jwt.encode(payload, JWT_REFRESH_SECRET, algorithm=JWT_ALGORITHM)
 
@@ -1747,8 +1753,8 @@ async def store_refresh_token(user_id: str, refresh_token: str, request: Request
             "ip": get_client_ip(request),
             "user_agent": request.headers.get("user-agent", ""),
             "revoked": False,
-            "created_at": datetime.utcnow(),
-            "expires_at": datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
+            "created_at": get_ist_now(),
+            "expires_at": get_ist_now() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
         }
     )
 
@@ -1757,7 +1763,7 @@ async def revoke_refresh_token(refresh_token: str):
     token_hash = hash_refresh_token_value(refresh_token)
     await db.refresh_tokens.update_one(
         {"token_hash": token_hash},
-        {"$set": {"revoked": True, "revoked_at": datetime.utcnow()}},
+        {"$set": {"revoked": True, "revoked_at": get_ist_now()}},
     )
 
 
@@ -1915,7 +1921,7 @@ async def audit_log(
                 "method": request.method,
                 "path": request.url.path,
                 "metadata": metadata or {},
-                "created_at": datetime.utcnow(),
+                "created_at": get_ist_now(),
             }
         )
     except Exception:
@@ -2048,7 +2054,7 @@ def build_driver_vehicle_info(vehicle: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 async def sync_driver_primary_vehicle(driver_id: str, vehicle: Optional[Dict[str, Any]]) -> None:
-    now = datetime.utcnow()
+    now = get_ist_now()
     if vehicle:
         vehicle_info = build_driver_vehicle_info(vehicle)
         await db.drivers.update_one(
@@ -2194,7 +2200,7 @@ async def create_user_for_social_or_otp(
         "role": role,
         "gender": gender.value if isinstance(gender, Gender) else (str(gender).strip().lower() if gender else None),
         "password_hash": hash_password(str(uuid.uuid4())),
-        "created_at": datetime.utcnow(),
+        "created_at": get_ist_now(),
         "is_verified": True,
     }
     await db.users.insert_one(user_dict)
@@ -2303,7 +2309,7 @@ async def cache_driver_live_location(driver_id: str, location: Optional[Dict[str
     normalized = normalize_tracking_location(location)
     if not normalized:
         return None
-    await runtime_state.cache_driver_live_location(str(driver_id), normalized, datetime.utcnow())
+    await runtime_state.cache_driver_live_location(str(driver_id), normalized, get_ist_now())
     return normalized
 
 async def get_cached_driver_live_location(
@@ -2494,14 +2500,14 @@ async def enqueue_ride(booking_id: str, priority: int = 100):
     if not redis_client or not booking_id:
         return
     normalized_booking_id = str(booking_id).strip()
-    score = int(datetime.utcnow().timestamp()) + int(priority)
+    score = int(get_ist_now().timestamp()) + int(priority)
     try:
         payload_key = _ride_queue_payload_key(normalized_booking_id)
         existing_attempts = safe_float(await redis_client.hget(payload_key, "attempts"), 0.0)
         payload = {
             "booking_id": normalized_booking_id,
             "attempts": int(existing_attempts),
-            "last_enqueued_at": datetime.utcnow().isoformat(),
+            "last_enqueued_at": get_ist_now().isoformat(),
             "priority": int(priority),
         }
         pipe = redis_client.pipeline()
@@ -2583,8 +2589,8 @@ async def write_analytics_event(event_type: str, user_id: Optional[str], payload
         "event_type": str(event_type),
         "user_id": user_id,
         "payload": payload or {},
-        "created_at": datetime.utcnow(),
-        "event_date": datetime.utcnow().strftime("%Y-%m-%d"),
+        "created_at": get_ist_now(),
+        "event_date": get_ist_now().strftime("%Y-%m-%d"),
     }
     try:
         queued = await queue_analytics_event(event)
@@ -2721,7 +2727,7 @@ def is_scheme_currently_active(
     *,
     now: Optional[datetime] = None,
 ) -> bool:
-    now_utc = as_utc_naive(now or datetime.utcnow())
+    now_utc = as_utc_naive(now or get_ist_now())
     start_utc = as_utc_naive(start_at) if start_at else None
     end_utc = as_utc_naive(end_at) if end_at else None
     if start_utc and now_utc < start_utc:
@@ -2731,7 +2737,7 @@ def is_scheme_currently_active(
     return True
 
 def has_paid_subscription_plan_for_current_period(role_config: RoleSubscriptionConfig) -> bool:
-    now_utc = datetime.utcnow()
+    now_utc = get_ist_now()
     plans = [role_config.monthly, role_config.quarterly, role_config.annually, role_config.per_trip]
     for plan in plans:
         if not bool(getattr(plan, "active", False)):
@@ -2749,7 +2755,7 @@ def has_paid_subscription_plan_for_current_period(role_config: RoleSubscriptionC
     return False
 
 def build_effective_role_subscription_config(role_config: RoleSubscriptionConfig) -> RoleSubscriptionConfig:
-    now_utc = datetime.utcnow()
+    now_utc = get_ist_now()
 
     def normalize_plan(plan: Any) -> Dict[str, Any]:
         raw_amount = round(float(getattr(plan, "amount", 0.0) or 0.0), 2)
@@ -2891,7 +2897,7 @@ async def get_subscription_config() -> SubscriptionConfig:
     raw_config = rules.get("subscription_config") if rules else None
     if isinstance(raw_config, dict):
         payload = dict(raw_config)
-        payload.setdefault("updated_at", rules.get("updated_at") or datetime.utcnow())
+        payload.setdefault("updated_at", rules.get("updated_at") or get_ist_now())
         return SubscriptionConfig(**payload)
     return SubscriptionConfig()
 
@@ -3028,7 +3034,7 @@ async def ensure_user_can_take_ride_actions(user: Dict[str, Any], action_label: 
         SubscriptionPlanType.ANNUALLY,
     }:
         expires_at = as_utc_naive(subscription.get("period_expires_at"))
-        now_utc = datetime.utcnow()
+        now_utc = get_ist_now()
         if not expires_at or expires_at < now_utc:
             raise HTTPException(status_code=403, detail="Your subscription plan is expired. Please renew.")
 
@@ -3402,7 +3408,7 @@ async def send_fcm_push(push_token: str, title: str, body: str, data: Optional[D
 
 async def notify_user(user_id: str, title: str, body: str, data: Optional[Dict[str, Any]] = None):
     """Send in-app realtime notification and optional push notification."""
-    now = datetime.utcnow()
+    now = get_ist_now()
     payload = {
         "title": title,
         "body": body,
@@ -3754,7 +3760,7 @@ async def get_driver_stats(driver_id: str) -> Dict[str, float]:
     }
 
 def get_driver_analytics_start(period: str) -> datetime:
-    now = datetime.utcnow()
+    now = get_ist_now()
     normalized = str(period or "week").strip().lower()
     if normalized == "day":
         return datetime(now.year, now.month, now.day)
@@ -3766,7 +3772,7 @@ def get_driver_analytics_start(period: str) -> datetime:
 
 def booking_metric_date(booking: Dict[str, Any]) -> datetime:
     value = booking.get("trip_completed_at") or booking.get("updated_at") or booking.get("created_at")
-    return value if isinstance(value, datetime) else datetime.utcnow()
+    return value if isinstance(value, datetime) else get_ist_now()
 
 def booking_fare_value(booking: Dict[str, Any]) -> float:
     return safe_float(booking.get("final_fare"), safe_float(booking.get("estimated_fare"), 0.0))
@@ -3870,7 +3876,7 @@ async def get_supply_demand_score(pickup_location: Dict[str, Any], radius_km: fl
         if km_between(pickup_location, live_location) <= radius_km:
             nearby_drivers += 1
 
-    recent_cutoff = datetime.utcnow() - timedelta(minutes=15)
+    recent_cutoff = get_ist_now() - timedelta(minutes=15)
     recent_bookings = await db.bookings.find(
         {
             "created_at": {"$gte": recent_cutoff},
@@ -3953,7 +3959,7 @@ def calculate_driver_rank_score(payload: Dict[str, Any]) -> float:
 
 
 async def detect_dispatch_fraud(passenger_id: str, pickup_location: Dict[str, Any]) -> Dict[str, Any]:
-    recent_cutoff = datetime.utcnow() - timedelta(minutes=30)
+    recent_cutoff = get_ist_now() - timedelta(minutes=30)
     recent_cancel_count = await db.bookings.count_documents(
         {
             "passenger_id": passenger_id,
@@ -4005,7 +4011,7 @@ async def intelligent_find_drivers_for_booking(
                 "booking_id": booking_id,
                 "passenger_id": passenger_id,
                 "risk": fraud,
-                "created_at": datetime.utcnow(),
+                "created_at": get_ist_now(),
             }
         )
 
@@ -4037,7 +4043,7 @@ async def intelligent_find_drivers_for_booking(
         stats = await get_driver_stats(driver_id)
         last_assigned = driver.get("last_assigned_at")
         if isinstance(last_assigned, datetime):
-            idle_minutes = max(0.0, (datetime.utcnow() - last_assigned).total_seconds() / 60.0)
+            idle_minutes = max(0.0, (get_ist_now() - last_assigned).total_seconds() / 60.0)
         else:
             idle_minutes = 60.0
         rating = safe_float(driver.get("rating"), 4.5)
@@ -4081,7 +4087,7 @@ async def intelligent_find_drivers_for_booking(
             "fraud_risk": fraud,
             "ranked_drivers": ranked[:20],
             "selected_driver_ids": [item["driver_id"] for item in selected],
-            "created_at": datetime.utcnow(),
+            "created_at": get_ist_now(),
         }
     )
     return selected
@@ -4115,7 +4121,7 @@ async def attempt_auto_assign_for_pending_booking(booking_id: str) -> bool:
     if not best_driver:
         return False
 
-    now = datetime.utcnow()
+    now = get_ist_now()
     surge_multiplier = max(1.0, safe_float(booking.get("surge_multiplier"), 1.0))
     fare_multiplier = float(best_driver.get("fare_multiplier", 1.0))
     effective_pricing = await get_effective_pricing_for_driver_profile(best_driver, pricing)
@@ -4195,7 +4201,7 @@ async def retry_auto_assignment_for_pending_booking(booking_id: str):
             return
 
 async def schedule_booking_assignment(booking_id: str, scheduled_for: datetime):
-    wait_seconds = max(0, int((scheduled_for - datetime.utcnow()).total_seconds()))
+    wait_seconds = max(0, int((scheduled_for - get_ist_now()).total_seconds()))
     if wait_seconds > 0:
         await asyncio.sleep(wait_seconds)
 
@@ -4247,7 +4253,7 @@ async def register(user_data: UserCreate, request: Request):
         "role": user_data.role,
         "gender": user_data.gender.value if isinstance(user_data.gender, Gender) else str(user_data.gender),
         "password_hash": hash_password(user_data.password),
-        "created_at": datetime.utcnow(),
+        "created_at": get_ist_now(),
         "registration_fee_amount": float(required_registration_fee),
         "registration_payment_required": required_registration_fee > 0,
         "registration_payment_status": "submitted" if required_registration_fee > 0 else "not_required",
@@ -4481,7 +4487,7 @@ async def refresh_access_token_legacy(payload: RefreshTokenRequest, request: Req
     stored = await db.refresh_tokens.find_one({"token_hash": token_hash, "revoked": False})
     if not stored:
         raise HTTPException(status_code=401, detail="Refresh token revoked")
-    if stored.get("expires_at") and stored["expires_at"] < datetime.utcnow():
+    if stored.get("expires_at") and stored["expires_at"] < get_ist_now():
         raise HTTPException(status_code=401, detail="Refresh token expired")
     user = await db.users.find_one({"id": decoded["sub"]}, {"_id": 0})
     if not user:
@@ -4633,7 +4639,7 @@ def driver_document_status(document: Optional[Dict[str, Any]]) -> Dict[str, Any]
         return {"days_until_expiry": None, "is_expired": False, "is_expiring_soon": False, "reminder_due": False}
 
     expiry = datetime.strptime(expiry_date, "%Y-%m-%d").date()
-    today = datetime.utcnow().date()
+    today = get_ist_now().date()
     days_left = (expiry - today).days
     window = int(DRIVER_DOCUMENT_TYPES.get(document.get("doc_type"), {}).get("renewal_window_days", 30) or 30)
     return {
@@ -4769,7 +4775,7 @@ async def update_passenger_profile(
         if existing:
             raise HTTPException(status_code=400, detail="Phone number already registered")
 
-    now = datetime.utcnow()
+    now = get_ist_now()
     await db.users.update_one({"id": current_user["id"]}, {"$set": {**update_data, "updated_at": now}})
     await db.passenger_profiles.update_one(
         {"user_id": current_user["id"]},
@@ -4786,7 +4792,7 @@ async def update_passenger_profile_preferences(
 ):
     require_passenger(current_user)
     update_data = payload.model_dump(exclude_unset=True)
-    now = datetime.utcnow()
+    now = get_ist_now()
     await db.passenger_profiles.update_one(
         {"user_id": current_user["id"]},
         {
@@ -4807,7 +4813,7 @@ async def upload_passenger_profile_photo(
     require_passenger(current_user)
     saved = await save_upload_file(file, PASSENGER_PROFILE_PHOTO_DIR, current_user["id"])
     photo_url = f"{str(request.base_url).rstrip('/')}/api/passengers/profile/photo/{saved['filename']}"
-    now = datetime.utcnow()
+    now = get_ist_now()
     await db.passenger_profiles.update_one(
         {"user_id": current_user["id"]},
         {
@@ -4833,7 +4839,7 @@ async def get_passenger_profile_photo(filename: str):
 @api_router.delete("/passengers/profile/delete")
 async def request_passenger_account_deletion(current_user: dict = Depends(get_current_user)):
     require_passenger(current_user)
-    now = datetime.utcnow()
+    now = get_ist_now()
     await db.account_deletion_requests.update_one(
         {"user_id": current_user["id"], "status": "pending"},
         {
@@ -4879,7 +4885,7 @@ async def submit_passenger_kyc(
     current_user: dict = Depends(get_current_user),
 ):
     require_passenger(current_user)
-    now = datetime.utcnow()
+    now = get_ist_now()
     encrypted_number = fernet.encrypt(payload.document_number.encode("utf-8")).decode("utf-8")
     await db.passenger_kyc.update_one(
         {"user_id": current_user["id"]},
@@ -4916,7 +4922,7 @@ async def upload_passenger_document(
     require_passenger(current_user)
     doc_type = re.sub(r"[^a-zA-Z0-9_-]+", "_", document_type).strip("_") or "other"
     saved = await save_upload_file(file, PASSENGER_DOCUMENTS_DIR / current_user["id"], doc_type)
-    now = datetime.utcnow()
+    now = get_ist_now()
     document = {
         "id": f"doc-{uuid.uuid4()}",
         "user_id": current_user["id"],
@@ -4962,7 +4968,7 @@ async def delete_passenger_document(document_id: str, current_user: dict = Depen
 async def get_passenger_receipts(period: str = "all", current_user: dict = Depends(get_current_user)):
     require_passenger(current_user)
     query: Dict[str, Any] = {"passenger_id": current_user["id"]}
-    now = datetime.utcnow()
+    now = get_ist_now()
     if period == "month":
         query["created_at"] = {"$gte": now - timedelta(days=31)}
     elif period == "quarter":
@@ -5022,7 +5028,7 @@ async def upload_support_attachment(
             "content_type": saved["content_type"],
             "size": saved["size"],
             "url": attachment_url,
-            "created_at": datetime.utcnow(),
+            "created_at": get_ist_now(),
         }
     )
     return {"attachment_url": attachment_url, "filename": saved["original_filename"]}
@@ -5043,7 +5049,7 @@ async def download_support_attachment(filename: str, current_user: dict = Depend
 @api_router.post("/passengers/subscription/cancel")
 async def cancel_passenger_subscription(current_user: dict = Depends(get_current_user)):
     require_passenger(current_user)
-    now = datetime.utcnow()
+    now = get_ist_now()
     await db.users.update_one(
         {"id": current_user["id"]},
         {
@@ -5077,7 +5083,7 @@ async def change_user_password(
         {
             "$set": {
                 "password_hash": hash_password(payload.new_password),
-                "updated_at": datetime.utcnow(),
+                "updated_at": get_ist_now(),
             }
         },
     )
@@ -5095,7 +5101,7 @@ async def get_two_factor_status(current_user: dict = Depends(get_current_user)):
 @api_router.post("/users/security/2fa/request")
 async def request_two_factor_setup(current_user: dict = Depends(get_current_user)):
     otp_code = f"{random.randint(100000, 999999)}"
-    now = datetime.utcnow()
+    now = get_ist_now()
     expires_at = now + timedelta(minutes=10)
     await db.users.update_one(
         {"id": current_user["id"]},
@@ -5118,13 +5124,13 @@ async def verify_two_factor_setup(payload: TwoFactorVerifyRequest, current_user:
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     expires_at = user.get("two_factor_pending_expires_at")
-    if not expires_at or expires_at < datetime.utcnow():
+    if not expires_at or expires_at < get_ist_now():
         raise HTTPException(status_code=400, detail="Verification code expired")
     otp_hash = str(user.get("two_factor_pending_otp_hash") or "")
     if not otp_hash or not verify_password(payload.otp, otp_hash):
         raise HTTPException(status_code=401, detail="Invalid verification code")
 
-    now = datetime.utcnow()
+    now = get_ist_now()
     await db.users.update_one(
         {"id": current_user["id"]},
         {
@@ -5142,7 +5148,7 @@ async def disable_two_factor(payload: TwoFactorDisableRequest, current_user: dic
         raise HTTPException(status_code=404, detail="User not found")
     if not verify_password(payload.current_password, str(user.get("password_hash") or "")):
         raise HTTPException(status_code=401, detail="Current password is incorrect")
-    now = datetime.utcnow()
+    now = get_ist_now()
     await db.users.update_one(
         {"id": current_user["id"]},
         {
@@ -5193,7 +5199,7 @@ async def request_phone_change(
         raise HTTPException(status_code=400, detail="Phone number already registered")
 
     otp_code = f"{random.randint(100000, 999999)}"
-    now = datetime.utcnow()
+    now = get_ist_now()
     otp_expiry = now + timedelta(minutes=max(1, OTP_EXPIRY_MINUTES))
     await db.phone_change_requests.update_one(
         {"user_id": current_user["id"]},
@@ -5235,7 +5241,7 @@ async def request_phone_change_admin(
     if existing_user:
         raise HTTPException(status_code=400, detail="Phone number already registered")
 
-    now = datetime.utcnow()
+    now = get_ist_now()
     await db.phone_change_requests.update_one(
         {"user_id": current_user["id"]},
         {
@@ -5275,13 +5281,13 @@ async def verify_phone_change(
         raise HTTPException(status_code=400, detail="Phone number already registered")
 
     otp_expiry = request_doc.get("otp_expiry")
-    if not otp_expiry or otp_expiry < datetime.utcnow():
+    if not otp_expiry or otp_expiry < get_ist_now():
         raise HTTPException(status_code=400, detail="OTP expired")
     otp_hash = str(request_doc.get("otp_hash") or "")
     if not otp_hash or not verify_password(payload.otp, otp_hash):
         raise HTTPException(status_code=401, detail="Invalid OTP")
 
-    now = datetime.utcnow()
+    now = get_ist_now()
     await db.phone_change_requests.update_one(
         {"user_id": current_user["id"]},
         {
@@ -5358,7 +5364,7 @@ async def select_subscription_plan(
     if not is_subscription_plan_active(role_config, payload.plan_type):
         raise HTTPException(status_code=400, detail="Selected plan is not active for your role")
 
-    now = datetime.utcnow()
+    now = get_ist_now()
     current_subscription = get_user_subscription(current_user)
     selected_plan = payload.plan_type.value
 
@@ -5425,7 +5431,7 @@ async def pay_subscription_due(
         {"user_id": current_user["id"], "status": {"$in": ["due", "rejected"]}}
     ).to_list(500)
     if not open_dues:
-        now = datetime.utcnow()
+        now = get_ist_now()
         fallback_due = {
             "id": str(uuid.uuid4()),
             "user_id": current_user["id"],
@@ -5442,7 +5448,7 @@ async def pay_subscription_due(
         await db.subscription_dues.insert_one(fallback_due)
         open_dues = [fallback_due]
 
-    now = datetime.utcnow()
+    now = get_ist_now()
     submission_id = str(uuid.uuid4())
     open_due_ids = [str(item.get("id")) for item in open_dues if item.get("id")]
     payment_utr = str(payload.payment_utr or "").strip() or None
@@ -5564,7 +5570,7 @@ async def update_driver_profile(payload: DriverProfileUpdate, current_user: dict
         if existing:
             raise HTTPException(status_code=400, detail="Phone number already registered")
 
-    now = datetime.utcnow()
+    now = get_ist_now()
     await db.users.update_one({"id": current_user["id"]}, {"$set": {**update_data, "updated_at": now}})
     await db.drivers.update_one(
         {"user_id": current_user["id"]},
@@ -5585,7 +5591,7 @@ async def upload_driver_profile_photo(
     require_driver(current_user)
     saved = await save_upload_file(file, DRIVER_PROFILE_PHOTO_DIR / current_user["id"], current_user["id"])
     photo_url = f"{str(request.base_url).rstrip('/')}/api/drivers/profile/photo/{saved['filename']}"
-    now = datetime.utcnow()
+    now = get_ist_now()
     existing = await db.drivers.find_one({"user_id": current_user["id"]}, {"_id": 0, "profile_photo_filename": 1})
     await db.drivers.update_one(
         {"user_id": current_user["id"]},
@@ -5624,7 +5630,7 @@ async def get_driver_profile_photo(filename: str):
 @api_router.put("/drivers/profile/bank")
 async def update_driver_bank_details(payload: DriverBankDetailsUpdate, current_user: dict = Depends(get_current_user)):
     require_driver(current_user)
-    now = datetime.utcnow()
+    now = get_ist_now()
     await db.drivers.update_one(
         {"user_id": current_user["id"]},
         {
@@ -5657,7 +5663,7 @@ async def update_driver_emergency_contact(
     current_user: dict = Depends(get_current_user),
 ):
     require_driver(current_user)
-    now = datetime.utcnow()
+    now = get_ist_now()
     contact_doc = {
         "id": f"driver-emergency-{current_user['id']}",
         "user_id": current_user["id"],
@@ -5711,7 +5717,7 @@ async def update_driver_settings(payload: DriverSettingsUpdate, current_user: di
     profile = await db.drivers.find_one({"user_id": current_user["id"]}, {"_id": 0, "settings": 1}) or {}
     current_settings = normalize_driver_settings(profile.get("settings"))
     merged = normalize_driver_settings({**current_settings, **updates})
-    now = datetime.utcnow()
+    now = get_ist_now()
     await db.drivers.update_one(
         {"user_id": current_user["id"]},
         {
@@ -5734,7 +5740,7 @@ async def get_driver_vehicles(current_user: dict = Depends(get_current_user)):
         profile = await db.drivers.find_one({"user_id": current_user["id"]}, {"_id": 0, "vehicle_info": 1})
         vehicle_info = (profile or {}).get("vehicle_info")
         if isinstance(vehicle_info, dict) and vehicle_info.get("vehicle_number"):
-            now = datetime.utcnow()
+            now = get_ist_now()
             vehicle_doc = {
                 "id": str(uuid.uuid4()),
                 "driver_id": current_user["id"],
@@ -5760,7 +5766,7 @@ async def get_driver_vehicles(current_user: dict = Depends(get_current_user)):
         await db.driver_vehicles.update_many({"driver_id": current_user["id"]}, {"$set": {"is_active": False}})
         await db.driver_vehicles.update_one(
             {"driver_id": current_user["id"], "id": normalized[0]["id"]},
-            {"$set": {"is_active": True, "updated_at": datetime.utcnow()}},
+            {"$set": {"is_active": True, "updated_at": get_ist_now()}},
         )
         await sync_driver_primary_vehicle(current_user["id"], normalized[0])
     return {"vehicles": normalized}
@@ -5768,7 +5774,7 @@ async def get_driver_vehicles(current_user: dict = Depends(get_current_user)):
 @api_router.post("/drivers/vehicles")
 async def create_driver_vehicle(payload: DriverVehiclePayload, current_user: dict = Depends(get_current_user)):
     require_driver(current_user)
-    now = datetime.utcnow()
+    now = get_ist_now()
     has_existing = await db.driver_vehicles.find_one({"driver_id": current_user["id"]}, {"_id": 0, "id": 1})
     vehicle_doc = {
         "id": str(uuid.uuid4()),
@@ -5797,7 +5803,7 @@ async def update_driver_vehicle(vehicle_id: str, payload: DriverVehiclePayload, 
     if not existing:
         raise HTTPException(status_code=404, detail="Vehicle not found")
 
-    now = datetime.utcnow()
+    now = get_ist_now()
     updated_fields = {
         "make": payload.make,
         "model": payload.model,
@@ -5825,7 +5831,7 @@ async def activate_driver_vehicle(vehicle_id: str, current_user: dict = Depends(
     if not target:
         raise HTTPException(status_code=404, detail="Vehicle not found")
 
-    now = datetime.utcnow()
+    now = get_ist_now()
     await db.driver_vehicles.update_many({"driver_id": current_user["id"]}, {"$set": {"is_active": False, "updated_at": now}})
     await db.driver_vehicles.update_one(
         {"driver_id": current_user["id"], "id": vehicle_id},
@@ -5846,7 +5852,7 @@ async def delete_driver_vehicle(vehicle_id: str, current_user: dict = Depends(ge
     if target.get("is_active"):
         replacement = await db.driver_vehicles.find_one({"driver_id": current_user["id"]}, {"_id": 0}, sort=[("updated_at", -1)])
         if replacement:
-            now = datetime.utcnow()
+            now = get_ist_now()
             await db.driver_vehicles.update_many({"driver_id": current_user["id"]}, {"$set": {"is_active": False, "updated_at": now}})
             await db.driver_vehicles.update_one(
                 {"driver_id": current_user["id"], "id": replacement["id"]},
@@ -5862,7 +5868,7 @@ async def delete_driver_vehicle(vehicle_id: str, current_user: dict = Depends(ge
 async def update_driver_location(location_update: DriverLocationUpdate, current_user: dict = Depends(get_current_user)):
     if current_user["role"] != UserRole.DRIVER:
         raise HTTPException(status_code=403, detail="Only drivers can update location")
-    now_utc = datetime.utcnow()
+    now_utc = get_ist_now()
     next_location_dict = location_update.location.dict()
     latitude = float(next_location_dict.get("latitude"))
     longitude = float(next_location_dict.get("longitude"))
@@ -5946,7 +5952,7 @@ async def update_driver_telemetry(
             "is_stationary": speed_kmh < 2.0,
         },
         "recorded_at": recorded_at,
-        "received_at": datetime.utcnow(),
+        "received_at": get_ist_now(),
     }
 
     if spatial_record["metrics"]["is_stationary"]:
@@ -5971,7 +5977,7 @@ async def update_driver_availability(availability: DriverAvailabilityUpdate, cur
         raise HTTPException(status_code=403, detail="Only drivers can update availability")
     if availability.is_available:
         await ensure_user_can_take_ride_actions(current_user, "going online")
-    now_utc = datetime.utcnow()
+    now_utc = get_ist_now()
     driver_insert_defaults = build_default_driver_profile(current_user["id"])
     driver_insert_defaults.pop("is_available", None)
 
@@ -6046,7 +6052,7 @@ async def get_driver_analytics(period: str = "week", current_user: dict = Depend
         raise HTTPException(status_code=400, detail="period must be one of day, week, month, year")
 
     driver_id = current_user["id"]
-    now = datetime.utcnow()
+    now = get_ist_now()
     start_at = get_driver_analytics_start(normalized_period)
     assigned_statuses = [
         BookingStatus.ACCEPTED,
@@ -6173,7 +6179,7 @@ async def submit_driver_fare_calculator(
         raise HTTPException(status_code=403, detail="Only drivers can update fare calculator")
 
     validate_driver_fare_radius_constraints(payload)
-    now = datetime.utcnow()
+    now = get_ist_now()
     request_doc = {
         "payload": payload.dict(),
         "request_type": "update",
@@ -6205,7 +6211,7 @@ async def submit_driver_fare_calculator_reset_request(
     if current_user["role"] != UserRole.DRIVER:
         raise HTTPException(status_code=403, detail="Only drivers can request fare calculator reset")
 
-    now = datetime.utcnow()
+    now = get_ist_now()
     request_doc = {
         "payload": None,
         "request_type": "reset",
@@ -6329,7 +6335,7 @@ async def upload_driver_support_attachment(
         "content_type": saved["content_type"],
         "size": saved["size"],
         "url": attachment_url,
-        "created_at": datetime.utcnow(),
+        "created_at": get_ist_now(),
     }
     await db.support_attachments.insert_one(attachment)
     return without_mongo_id({**attachment, "attachment_url": attachment_url})
@@ -6379,7 +6385,7 @@ async def create_driver_support_ticket(
     current_user: dict = Depends(get_current_user),
 ):
     require_driver_user(current_user)
-    now = datetime.utcnow()
+    now = get_ist_now()
     category = re.sub(r"[^a-zA-Z0-9_-]+", "_", payload.category).strip("_").lower() or "general"
     attachment_urls = normalize_attachment_urls(payload.attachment_urls)
     ticket = {
@@ -6435,7 +6441,7 @@ async def reply_to_driver_support_ticket(
     if ticket.get("status") == "closed":
         raise HTTPException(status_code=400, detail="Closed tickets cannot accept replies")
 
-    now = datetime.utcnow()
+    now = get_ist_now()
     attachment_urls = normalize_attachment_urls(payload.attachment_urls)
     message = {
         "id": f"msg-{uuid.uuid4()}",
@@ -6476,7 +6482,7 @@ async def escalate_driver_support_ticket(
     if ticket.get("status") == "closed":
         raise HTTPException(status_code=400, detail="Closed tickets cannot be escalated")
 
-    now = datetime.utcnow()
+    now = get_ist_now()
     message = {
         "id": f"msg-{uuid.uuid4()}",
         "from": "driver",
@@ -6516,7 +6522,7 @@ async def close_driver_support_ticket(
     current_user: dict = Depends(get_current_user),
 ):
     require_driver_user(current_user)
-    now = datetime.utcnow()
+    now = get_ist_now()
     result = await db.driver_support_tickets.update_one(
         {"id": ticket_id, "driver_id": current_user["id"]},
         {"$set": {"status": "closed", "updated_at": now, "resolved_at": now}},
@@ -6561,7 +6567,7 @@ async def admin_reply_to_driver_support_ticket(
     if ticket.get("status") == "closed":
         raise HTTPException(status_code=400, detail="Closed tickets cannot accept replies")
 
-    now = datetime.utcnow()
+    now = get_ist_now()
     attachment_urls = normalize_attachment_urls(payload.attachment_urls)
     message = {
         "id": f"msg-{uuid.uuid4()}",
@@ -6806,9 +6812,9 @@ async def toggle_favorite_driver(
                 "$set": {
                     "passenger_id": current_user["id"],
                     "driver_id": driver_id,
-                    "updated_at": datetime.utcnow(),
+                    "updated_at": get_ist_now(),
                 },
-                "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": datetime.utcnow()},
+                "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": get_ist_now()},
             },
             upsert=True,
         )
@@ -6839,9 +6845,9 @@ async def toggle_blocked_driver_for_passenger(
                 "$set": {
                     "passenger_id": current_user["id"],
                     "driver_id": driver_id,
-                    "updated_at": datetime.utcnow(),
+                    "updated_at": get_ist_now(),
                 },
-                "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": datetime.utcnow()},
+                "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": get_ist_now()},
             },
             upsert=True,
         )
@@ -6879,9 +6885,9 @@ async def toggle_blocked_passenger_for_driver(
                 "$set": {
                     "driver_id": current_user["id"],
                     "passenger_id": passenger_id,
-                    "updated_at": datetime.utcnow(),
+                    "updated_at": get_ist_now(),
                 },
-                "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": datetime.utcnow()},
+                "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": get_ist_now()},
             },
             upsert=True,
         )
@@ -7054,7 +7060,7 @@ async def get_driver_earnings(current_user: dict = Depends(get_current_user)):
         "status": BookingStatus.COMPLETED
     }).to_list(5000)
 
-    now = datetime.utcnow()
+    now = get_ist_now()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     week_start = now - timedelta(days=7)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -7104,7 +7110,7 @@ async def create_driver_earnings_report(
         "driver_id": current_user["id"],
         "format": payload.format,
         "report": report,
-        "created_at": datetime.utcnow(),
+        "created_at": get_ist_now(),
     }
     await db.driver_earnings_reports.insert_one(report_doc)
     report_doc.pop("_id", None)
@@ -7127,7 +7133,7 @@ async def request_driver_withdrawal(
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Withdrawal amount must be greater than zero")
 
-    now = datetime.utcnow()
+    now = get_ist_now()
     wallet = await db.driver_wallets.find_one({"driver_id": current_user["id"]}, {"_id": 0}) or {}
     balance = round(float(wallet.get("balance", 0.0) or 0.0), 2)
     if amount > balance:
@@ -7209,7 +7215,7 @@ async def create_booking(
     route_fare = max(route_fare, pricing.minimum_fare)
 
     booking_id = str(uuid.uuid4())
-    now = datetime.utcnow()
+    now = get_ist_now()
     scheduled_for = as_utc_naive(booking.scheduled_for)
     is_scheduled = schedule_is_in_future(scheduled_for, now)
 
@@ -7601,7 +7607,7 @@ async def post_booking_chat(
             detail="In-app chat is available only from ride acceptance until completion",
         )
 
-    now = datetime.utcnow()
+    now = get_ist_now()
     message_doc = {
         "id": str(uuid.uuid4()),
         "booking_id": booking_id,
@@ -7691,7 +7697,7 @@ async def accept_booking(booking_id: str, current_user: dict = Depends(get_curre
         {
             "$set": {
                 "response": "accepted",
-                "responded_at": datetime.utcnow(),
+                "responded_at": get_ist_now(),
             }
         },
         upsert=True,
@@ -7722,8 +7728,8 @@ async def accept_booking(booking_id: str, current_user: dict = Depends(get_curre
                 "extra_pickup_distance_km": float(pickup_charge["extra_pickup_distance_km"]),
                 "driver_to_pickup_distance_km": float(pickup_charge["driver_distance_km"]),
                 "dispatch_status": "accepted",
-                "accepted_driver_score_updated_at": datetime.utcnow(),
-                "updated_at": datetime.utcnow()
+                "accepted_driver_score_updated_at": get_ist_now(),
+                "updated_at": get_ist_now()
             }
         }
     )
@@ -7755,7 +7761,7 @@ async def accept_booking(booking_id: str, current_user: dict = Depends(get_curre
         {
             "booking_id": booking_id,
             "status": BookingStatus.ACCEPTED,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": get_ist_now().isoformat(),
         },
     )
     if driver_live_location:
@@ -7766,7 +7772,7 @@ async def accept_booking(booking_id: str, current_user: dict = Depends(get_curre
                 "booking_id": booking_id,
                 "driver_id": current_user["id"],
                 "location": driver_live_location,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": get_ist_now().isoformat(),
             },
         )
     await notify_user(
@@ -7807,7 +7813,7 @@ async def reject_booking(booking_id: str, current_user: dict = Depends(get_curre
         {
             "$set": {
                 "response": "rejected",
-                "responded_at": datetime.utcnow(),
+                "responded_at": get_ist_now(),
             }
         },
         upsert=True,
@@ -7818,7 +7824,7 @@ async def reject_booking(booking_id: str, current_user: dict = Depends(get_curre
             "$inc": {"dispatch_attempt_count": 1},
             "$set": {
                 "dispatch_status": "driver_rejected",
-                "updated_at": datetime.utcnow(),
+                "updated_at": get_ist_now(),
             },
             "$pull": {"candidate_driver_ids": current_user["id"]},
         },
@@ -7900,7 +7906,7 @@ async def update_booking_status(booking_id: str, status_update: BookingStatusUpd
         if current_user["role"] != UserRole.DRIVER or booking.get("driver_id") != current_user["id"]:
             raise HTTPException(status_code=403, detail="Only assigned driver can update ride status")
     
-    now_utc = datetime.utcnow()
+    now_utc = get_ist_now()
     update_data = {
         "status": status_update.status,
         "updated_at": now_utc
@@ -8100,7 +8106,7 @@ async def update_booking_status(booking_id: str, status_update: BookingStatusUpd
     status_payload = {
         "booking_id": booking_id,
         "status": status_update.status,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": get_ist_now().isoformat(),
     }
     await emit_to_user(booking["passenger_id"], "booking_status_changed", status_payload)
     if booking.get("driver_id"):
@@ -8166,7 +8172,7 @@ async def cancel_booking(booking_id: str, current_user: dict = Depends(get_curre
         {
             "$set": {
                 "status": BookingStatus.CANCELLED,
-                "updated_at": datetime.utcnow()
+                "updated_at": get_ist_now()
             }
         }
     )
@@ -8193,7 +8199,7 @@ async def cancel_booking(booking_id: str, current_user: dict = Depends(get_curre
     status_payload = {
         "booking_id": booking_id,
         "status": BookingStatus.CANCELLED,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": get_ist_now().isoformat(),
     }
     await emit_to_user(booking["passenger_id"], "booking_status_changed", status_payload)
     if booking.get("driver_id"):
@@ -8249,7 +8255,7 @@ async def upload_driver_document(
     normalized_expiry = normalize_expiry_date(expiry_date)
     existing = await db.driver_documents.find_one({"driver_id": current_user["id"], "doc_type": normalized_type})
     saved = await save_upload_file(file, DRIVER_DOCUMENTS_DIR / current_user["id"], normalized_type)
-    now = datetime.utcnow()
+    now = get_ist_now()
     document = {
         "id": existing.get("id") if existing else f"driver-doc-{uuid.uuid4()}",
         "driver_id": current_user["id"],
@@ -8325,8 +8331,8 @@ async def submit_driver_kyc(payload: DriverKYCSubmission, current_user: dict = D
         "selfie_image_url": payload.selfie_image_url,
         "status": KYCStatus.PENDING,
         "reject_reason": None,
-        "submitted_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow(),
+        "submitted_at": get_ist_now(),
+        "updated_at": get_ist_now(),
     }
 
     await db.driver_kyc.update_one(
@@ -8394,7 +8400,7 @@ async def review_driver_kyc(driver_id: str, review: DriverKYCReview, current_use
                 "status": review.status,
                 "reject_reason": review.reject_reason,
                 "reviewed_by": current_user["id"],
-                "updated_at": datetime.utcnow(),
+                "updated_at": get_ist_now(),
             }
         },
     )
@@ -8410,7 +8416,7 @@ async def review_driver_kyc(driver_id: str, review: DriverKYCReview, current_use
         {
             "status": review.status,
             "reject_reason": review.reject_reason,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": get_ist_now().isoformat(),
         },
     )
 
@@ -8419,7 +8425,7 @@ async def review_driver_kyc(driver_id: str, review: DriverKYCReview, current_use
 
 @api_router.post("/users/push-token")
 async def register_push_token(payload: PushTokenRegister, current_user: dict = Depends(get_current_user)):
-    now = datetime.utcnow()
+    now = get_ist_now()
     await db.push_tokens.update_one(
         {"user_id": current_user["id"]},
         {
@@ -8453,7 +8459,7 @@ async def save_emergency_contact(contact: EmergencyContactCreate, current_user: 
         "id": str(uuid.uuid4()),
         "user_id": current_user["id"],
         **contact.dict(),
-        "created_at": datetime.utcnow(),
+        "created_at": get_ist_now(),
     }
     await db.emergency_contacts.insert_one(doc)
     return {"message": "Emergency contact saved"}
@@ -8478,7 +8484,7 @@ async def create_sos_alert(payload: SOSAlertCreate, current_user: dict = Depends
         "severity": payload.severity,
         "message": payload.message,
         "status": "open",
-        "created_at": datetime.utcnow(),
+        "created_at": get_ist_now(),
     }
 
     await db.sos_alerts.insert_one(alert)
@@ -8564,8 +8570,8 @@ async def create_payment_order(payload: PaymentOrderCreate, current_user: dict =
         "upi_intent": upi_intent,
         "stripe_client_secret": stripe_client_secret,
         "stripe_payment_intent_id": stripe_payment_intent_id,
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow(),
+        "created_at": get_ist_now(),
+        "updated_at": get_ist_now(),
     }
 
     await db.payment_orders.insert_one(order_doc)
@@ -8611,7 +8617,7 @@ async def verify_payment(payload: PaymentVerifyRequest, current_user: dict = Dep
         except Exception as exc:
             raise HTTPException(status_code=400, detail=f"Unable to verify Stripe payment: {exc}")
 
-    now = datetime.utcnow()
+    now = get_ist_now()
 
     await db.payment_orders.update_one(
         {"order_id": payload.order_id},
@@ -8729,7 +8735,7 @@ class SpinWinConfigPayload(BaseModel):
 
 
 def default_spin_win_config() -> Dict[str, Any]:
-    now = datetime.utcnow()
+    now = get_ist_now()
     return {
         "id": SPIN_WIN_CONFIG_ID,
         "enabled": False,
@@ -8842,8 +8848,8 @@ def normalize_spin_win_config_document(config_doc: Dict[str, Any]) -> Dict[str, 
         "starts_at": starts_at,
         "ends_at": ends_at,
         "prizes": normalize_spin_prizes(doc.get("prizes")),
-        "updated_at": doc.get("updated_at") if isinstance(doc.get("updated_at"), datetime) else datetime.utcnow(),
-        "created_at": doc.get("created_at") if isinstance(doc.get("created_at"), datetime) else datetime.utcnow(),
+        "updated_at": doc.get("updated_at") if isinstance(doc.get("updated_at"), datetime) else get_ist_now(),
+        "created_at": doc.get("created_at") if isinstance(doc.get("created_at"), datetime) else get_ist_now(),
     }
 
 
@@ -8865,14 +8871,14 @@ async def get_spin_win_config_document() -> Dict[str, Any]:
     ):
         await db.spin_win_config.update_one(
             {"id": SPIN_WIN_CONFIG_ID},
-            {"$set": {**normalized, "updated_at": datetime.utcnow()}},
+            {"$set": {**normalized, "updated_at": get_ist_now()}},
             upsert=True,
         )
     return normalized
 
 
 def get_spin_win_date_key(now_utc: Optional[datetime] = None) -> str:
-    base = now_utc or datetime.utcnow()
+    base = now_utc or get_ist_now()
     aware = base.replace(tzinfo=timezone.utc) if base.tzinfo is None else base.astimezone(timezone.utc)
     return aware.astimezone(IST_TZ).strftime("%Y-%m-%d")
 
@@ -8905,7 +8911,7 @@ def evaluate_spin_win_eligibility(config: Dict[str, Any], current_user: Dict[str
 async def get_wallet(current_user: dict = Depends(get_current_user)):
     wallet = await db.user_wallets.find_one({"user_id": current_user["id"]})
     if not wallet:
-        now = datetime.utcnow()
+        now = get_ist_now()
         wallet = {
             "id": str(uuid.uuid4()),
             "user_id": current_user["id"],
@@ -8925,7 +8931,7 @@ async def get_wallet(current_user: dict = Depends(get_current_user)):
 
 @api_router.post("/wallet/topup")
 async def topup_wallet(payload: WalletTopupRequest, current_user: dict = Depends(get_current_user)):
-    now = datetime.utcnow()
+    now = get_ist_now()
     result = await db.user_wallets.update_one(
         {"user_id": current_user["id"]},
         {
@@ -8946,7 +8952,7 @@ async def topup_wallet(payload: WalletTopupRequest, current_user: dict = Depends
 
 @api_router.get("/spin-win/config")
 async def get_spin_win_config(current_user: dict = Depends(get_current_user)):
-    now = datetime.utcnow()
+    now = get_ist_now()
     date_key = get_spin_win_date_key(now)
     config = await get_spin_win_config_document()
     eligible, eligibility_reason = evaluate_spin_win_eligibility(config, current_user, now)
@@ -8979,7 +8985,7 @@ async def get_spin_win_config(current_user: dict = Depends(get_current_user)):
 
 @api_router.post("/spin-win/spin")
 async def perform_spin_win(current_user: dict = Depends(get_current_user)):
-    now = datetime.utcnow()
+    now = get_ist_now()
     date_key = get_spin_win_date_key(now)
     config = await get_spin_win_config_document()
     eligible, eligibility_reason = evaluate_spin_win_eligibility(config, current_user, now)
@@ -9019,7 +9025,7 @@ async def perform_spin_win(current_user: dict = Depends(get_current_user)):
     if not active_prizes:
         await db.spin_win_user_daily.update_one(
             {"user_id": current_user["id"], "date_key": date_key, "spins_used": {"$gt": 0}},
-            {"$inc": {"spins_used": -1}, "$set": {"updated_at": datetime.utcnow()}},
+            {"$inc": {"spins_used": -1}, "$set": {"updated_at": get_ist_now()}},
         )
         raise HTTPException(status_code=503, detail="No active prizes configured")
 
@@ -9049,7 +9055,7 @@ async def perform_spin_win(current_user: dict = Depends(get_current_user)):
     if not weighted_pool:
         await db.spin_win_user_daily.update_one(
             {"user_id": current_user["id"], "date_key": date_key, "spins_used": {"$gt": 0}},
-            {"$inc": {"spins_used": -1}, "$set": {"updated_at": datetime.utcnow()}},
+            {"$inc": {"spins_used": -1}, "$set": {"updated_at": get_ist_now()}},
         )
         raise HTTPException(status_code=503, detail="All daily prizes are exhausted. Try tomorrow.")
 
@@ -9323,7 +9329,7 @@ async def get_audit_logs(current_user: dict = Depends(require_roles(UserRole.ADM
 
 @api_router.get("/admin/analytics/summary")
 async def get_analytics_summary(current_user: dict = Depends(require_roles(UserRole.ADMIN.value))):
-    today = datetime.utcnow().strftime("%Y-%m-%d")
+    today = get_ist_now().strftime("%Y-%m-%d")
     cache_key = f"analytics_summary:{today}"
     cached = await cache_get(cache_key)
     if cached:
@@ -9406,7 +9412,7 @@ async def record_launch_visit(
     identity = _build_launch_identity(payload, token_user)
     client_ip = get_client_ip(request)
     headers = request.headers
-    now_utc = datetime.utcnow()
+    now_utc = get_ist_now()
     event_date = now_utc.strftime("%Y-%m-%d")
 
     visit_doc: Dict[str, Any] = {
@@ -9469,7 +9475,7 @@ async def get_admin_launch_visit_report(
     _ = current_user
     safe_days = max(1, min(int(days or 30), 365))
     safe_limit = max(10, min(int(limit or 100), 500))
-    since = datetime.utcnow() - timedelta(days=safe_days)
+    since = get_ist_now() - timedelta(days=safe_days)
     query = {"created_at": {"$gte": since}}
 
     total_clicks = await db.launch_page_visits.count_documents(query)
@@ -9612,7 +9618,7 @@ async def create_rating(rating_data: RatingCreate, current_user: dict = Depends(
         "to_user_id": rated_user_id,
         "rating": rating_data.rating,
         "comment": rating_data.comment,
-        "created_at": datetime.utcnow()
+        "created_at": get_ist_now()
     }
     
     await db.ratings.insert_one(rating_doc)
@@ -9841,7 +9847,7 @@ async def cancel_booking_from_admin(
     if booking.get("status") in [BookingStatus.COMPLETED, BookingStatus.CANCELLED]:
         raise HTTPException(status_code=400, detail="This booking is already closed")
 
-    now = datetime.utcnow()
+    now = get_ist_now()
     cancel_reason = str(payload.reason or "Cancelled by admin on user request").strip() or "Cancelled by admin on user request"
     await db.bookings.update_one(
         {"id": booking_id},
@@ -9944,7 +9950,7 @@ async def review_phone_change_request(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    now = datetime.utcnow()
+    now = get_ist_now()
     if payload.status == "approved":
         new_phone = normalize_phone(str(request_doc.get("new_phone") or ""))
         existing_user = await db.users.find_one({"phone": new_phone, "id": {"$ne": user_id}})
@@ -10025,7 +10031,7 @@ async def review_registration_payment(
     update_data: Dict[str, Any] = {
         "registration_payment_status": payload.status,
         "registration_verified_by_admin": payload.status == "verified",
-        "registration_verified_at": datetime.utcnow(),
+        "registration_verified_at": get_ist_now(),
         "registration_verified_by": current_user.get("id"),
         "registration_reject_reason": payload.reject_reason if payload.status == "rejected" else None,
     }
@@ -10136,7 +10142,7 @@ async def review_subscription_payment_submission(
     user_id = str(dues[0].get("user_id") or "")
     if not user_id:
         raise HTTPException(status_code=400, detail="Invalid subscription payment submission")
-    now = datetime.utcnow()
+    now = get_ist_now()
 
     if payload.status == "verified":
         total_amount = round(sum(float(item.get("amount") or 0.0) for item in dues), 2)
@@ -10287,7 +10293,7 @@ async def review_driver_fare_calculator_request(
     if request_type == "update" and not requested_payload:
         raise HTTPException(status_code=400, detail="No fare calculator request found for this driver")
 
-    now = datetime.utcnow()
+    now = get_ist_now()
     if payload.status == "approved":
         if request_type == "reset":
             await db.drivers.update_one(
@@ -10375,7 +10381,7 @@ async def update_subscription_config(
                     detail=f"{role_key} {plan_key} scheme end date must be after start date",
                 )
 
-    now = datetime.utcnow()
+    now = get_ist_now()
     subscription_payload = settings.dict()
     subscription_payload["updated_at"] = now
     await db.pricing_rules.update_one(
@@ -10406,7 +10412,7 @@ async def activate_user_subscription(
     if payload.activate and not selected_plan:
         raise HTTPException(status_code=400, detail="User must select a subscription plan before activation")
 
-    now = datetime.utcnow()
+    now = get_ist_now()
     set_fields: Dict[str, Any] = {
         "subscription.activation_note": payload.note,
         "subscription.activated_by": current_user.get("id"),
@@ -10473,7 +10479,7 @@ async def update_pricing(pricing: PricingRule, current_user: dict = Depends(get_
         )
     
     pricing_dict = merged_model.dict()
-    pricing_dict["updated_at"] = datetime.utcnow()
+    pricing_dict["updated_at"] = get_ist_now()
     
     await db.pricing_rules.update_one({}, {"$set": pricing_dict}, upsert=True)
     await cache_delete("pricing_rules:active")
@@ -10521,7 +10527,7 @@ async def update_registration_fees(
                 "registration_qr_code_url": settings.registration_qr_code_url,
                 "registration_upi_id": settings.registration_upi_id,
                 "razorpay_payment_link": settings.razorpay_payment_link,
-                "updated_at": datetime.utcnow(),
+                "updated_at": get_ist_now(),
             }
         },
         upsert=True,
@@ -10554,7 +10560,7 @@ async def update_admin_spin_win_config(
     if payload.enabled and not payload.prizes:
         raise HTTPException(status_code=400, detail="At least one prize is required when Spin & Win is enabled")
 
-    now = datetime.utcnow()
+    now = get_ist_now()
     config_doc = {
         "id": SPIN_WIN_CONFIG_ID,
         "enabled": bool(payload.enabled),
@@ -10601,7 +10607,7 @@ async def api_root():
 # Health check
 @api_router.get("/health")
 async def health_check():
-    now = datetime.utcnow().isoformat()
+    now = get_ist_now().isoformat()
     uptime_seconds = max(0.0, time.time() - STARTUP_TS)
     redis_status = "ok" if runtime_state.is_redis_enabled else "degraded"
     queue_pending: Optional[int] = None
@@ -10669,7 +10675,7 @@ def _worker_health(task: Optional[asyncio.Task]) -> str:
 @api_router.get("/ready")
 async def readiness_check():
     started = time.perf_counter()
-    now = datetime.utcnow().isoformat()
+    now = get_ist_now().isoformat()
     worker_state = {
         "driver_health_monitor": _worker_health(driver_health_monitor_task),
         "ride_dispatch_worker": _worker_health(ride_dispatch_worker_task),
@@ -10817,7 +10823,7 @@ async def emit_driver_connection_state(
         "booking_id": normalized_booking_id,
         "driver_id": normalized_driver_id,
         "online": bool(online),
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": get_ist_now().isoformat(),
     }
     if message:
         payload["message"] = str(message)
@@ -10850,7 +10856,7 @@ async def emit_ride_sync_state(
         "driver_live_location": driver_live_location,
         "eta_to_pickup_min": booking.get("driver_eta_to_pickup_min"),
         "eta_to_drop_min": booking.get("driver_eta_to_drop_min"),
-        "updated_at": datetime.utcnow().isoformat(),
+        "updated_at": get_ist_now().isoformat(),
     }
     target = to_sid if to_sid else ride_room(normalized_booking_id)
     await sio.emit("ride_state_sync", payload, to=target)
@@ -10883,7 +10889,7 @@ async def connect(sid, environ, auth=None):
         {
             "user_id": user.get("id"),
             "role": user.get("role"),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": get_ist_now().isoformat(),
         },
         to=sid,
     )
@@ -10893,7 +10899,7 @@ async def connect(sid, environ, auth=None):
         {
             "user_id": user.get("id"),
             "role": user.get("role"),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": get_ist_now().isoformat(),
         },
         to=sid,
     )
@@ -11032,7 +11038,7 @@ async def booking_chat_send(sid, data):
     sender = await db.users.find_one({"id": user_id})
     sender_name = sender.get("name") if sender else "User"
     sender_role = sender.get("role") if sender else UserRole.PASSENGER
-    now = datetime.utcnow()
+    now = get_ist_now()
 
     message_doc = {
         "id": str(uuid.uuid4()),
@@ -11079,7 +11085,7 @@ async def driver_heartbeat(sid, data):
         {
             "driver_id": driver_id,
             "booking_id": booking_id or None,
-            "server_time": datetime.utcnow().isoformat(),
+            "server_time": get_ist_now().isoformat(),
         },
         to=sid,
     )
@@ -11138,7 +11144,7 @@ async def driver_location_update(sid, data):
         "speed": (data or {}).get("speed"),
         "accuracy": (data or {}).get("accuracy"),
         "address": normalized_live_location.get("address") or (data or {}).get("address"),
-        "updated_at": datetime.utcnow().isoformat(),
+        "updated_at": get_ist_now().isoformat(),
     }
     geo_location = {
         "type": "Point",
@@ -11154,7 +11160,7 @@ async def driver_location_update(sid, data):
             "$set": {
                 "current_location": location_payload,
                 "current_location_geo": geo_location,
-                "last_location_at": datetime.utcnow(),
+                "last_location_at": get_ist_now(),
                 "is_online": True,
             }
         },
@@ -11173,7 +11179,7 @@ async def driver_location_update(sid, data):
         "accuracy": (data or {}).get("accuracy"),
         "eta_to_pickup_min": None,
         "eta_to_drop_min": None,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": get_ist_now().isoformat(),
     }
 
     if booking_id:
@@ -11191,7 +11197,7 @@ async def driver_location_update(sid, data):
                         "driver_location": location_payload,
                         "driver_eta_to_pickup_min": payload["eta_to_pickup_min"],
                         "driver_eta_to_drop_min": payload["eta_to_drop_min"],
-                        "updated_at": datetime.utcnow(),
+                        "updated_at": get_ist_now(),
                     }
                 },
             )
@@ -11242,7 +11248,7 @@ async def ride_state_update(sid, data):
 
     await db.bookings.update_one(
         {"id": booking_id},
-        {"$set": {"status": status, "updated_at": datetime.utcnow()}},
+        {"$set": {"status": status, "updated_at": get_ist_now()}},
     )
     await clear_active_ride_cache(str(booking.get("driver_id") or ""), str(booking.get("passenger_id") or ""))
     if status in {BookingStatus.COMPLETED.value, BookingStatus.CANCELLED.value, BookingStatus.ACCEPTED.value}:
@@ -11251,7 +11257,7 @@ async def ride_state_update(sid, data):
     status_payload = {
         "booking_id": booking_id,
         "status": status,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": get_ist_now().isoformat(),
     }
     await sio.emit("booking_status_changed", status_payload, room=ride_room(booking_id))
     await sio.emit("booking_status_changed", status_payload, room=f"booking:{booking_id}")
@@ -11350,7 +11356,7 @@ async def emit_new_booking_to_drivers(
             {
                 'message': 'New ride request available',
                 'booking_id': booking_id,
-                'timestamp': datetime.utcnow().isoformat()
+                'timestamp': get_ist_now().isoformat()
             },
             room=user_room(driver_id),
         )
@@ -11403,7 +11409,7 @@ async def ride_dispatch_worker():
                             "$set": {
                                 "dispatch_status": "no_drivers_available",
                                 "dispatch_attempt_count": int(attempts),
-                                "updated_at": datetime.utcnow(),
+                                "updated_at": get_ist_now(),
                             }
                         },
                     )
@@ -11425,7 +11431,7 @@ async def ride_dispatch_worker():
                         "candidate_driver_ids": candidate_driver_ids,
                         "dispatch_status": "queued_dispatched",
                         "dispatch_attempt_count": int(attempts),
-                        "updated_at": datetime.utcnow(),
+                        "updated_at": get_ist_now(),
                     }
                 },
             )
@@ -11489,7 +11495,7 @@ async def analytics_warehouse_worker():
 async def driver_health_monitor():
     while True:
         try:
-            now = datetime.utcnow()
+            now = get_ist_now()
             offline_cutoff = now - timedelta(seconds=REALTIME_OFFLINE_SECONDS)
             stale_driver_ids = await runtime_state.list_stale_driver_ids(offline_cutoff)
             for driver_id in stale_driver_ids:

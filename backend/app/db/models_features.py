@@ -7,10 +7,16 @@ Payment Methods, Favorites, Promo Codes, Support, and Accessibility
 from sqlalchemy import Column, String, Integer, Float, DateTime, Boolean, JSON, ForeignKey, Text, Enum, Table
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import enum
 
 Base = declarative_base()
+
+# IST Timezone and helper
+IST_TZ = timezone(timedelta(hours=5, minutes=30))
+def get_ist_now():
+    """Returns current time in IST timezone."""
+    return datetime.now(IST_TZ)
 
 
 # ============================================================================
@@ -29,8 +35,8 @@ class PassengerRating(Base):
     score = Column(Integer, nullable=False)  # 1-5 stars
     feedback = Column(Text, nullable=True)
     
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=get_ist_now, index=True)
+    updated_at = Column(DateTime, default=get_ist_now, onupdate=get_ist_now)
 
     passenger = relationship("Passenger", back_populates="ratings_given", foreign_keys=[passenger_id])
     driver = relationship("Driver", back_populates="ratings_received", foreign_keys=[driver_id])
@@ -70,8 +76,8 @@ class SavedPlace(Base):
     is_favorite = Column(Boolean, default=False, index=True)
     is_primary = Column(Boolean, default=False)  # Primary home/work location
     
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=get_ist_now, index=True)
+    updated_at = Column(DateTime, default=get_ist_now, onupdate=get_ist_now)
 
     passenger = relationship("Passenger", back_populates="saved_places")
     
@@ -124,8 +130,8 @@ class PassengerPreferences(Base):
     # Additional settings as JSON
     additional_settings = Column(JSON, default={})
     
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=get_ist_now, index=True)
+    updated_at = Column(DateTime, default=get_ist_now, onupdate=get_ist_now)
 
     passenger = relationship("Passenger", back_populates="preferences")
     
@@ -178,8 +184,8 @@ class ScheduledRide(Base):
     recurring = Column(Boolean, default=False)  # For recurring rides (daily, weekly)
     recurrence_pattern = Column(String, nullable=True)  # "daily", "weekly", "monthly"
     
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=get_ist_now, index=True)
+    updated_at = Column(DateTime, default=get_ist_now, onupdate=get_ist_now)
 
     passenger = relationship("Passenger", back_populates="scheduled_rides")
     
@@ -230,8 +236,8 @@ class PaymentMethod(Base):
     is_default = Column(Boolean, default=False, index=True)
     is_active = Column(Boolean, default=True)
     
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=get_ist_now, index=True)
+    updated_at = Column(DateTime, default=get_ist_now, onupdate=get_ist_now)
 
     passenger = relationship("Passenger", back_populates="payment_methods")
     
@@ -263,8 +269,8 @@ class PassengerWallet(Base):
     
     last_transaction_at = Column(DateTime, nullable=True)
     
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=get_ist_now)
+    updated_at = Column(DateTime, default=get_ist_now, onupdate=get_ist_now)
     
     passenger = relationship("Passenger", back_populates="wallet")
     transactions = relationship("WalletTransaction", back_populates="wallet")
@@ -299,7 +305,7 @@ class WalletTransaction(Base):
     
     status = Column(String, default="completed")  # "pending", "completed", "failed"
     
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=get_ist_now, index=True)
     
     # Relationships
     wallet = relationship("PassengerWallet", back_populates="transactions")
@@ -329,7 +335,7 @@ class FavoriteDriver(Base):
     passenger_id = Column(String, ForeignKey("passengers.id"), nullable=False, index=True)
     driver_id = Column(String, ForeignKey("drivers.id"), nullable=False, index=True)
     
-    added_at = Column(DateTime, default=datetime.utcnow, index=True)
+    added_at = Column(DateTime, default=get_ist_now, index=True)
     last_ride_with = Column(DateTime, nullable=True)
     ride_count_together = Column(Integer, default=1)
 
@@ -360,8 +366,8 @@ class EmergencyContact(Base):
     is_primary = Column(Boolean, default=False)
     notify_on_rides = Column(Boolean, default=False)  # Notify during rides
     
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=get_ist_now)
+    updated_at = Column(DateTime, default=get_ist_now, onupdate=get_ist_now)
 
     passenger = relationship("Passenger", back_populates="emergency_contacts")
     
@@ -403,8 +409,8 @@ class PromoCode(Base):
     is_active = Column(Boolean, default=True, index=True)
     description = Column(String, nullable=True)
     
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=get_ist_now)
+    updated_at = Column(DateTime, default=get_ist_now, onupdate=get_ist_now)
     
     # Relationships
     usages = relationship("PromoCodeUsage", back_populates="promo_code")
@@ -433,7 +439,7 @@ class PromoCodeUsage(Base):
     
     discount_amount = Column(Float, nullable=False)
     
-    used_at = Column(DateTime, default=datetime.utcnow, index=True)
+    used_at = Column(DateTime, default=get_ist_now, index=True)
     
     promo_code = relationship("PromoCode", back_populates="usages")
     
@@ -467,8 +473,8 @@ class SupportTicket(Base):
     
     assigned_to = Column(String, nullable=True)
     
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=get_ist_now, index=True)
+    updated_at = Column(DateTime, default=get_ist_now, onupdate=get_ist_now)
     resolved_at = Column(DateTime, nullable=True)
     
     passenger = relationship("Passenger", back_populates="support_tickets")
@@ -507,7 +513,7 @@ class TicketMessage(Base):
     message_text = Column(Text, nullable=False)
     attachment_url = Column(String, nullable=True)
     
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=get_ist_now, index=True)
     
     # Relationships
     ticket = relationship("SupportTicket", back_populates="messages")
@@ -544,8 +550,8 @@ class AccessibilitySetting(Base):
     voice_guidance_speed = Column(Float, default=1.0)  # Playback speed for voice
     voice_guidance_language = Column(String, default="en")
     
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=get_ist_now)
+    updated_at = Column(DateTime, default=get_ist_now, onupdate=get_ist_now)
 
     passenger = relationship("Passenger", back_populates="accessibility_settings")
     
