@@ -277,7 +277,10 @@ if REDIS_URL:
 sio = socketio.AsyncServer(
     async_mode='asgi',
     client_manager=socket_manager,
-    cors_allowed_origins=ALLOWED_ORIGINS if ALLOWED_ORIGINS else '*',
+    # FastAPI/Starlette CORSMiddleware owns CORS for the mounted /ws app.
+    # Disable Engine.IO's duplicate CORS headers so polling responses expose
+    # exactly one Access-Control-Allow-Origin value.
+    cors_allowed_origins=[],
     logger=False,
     engineio_logger=False
 )
@@ -11462,6 +11465,10 @@ async def emit_ride_sync_state(
 
 @sio.event
 async def connect(sid, environ, auth=None):
+    socket_origin = str((environ or {}).get("HTTP_ORIGIN") or "").strip()
+    if socket_origin and not is_origin_allowed(socket_origin):
+        raise ConnectionRefusedError("Origin not allowed")
+
     user = await get_user_from_socket(environ or {}, auth if isinstance(auth, dict) else None)
     if not user:
         raise ConnectionRefusedError("Unauthorized socket")
