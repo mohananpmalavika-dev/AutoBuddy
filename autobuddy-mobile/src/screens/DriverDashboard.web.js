@@ -123,10 +123,12 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   const reverseGeocodeInFlightRef = useRef(false);
   const reverseGeocodeCacheRef = useRef(new Map());
   const availabilityUiOverrideUntilRef = useRef(0);
+  const availabilityLocalChangeAtRef = useRef(0);
   const availabilityToggleRequestIdRef = useRef(0);
   const availabilityToggleInFlightRef = useRef(null);
   const pendingAvailabilitySyncRef = useRef(null);
   const availabilityRetryInFlightRef = useRef(false);
+  const availabilitySyncPendingRef = useRef(false);
   const socketRef = useRef(null);
   const driverPollCooldownUntilRef = useRef(0);
   const lastRateLimitNoticeAtRef = useRef(0);
@@ -165,6 +167,19 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   const [spinWinLoading, setSpinWinLoading] = useState(false);
   const [spinningNow, setSpinningNow] = useState(false);
   
+  const setAvailabilitySyncPendingState = useCallback((value) => {
+    const nextValue = !!value;
+    availabilitySyncPendingRef.current = nextValue;
+    setAvailabilitySyncPending(nextValue);
+  }, []);
+  const canApplyServerAvailabilitySnapshot = useCallback((requestStartedAt = Date.now()) => (
+    requestStartedAt >= availabilityLocalChangeAtRef.current &&
+    !availabilitySyncPendingRef.current &&
+    !availabilityToggleInFlightRef.current &&
+    !pendingAvailabilitySyncRef.current &&
+    Date.now() >= availabilityUiOverrideUntilRef.current
+  ), []);
+
   const googleMapsWebKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
   const placesConfigured = isPlacesConfigured();
   const liveLocationRideStatuses = useMemo(() => new Set(['accepted', 'driver_arrived', 'in_progress']), []);
@@ -529,7 +544,8 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       const savedStatus =
         typeof updated?.is_available === 'boolean' ? updated.is_available : !!pending.desired;
       pendingAvailabilitySyncRef.current = null;
-      setAvailabilitySyncPending(false);
+      setAvailabilitySyncPendingState(false);
+      availabilityLocalChangeAtRef.current = Date.now();
       availabilityUiOverrideUntilRef.current = Date.now() + 15000;
       setServerIsOnline(savedStatus);
       setIsOnline(savedStatus);
@@ -549,20 +565,21 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
           lastAttemptAt: Date.now(),
         };
         availabilityUiOverrideUntilRef.current = Date.now() + AVAILABILITY_RETRY_WINDOW_MS;
-        setAvailabilitySyncPending(true);
+        availabilityLocalChangeAtRef.current = Date.now();
+        setAvailabilitySyncPendingState(true);
         setIsOnline(!!pending.desired);
         setError(getAvailabilityErrorMessage(err));
         setMessage('Availability sync queued. Retrying automatically.');
       } else {
         pendingAvailabilitySyncRef.current = null;
-        setAvailabilitySyncPending(false);
+        setAvailabilitySyncPendingState(false);
         setError(getAvailabilityErrorMessage(err));
         setMessage('');
       }
     } finally {
       availabilityRetryInFlightRef.current = false;
     }
-  }, [driverLocation, pushDriverLocation, token]);
+  }, [driverLocation, pushDriverLocation, setAvailabilitySyncPendingState, token]);
 
   const requestDriverData = useCallback(
     async (path, fallbackValue) => {
@@ -587,18 +604,13 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   );
 
   const refreshDriverData = useCallback(async () => {
+    const refreshStartedAt = Date.now();
     const profile = await runAction(() => apiRequest('/drivers/profile', { token }));
     if (profile) {
-      // Always update from server when we fetch profile
       if (typeof profile.is_available === 'boolean') {
-        setServerIsOnline(profile.is_available);
-        const canApplyServerAvailability =
-          !availabilitySyncPending &&
-          !availabilityToggleInFlightRef.current &&
-          !pendingAvailabilitySyncRef.current &&
-          Date.now() >= availabilityUiOverrideUntilRef.current;
         // Avoid overriding an in-flight toggle with stale profile snapshots.
-        if (canApplyServerAvailability) {
+        if (canApplyServerAvailabilitySnapshot(refreshStartedAt)) {
+          setServerIsOnline(profile.is_available);
           setIsOnline(profile.is_available);
         }
       }
@@ -637,9 +649,18 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       setDriverSettings(normalizeDriverSettings(settingsPayload));
     }
     setMessage('Driver dashboard refreshed.');
-  }, [attachReadableAddress, hydrateDriverFareConfig, normalizeLocation, requestDriverData, runAction, token, availabilitySyncPending]);
+  }, [
+    attachReadableAddress,
+    canApplyServerAvailabilitySnapshot,
+    hydrateDriverFareConfig,
+    normalizeLocation,
+    requestDriverData,
+    runAction,
+    token,
+  ]);
 
   const refreshDriverDataSilently = useCallback(async ({ includeProfile = false, includeMeta = false } = {}) => {
+    const refreshStartedAt = Date.now();
     if (refreshInFlightRef.current) {
       return;
     }
@@ -662,14 +683,8 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
         : [null, null, null];
 
       if (includeProfile && profile && typeof profile.is_available === 'boolean') {
-        // Always sync server state, then update local state if no pending changes
-        setServerIsOnline(profile.is_available);
-        const canApplyServerAvailability =
-          !availabilitySyncPending &&
-          !availabilityToggleInFlightRef.current &&
-          !pendingAvailabilitySyncRef.current &&
-          Date.now() >= availabilityUiOverrideUntilRef.current;
-        if (canApplyServerAvailability) {
+        if (canApplyServerAvailabilitySnapshot(refreshStartedAt)) {
+          setServerIsOnline(profile.is_available);
           setIsOnline(profile.is_available);
         }
       }
@@ -703,7 +718,13 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     } finally {
       refreshInFlightRef.current = false;
     }
-  }, [availabilitySyncPending, attachReadableAddress, hydrateDriverFareConfig, normalizeLocation, requestDriverData]);
+  }, [
+    attachReadableAddress,
+    canApplyServerAvailabilitySnapshot,
+    hydrateDriverFareConfig,
+    normalizeLocation,
+    requestDriverData,
+  ]);
 
   const refreshRideStageValidation = useCallback(async () => {
     const [ride, requests] = await Promise.all([
@@ -1074,14 +1095,18 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     }
 
     const next = !!wantOnline;
+    const previousLocalStatus = isOnline;
+    const previousServerStatus = serverIsOnline;
     const requestId = availabilityToggleRequestIdRef.current + 1;
+    const toggledAt = Date.now();
     availabilityToggleRequestIdRef.current = requestId;
     availabilityToggleInFlightRef.current = requestId;
-    availabilityUiOverrideUntilRef.current = Date.now() + 15000;
+    availabilityLocalChangeAtRef.current = toggledAt;
+    availabilityUiOverrideUntilRef.current = toggledAt + 15000;
     pendingAvailabilitySyncRef.current = null;
 
     setIsOnline(next);
-    setAvailabilitySyncPending(true);
+    setAvailabilitySyncPendingState(true);
     setError('');
     setMessage(next ? 'Going online...' : 'Going offline...');
 
@@ -1099,7 +1124,9 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       const savedStatus =
         typeof response?.is_available === 'boolean' ? response.is_available : next;
 
-      availabilityUiOverrideUntilRef.current = Date.now() + 15000;
+      const savedAt = Date.now();
+      availabilityLocalChangeAtRef.current = savedAt;
+      availabilityUiOverrideUntilRef.current = savedAt + 15000;
       setIsOnline(savedStatus);
       setServerIsOnline(savedStatus);
       setMessage(savedStatus ? 'You are now online.' : 'You are now offline.');
@@ -1113,17 +1140,28 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
         return;
       }
 
-      setIsOnline(!next);
+      const rollbackAt = Date.now();
+      availabilityLocalChangeAtRef.current = rollbackAt;
+      availabilityUiOverrideUntilRef.current = rollbackAt + 15000;
+      setIsOnline(previousLocalStatus);
+      setServerIsOnline(previousServerStatus);
       setError(getAvailabilityErrorMessage(err));
       setMessage('Failed to update status. Please try again.');
     } finally {
       if (availabilityToggleInFlightRef.current === requestId) {
         availabilityToggleInFlightRef.current = null;
         pendingAvailabilitySyncRef.current = null;
-        setAvailabilitySyncPending(false);
+        setAvailabilitySyncPendingState(false);
       }
     }
-  }, [pushDriverLocation, shouldPushAvailabilityLocation, token]);
+  }, [
+    isOnline,
+    pushDriverLocation,
+    serverIsOnline,
+    setAvailabilitySyncPendingState,
+    shouldPushAvailabilityLocation,
+    token,
+  ]);
 
   const acceptRequest = async (bookingId) => {
     const accepted = await runAction(() =>
