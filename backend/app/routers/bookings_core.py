@@ -252,6 +252,13 @@ async def complete_ride(booking_id: str, request: Request):
         actual_distance = body.get('distance_km', 0)
         end_location = body.get('end_location')
         
+        # Get vehicle type multiplier
+        vehicle_type_multiplier = 1.0
+        if booking.get('vehicle_type_id'):
+            vehicle_type = await db.vehicle_types.find_one({'vehicle_type_id': booking['vehicle_type_id']})
+            if vehicle_type:
+                vehicle_type_multiplier = float(vehicle_type.get('base_multiplier', 1.0))
+        
         # Recalculate fare based on actual distance/time
         ride_duration = (datetime.utcnow() - booking['started_at']).total_seconds() / 60
         fare = calculate_final_fare(
@@ -259,7 +266,8 @@ async def complete_ride(booking_id: str, request: Request):
             distance=actual_distance,
             duration=ride_duration,
             base_fare=booking.get('base_fare', 50),
-            surge_multiplier=booking.get('surge_multiplier', 1.0)
+            surge_multiplier=booking.get('surge_multiplier', 1.0),
+            vehicle_type_multiplier=vehicle_type_multiplier
         )
         
         # Complete booking
@@ -277,6 +285,8 @@ async def complete_ride(booking_id: str, request: Request):
                         'base_fare': fare['base'],
                         'distance_charge': fare['distance'],
                         'time_charge': fare['time'],
+                        'vehicle_multiplier': vehicle_type_multiplier,
+                        'vehicle_multiplier_amount': fare.get('vehicle_multiplier_amount', 0),
                         'surge': fare['surge_amount'],
                         'tax': fare['tax'],
                         'discount': fare['discount'],
@@ -395,8 +405,8 @@ async def reassign_to_drivers(booking_id: str):
         logger.error(f"Error reassigning ride: {str(e)}")
 
 
-def calculate_final_fare(ride_type, distance, duration, base_fare, surge_multiplier):
-    """Calculate final fare based on actual distance and time."""
+def calculate_final_fare(ride_type, distance, duration, base_fare, surge_multiplier, vehicle_type_multiplier=1.0):
+    """Calculate final fare based on actual distance and time with vehicle type multiplier."""
     # Base rates per km and minute
     rates = {
         'standard': {'per_km': 15, 'per_minute': 0.5},
@@ -410,8 +420,11 @@ def calculate_final_fare(ride_type, distance, duration, base_fare, surge_multipl
     time_charge = (duration / 60) * rate['per_minute']
     subtotal = base_fare + distance_charge + time_charge
     
+    # Apply vehicle type multiplier
+    subtotal_with_vehicle_type = subtotal * vehicle_type_multiplier
+    
     # Apply surge
-    subtotal_with_surge = subtotal * surge_multiplier
+    subtotal_with_surge = subtotal_with_vehicle_type * surge_multiplier
     
     # Tax (5%)
     tax = subtotal_with_surge * 0.05
@@ -426,7 +439,8 @@ def calculate_final_fare(ride_type, distance, duration, base_fare, surge_multipl
         'base': base_fare,
         'distance': distance_charge,
         'time': time_charge,
-        'surge_amount': (subtotal * surge_multiplier) - subtotal,
+        'vehicle_multiplier_amount': (subtotal_with_vehicle_type - subtotal),
+        'surge_amount': (subtotal_with_surge - subtotal_with_vehicle_type),
         'tax': tax,
         'discount': discount,
         'total': total,

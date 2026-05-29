@@ -58,6 +58,7 @@ class AdvancedBookingRequest(BaseModel):
     promo_discount_type: Optional[str] = Field(default=None, max_length=20)
     promo_discount_value: Optional[float] = Field(default=None, ge=0)
     promo_max_discount: Optional[float] = Field(default=None, ge=0)
+    vehicle_type_id: Optional[str] = Field(default=None, max_length=50)
 
 
 class DistrictRideProductRule(BaseModel):

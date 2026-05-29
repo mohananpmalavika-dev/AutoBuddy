@@ -52,6 +52,7 @@ from app.routers.tier3_polish_features import router as modular_tier3_router
 from app.routers.health import router as modular_health_router
 from app.routers.scheduled_rides import router as modular_scheduled_rides_router
 from app.routers.vehicles import router as modular_vehicles_router
+from app.routers.vehicle_types import router as modular_vehicle_types_router, init_default_vehicle_types
 from app.routers.support_tickets import router as modular_support_tickets_router
 from app.routers.uploads import router as modular_uploads_router
 from app.routers.admin_account_deletions import router as modular_admin_account_deletions_router
@@ -967,6 +968,11 @@ async def on_startup():
             redis_client = None
             app.state.redis_client = None
     await seed_admin()
+    # Initialize default vehicle types
+    try:
+        await init_default_vehicle_types(db)
+    except Exception:
+        logger.exception("Vehicle types initialization failed during startup")
     try:
         await ensure_rate_limit_defaults(db)
     except Exception:
@@ -9167,6 +9173,17 @@ async def create_booking(
     estimated_fare = round(route_fare_for_estimate, 2)
     if (not selected_driver_id) and (not is_scheduled):
         estimated_fare = round(estimated_fare * surge_multiplier, 2)
+    
+    # Apply vehicle type multiplier if provided
+    vehicle_type_multiplier = 1.0
+    if booking.vehicle_type_id:
+        try:
+            vehicle_type = await db.vehicle_types.find_one({'vehicle_type_id': booking.vehicle_type_id})
+            if vehicle_type:
+                vehicle_type_multiplier = float(vehicle_type.get('base_multiplier', 1.0))
+                estimated_fare = round(estimated_fare * vehicle_type_multiplier, 2)
+        except Exception as e:
+            logger.warning(f"Failed to fetch vehicle type {booking.vehicle_type_id}: {str(e)}")
 
     booking_dict = {
         "id": booking_id,
@@ -9187,6 +9204,8 @@ async def create_booking(
         "base_estimated_fare": round(route_fare_for_estimate, 2),
         "base_route_fare": estimated_fare,
         "surge_multiplier": surge_multiplier,
+        "vehicle_type_multiplier": vehicle_type_multiplier,
+        "vehicle_type_id": booking.vehicle_type_id,
         "dispatch_algorithm": dispatch_algorithm,
         "dispatch_status": dispatch_status,
         "dispatch_attempt_count": 0,
@@ -14615,6 +14634,7 @@ app.include_router(modular_tier3_router)
 app.include_router(modular_health_router)
 app.include_router(modular_scheduled_rides_router)
 app.include_router(modular_vehicles_router)
+app.include_router(modular_vehicle_types_router)
 app.include_router(modular_support_tickets_router)
 app.include_router(modular_uploads_router)
 app.include_router(modular_admin_account_deletions_router)

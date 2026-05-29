@@ -10,6 +10,7 @@ import {
 import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
 import VoiceTextInput from './VoiceTextInput';
+import { useVehicleTypes } from '../hooks/useVehicleTypes';
 
 function normalizeVehicle(vehicle = {}) {
   return {
@@ -39,6 +40,9 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
 
+  // Use vehicle types from backend
+  const { vehicleTypes, loading: vehicleTypesLoading } = useVehicleTypes();
+
   // Add/Edit form
   const [formData, setFormData] = useState({
     make: '',
@@ -48,10 +52,8 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
     license_plate: '',
     registration_number: '',
     seating_capacity: '4',
-    vehicle_type: 'sedan',
+    vehicle_type: '', // Will be vehicle_type_id from backend
   });
-
-  const vehicleTypes = ['sedan', 'suv', 'hatchback', 'auto', 'van'];
 
   const fetchVehicles = useCallback(async () => {
     try {
@@ -75,16 +77,21 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
     Promise.resolve().then(fetchVehicles);
   }, [fetchVehicles]);
 
-  const getEmptyFormData = () => ({
-    make: '',
-    model: '',
-    year: new Date().getFullYear().toString(),
-    color: '',
-    license_plate: '',
-    registration_number: '',
-    seating_capacity: '4',
-    vehicle_type: 'sedan',
-  });
+  const getEmptyFormData = () => {
+    const defaultVehicleType = vehicleTypes && vehicleTypes.length > 0 
+      ? vehicleTypes[0].id 
+      : '';
+    return {
+      make: '',
+      model: '',
+      year: new Date().getFullYear().toString(),
+      color: '',
+      license_plate: '',
+      registration_number: '',
+      seating_capacity: '4',
+      vehicle_type: defaultVehicleType,
+    };
+  };
 
   const buildVehiclePayload = () => ({
     make: formData.make,
@@ -358,27 +365,36 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
           />
 
           <Text style={styles.fieldLabel}>Vehicle Type</Text>
-          <View style={styles.typeSelection}>
-            {vehicleTypes.map((type) => (
-              <TouchableOpacity
-                key={type}
-                style={[
-                  styles.typeButton,
-                  formData.vehicle_type === type && styles.typeButtonActive,
-                ]}
-                onPress={() => updateFormData('vehicle_type', type)}
-              >
-                <Text
-                  style={[
-                    styles.typeButtonText,
-                    formData.vehicle_type === type && styles.typeButtonTextActive,
-                  ]}
-                >
-                  {type}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          {vehicleTypesLoading ? (
+            <ActivityIndicator size="small" color={COLORS.primary} />
+          ) : (
+            <View style={styles.typeSelection}>
+              {vehicleTypes && vehicleTypes.length > 0 ? (
+                vehicleTypes.map((type) => (
+                  <TouchableOpacity
+                    key={type.id}
+                    style={[
+                      styles.typeButton,
+                      formData.vehicle_type === type.id && styles.typeButtonActive,
+                    ]}
+                    onPress={() => updateFormData('vehicle_type', type.id)}
+                  >
+                    <Text style={styles.typeButtonIcon}>{type.icon}</Text>
+                    <Text
+                      style={[
+                        styles.typeButtonText,
+                        formData.vehicle_type === type.id && styles.typeButtonTextActive,
+                      ]}
+                    >
+                      {type.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))
+              ) : (
+                <Text style={styles.noTypesText}>No vehicle types available</Text>
+              )}
+            </View>
+          )}
 
           <View style={styles.formButtons}>
             <TouchableOpacity
@@ -636,6 +652,15 @@ const styles = StyleSheet.create({
   },
   typeButtonTextActive: {
     color: '#fff',
+  },
+  typeButtonIcon: {
+    fontSize: 16,
+    marginBottom: 2,
+  },
+  noTypesText: {
+    fontSize: 12,
+    color: COLORS.textMuted,
+    fontStyle: 'italic',
   },
   formButtons: {
     flexDirection: 'row',

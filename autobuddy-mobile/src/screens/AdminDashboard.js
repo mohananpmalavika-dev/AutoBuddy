@@ -25,6 +25,7 @@ import AdminRateLimitConfig from '../components/AdminRateLimitConfig';
 import AdminDocumentRequirements from '../components/AdminDocumentRequirements';
 import AdminFareConfiguration from '../components/AdminFareConfiguration';
 import AdminFareProposals from '../components/AdminFareProposals';
+import VehicleTypeManagementPanel from '../components/VehicleTypeManagementPanel';
 
 const SUBSCRIPTION_PERIOD_OPTIONS = ['monthly', 'quarterly', 'annually', 'per_trip'];
 const RIDE_PRODUCT_KEYS = [
@@ -80,6 +81,7 @@ const ADMIN_MENU_OPTIONS = [
   { key: 'phone', label: 'Phone Requests' },
   { key: 'account_deletions', label: 'Account Deletions' },
   { key: 'ride_products', label: 'Ride Products' },
+  { key: 'vehicle_types', label: 'Vehicle Types' },
   { key: 'pricing', label: 'Pricing & Fare' },
   { key: 'fares', label: 'Fare Configuration' },
   { key: 'fare_proposals', label: 'Driver Fare Proposals' },
@@ -3232,6 +3234,13 @@ export default function AdminDashboard({ token, user, onLogout }) {
           <AdminFareProposals
             isActive={activeAdminMenu === 'fare_proposals'}
             onClose={() => setActiveAdminMenu(PRIMARY_ADMIN_MENU_KEY)}
+          />
+        </View>
+
+        <View style={[styles.section, activeAdminMenu !== 'vehicle_types' && styles.hiddenSection]}>
+          <VehicleTypeManagementPanel
+            token={token}
+            loading={false}
           />
         </View>
       </ScrollView>

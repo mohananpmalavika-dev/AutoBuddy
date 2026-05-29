@@ -22,6 +22,7 @@ import {
 } from '../lib/places';
 import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme';
 import { AccessibilityProvider } from '../hooks/useAccessibility';
+import { useVehicleTypes } from '../hooks/useVehicleTypes';
 import RideCommunicationCard from '../components/RideCommunicationCard';
 import WebCommandBar from '../components/WebCommandBar';
 import VoiceTextInput from '../components/VoiceTextInput';
@@ -235,7 +236,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   );
   useNotificationManager(token, user?.id, passengerNotificationSettings);
   const { unreadCount } = useNotifications();
+  const { vehicleTypes: availableVehicleTypes, loading: vehicleTypesLoading } = useVehicleTypes();
   const [rideProduct, setRideProduct] = useState('normal');
+  const [selectedVehicleTypeId, setSelectedVehicleTypeId] = useState('');
   const [corporateCode, setCorporateCode] = useState('');
   const [airportTerminal, setAirportTerminal] = useState('');
   const [flightNumber, setFlightNumber] = useState('');
@@ -657,6 +660,13 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       window.removeEventListener('autobuddy-language-change', onLanguageEvent);
     };
   }, []);
+
+  // Initialize default vehicle type when available types are loaded
+  useEffect(() => {
+    if (availableVehicleTypes && availableVehicleTypes.length > 0 && !selectedVehicleTypeId) {
+      setSelectedVehicleTypeId(availableVehicleTypes[0].id);
+    }
+  }, [availableVehicleTypes, selectedVehicleTypeId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1803,6 +1813,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           rental_hours: effectiveRideProduct === 'rental_hourly' ? rentalHours : undefined,
           safe_ride_priority:
             effectiveRideProduct === 'school_elderly_safe' ? safeRidePriority : undefined,
+          vehicle_type_id: selectedVehicleTypeId || undefined,
           notes: rideNotes.length > 0 ? rideNotes.join(' | ') : undefined,
         },
       }),
@@ -2217,6 +2228,41 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                     labels={rideProductLabels}
                     onSelect={setRideProduct}
                   />
+
+                  {/* Vehicle Type Selector */}
+                  <View style={[styles.infoBlock, { marginTop: 16, borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: 16 }]}>
+                    <Text style={styles.infoTitle}>{t.vehicleType || 'Vehicle Type'}</Text>
+                    {vehicleTypesLoading ? (
+                      <ActivityIndicator size="small" color={COLORS.primary} />
+                    ) : (
+                      <ScrollView 
+                        horizontal 
+                        style={{ marginVertical: 12 }}
+                        showsHorizontalScrollIndicator={false}
+                      >
+                        {availableVehicleTypes && availableVehicleTypes.map((type) => (
+                          <TouchableOpacity
+                            key={type.id}
+                            style={[
+                              styles.vehicleTypeChip,
+                              selectedVehicleTypeId === type.id && styles.vehicleTypeChipActive,
+                            ]}
+                            onPress={() => setSelectedVehicleTypeId(type.id)}
+                          >
+                            <Text style={styles.vehicleTypeChipIcon}>{type.icon}</Text>
+                            <Text
+                              style={[
+                                styles.vehicleTypeChipText,
+                                selectedVehicleTypeId === type.id && styles.vehicleTypeChipTextActive,
+                              ]}
+                            >
+                              {type.name}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    )}
+                  </View>
 
                   {/* PHASE 1 FIX: Inline driver selection (max 5) - Reduces taps from 6-7 to 2 */}
                   {pickupLocation && dropoffLocation && visibleDrivers.length > 0 && (
@@ -3412,6 +3458,35 @@ const styles = StyleSheet.create({
   },
   headerButton: {
     marginRight: 8,
+  },
+  vehicleTypeChip: {
+    borderWidth: 1,
+    borderColor: '#CBD9D0',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#F6FAF7',
+    marginRight: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 70,
+  },
+  vehicleTypeChipActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: '#E3F2E8',
+  },
+  vehicleTypeChipIcon: {
+    fontSize: 18,
+    marginBottom: 2,
+  },
+  vehicleTypeChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#355243',
+    textAlign: 'center',
+  },
+  vehicleTypeChipTextActive: {
+    color: COLORS.primaryDark,
   },
 });
 

@@ -23,6 +23,7 @@ import {
 } from '../lib/places';
 import { COLORS, SHADOWS } from '../theme';
 import RevenueCard from '../components/RevenueCard';
+import { useVehicleTypes } from '../hooks/useVehicleTypes';
 import RideProductsGrid from '../components/RideProductsGrid';
 import RideCommunicationCard from '../components/RideCommunicationCard';
 import VoiceTextInput from '../components/VoiceTextInput';
@@ -182,6 +183,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [optedOutDriverIds, setOptedOutDriverIds] = useState([]);
   const [autoFetchingTripData, setAutoFetchingTripData] = useState(false);
   const [rideProduct, setRideProduct] = useState('normal');
+  const [selectedVehicleTypeId, setSelectedVehicleTypeId] = useState('');
   const [corporateCode, setCorporateCode] = useState('');
   const [airportTerminal, setAirportTerminal] = useState('');
   const [flightNumber, setFlightNumber] = useState('');
@@ -229,6 +231,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   );
   useNotificationManager(token, user?.id, passengerNotificationSettings);
   const { unreadCount } = useNotifications();
+  const { vehicleTypes: availableVehicleTypes, loading: vehicleTypesLoading } = useVehicleTypes();
   const mapRef = useRef(null);
   const [driverLiveAddress, setDriverLiveAddress] = useState('');
   const pickupAddressRequestRef = useRef(0);
@@ -281,6 +284,13 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       cancelled = true;
     };
   }, [normalizeBookingPaymentMethod, token]);
+
+  // Initialize default vehicle type when available types are loaded
+  useEffect(() => {
+    if (availableVehicleTypes && availableVehicleTypes.length > 0 && !selectedVehicleTypeId) {
+      setSelectedVehicleTypeId(availableVehicleTypes[0].id);
+    }
+  }, [availableVehicleTypes, selectedVehicleTypeId]);
 
   useEffect(() => {
     if (activePassengerMenu !== 'live' || hasLiveRide) {
@@ -1425,6 +1435,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           women_only_required: effectiveRideProduct === 'women_only',
           rental_hours: effectiveRideProduct === 'rental_hourly' ? rentalHours : undefined,
           safe_ride_priority: effectiveRideProduct === 'school_elderly_safe' ? safeRidePriority : undefined,
+          vehicle_type_id: selectedVehicleTypeId || undefined,
           notes: rideNotes.length ? rideNotes.join(' | ') : undefined,
         },
       }),
@@ -1869,6 +1880,41 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                   subheading="Select the ride product for this booking"
                   onSelect={setRideProduct}
                 />
+
+                {/* Vehicle Type Selector */}
+                <View style={styles.vehicleTypeSection}>
+                  <Text style={styles.infoText}>Vehicle Type</Text>
+                  {vehicleTypesLoading ? (
+                    <ActivityIndicator size="small" color={COLORS.primary} />
+                  ) : (
+                    <ScrollView 
+                      horizontal 
+                      style={styles.vehicleTypeScrollView}
+                      showsHorizontalScrollIndicator={false}
+                    >
+                      {availableVehicleTypes && availableVehicleTypes.map((type) => (
+                        <TouchableOpacity
+                          key={type.id}
+                          style={[
+                            styles.vehicleTypeChip,
+                            selectedVehicleTypeId === type.id && styles.vehicleTypeChipActive,
+                          ]}
+                          onPress={() => setSelectedVehicleTypeId(type.id)}
+                        >
+                          <Text style={styles.vehicleTypeChipIcon}>{type.icon}</Text>
+                          <Text
+                            style={[
+                              styles.vehicleTypeChipText,
+                              selectedVehicleTypeId === type.id && styles.vehicleTypeChipTextActive,
+                            ]}
+                          >
+                            {type.name}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  )}
+                </View>
 
                 {isScheduledBookingMode && (
                   <ScheduledPickupPicker
@@ -3117,6 +3163,41 @@ const styles = StyleSheet.create({
     color: '#666666',
     marginTop: 6,
     lineHeight: 16,
+  },
+  vehicleTypeSection: {
+    marginBottom: 16,
+  },
+  vehicleTypeScrollView: {
+    marginVertical: 12,
+  },
+  vehicleTypeChip: {
+    borderWidth: 1,
+    borderColor: '#CBD9D0',
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: '#F6FAF7',
+    marginRight: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 70,
+  },
+  vehicleTypeChipActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: '#E3F2E8',
+  },
+  vehicleTypeChipIcon: {
+    fontSize: 20,
+    marginBottom: 4,
+  },
+  vehicleTypeChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#355243',
+    textAlign: 'center',
+  },
+  vehicleTypeChipTextActive: {
+    color: COLORS.primaryDark,
   },
 });
 
