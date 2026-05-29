@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -14,7 +14,7 @@ import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
 import ConfirmationDialog from './ConfirmationDialog';
 
-const AdminRateLimitConfig = ({ onClose }) => {
+const AdminRateLimitConfig = ({ token, onClose }) => {
   const [loading, setLoading] = useState(false);
   const [rateLimits, setRateLimits] = useState([]);
   const [endpointLimits, setEndpointLimits] = useState([]);
@@ -38,10 +38,10 @@ const AdminRateLimitConfig = ({ onClose }) => {
     enabled: true,
   });
 
-  const fetchRateLimits = async () => {
+  const fetchRateLimits = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await apiRequest('GET', '/api/admin/config/rate-limits');
+      const response = await apiRequest('/admin/config/rate-limits', { token });
       setRateLimits(response.limits || []);
     } catch (error) {
       console.error('Error fetching rate limits:', error);
@@ -49,26 +49,26 @@ const AdminRateLimitConfig = ({ onClose }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
 
-  const fetchEndpointLimits = async () => {
+  const fetchEndpointLimits = useCallback(async () => {
     try {
-      const response = await apiRequest('GET', '/api/admin/config/rate-limits/endpoints');
+      const response = await apiRequest('/admin/config/rate-limits/endpoints', { token });
       setEndpointLimits(response.endpoints || []);
     } catch (error) {
       console.error('Error fetching endpoint limits:', error);
     }
-  };
+  }, [token]);
 
   // Fetch rate limits on mount
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchRateLimits();
     fetchEndpointLimits();
-  }, []);
+  }, [fetchEndpointLimits, fetchRateLimits]);
 
   const handleEditLimit = (limit) => {
-    setEditingLimit(limit.limit_id);
+    setEditingLimit(limit.limit_type);
     setFormData({
       limit_type: limit.limit_type,
       max_requests: limit.max_requests.toString(),
@@ -98,23 +98,43 @@ const AdminRateLimitConfig = ({ onClose }) => {
 
     try {
       setLoading(true);
-      await apiRequest('PUT', `/api/admin/config/rate-limits/${formData.limit_type}`, {
-        limit_type: formData.limit_type,
-        max_requests: parseInt(formData.max_requests),
-        window_seconds: parseInt(formData.window_seconds),
-        description: formData.description,
-        enabled: formData.enabled,
+      await apiRequest(`/admin/config/rate-limits/${formData.limit_type}`, {
+        method: 'PUT',
+        token,
+        body: {
+          limit_type: formData.limit_type,
+          max_requests: Number.parseInt(formData.max_requests, 10),
+          window_seconds: Number.parseInt(formData.window_seconds, 10),
+          description: formData.description,
+          enabled: formData.enabled,
+        },
       });
 
       Alert.alert('Success', 'Rate limit updated successfully');
       setEditingLimit(null);
-      fetchRateLimits();
+      await fetchRateLimits();
     } catch (error) {
       console.error('Error saving rate limit:', error);
-      Alert.alert('Error', error.detail || 'Failed to save rate limit');
+      Alert.alert('Error', error.message || 'Failed to save rate limit');
     } finally {
       setLoading(false);
     }
+  };
+
+  const resetEndpointForm = () => {
+    setEndpointFormData({
+      endpoint: '',
+      limit_type: 'moderate',
+      max_requests: '',
+      window_seconds: '',
+      description: '',
+      enabled: true,
+    });
+  };
+
+  const handleAddEndpoint = () => {
+    setEditingEndpoint('');
+    resetEndpointForm();
   };
 
   const handleSaveEndpoint = async () => {
@@ -126,39 +146,40 @@ const AdminRateLimitConfig = ({ onClose }) => {
     try {
       setLoading(true);
       if (editingEndpoint) {
-        await apiRequest('PUT', `/api/admin/config/rate-limits/endpoints/${editingEndpoint}`, {
-          endpoint: endpointFormData.endpoint,
-          limit_type: endpointFormData.limit_type,
-          max_requests: parseInt(endpointFormData.max_requests),
-          window_seconds: parseInt(endpointFormData.window_seconds),
-          description: endpointFormData.description,
-          enabled: endpointFormData.enabled,
+        await apiRequest(`/admin/config/rate-limits/endpoints/${editingEndpoint}`, {
+          method: 'PUT',
+          token,
+          body: {
+            endpoint: endpointFormData.endpoint,
+            limit_type: endpointFormData.limit_type,
+            max_requests: Number.parseInt(endpointFormData.max_requests, 10),
+            window_seconds: Number.parseInt(endpointFormData.window_seconds, 10),
+            description: endpointFormData.description,
+            enabled: endpointFormData.enabled,
+          },
         });
         Alert.alert('Success', 'Endpoint rate limit updated successfully');
       } else {
-        await apiRequest('POST', '/api/admin/config/rate-limits/endpoints/add', {
-          endpoint: endpointFormData.endpoint,
-          limit_type: endpointFormData.limit_type,
-          max_requests: parseInt(endpointFormData.max_requests),
-          window_seconds: parseInt(endpointFormData.window_seconds),
-          description: endpointFormData.description,
-          enabled: endpointFormData.enabled,
+        await apiRequest('/admin/config/rate-limits/endpoints/add', {
+          method: 'POST',
+          token,
+          body: {
+            endpoint: endpointFormData.endpoint,
+            limit_type: endpointFormData.limit_type,
+            max_requests: Number.parseInt(endpointFormData.max_requests, 10),
+            window_seconds: Number.parseInt(endpointFormData.window_seconds, 10),
+            description: endpointFormData.description,
+            enabled: endpointFormData.enabled,
+          },
         });
         Alert.alert('Success', 'Endpoint rate limit created successfully');
       }
       setEditingEndpoint(null);
-      setEndpointFormData({
-        endpoint: '',
-        limit_type: 'moderate',
-        max_requests: '',
-        window_seconds: '',
-        description: '',
-        enabled: true,
-      });
-      fetchEndpointLimits();
+      resetEndpointForm();
+      await fetchEndpointLimits();
     } catch (error) {
       console.error('Error saving endpoint rate limit:', error);
-      Alert.alert('Error', error.detail || 'Failed to save endpoint rate limit');
+      Alert.alert('Error', error.message || 'Failed to save endpoint rate limit');
     } finally {
       setLoading(false);
     }
@@ -167,12 +188,15 @@ const AdminRateLimitConfig = ({ onClose }) => {
   const handleDeleteEndpoint = async (config_id) => {
     try {
       setLoading(true);
-      await apiRequest('DELETE', `/api/admin/config/rate-limits/endpoints/${config_id}`);
+      await apiRequest(`/admin/config/rate-limits/endpoints/${config_id}`, {
+        method: 'DELETE',
+        token,
+      });
       Alert.alert('Success', 'Endpoint rate limit deleted successfully');
-      fetchEndpointLimits();
+      await fetchEndpointLimits();
     } catch (error) {
       console.error('Error deleting endpoint rate limit:', error);
-      Alert.alert('Error', error.detail || 'Failed to delete endpoint rate limit');
+      Alert.alert('Error', error.message || 'Failed to delete endpoint rate limit');
     } finally {
       setLoading(false);
     }
@@ -543,14 +567,7 @@ const AdminRateLimitConfig = ({ onClose }) => {
                   <TouchableOpacity
                     onPress={() => {
                       setEditingEndpoint(null);
-                      setEndpointFormData({
-                        endpoint: '',
-                        limit_type: 'moderate',
-                        max_requests: '',
-                        window_seconds: '',
-                        description: '',
-                        enabled: true,
-                      });
+                      resetEndpointForm();
                     }}
                     style={[styles.btn, styles.cancelBtn]}
                     disabled={loading}
@@ -573,9 +590,9 @@ const AdminRateLimitConfig = ({ onClose }) => {
             )}
 
             <TouchableOpacity
-              onPress={() => setEditingEndpoint(null)}
-              style={[styles.addBtn, editingEndpoint === null && { opacity: 0.6 }]}
-              disabled={editingEndpoint === null}
+              onPress={handleAddEndpoint}
+              style={[styles.addBtn, editingEndpoint !== null && { opacity: 0.6 }]}
+              disabled={editingEndpoint !== null}
             >
               <Text style={styles.addBtnText}>+ Add Endpoint Limit</Text>
             </TouchableOpacity>

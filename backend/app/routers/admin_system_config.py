@@ -10,6 +10,13 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from app.db.client import get_db
 from app.core.auth import require_roles
+from app.utils.rate_limiting import (
+    ENDPOINT_RATE_LIMIT_TYPES,
+    VALID_RATE_LIMIT_TYPES,
+    clear_rate_limit_config_cache,
+    ensure_rate_limit_defaults,
+    normalize_endpoint_path,
+)
 
 router = APIRouter(prefix="/api/admin/config", tags=["admin-config"])
 
@@ -37,7 +44,7 @@ class EmailTemplate(BaseModel):
 
 class RateLimitConfig(BaseModel):
     """Rate limit configuration for endpoints"""
-    limit_type: str = Field(..., description="strict, moderate, normal, authenticated, anonymous")
+    limit_type: str = Field(..., description="api_global, strict, moderate, normal, authenticated, anonymous")
     max_requests: int = Field(..., ge=1, le=10000, description="Maximum requests allowed")
     window_seconds: int = Field(..., ge=1, le=3600, description="Time window in seconds")
     description: Optional[str] = None
@@ -170,34 +177,11 @@ async def get_rate_limits(
 ):
     """Get all rate limit configurations"""
     try:
-        # Get all rate limit configs from DB
+        await ensure_rate_limit_defaults(db)
         configs = await db.rate_limit_configs.find({}).to_list(None)
-        
-        # If no configs exist, return defaults
-        if not configs:
-            default_limits = {
-                "strict": {"max_requests": 5, "window_seconds": 60, "description": "Strict limit for sensitive endpoints"},
-                "moderate": {"max_requests": 30, "window_seconds": 60, "description": "Moderate limit for common endpoints"},
-                "normal": {"max_requests": 100, "window_seconds": 60, "description": "Normal limit for general endpoints"},
-                "authenticated": {"max_requests": 500, "window_seconds": 3600, "description": "Per-user limit for authenticated requests"},
-                "anonymous": {"max_requests": 50, "window_seconds": 3600, "description": "Per-IP limit for anonymous requests"},
-            }
-            return {
-                "total": len(default_limits),
-                "limits": [
-                    {
-                        "limit_id": limit_type,
-                        "limit_type": limit_type,
-                        "max_requests": data.get("max_requests"),
-                        "window_seconds": data.get("window_seconds"),
-                        "description": data.get("description"),
-                        "enabled": True,
-                        "is_default": True,
-                    }
-                    for limit_type, data in default_limits.items()
-                ]
-            }
-        
+        order = {limit_type: index for index, limit_type in enumerate(VALID_RATE_LIMIT_TYPES)}
+        configs.sort(key=lambda c: order.get(c.get("limit_type"), len(order)))
+
         return {
             "total": len(configs),
             "limits": [
@@ -208,7 +192,7 @@ async def get_rate_limits(
                     "window_seconds": c.get("window_seconds"),
                     "description": c.get("description"),
                     "enabled": c.get("enabled", True),
-                    "is_default": False,
+                    "is_default": c.get("source") == "system-default",
                 }
                 for c in configs
             ]
@@ -224,7 +208,9 @@ async def get_endpoint_rate_limits(
 ):
     """Get rate limit configurations for specific endpoints"""
     try:
+        await ensure_rate_limit_defaults(db)
         endpoint_configs = await db.endpoint_rate_limits.find({}).to_list(None)
+        endpoint_configs.sort(key=lambda e: str(e.get("endpoint") or ""))
         
         return {
             "total": len(endpoint_configs),
@@ -255,15 +241,17 @@ async def update_rate_limit(
     """Update rate limit configuration"""
     try:
         # Validate limit type
-        valid_types = ["strict", "moderate", "normal", "authenticated", "anonymous"]
-        if limit_type not in valid_types:
-            raise HTTPException(status_code=400, detail=f"Invalid limit type. Must be one of: {', '.join(valid_types)}")
+        normalized_limit_type = str(limit_type or "").strip().lower()
+        if normalized_limit_type not in VALID_RATE_LIMIT_TYPES:
+            raise HTTPException(status_code=400, detail=f"Invalid limit type. Must be one of: {', '.join(VALID_RATE_LIMIT_TYPES)}")
+        if str(update.limit_type or "").strip().lower() != normalized_limit_type:
+            raise HTTPException(status_code=400, detail="Payload limit_type must match the URL limit type")
         
         await db.rate_limit_configs.update_one(
-            {"limit_type": limit_type},
+            {"limit_type": normalized_limit_type},
             {
                 "$set": {
-                    "limit_type": update.limit_type,
+                    "limit_type": normalized_limit_type,
                     "max_requests": update.max_requests,
                     "window_seconds": update.window_seconds,
                     "description": update.description,
@@ -274,11 +262,12 @@ async def update_rate_limit(
             },
             upsert=True
         )
+        clear_rate_limit_config_cache()
         
         return {
             "status": "success",
-            "message": f"Rate limit '{limit_type}' updated successfully",
-            "limit_type": limit_type,
+            "message": f"Rate limit '{normalized_limit_type}' updated successfully",
+            "limit_type": normalized_limit_type,
         }
     except HTTPException:
         raise
@@ -294,9 +283,16 @@ async def add_endpoint_rate_limit(
 ):
     """Add rate limit configuration for a specific endpoint"""
     try:
+        endpoint = normalize_endpoint_path(config.endpoint)
+        limit_type = str(config.limit_type or "").strip().lower()
+        if limit_type not in ENDPOINT_RATE_LIMIT_TYPES:
+            raise HTTPException(status_code=400, detail=f"Invalid endpoint limit type. Must be one of: {', '.join(ENDPOINT_RATE_LIMIT_TYPES)}")
+        if await db.endpoint_rate_limits.find_one({"endpoint": endpoint}):
+            raise HTTPException(status_code=409, detail="Endpoint already has a rate limit configuration")
+
         result = await db.endpoint_rate_limits.insert_one({
-            "endpoint": config.endpoint,
-            "limit_type": config.limit_type,
+            "endpoint": endpoint,
+            "limit_type": limit_type,
             "max_requests": config.max_requests,
             "window_seconds": config.window_seconds,
             "description": config.description,
@@ -304,13 +300,16 @@ async def add_endpoint_rate_limit(
             "created_by": admin_user.get("user_id"),
             "created_at": datetime.utcnow(),
         })
+        clear_rate_limit_config_cache()
         
         return {
             "status": "success",
-            "message": f"Endpoint rate limit created for {config.endpoint}",
+            "message": f"Endpoint rate limit created for {endpoint}",
             "config_id": str(result.inserted_id),
-            "endpoint": config.endpoint,
+            "endpoint": endpoint,
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error creating endpoint rate limit: {str(e)}")
 
@@ -328,13 +327,17 @@ async def update_endpoint_rate_limit(
         
         if not ObjectId.is_valid(config_id):
             raise HTTPException(status_code=400, detail="Invalid config ID")
+        endpoint = normalize_endpoint_path(config.endpoint)
+        limit_type = str(config.limit_type or "").strip().lower()
+        if limit_type not in ENDPOINT_RATE_LIMIT_TYPES:
+            raise HTTPException(status_code=400, detail=f"Invalid endpoint limit type. Must be one of: {', '.join(ENDPOINT_RATE_LIMIT_TYPES)}")
         
         result = await db.endpoint_rate_limits.update_one(
             {"_id": ObjectId(config_id)},
             {
                 "$set": {
-                    "endpoint": config.endpoint,
-                    "limit_type": config.limit_type,
+                    "endpoint": endpoint,
+                    "limit_type": limit_type,
                     "max_requests": config.max_requests,
                     "window_seconds": config.window_seconds,
                     "description": config.description,
@@ -347,6 +350,7 @@ async def update_endpoint_rate_limit(
         
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Configuration not found")
+        clear_rate_limit_config_cache()
         
         return {
             "status": "success",
@@ -376,6 +380,7 @@ async def delete_endpoint_rate_limit(
         
         if result.deleted_count == 0:
             raise HTTPException(status_code=404, detail="Configuration not found")
+        clear_rate_limit_config_cache()
         
         return {
             "status": "success",

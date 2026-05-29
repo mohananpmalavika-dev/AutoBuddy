@@ -3176,6 +3176,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
 
         <View style={[styles.section, activeAdminMenu !== 'rate_limits' && styles.hiddenSection]}>
           <AdminRateLimitConfig
+            token={token}
             onClose={() => setActiveAdminMenu(PRIMARY_ADMIN_MENU_KEY)}
           />
         </View>

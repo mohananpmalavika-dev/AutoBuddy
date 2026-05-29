@@ -140,6 +140,11 @@ from app.utils.logging_config import (
 )
 from app.utils.sentry_config import SentryConfig, set_sentry_context, clear_sentry_context
 from app.middleware.rate_limiting import RateLimitingMiddleware
+from app.utils.rate_limiting import (
+    ensure_rate_limit_defaults,
+    get_rate_limit_profile_rule,
+    get_rate_limit_rule_for_path,
+)
 
 try:
     import boto3
@@ -496,26 +501,12 @@ else:
     HTTP_EXCEPTION_COUNT = None
     APP_UPTIME_SECONDS = None
 
-RATE_LIMITS = {
-    "default": {"limit": 120, "window": 60},
-    "auth": {"limit": 10, "window": 60},
-    "booking": {"limit": 30, "window": 60},
-}
 BLOCKED_IPS = {
     ip.strip()
     for ip in str(os.environ.get("BLOCKED_IPS", "")).split(",")
     if ip.strip()
 }
 SUSPICIOUS_UA_SIGNATURES = ("sqlmap", "nikto", "masscan", "nmap", "acunetix")
-
-
-def get_rate_bucket(request: Request) -> str:
-    path = str(request.url.path or "").lower()
-    if "/auth/" in path:
-        return "auth"
-    if "/bookings" in path:
-        return "booking"
-    return "default"
 
 
 def is_origin_allowed(origin: Optional[str]) -> bool:
@@ -976,6 +967,10 @@ async def on_startup():
             redis_client = None
             app.state.redis_client = None
     await seed_admin()
+    try:
+        await ensure_rate_limit_defaults(db)
+    except Exception:
+        logger.exception("Rate limit defaults initialization failed during startup")
     # Initialize Fleet Advanced features database indexes
     try:
         from app.db.migration_fleet_advanced import create_fleet_advanced_indexes
@@ -1108,17 +1103,15 @@ async def api_guardrails_middleware(request: Request, call_next):
                 return response
 
         if request.url.path not in {"/api/health", "/health"}:
-            bucket_name = get_rate_bucket(request)
-            rule = RATE_LIMITS.get(bucket_name, RATE_LIMITS["default"])
-            window = int(rule["window"])
-            limit = int(rule["limit"])
+            rate_limit_rule = await get_rate_limit_rule_for_path(request.url.path, db)
             try:
-                await runtime_state.check_bucket_rate_limit(
-                    bucket_name=bucket_name,
-                    ip_address=client_ip,
-                    window_seconds=window,
-                    max_requests=limit,
-                )
+                if rate_limit_rule:
+                    await runtime_state.check_bucket_rate_limit(
+                        bucket_name=rate_limit_rule.bucket_name,
+                        ip_address=client_ip,
+                        window_seconds=rate_limit_rule.window_seconds,
+                        max_requests=rate_limit_rule.max_requests,
+                    )
             except HTTPException:
                 await audit_log(
                     request=request,
@@ -1126,7 +1119,11 @@ async def api_guardrails_middleware(request: Request, call_next):
                     action="RATE_LIMIT_BLOCK",
                     resource=request.url.path,
                     success=False,
-                    metadata={"bucket": bucket_name},
+                    metadata={
+                        "bucket": rate_limit_rule.bucket_name if rate_limit_rule else "disabled",
+                        "limit_type": rate_limit_rule.limit_type if rate_limit_rule else None,
+                        "source": rate_limit_rule.source if rate_limit_rule else None,
+                    },
                 )
                 response = build_error_response(
                     request,
@@ -1138,8 +1135,19 @@ async def api_guardrails_middleware(request: Request, call_next):
                 return response
 
         if request.url.path.startswith("/api") and request.url.path != "/api/health":
+            api_global_rule = await get_rate_limit_profile_rule(
+                "api_global",
+                db,
+                bucket_name="profile:api_global",
+            )
             try:
-                await check_api_rate_limit(client_ip)
+                if api_global_rule:
+                    await runtime_state.check_bucket_rate_limit(
+                        bucket_name=api_global_rule.bucket_name,
+                        ip_address=client_ip,
+                        window_seconds=api_global_rule.window_seconds,
+                        max_requests=api_global_rule.max_requests,
+                    )
             except HTTPException as exc:
                 response = build_error_response(
                     request,
@@ -13636,6 +13644,11 @@ async def readiness_check():
     except Exception as exc:
         database_ok = False
         db_error = str(exc)
+    api_global_limit = await get_rate_limit_profile_rule(
+        "api_global",
+        db,
+        bucket_name="profile:api_global",
+    )
 
     workers_ok = all(state == "running" for state in worker_state.values())
     ready = database_ok and redis_requirement_ok and workers_ok and feature_database_ok
@@ -13647,8 +13660,12 @@ async def readiness_check():
         "redis_required": bool(IS_PRODUCTION_ENV and REQUIRE_REDIS_IN_PRODUCTION),
         "workers": worker_state,
         "request_limits": {
-            "api_rate_limit_window_seconds": API_RATE_LIMIT_WINDOW_SECONDS,
-            "api_rate_limit_max_requests": API_RATE_LIMIT_MAX_REQUESTS,
+            "api_global": {
+                "enabled": api_global_limit is not None,
+                "window_seconds": api_global_limit.window_seconds if api_global_limit else None,
+                "max_requests": api_global_limit.max_requests if api_global_limit else None,
+                "source": api_global_limit.source if api_global_limit else "database",
+            },
             "max_request_body_bytes": MAX_REQUEST_BODY_BYTES,
         },
         "elapsed_ms": round((time.perf_counter() - started) * 1000, 2),

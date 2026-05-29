@@ -11,7 +11,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.utils.rate_limiting import (
     get_rate_limiter,
     get_rate_limit_key,
-    get_rate_limits
+    get_rate_limit_rule_for_path,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,8 +42,13 @@ class RateLimitingMiddleware(BaseHTTPMiddleware):
         if any(path.startswith(excluded) for excluded in self.excluded_paths):
             return await call_next(request)
         
-        # Get rate limit for this endpoint
-        max_requests, window_seconds = get_rate_limits(path)
+        # Get DB-backed rate limit for this endpoint.
+        db = getattr(request.app.state, "db", None)
+        rule = await get_rate_limit_rule_for_path(path, db)
+        if rule is None:
+            return await call_next(request)
+        max_requests = rule.max_requests
+        window_seconds = rule.window_seconds
         
         # Get rate limit key (user ID or IP address)
         key = get_rate_limit_key(request)
@@ -57,6 +62,8 @@ class RateLimitingMiddleware(BaseHTTPMiddleware):
                 extra={
                     "key": key,
                     "path": path,
+                    "limit_type": rule.limit_type,
+                    "source": rule.source,
                     "max_requests": max_requests,
                     "window_seconds": window_seconds
                 }
@@ -79,7 +86,8 @@ class RateLimitingMiddleware(BaseHTTPMiddleware):
                     "Retry-After": str(retry_after),
                     "X-RateLimit-Limit": str(max_requests),
                     "X-RateLimit-Window": str(window_seconds),
-                    "X-RateLimit-Key": key
+                    "X-RateLimit-Key": key,
+                    "X-RateLimit-Source": rule.source,
                 }
             )
         
@@ -90,5 +98,6 @@ class RateLimitingMiddleware(BaseHTTPMiddleware):
         response.headers["X-RateLimit-Limit"] = str(max_requests)
         response.headers["X-RateLimit-Window"] = str(window_seconds)
         response.headers["X-RateLimit-Key"] = key
+        response.headers["X-RateLimit-Source"] = rule.source
         
         return response
