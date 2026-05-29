@@ -36,7 +36,11 @@ const REGISTER_AUTH_METHODS = [
 const FALLBACK_GOOGLE_WEB_CLIENT_ID = '475485627719-lgd8c3sgr1d5unie68d2qjcifjoolt5f.apps.googleusercontent.com';
 const INDIAN_PHONE_REGEX = /^[6-9]\d{9}$/;
 
-WebBrowser.maybeCompleteAuthSession({ skipRedirectCheck: true });
+try {
+  WebBrowser.maybeCompleteAuthSession({ skipRedirectCheck: true });
+} catch (error) {
+  console.warn('Google auth session completion skipped:', error?.message || error);
+}
 
 const toTitleCase = (value) => value.charAt(0).toUpperCase() + value.slice(1);
 const hasStrongPassword = (value) => /[A-Z]/.test(value) && /[a-z]/.test(value) && /\d/.test(value);
