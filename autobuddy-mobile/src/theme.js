@@ -1,3 +1,7 @@
+import { Spacing } from '@/constants/theme';
+
+export const SPACING = Spacing;
+
 const resolveDirectSunlightIndex = () => {
   const envValue = Number(process.env.EXPO_PUBLIC_OUTDOOR_DIRECT_SUNLIGHT_INDEX);
   if (Number.isFinite(envValue) && envValue >= 0) {
