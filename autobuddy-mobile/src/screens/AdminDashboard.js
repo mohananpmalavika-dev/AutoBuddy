@@ -23,6 +23,8 @@ import AdminSearchBar from '../components/AdminSearchBar';
 import KycDocumentPreview from '../components/KycDocumentPreview';
 import AdminRateLimitConfig from '../components/AdminRateLimitConfig';
 import AdminDocumentRequirements from '../components/AdminDocumentRequirements';
+import AdminFareConfiguration from '../components/AdminFareConfiguration';
+import AdminFareProposals from '../components/AdminFareProposals';
 
 const SUBSCRIPTION_PERIOD_OPTIONS = ['monthly', 'quarterly', 'annually', 'per_trip'];
 const RIDE_PRODUCT_KEYS = [
@@ -79,6 +81,8 @@ const ADMIN_MENU_OPTIONS = [
   { key: 'account_deletions', label: 'Account Deletions' },
   { key: 'ride_products', label: 'Ride Products' },
   { key: 'pricing', label: 'Pricing & Fare' },
+  { key: 'fares', label: 'Fare Configuration' },
+  { key: 'fare_proposals', label: 'Driver Fare Proposals' },
   { key: 'registration', label: 'Registration' },
   { key: 'wallet', label: 'Wallet Top-ups' },
   { key: 'kyc', label: 'KYC' },
@@ -3154,6 +3158,18 @@ export default function AdminDashboard({ token, user, onLogout }) {
 
         <View style={[styles.section, activeAdminMenu !== 'documents' && styles.hiddenSection]}>
           <AdminDocumentRequirements
+            onClose={() => setActiveAdminMenu(PRIMARY_ADMIN_MENU_KEY)}
+          />
+        </View>
+
+        <View style={[styles.section, activeAdminMenu !== 'fares' && styles.hiddenSection]}>
+          <AdminFareConfiguration
+            onClose={() => setActiveAdminMenu(PRIMARY_ADMIN_MENU_KEY)}
+          />
+        </View>
+
+        <View style={[styles.section, activeAdminMenu !== 'fare_proposals' && styles.hiddenSection]}>
+          <AdminFareProposals
             onClose={() => setActiveAdminMenu(PRIMARY_ADMIN_MENU_KEY)}
           />
         </View>

@@ -33,6 +33,8 @@ import EarningsPanel from '../components/EarningsPanel';
 import VoiceTextInput from '../components/VoiceTextInput';
 import DocumentUploadPanel from '../components/DocumentUploadPanel';
 import DriverDocumentUpload from '../components/DriverDocumentUpload';
+import DriverFareDisplay from '../components/DriverFareDisplay';
+import DriverFareProposal from '../components/DriverFareProposal';
 import VehicleManagementPanel from '../components/VehicleManagementPanel';
 import SupportTicketPanel from '../components/SupportTicketPanel';
 import EnhancedSettingsPanel from '../components/EnhancedSettingsPanel';
@@ -2558,6 +2560,15 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
             <View style={styles.earningsCard}>
               <DriverDocumentUpload token={token} loading={loading} />
               <DocumentUploadPanel token={token} loading={loading} onDataChanged={refreshDriverMenuBadges} />
+            </View>
+          )}
+
+          {activeTab === 'fare' && (
+            <View style={styles.earningsCard}>
+              <View style={{ flex: 1 }}>
+                <DriverFareDisplay />
+                <DriverFareProposal />
+              </View>
             </View>
           )}
 

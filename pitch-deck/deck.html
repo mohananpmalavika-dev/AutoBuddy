@@ -2,307 +2,1151 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AutoBuddy — Pitch Deck</title>
-
-    <!-- Reveal.js (CDN) -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reveal.css" />
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/theme/black.css" id="theme" />
-
-    <!-- Optional: print styles -->
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AutoBuddy - Investor & KSUM Pitch Deck</title>
     <style>
-      .slides section .small { font-size: 0.65em; opacity: 0.9; }
-      .slides section .tiny { font-size: 0.52em; opacity: 0.85; }
-      .callout {
-        display: inline-block;
-        padding: 10px 14px;
-        border-radius: 12px;
-        background: rgba(255,255,255,0.08);
-        border: 1px solid rgba(255,255,255,0.18);
+      :root {
+        --ink: #10131a;
+        --muted: #5d6678;
+        --paper: #f6f8fb;
+        --panel: #ffffff;
+        --line: #dfe5ee;
+        --blue: #1363df;
+        --green: #0f8f6f;
+        --gold: #c78100;
+        --red: #c73535;
+        --night: #121826;
       }
-      ul.tight li { margin: 0.35em 0; }
-      .metric { color: #8be9fd; font-weight: 700; }
-      .badge { color: #50fa7b; font-weight: 700; }
-      .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
-      .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: var(--night);
+        color: var(--ink);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+        letter-spacing: 0;
+      }
+
+      body {
+        overflow: hidden;
+      }
+
+      button {
+        font: inherit;
+      }
+
+      .deck {
+        height: 100vh;
+        width: 100vw;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .slide {
+        display: none;
+        height: 100vh;
+        width: 100vw;
+        padding: clamp(28px, 5vw, 66px);
+        background: var(--paper);
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+      }
+
+      .slide.active {
+        display: grid;
+      }
+
+      .slide.dark {
+        color: #f8fbff;
+        background:
+          linear-gradient(135deg, rgba(9, 14, 28, 0.92), rgba(14, 24, 46, 0.94)),
+          radial-gradient(circle at 12% 18%, rgba(19, 99, 223, 0.28), transparent 32%),
+          radial-gradient(circle at 88% 20%, rgba(15, 143, 111, 0.18), transparent 30%),
+          #10131a;
+      }
+
+      .slide.split {
+        grid-template-columns: minmax(0, 1.05fr) minmax(330px, 0.95fr);
+        gap: clamp(28px, 4vw, 58px);
+        align-items: center;
+      }
+
+      .slide.center {
+        place-items: center;
+        text-align: center;
+      }
+
+      .slide.stack {
+        grid-template-rows: auto 1fr;
+        gap: 28px;
+      }
+
+      .kicker {
+        color: var(--blue);
+        font-size: 0.9rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        margin: 0 0 14px;
+        text-transform: uppercase;
+      }
+
+      .dark .kicker {
+        color: #7bb3ff;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: clamp(3.8rem, 10vw, 8.9rem);
+        line-height: 0.88;
+        max-width: 940px;
+        letter-spacing: 0;
+      }
+
+      h2 {
+        font-size: clamp(2.15rem, 5vw, 4.5rem);
+        line-height: 0.95;
+        max-width: 1050px;
+        letter-spacing: 0;
+      }
+
+      h3 {
+        font-size: clamp(1.15rem, 2vw, 1.7rem);
+        line-height: 1.08;
+      }
+
+      .lead {
+        color: var(--muted);
+        font-size: clamp(1.12rem, 2vw, 1.65rem);
+        line-height: 1.38;
+        max-width: 930px;
+      }
+
+      .dark .lead,
+      .dark .muted {
+        color: #cdd7e9;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      .tight {
+        display: grid;
+        gap: 12px;
+      }
+
+      .cover-copy {
+        display: grid;
+        gap: 26px;
+        max-width: 1030px;
+      }
+
+      .meta-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        min-height: 34px;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        border-radius: 999px;
+        padding: 7px 13px;
+        color: #eef4ff;
+        background: rgba(255, 255, 255, 0.08);
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      .light-pill {
+        color: var(--ink);
+        border-color: var(--line);
+        background: #fff;
+      }
+
+      .grid2,
+      .grid3,
+      .grid4 {
+        display: grid;
+        gap: 18px;
+      }
+
+      .grid2 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .grid3 {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .grid4 {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 22px;
+        min-height: 150px;
+        box-shadow: 0 24px 60px rgba(18, 24, 38, 0.08);
+      }
+
+      .dark .card {
+        background: rgba(255, 255, 255, 0.08);
+        border-color: rgba(255, 255, 255, 0.16);
+        box-shadow: none;
+      }
+
+      .card h3 {
+        margin-bottom: 10px;
+      }
+
+      .card p,
+      .card li {
+        color: var(--muted);
+        font-size: clamp(0.95rem, 1.55vw, 1.14rem);
+        line-height: 1.35;
+      }
+
+      .dark .card p,
+      .dark .card li {
+        color: #d7e0ee;
+      }
+
+      ul {
+        margin: 0;
+        padding-left: 1.08em;
+      }
+
+      li {
+        margin: 0.35em 0;
+      }
+
+      .metric {
+        display: grid;
+        gap: 6px;
+        border-left: 5px solid var(--blue);
+        padding-left: 16px;
+      }
+
+      .metric strong {
+        color: var(--ink);
+        font-size: clamp(2rem, 4vw, 4rem);
+        line-height: 0.95;
+      }
+
+      .dark .metric strong {
+        color: #ffffff;
+      }
+
+      .metric span {
+        color: var(--muted);
+        font-weight: 700;
+      }
+
+      .dark .metric span {
+        color: #cdd7e9;
+      }
+
+      .visual-phone {
+        width: min(430px, 100%);
+        justify-self: center;
+        aspect-ratio: 0.52;
+        border-radius: 42px;
+        padding: 18px;
+        background: #0b101d;
+        border: 8px solid #202a3b;
+        box-shadow: 0 34px 80px rgba(0, 0, 0, 0.28);
+      }
+
+      .phone-screen {
+        height: 100%;
+        border-radius: 28px;
+        background: #f8fafc;
+        padding: 20px;
+        display: grid;
+        grid-template-rows: auto auto 1fr auto;
+        gap: 14px;
+        overflow: hidden;
+      }
+
+      .app-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .logo-mark {
+        width: 34px;
+        height: 34px;
+        border-radius: 8px;
+        background: linear-gradient(135deg, var(--blue), var(--green));
+      }
+
+      .search-box,
+      .route-row,
+      .driver-card,
+      .mini-map {
+        border: 1px solid #e5ebf4;
+        border-radius: 8px;
+        background: #fff;
+      }
+
+      .search-box {
+        padding: 13px 14px;
+        color: #2a3344;
+        font-weight: 800;
+      }
+
+      .mini-map {
+        position: relative;
+        min-height: 180px;
+        overflow: hidden;
+        background:
+          linear-gradient(90deg, transparent 48%, rgba(19, 99, 223, 0.12) 49%, rgba(19, 99, 223, 0.12) 51%, transparent 52%),
+          linear-gradient(0deg, transparent 48%, rgba(15, 143, 111, 0.13) 49%, rgba(15, 143, 111, 0.13) 51%, transparent 52%),
+          #eef4fa;
+      }
+
+      .route-line {
+        position: absolute;
+        inset: 36px 78px 52px 76px;
+        border-left: 5px solid var(--blue);
+        border-bottom: 5px solid var(--blue);
+        border-radius: 8px;
+      }
+
+      .pin {
+        width: 22px;
+        height: 22px;
+        position: absolute;
+        border-radius: 50%;
+        background: var(--green);
+        border: 4px solid #fff;
+        box-shadow: 0 7px 18px rgba(0, 0, 0, 0.18);
+      }
+
+      .pin.a {
+        top: 30px;
+        left: 64px;
+      }
+
+      .pin.b {
+        right: 70px;
+        bottom: 42px;
+        background: var(--red);
+      }
+
+      .driver-card {
+        display: grid;
+        grid-template-columns: 44px 1fr auto;
+        gap: 12px;
+        align-items: center;
+        padding: 12px;
+      }
+
+      .avatar {
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #ffd166, #ef476f);
+      }
+
+      .cta {
+        border: 0;
+        border-radius: 8px;
+        background: var(--blue);
+        color: #fff;
+        font-weight: 900;
+        padding: 13px 16px;
+        width: 100%;
+      }
+
+      .flow {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 12px;
+        align-items: stretch;
+      }
+
+      .flow-step {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        padding: 18px;
+        min-height: 170px;
+        display: grid;
+        align-content: start;
+        gap: 9px;
+      }
+
+      .flow-step .num {
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: var(--ink);
+        color: #fff;
+        font-weight: 900;
+      }
+
+      .market-map {
+        height: min(64vh, 610px);
+        display: grid;
+        grid-template-columns: 1.2fr 1fr;
+        gap: 18px;
+      }
+
+      .market-panel {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        padding: 22px;
+        display: grid;
+        align-content: space-between;
+        gap: 22px;
+      }
+
+      .bar {
+        height: 14px;
+        border-radius: 999px;
+        background: #edf2f7;
+        overflow: hidden;
+        margin-top: 9px;
+      }
+
+      .bar > span {
+        display: block;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, var(--blue), var(--green));
+      }
+
+      .table {
+        display: grid;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        overflow: hidden;
+        background: #fff;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: 1.1fr 1fr 1fr;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .row:last-child {
+        border-bottom: 0;
+      }
+
+      .row > div {
+        padding: 15px 16px;
+        font-size: clamp(0.88rem, 1.4vw, 1.06rem);
+        line-height: 1.25;
+      }
+
+      .row.head {
+        background: #edf4ff;
+        color: var(--ink);
+        font-weight: 900;
+      }
+
+      .accent-blue {
+        color: var(--blue);
+      }
+
+      .accent-green {
+        color: var(--green);
+      }
+
+      .accent-gold {
+        color: var(--gold);
+      }
+
+      .footnote {
+        position: absolute;
+        left: clamp(28px, 5vw, 66px);
+        right: clamp(90px, 12vw, 150px);
+        bottom: 24px;
+        color: var(--muted);
+        font-size: 0.75rem;
+        line-height: 1.35;
+      }
+
+      .dark .footnote {
+        color: #adb8ca;
+      }
+
+      .nav {
+        position: fixed;
+        right: 18px;
+        bottom: 18px;
+        z-index: 20;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        background: rgba(16, 19, 26, 0.78);
+        color: #fff;
+        padding: 8px;
+        border-radius: 8px;
+        backdrop-filter: blur(12px);
+      }
+
+      .nav button {
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        background: rgba(255, 255, 255, 0.08);
+        color: #fff;
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: 900;
+      }
+
+      .counter {
+        min-width: 58px;
+        text-align: center;
+        font-weight: 800;
+        font-size: 0.86rem;
+      }
+
+      .speaker-note {
+        display: none;
+      }
+
+      @media (max-width: 920px) {
+        body {
+          overflow: auto;
+        }
+
+        .deck {
+          height: auto;
+          overflow: visible;
+        }
+
+        .slide,
+        .slide.active {
+          display: grid;
+          position: relative;
+          height: auto;
+          min-height: 100vh;
+          padding: 34px 18px 82px;
+        }
+
+        .slide.split,
+        .grid2,
+        .grid3,
+        .grid4,
+        .market-map,
+        .flow {
+          grid-template-columns: 1fr;
+        }
+
+        .market-map {
+          height: auto;
+        }
+
+        .visual-phone {
+          max-width: 330px;
+        }
+
+        .footnote {
+          position: static;
+          margin-top: 16px;
+        }
+
+        .flow-step {
+          min-height: auto;
+        }
+
+        .row {
+          grid-template-columns: 1fr;
+        }
+
+        .row > div {
+          border-bottom: 1px solid var(--line);
+        }
+
+        .row > div:last-child {
+          border-bottom: 0;
+        }
+      }
+
+      @media print {
+        body {
+          background: #fff;
+          overflow: visible;
+        }
+
+        .deck {
+          height: auto;
+          overflow: visible;
+        }
+
+        .slide,
+        .slide.active {
+          display: grid;
+          position: relative;
+          width: 100vw;
+          height: 100vh;
+          break-after: page;
+          page-break-after: always;
+        }
+
+        .nav {
+          display: none;
+        }
+      }
     </style>
   </head>
-
   <body>
-    <div class="reveal">
-      <div class="slides">
-        <!-- 1: Title -->
-        <section>
+    <main class="deck" aria-label="AutoBuddy pitch deck">
+      <section class="slide dark split active">
+        <div class="cover-copy">
+          <p class="kicker">Investor + KSUM submission deck</p>
           <h1>AutoBuddy</h1>
-          <p class="small">Cloud-native ride-sharing platform</p>
-          <p class="tiny">Version 1.0 · Architecture & Platform Pitch</p>
-          <div style="margin-top: 24px;">
-            <span class="callout">Passengers · Drivers · Admin</span>
-            <div class="tiny" style="margin-top: 10px;">Web + iOS + Android · Real-time dispatch · Enterprise-grade security</div>
+          <p class="lead">
+            Kerala-first ride operations platform for safer local mobility, fairer driver economics,
+            and city-grade operating control.
+          </p>
+          <div class="meta-row">
+            <span class="pill">Passenger app</span>
+            <span class="pill">Driver app</span>
+            <span class="pill">Admin control room</span>
+            <span class="pill">Real-time dispatch</span>
           </div>
-        </section>
-
-        <!-- 2: Why now -->
-        <section>
-          <h2>Opportunity</h2>
-          <ul class="tight" style="font-size: 0.98em;">
-            <li><span class="badge">Frictionless mobility</span> needs fast matching + live tracking.</li>
-            <li>Modern platforms must be <span class="badge">secure by design</span> (JWT, RBAC, encryption).</li>
-            <li>Scale is a system concern: <span class="badge">horizontal + observable</span> architecture.</li>
-            <li>Payments + reliability + compliance require robust operations.</li>
-          </ul>
-        </section>
-
-        <!-- 3: The solution -->
-        <section>
-          <h2>Solution</h2>
-          <div class="grid2" style="align-items: start;">
-            <div>
-              <h3>AutoBuddy Platform</h3>
-              <ul class="tight">
-                <li><b>Real-time</b> location & trip status via Socket.IO</li>
-                <li><b>REST API</b> (v1) for core services</li>
-                <li><b>Multi-role workflows</b>: passenger, driver, admin</li>
-                <li><b>Payments integration</b> with Stripe</li>
-              </ul>
-            </div>
-            <div>
-              <h3>Built for velocity + scale</h3>
-              <ul class="tight">
-                <li>Microservices-ready modular design</li>
-                <li>Dual data strategy: <b>PostgreSQL</b> + <b>MongoDB</b></li>
-                <li>Cache layer with <b>Redis</b></li>
-                <li>Production-grade observability & DR</li>
-              </ul>
-            </div>
-          </div>
-        </section>
-
-        <!-- 4: Architecture at a glance -->
-        <section>
-          <h2>Architecture at a Glance</h2>
-          <div class="small">Layered + scalable system design</div>
-          <div style="margin-top: 14px;">
-            <div class="callout" style="width: 100%; text-align: left;">
-              <div class="grid2">
-                <div>
-                  <div class="tiny">Client Layer</div>
-                  <div><b>Web</b> · <b>iOS</b> · <b>Android</b></div>
-                  <div class="tiny">React Native / Native apps</div>
-                </div>
-                <div>
-                  <div class="tiny">Reverse Proxy / Load Balancer</div>
-                  <div><span class="mono">NGINX / AWS ALB</span></div>
-                  <div class="tiny">HTTP 80 / HTTPS 443 · WSS termination</div>
-                </div>
+        </div>
+        <div class="visual-phone" aria-label="AutoBuddy mobile app visual">
+          <div class="phone-screen">
+            <div class="app-top">
+              <div style="display:flex; gap:10px; align-items:center;">
+                <span class="logo-mark"></span>
+                <strong>AutoBuddy</strong>
               </div>
-              <div style="height: 12px;"></div>
-              <div class="grid2">
-                <div>
-                  <div class="tiny">Application Layer</div>
-                  <div><b>FastAPI</b> (Async)</div>
-                  <div class="tiny">Routers + service layer + middleware</div>
-                </div>
-                <div>
-                  <div class="tiny">Data Layer</div>
-                  <div><b>PostgreSQL</b> · <b>MongoDB</b> · <b>Redis</b></div>
-                  <div class="tiny">Transactional + analytics + caching/sessions</div>
-                </div>
+              <strong class="accent-green">Live</strong>
+            </div>
+            <div class="search-box">Kochi Metro Station to Infopark</div>
+            <div class="mini-map">
+              <span class="route-line"></span>
+              <span class="pin a"></span>
+              <span class="pin b"></span>
+            </div>
+            <div class="driver-card">
+              <span class="avatar"></span>
+              <div>
+                <strong>Verified driver</strong>
+                <p class="muted" style="font-size:0.85rem;">3 min away | live tracking</p>
+              </div>
+              <strong>Rs. 128</strong>
+            </div>
+            <button class="cta">Book safe ride</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="slide stack">
+        <div>
+          <p class="kicker">The problem</p>
+          <h2>Local mobility is still too opaque for riders, drivers, and operators.</h2>
+        </div>
+        <div class="grid3">
+          <article class="card">
+            <h3>Riders want trust, not guesswork</h3>
+            <p>Uncertain fares, weak live updates, and inconsistent driver communication make short local trips feel risky and inefficient.</p>
+          </article>
+          <article class="card">
+            <h3>Drivers need fairer economics</h3>
+            <p>High commissions and low transparency push drivers toward offline negotiation, hurting reliability and customer confidence.</p>
+          </article>
+          <article class="card">
+            <h3>Operators lack control</h3>
+            <p>Local teams need KYC, pricing, payouts, refunds, safety events, and service quality in one operational dashboard.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="slide stack dark">
+        <div>
+          <p class="kicker">The answer</p>
+          <h2>AutoBuddy is a full-stack ride operating system, not just a booking screen.</h2>
+          <p class="lead" style="margin-top:18px;">
+            We combine consumer booking, driver workflow, and admin-grade governance into one platform built for Kerala launch markets.
+          </p>
+        </div>
+        <div class="grid4">
+          <article class="card metric">
+            <strong>3</strong>
+            <span>Role-native products: passenger, driver, admin</span>
+          </article>
+          <article class="card metric">
+            <strong>250+</strong>
+            <span>Backend API endpoints documented in the repo</span>
+          </article>
+          <article class="card metric">
+            <strong>10k</strong>
+            <span>Daily active user launch target in PRD</span>
+          </article>
+          <article class="card metric">
+            <strong>99.5%</strong>
+            <span>Availability target for production operations</span>
+          </article>
+        </div>
+      </section>
+
+      <section class="slide stack">
+        <div>
+          <p class="kicker">Product</p>
+          <h2>A complete local ride lifecycle.</h2>
+        </div>
+        <div class="flow">
+          <div class="flow-step">
+            <span class="num">1</span>
+            <h3>Find</h3>
+            <p class="muted">Pickup, drop, nearby drivers, fare estimate, ride type, schedule options.</p>
+          </div>
+          <div class="flow-step">
+            <span class="num">2</span>
+            <h3>Match</h3>
+            <p class="muted">Driver availability, verified profiles, acceptance flow, ETA, dispatch rules.</p>
+          </div>
+          <div class="flow-step">
+            <span class="num">3</span>
+            <h3>Ride</h3>
+            <p class="muted">OTP start/end, live GPS, chat/call room, status updates, SOS features.</p>
+          </div>
+          <div class="flow-step">
+            <span class="num">4</span>
+            <h3>Pay</h3>
+            <p class="muted">Cash, online payment hooks, wallet, receipts, refunds, driver earnings.</p>
+          </div>
+          <div class="flow-step">
+            <span class="num">5</span>
+            <h3>Operate</h3>
+            <p class="muted">Admin KYC, pricing, subscriptions, support, analytics, compliance reporting.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="slide stack">
+        <div>
+          <p class="kicker">Why now</p>
+          <h2>The market is moving toward local, low-commission, driver-friendly models.</h2>
+        </div>
+        <div class="market-map">
+          <article class="market-panel">
+            <div>
+              <h3>India shared mobility tailwinds</h3>
+              <p class="lead" style="font-size:1.25rem; margin-top:12px;">
+                Smartphone adoption, UPI payments, high fuel costs, and demand for flexible transport are pushing shared mobility forward.
+              </p>
+            </div>
+            <div>
+              <p><strong>Projected growth</strong></p>
+              <div class="bar"><span style="width:62%;"></span></div>
+              <p class="muted" style="margin-top:8px;">IMARC projects India's shared mobility market at 6.20% CAGR for 2026-2034.</p>
+            </div>
+          </article>
+          <article class="market-panel">
+            <div>
+              <h3>Auto-rickshaw economics are changing</h3>
+              <p class="muted" style="margin-top:12px;">
+                Major platforms have tested daily or flat fees for auto drivers in India, signaling pressure on high commission models.
+              </p>
+            </div>
+            <div class="card" style="box-shadow:none;">
+              <h3 class="accent-blue">AutoBuddy positioning</h3>
+              <p>Fair driver plans, transparent fares, local support, and operational trust as the wedge.</p>
+            </div>
+          </article>
+        </div>
+        <p class="footnote">
+          Sources: KSUM Idea Grant page; IMARC India Shared Mobility Market; TechCrunch coverage of Uber India auto-rickshaw fee model.
+        </p>
+      </section>
+
+      <section class="slide stack">
+        <div>
+          <p class="kicker">Business model</p>
+          <h2>Designed for both liquidity and driver trust.</h2>
+        </div>
+        <div class="grid2">
+          <article class="card">
+            <h3>Launch revenue streams</h3>
+            <ul>
+              <li>Per-ride platform fee or commission on completed rides.</li>
+              <li>Driver onboarding, verification, and subscription plans.</li>
+              <li>Passenger premium options: priority pickup, scheduled rides, corporate billing.</li>
+              <li>Fleet/operator tools for local institutions and enterprise travel.</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>Unit economics levers</h3>
+            <ul>
+              <li>Higher driver density lowers wait time and cancellation cost.</li>
+              <li>Local pricing controls allow district, locality, and driver-level rules.</li>
+              <li>Admin dashboards reduce support leakage and manual reconciliation.</li>
+              <li>Subscriptions smooth revenue beyond pure commission pressure.</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section class="slide stack">
+        <div>
+          <p class="kicker">Go to market</p>
+          <h2>Win one Kerala corridor, then replicate city by city.</h2>
+        </div>
+        <div class="grid3">
+          <article class="card">
+            <h3>Phase 1: Pilot</h3>
+            <p><strong>Kochi / Infopark / metro corridors</strong></p>
+            <p>Onboard verified drivers, run controlled passenger cohorts, prove response time and completion rate.</p>
+          </article>
+          <article class="card">
+            <h3>Phase 2: Regional density</h3>
+            <p><strong>Thiruvananthapuram, Kozhikode, Thrissur</strong></p>
+            <p>Use local driver referrals, hotels, hospitals, campuses, and transport hubs as repeat-demand anchors.</p>
+          </article>
+          <article class="card">
+            <h3>Phase 3: Institutional rides</h3>
+            <p><strong>Corporate and fleet channels</strong></p>
+            <p>Offer admin tools, billing codes, scheduled rides, safety logs, and reporting for partner organizations.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="slide stack dark">
+        <div>
+          <p class="kicker">Traction</p>
+          <h2>The platform foundation is already built.</h2>
+        </div>
+        <div class="grid3">
+          <article class="card">
+            <h3>Product readiness</h3>
+            <ul>
+              <li>Expo mobile/web app architecture.</li>
+              <li>Passenger, driver, and admin workflows.</li>
+              <li>Subscription gate, notifications, safety, and KYC flows.</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>Backend readiness</h3>
+            <ul>
+              <li>FastAPI backend with JWT and role-based access.</li>
+              <li>Real-time Socket.IO trip and location updates.</li>
+              <li>PostgreSQL/MongoDB data model and operational endpoints.</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>Launch assets</h3>
+            <ul>
+              <li>Business, revenue, product, deployment, and policy docs.</li>
+              <li>Load testing plan and production readiness checklist.</li>
+              <li>Manuals for passengers, drivers, and admins.</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section class="slide stack">
+        <div>
+          <p class="kicker">Defensibility</p>
+          <h2>Local execution is the moat.</h2>
+        </div>
+        <div class="grid4">
+          <article class="card">
+            <h3>Trust layer</h3>
+            <p>KYC, driver documents, trip OTPs, SOS, emergency contacts, audit trails.</p>
+          </article>
+          <article class="card">
+            <h3>Operator layer</h3>
+            <p>Pricing, service areas, subscriptions, payouts, refunds, disputes, reports.</p>
+          </article>
+          <article class="card">
+            <h3>Data layer</h3>
+            <p>Ride events, driver behavior, demand heatmaps, completion rates, support patterns.</p>
+          </article>
+          <article class="card">
+            <h3>Partner layer</h3>
+            <p>Driver communities, fleets, campuses, hospitals, hotels, IT parks, local government ecosystem.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="slide stack">
+        <div>
+          <p class="kicker">KSUM fit</p>
+          <h2>AutoBuddy maps directly to KSUM evaluation criteria.</h2>
+        </div>
+        <div class="table">
+          <div class="row head">
+            <div>KSUM criterion</div>
+            <div>AutoBuddy evidence</div>
+            <div>Submission angle</div>
+          </div>
+          <div class="row">
+            <div>Team</div>
+            <div>Founder-led product with clear technical execution assets in the repo.</div>
+            <div>Add founder bios, advisory support, and city launch roles.</div>
+          </div>
+          <div class="row">
+            <div>Product innovation</div>
+            <div>Ride OS with real-time dispatch, local pricing, safety, KYC, and admin governance.</div>
+            <div>Show demo video and explain why this is more than a clone.</div>
+          </div>
+          <div class="row">
+            <div>Marketing</div>
+            <div>Kerala-first GTM through driver referrals, corridors, institutions, and local partnerships.</div>
+            <div>Attach pilot launch plan and first 90-day metrics.</div>
+          </div>
+          <div class="row">
+            <div>Financials</div>
+            <div>Hybrid platform fee, subscription, premium ride, and corporate billing model.</div>
+            <div>Submit 12-month assumptions and use-of-funds plan.</div>
+          </div>
+        </div>
+        <p class="footnote">
+          KSUM Idea Grant page states evaluation is based on Team, Product Innovation, Marketing, Financials, and Grant Utilisation Plan.
+        </p>
+      </section>
+
+      <section class="slide stack">
+        <div>
+          <p class="kicker">Use of funds</p>
+          <h2>KSUM Idea Grant ask: Rs. 3,00,000 to convert the platform into a pilot-ready MVP.</h2>
+        </div>
+        <div class="grid2">
+          <article class="card">
+            <h3>Grant allocation</h3>
+            <div class="table" style="margin-top:12px;">
+              <div class="row head">
+                <div>Use</div>
+                <div>Amount</div>
+                <div>Outcome</div>
+              </div>
+              <div class="row">
+                <div>Product hardening and QA</div>
+                <div>Rs. 90,000</div>
+                <div>Stable pilot build with bug fixes and E2E testing.</div>
+              </div>
+              <div class="row">
+                <div>Cloud, maps, SMS, payment testing</div>
+                <div>Rs. 50,000</div>
+                <div>Production-like environment for pilot usage.</div>
+              </div>
+              <div class="row">
+                <div>Driver onboarding and field validation</div>
+                <div>Rs. 70,000</div>
+                <div>Verified first driver cohort and feedback loops.</div>
+              </div>
+              <div class="row">
+                <div>Safety, compliance, and support setup</div>
+                <div>Rs. 50,000</div>
+                <div>Policies, support workflow, KYC readiness.</div>
+              </div>
+              <div class="row">
+                <div>Demo, launch collateral, user research</div>
+                <div>Rs. 40,000</div>
+                <div>2-minute KSUM video, pitch assets, pilot learning report.</div>
               </div>
             </div>
-          </div>
-        </section>
+          </article>
+          <article class="card">
+            <h3>6-month milestones</h3>
+            <ul>
+              <li>Month 1: freeze pilot scope, harden production build, prepare KSUM demo video.</li>
+              <li>Month 2: onboard verified drivers and run closed passenger tests.</li>
+              <li>Month 3: public pilot in one Kerala corridor.</li>
+              <li>Month 4-5: improve wait time, completion rate, support process, and pricing.</li>
+              <li>Month 6: investor-ready metrics pack and expansion decision.</li>
+            </ul>
+          </article>
+        </div>
+      </section>
 
-        <!-- 5: Backend & realtime -->
-        <section>
-          <h2>Backend & Real-time Engine</h2>
-          <div class="grid2" style="align-items:start;">
-            <div>
-              <h3>FastAPI Core</h3>
-              <ul class="tight">
-                <li>RESTful endpoints (250+)</li>
-                <li>Async/Await for non-blocking I/O</li>
-                <li>Pydantic validation + robust error handling</li>
-                <li>Middleware: CORS, JWT validation, rate limiting, logging</li>
-              </ul>
-            </div>
-            <div>
-              <h3>Socket.IO Workflows</h3>
-              <ul class="tight">
-                <li>Authenticated WebSocket handshake (JWT)</li>
-                <li>Room management (driver/passenger groups)</li>
-                <li>Events: ride requests, status updates, chat</li>
-                <li>Scales with Redis adapter + load balancing + sticky sessions</li>
-              </ul>
-            </div>
-          </div>
-        </section>
+      <section class="slide stack dark">
+        <div>
+          <p class="kicker">Investor ask</p>
+          <h2>Pre-seed target: Rs. 50 lakh to launch the first city and prove repeatable liquidity.</h2>
+          <p class="lead" style="margin-top:18px;">
+            KSUM funding de-risks the MVP. Investor capital accelerates city launch, driver density, safety operations, and revenue validation.
+          </p>
+        </div>
+        <div class="grid4">
+          <article class="card">
+            <h3>35%</h3>
+            <p>Driver supply, local ops, city launch partnerships.</p>
+          </article>
+          <article class="card">
+            <h3>25%</h3>
+            <p>Engineering, reliability, QA, security, integrations.</p>
+          </article>
+          <article class="card">
+            <h3>20%</h3>
+            <p>Rider acquisition, referrals, community campaigns.</p>
+          </article>
+          <article class="card">
+            <h3>20%</h3>
+            <p>Cloud, support, compliance, reporting, working buffer.</p>
+          </article>
+        </div>
+      </section>
 
-        <!-- 6: Data strategy -->
-        <section>
-          <h2>Data Strategy</h2>
-          <div class="grid2" style="align-items:start;">
-            <div>
-              <h3>PostgreSQL (Transactional)</h3>
-              <ul class="tight">
-                <li>Users, drivers, passengers, documents</li>
-                <li>Vehicles & inspections</li>
-                <li>Trips, routes, trip events, cancellations</li>
-                <li>Payments, wallets, refunds, ratings & reviews</li>
-              </ul>
-            </div>
-            <div>
-              <h3>MongoDB (Analytics & Events)</h3>
-              <ul class="tight">
-                <li>Trip events & time-series analytics</li>
-                <li>User analytics, driver performance</li>
-                <li>Audit logs & operational traces</li>
-                <li>Notifications & chat messages</li>
-              </ul>
-            </div>
-          </div>
-          <p class="small" style="margin-top: 16px;">Indexing strategy and read replicas/sharding support performance at scale.</p>
-        </section>
+      <section class="slide stack">
+        <div>
+          <p class="kicker">12-month execution model</p>
+          <h2>What we need to prove.</h2>
+        </div>
+        <div class="grid3">
+          <article class="card metric">
+            <strong>1,000</strong>
+            <span>Completed rides in first quarter target from BRD</span>
+          </article>
+          <article class="card metric">
+            <strong>&gt;90%</strong>
+            <span>Ride completion rate target from BRD</span>
+          </article>
+          <article class="card metric">
+            <strong>Month 6</strong>
+            <span>Positive unit economics target from BRD</span>
+          </article>
+        </div>
+        <div class="grid2" style="margin-top:18px;">
+          <article class="card">
+            <h3>North-star metric</h3>
+            <p>Reliable completed rides per active driver per day, with transparent driver earnings and rider trust.</p>
+          </article>
+          <article class="card">
+            <h3>Investor proof points</h3>
+            <p>Wait time, cancellation rate, repeat rider rate, driver retention, contribution margin, support incidents per 1,000 rides.</p>
+          </article>
+        </div>
+      </section>
 
-        <!-- 7: Security -->
-        <section>
-          <h2>Security by Design</h2>
-          <div class="grid3" style="margin-top: 6px;">
-            <div class="callout">
-              <div class="badge">Auth</div>
-              <div class="small">JWT (access + refresh)</div>
-            </div>
-            <div class="callout">
-              <div class="badge">Access Control</div>
-              <div class="small">RBAC (Passenger/Driver/Admin)</div>
-            </div>
-            <div class="callout">
-              <div class="badge">Protection</div>
-              <div class="small">Encryption in transit & at rest</div>
-            </div>
+      <section class="slide stack">
+        <div>
+          <p class="kicker">Competition</p>
+          <h2>We win where national platforms are too generic.</h2>
+        </div>
+        <div class="table">
+          <div class="row head">
+            <div>Market option</div>
+            <div>Strength</div>
+            <div>AutoBuddy wedge</div>
           </div>
-          <ul class="tight" style="margin-top: 18px; font-size: 0.95em;">
-            <li><b>Transit:</b> HTTPS/TLS 1.3, secure WebSocket (WSS), forward secrecy</li>
-            <li><b>At rest:</b> DB encryption + field-level encryption + KMS</li>
-            <li><b>App security:</b> SQLi protection (parameterized ORM), input validation, security headers</li>
-            <li><b>Rate limiting:</b> token bucket with Redis per IP/user/endpoint</li>
-          </ul>
-        </section>
+          <div class="row">
+            <div>Large ride-hailing apps</div>
+            <div>Demand scale, brand recognition, capital.</div>
+            <div>Local driver economics, Kerala-first support, configurable admin operations.</div>
+          </div>
+          <div class="row">
+            <div>Offline auto/taxi stands</div>
+            <div>Existing supply, neighborhood trust.</div>
+            <div>Digital booking, live tracking, receipts, safety, repeatable pricing controls.</div>
+          </div>
+          <div class="row">
+            <div>Fleet software tools</div>
+            <div>Back-office controls.</div>
+            <div>End-to-end passenger demand, driver workflow, and real-time trip layer.</div>
+          </div>
+        </div>
+      </section>
 
-        <!-- 8: Scalability & performance -->
-        <section>
-          <h2>Scalability & Performance</h2>
-          <div class="grid2" style="align-items:start;">
-            <div>
-              <h3>Horizontal Scaling</h3>
-              <ul class="tight">
-                <li>Load balancer (NGINX / AWS ALB)</li>
-                <li>Multiple FastAPI instances</li>
-                <li>Connection pooling</li>
-                <li>PostgreSQL read replicas · MongoDB sharding · Redis cluster</li>
-              </ul>
-            </div>
-            <div>
-              <h3>Targets (Optimized)</h3>
-              <ul class="tight">
-                <li><span class="metric">p95 < 500ms</span> · <span class="metric">p99 < 1000ms</span></li>
-                <li><span class="metric">> 500 req/sec</span></li>
-                <li><span class="metric">WebSocket latency < 200ms (p95)</span></li>
-                <li><span class="metric">Error rate < 0.1%</span></li>
-              </ul>
-            </div>
-          </div>
-        </section>
+      <section class="slide stack">
+        <div>
+          <p class="kicker">Team</p>
+          <h2>Built by product operators who understand local trust.</h2>
+        </div>
+        <div class="grid3">
+          <article class="card">
+            <h3>Founder / CEO</h3>
+            <p>Owns vision, KSUM process, investor fundraising, partnerships, and Kerala launch execution.</p>
+          </article>
+          <article class="card">
+            <h3>Product & Engineering</h3>
+            <p>FastAPI, Expo, real-time systems, security, payments, admin workflows, deployment readiness.</p>
+          </article>
+          <article class="card">
+            <h3>Launch advisors to add</h3>
+            <p>Mobility operator, driver-community lead, legal/compliance advisor, and city partnership lead.</p>
+          </article>
+        </div>
+        <p class="footnote">
+          Before submission, replace this slide with named founders, roles, past execution, and advisor commitments.
+        </p>
+      </section>
 
-        <!-- 9: Deployment & operations -->
-        <section>
-          <h2>Deployment & Operations</h2>
-          <div class="grid2" style="align-items:start;">
-            <div>
-              <h3>CI/CD Pipeline</h3>
-              <ul class="tight">
-                <li>GitHub Actions: lint & test</li>
-                <li>Build Docker image · push to registry (ECR)</li>
-                <li>Deploy to ECS/AKS</li>
-                <li>Staging: smoke + integration + performance tests</li>
-              </ul>
-            </div>
-            <div>
-              <h3>Observability</h3>
-              <ul class="tight">
-                <li>Metrics: latency, error rate, active connections, CPU/memory</li>
-                <li>Business KPIs: trips/day, revenue/day, driver utilization</li>
-                <li>Alerting thresholds for critical vs warning states</li>
-                <li>Logging aggregation (ELK) and monitoring (Prometheus + Grafana)</li>
-              </ul>
-            </div>
+      <section class="slide center dark">
+        <div class="cover-copy" style="place-items:center;">
+          <p class="kicker">The close</p>
+          <h2>AutoBuddy can become Kerala's trust layer for everyday local rides.</h2>
+          <p class="lead">
+            KSUM helps us prove the MVP. Investors help us turn local trust, driver fairness, and operational control into a scalable mobility company.
+          </p>
+          <div class="meta-row" style="justify-content:center;">
+            <span class="pill">KSUM ask: Rs. 3 lakh</span>
+            <span class="pill">Pre-seed target: Rs. 50 lakh</span>
+            <span class="pill">Pilot: Kerala corridor</span>
           </div>
-        </section>
+        </div>
+      </section>
+    </main>
 
-        <!-- 10: Reliability & DR -->
-        <section>
-          <h2>Reliability & Disaster Recovery</h2>
-          <div class="grid2" style="align-items:start;">
-            <div>
-              <h3>Backup & Restore</h3>
-              <ul class="tight">
-                <li><b>PostgreSQL:</b> every 6 hours, 30-day retention (S3), RTO < 30 min</li>
-                <li><b>MongoDB:</b> continuous oplog, 7-day retention, RTO < 5 min</li>
-                <li><b>RPO:</b> < 1 hour · <b>RTO:</b> < 2 hours</li>
-              </ul>
-            </div>
-            <div>
-              <h3>High Availability</h3>
-              <ul class="tight">
-                <li>DB: replication (Postgres), replica sets (MongoDB), Redis Sentinel</li>
-                <li>App: multi-instance, health checks, auto-recovery</li>
-                <li>Network: multi-AZ, DNS failover, CDN for static assets</li>
-              </ul>
-            </div>
-          </div>
-        </section>
+    <nav class="nav" aria-label="Slide navigation">
+      <button type="button" id="prev" aria-label="Previous slide">&lt;</button>
+      <span class="counter" id="counter">1 / 16</span>
+      <button type="button" id="next" aria-label="Next slide">&gt;</button>
+    </nav>
 
-        <!-- 11: Roadmap -->
-        <section>
-          <h2>Roadmap</h2>
-          <ul class="tight" style="font-size: 0.98em;">
-            <li><b>Microservices migration</b>: separate payments/notifications/analytics + API gateway</li>
-            <li><b>Advanced analytics</b>: real-time dashboards + anomaly detection + demand prediction</li>
-            <li><b>Global expansion</b>: multi-region deployment + localization + currency conversion</li>
-            <li><b>AI/ML features</b>: matching optimization + fraud detection + recommendations</li>
-          </ul>
-        </section>
-
-        <!-- 12: Closing -->
-        <section>
-          <h2>Why AutoBuddy Wins</h2>
-          <div class="grid3" style="margin-top: 10px;">
-            <div class="callout"><span class="badge">Scalable</span><div class="small">Horizontal-first design</div></div>
-            <div class="callout"><span class="badge">Secure</span><div class="small">JWT · RBAC · encryption</div></div></div>
-            <div class="callout"><span class="badge">Reliable</span><div class="small">Observability + DR</div></div>
-          </div>
-          <div style="margin-top: 18px;">
-            <p class="small">Built to launch now and evolve into microservices + ML-driven optimization.</p>
-            <p class="tiny mono">Base URL: https://api.autobuddy.com/v1 (v1 production · v2 planned)</p>
-          </div>
-          <div style="margin-top: 18px;" class="callout">
-            <b>Ask:</b> Funding / Partnership for production rollout, scale testing, and global readiness.
-          </div>
-        </section>
-      </div>
-    </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reveal.js"></script>
     <script>
-      Reveal.initialize({
-        hash: true,
-        controls: true,
-        progress: true,
-        center: true,
-        slideNumber: true
+      const slides = Array.from(document.querySelectorAll(".slide"));
+      const counter = document.getElementById("counter");
+      const prev = document.getElementById("prev");
+      const next = document.getElementById("next");
+      let current = 0;
+
+      function showSlide(index) {
+        current = Math.max(0, Math.min(index, slides.length - 1));
+        slides.forEach((slide, i) => slide.classList.toggle("active", i === current));
+        counter.textContent = `${current + 1} / ${slides.length}`;
+        window.location.hash = `slide-${current + 1}`;
+      }
+
+      function fromHash() {
+        const match = String(window.location.hash || "").match(/slide-(\d+)/);
+        if (match) showSlide(Number(match[1]) - 1);
+      }
+
+      prev.addEventListener("click", () => showSlide(current - 1));
+      next.addEventListener("click", () => showSlide(current + 1));
+      window.addEventListener("hashchange", fromHash);
+      window.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowRight" || event.key === "PageDown" || event.key === " ") showSlide(current + 1);
+        if (event.key === "ArrowLeft" || event.key === "PageUp") showSlide(current - 1);
+        if (event.key === "Home") showSlide(0);
+        if (event.key === "End") showSlide(slides.length - 1);
       });
+
+      fromHash();
+      showSlide(current);
     </script>
   </body>
 </html>
-

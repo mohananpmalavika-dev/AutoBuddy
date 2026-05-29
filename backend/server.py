@@ -74,6 +74,10 @@ from app.routers.admin_wallet_topups import router as modular_admin_wallet_topup
 from app.routers.admin_document_requirements import router as modular_admin_document_requirements_router
 from app.routers.driver_documents import router as modular_driver_documents_router
 from app.routers.passenger_documents import router as modular_passenger_documents_router
+from app.routers.admin_fare_management import router as modular_admin_fare_management_router
+from app.routers.driver_fare_override import router as modular_driver_fare_override_router
+from app.routers.driver_fare_proposals import router as modular_driver_fare_proposals_router
+from app.routers.admin_fare_proposals import router as modular_admin_fare_proposals_router
 from app.sockets import configure_socket_server as configure_legacy_socket_helpers
 from app.db.database import SessionLocal, get_feature_database_status
 from app.db.tier2_models import (
@@ -14562,6 +14566,10 @@ app.include_router(modular_admin_wallet_topups_router)
 app.include_router(modular_admin_document_requirements_router)
 app.include_router(modular_driver_documents_router)
 app.include_router(modular_passenger_documents_router)
+app.include_router(modular_admin_fare_management_router)
+app.include_router(modular_driver_fare_override_router)
+app.include_router(modular_driver_fare_proposals_router)
+app.include_router(modular_admin_fare_proposals_router)
 app.include_router(api_router)
 app.mount("/ws", socket_app)
 
