@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AutoBuddy — Pitch Deck</title>
+
+    <!-- Reveal.js (CDN) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reveal.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/theme/black.css" id="theme" />
+
+    <!-- Optional: print styles -->
+    <style>
+      .slides section .small { font-size: 0.65em; opacity: 0.9; }
+      .slides section .tiny { font-size: 0.52em; opacity: 0.85; }
+      .callout {
+        display: inline-block;
+        padding: 10px 14px;
+        border-radius: 12px;
+        background: rgba(255,255,255,0.08);
+        border: 1px solid rgba(255,255,255,0.18);
+      }
+      ul.tight li { margin: 0.35em 0; }
+      .metric { color: #8be9fd; font-weight: 700; }
+      .badge { color: #50fa7b; font-weight: 700; }
+      .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+      .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; }
+    </style>
+  </head>
+
+  <body>
+    <div class="reveal">
+      <div class="slides">
+        <!-- 1: Title -->
+        <section>
+          <h1>AutoBuddy</h1>
+          <p class="small">Cloud-native ride-sharing platform</p>
+          <p class="tiny">Version 1.0 · Architecture & Platform Pitch</p>
+          <div style="margin-top: 24px;">
+            <span class="callout">Passengers · Drivers · Admin</span>
+            <div class="tiny" style="margin-top: 10px;">Web + iOS + Android · Real-time dispatch · Enterprise-grade security</div>
+          </div>
+        </section>
+
+        <!-- 2: Why now -->
+        <section>
+          <h2>Opportunity</h2>
+          <ul class="tight" style="font-size: 0.98em;">
+            <li><span class="badge">Frictionless mobility</span> needs fast matching + live tracking.</li>
+            <li>Modern platforms must be <span class="badge">secure by design</span> (JWT, RBAC, encryption).</li>
+            <li>Scale is a system concern: <span class="badge">horizontal + observable</span> architecture.</li>
+            <li>Payments + reliability + compliance require robust operations.</li>
+          </ul>
+        </section>
+
+        <!-- 3: The solution -->
+        <section>
+          <h2>Solution</h2>
+          <div class="grid2" style="align-items: start;">
+            <div>
+              <h3>AutoBuddy Platform</h3>
+              <ul class="tight">
+                <li><b>Real-time</b> location & trip status via Socket.IO</li>
+                <li><b>REST API</b> (v1) for core services</li>
+                <li><b>Multi-role workflows</b>: passenger, driver, admin</li>
+                <li><b>Payments integration</b> with Stripe</li>
+              </ul>
+            </div>
+            <div>
+              <h3>Built for velocity + scale</h3>
+              <ul class="tight">
+                <li>Microservices-ready modular design</li>
+                <li>Dual data strategy: <b>PostgreSQL</b> + <b>MongoDB</b></li>
+                <li>Cache layer with <b>Redis</b></li>
+                <li>Production-grade observability & DR</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- 4: Architecture at a glance -->
+        <section>
+          <h2>Architecture at a Glance</h2>
+          <div class="small">Layered + scalable system design</div>
+          <div style="margin-top: 14px;">
+            <div class="callout" style="width: 100%; text-align: left;">
+              <div class="grid2">
+                <div>
+                  <div class="tiny">Client Layer</div>
+                  <div><b>Web</b> · <b>iOS</b> · <b>Android</b></div>
+                  <div class="tiny">React Native / Native apps</div>
+                </div>
+                <div>
+                  <div class="tiny">Reverse Proxy / Load Balancer</div>
+                  <div><span class="mono">NGINX / AWS ALB</span></div>
+                  <div class="tiny">HTTP 80 / HTTPS 443 · WSS termination</div>
+                </div>
+              </div>
+              <div style="height: 12px;"></div>
+              <div class="grid2">
+                <div>
+                  <div class="tiny">Application Layer</div>
+                  <div><b>FastAPI</b> (Async)</div>
+                  <div class="tiny">Routers + service layer + middleware</div>
+                </div>
+                <div>
+                  <div class="tiny">Data Layer</div>
+                  <div><b>PostgreSQL</b> · <b>MongoDB</b> · <b>Redis</b></div>
+                  <div class="tiny">Transactional + analytics + caching/sessions</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 5: Backend & realtime -->
+        <section>
+          <h2>Backend & Real-time Engine</h2>
+          <div class="grid2" style="align-items:start;">
+            <div>
+              <h3>FastAPI Core</h3>
+              <ul class="tight">
+                <li>RESTful endpoints (250+)</li>
+                <li>Async/Await for non-blocking I/O</li>
+                <li>Pydantic validation + robust error handling</li>
+                <li>Middleware: CORS, JWT validation, rate limiting, logging</li>
+              </ul>
+            </div>
+            <div>
+              <h3>Socket.IO Workflows</h3>
+              <ul class="tight">
+                <li>Authenticated WebSocket handshake (JWT)</li>
+                <li>Room management (driver/passenger groups)</li>
+                <li>Events: ride requests, status updates, chat</li>
+                <li>Scales with Redis adapter + load balancing + sticky sessions</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- 6: Data strategy -->
+        <section>
+          <h2>Data Strategy</h2>
+          <div class="grid2" style="align-items:start;">
+            <div>
+              <h3>PostgreSQL (Transactional)</h3>
+              <ul class="tight">
+                <li>Users, drivers, passengers, documents</li>
+                <li>Vehicles & inspections</li>
+                <li>Trips, routes, trip events, cancellations</li>
+                <li>Payments, wallets, refunds, ratings & reviews</li>
+              </ul>
+            </div>
+            <div>
+              <h3>MongoDB (Analytics & Events)</h3>
+              <ul class="tight">
+                <li>Trip events & time-series analytics</li>
+                <li>User analytics, driver performance</li>
+                <li>Audit logs & operational traces</li>
+                <li>Notifications & chat messages</li>
+              </ul>
+            </div>
+          </div>
+          <p class="small" style="margin-top: 16px;">Indexing strategy and read replicas/sharding support performance at scale.</p>
+        </section>
+
+        <!-- 7: Security -->
+        <section>
+          <h2>Security by Design</h2>
+          <div class="grid3" style="margin-top: 6px;">
+            <div class="callout">
+              <div class="badge">Auth</div>
+              <div class="small">JWT (access + refresh)</div>
+            </div>
+            <div class="callout">
+              <div class="badge">Access Control</div>
+              <div class="small">RBAC (Passenger/Driver/Admin)</div>
+            </div>
+            <div class="callout">
+              <div class="badge">Protection</div>
+              <div class="small">Encryption in transit & at rest</div>
+            </div>
+          </div>
+          <ul class="tight" style="margin-top: 18px; font-size: 0.95em;">
+            <li><b>Transit:</b> HTTPS/TLS 1.3, secure WebSocket (WSS), forward secrecy</li>
+            <li><b>At rest:</b> DB encryption + field-level encryption + KMS</li>
+            <li><b>App security:</b> SQLi protection (parameterized ORM), input validation, security headers</li>
+            <li><b>Rate limiting:</b> token bucket with Redis per IP/user/endpoint</li>
+          </ul>
+        </section>
+
+        <!-- 8: Scalability & performance -->
+        <section>
+          <h2>Scalability & Performance</h2>
+          <div class="grid2" style="align-items:start;">
+            <div>
+              <h3>Horizontal Scaling</h3>
+              <ul class="tight">
+                <li>Load balancer (NGINX / AWS ALB)</li>
+                <li>Multiple FastAPI instances</li>
+                <li>Connection pooling</li>
+                <li>PostgreSQL read replicas · MongoDB sharding · Redis cluster</li>
+              </ul>
+            </div>
+            <div>
+              <h3>Targets (Optimized)</h3>
+              <ul class="tight">
+                <li><span class="metric">p95 < 500ms</span> · <span class="metric">p99 < 1000ms</span></li>
+                <li><span class="metric">> 500 req/sec</span></li>
+                <li><span class="metric">WebSocket latency < 200ms (p95)</span></li>
+                <li><span class="metric">Error rate < 0.1%</span></li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- 9: Deployment & operations -->
+        <section>
+          <h2>Deployment & Operations</h2>
+          <div class="grid2" style="align-items:start;">
+            <div>
+              <h3>CI/CD Pipeline</h3>
+              <ul class="tight">
+                <li>GitHub Actions: lint & test</li>
+                <li>Build Docker image · push to registry (ECR)</li>
+                <li>Deploy to ECS/AKS</li>
+                <li>Staging: smoke + integration + performance tests</li>
+              </ul>
+            </div>
+            <div>
+              <h3>Observability</h3>
+              <ul class="tight">
+                <li>Metrics: latency, error rate, active connections, CPU/memory</li>
+                <li>Business KPIs: trips/day, revenue/day, driver utilization</li>
+                <li>Alerting thresholds for critical vs warning states</li>
+                <li>Logging aggregation (ELK) and monitoring (Prometheus + Grafana)</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- 10: Reliability & DR -->
+        <section>
+          <h2>Reliability & Disaster Recovery</h2>
+          <div class="grid2" style="align-items:start;">
+            <div>
+              <h3>Backup & Restore</h3>
+              <ul class="tight">
+                <li><b>PostgreSQL:</b> every 6 hours, 30-day retention (S3), RTO < 30 min</li>
+                <li><b>MongoDB:</b> continuous oplog, 7-day retention, RTO < 5 min</li>
+                <li><b>RPO:</b> < 1 hour · <b>RTO:</b> < 2 hours</li>
+              </ul>
+            </div>
+            <div>
+              <h3>High Availability</h3>
+              <ul class="tight">
+                <li>DB: replication (Postgres), replica sets (MongoDB), Redis Sentinel</li>
+                <li>App: multi-instance, health checks, auto-recovery</li>
+                <li>Network: multi-AZ, DNS failover, CDN for static assets</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- 11: Roadmap -->
+        <section>
+          <h2>Roadmap</h2>
+          <ul class="tight" style="font-size: 0.98em;">
+            <li><b>Microservices migration</b>: separate payments/notifications/analytics + API gateway</li>
+            <li><b>Advanced analytics</b>: real-time dashboards + anomaly detection + demand prediction</li>
+            <li><b>Global expansion</b>: multi-region deployment + localization + currency conversion</li>
+            <li><b>AI/ML features</b>: matching optimization + fraud detection + recommendations</li>
+          </ul>
+        </section>
+
+        <!-- 12: Closing -->
+        <section>
+          <h2>Why AutoBuddy Wins</h2>
+          <div class="grid3" style="margin-top: 10px;">
+            <div class="callout"><span class="badge">Scalable</span><div class="small">Horizontal-first design</div></div>
+            <div class="callout"><span class="badge">Secure</span><div class="small">JWT · RBAC · encryption</div></div></div>
+            <div class="callout"><span class="badge">Reliable</span><div class="small">Observability + DR</div></div>
+          </div>
+          <div style="margin-top: 18px;">
+            <p class="small">Built to launch now and evolve into microservices + ML-driven optimization.</p>
+            <p class="tiny mono">Base URL: https://api.autobuddy.com/v1 (v1 production · v2 planned)</p>
+          </div>
+          <div style="margin-top: 18px;" class="callout">
+            <b>Ask:</b> Funding / Partnership for production rollout, scale testing, and global readiness.
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reveal.js"></script>
+    <script>
+      Reveal.initialize({
+        hash: true,
+        controls: true,
+        progress: true,
+        center: true,
+        slideNumber: true
+      });
+    </script>
+  </body>
+</html>
+

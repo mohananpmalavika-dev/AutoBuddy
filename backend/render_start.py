@@ -113,7 +113,13 @@ def main() -> int:
         # Force import now so full traceback is printed here if import-time fails.
         print("[render_start] Importing server:app...", flush=True)
         sys.stdout.flush()
-        from server import app
+        try:
+            from server import app
+        except Exception as e:
+            import traceback
+            print("[render_start] SERVER IMPORT FAILED:", repr(e))
+            traceback.print_exc()
+            raise
         print("[render_start] server:app imported successfully", flush=True)
         sys.stdout.flush()
     except BaseException:
