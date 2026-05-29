@@ -36,7 +36,7 @@ import VehicleManagementPanel from '../components/VehicleManagementPanel';
 import SupportTicketPanel from '../components/SupportTicketPanel';
 import EnhancedSettingsPanel from '../components/EnhancedSettingsPanel';
 import ProfileManagementPanel from '../components/ProfileManagementPanel';
-import AnalyticsDashboard from '../components/AnalyticsDashboard';
+import AnalyticsDashboardAdvanced from '../components/AnalyticsDashboardAdvanced';
 import RideHistoryPanel from '../components/RideHistoryPanel';
 import NotificationCenter from '../components/NotificationCenter';
 import ScheduledRidesPanel from '../components/ScheduledRidesPanel';
@@ -49,7 +49,7 @@ import InTripNavigationDisplay from '../components/InTripNavigationDisplay';
 import DriverPerformanceDashboard from '../components/DriverPerformanceDashboard';
 import SOSButton from '../components/SOSButton';
 import RequestCountdownDisplay from '../components/RequestCountdownDisplay';
-import ExpenseTracker from '../components/ExpenseTracker';
+import ExpenseTrackerAdvanced from '../components/ExpenseTrackerAdvanced';
 import RideFilterPanel from '../components/RideFilterPanel';
 import EarningTargetWidget from '../components/EarningTargetWidget';
 import MaintenanceAlertPanel from '../components/MaintenanceAlertPanel';
@@ -264,6 +264,19 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   const [spinWinLoading, setSpinWinLoading] = useState(false);
   const [spinningNow, setSpinningNow] = useState(false);
   const [driverTrackingIntervalMs, setDriverTrackingIntervalMs] = useState(DRIVER_MOVING_TRACK_INTERVAL_MS);
+  const [driverMetrics, setDriverMetrics] = useState({
+    average_rating: 0,
+    acceptance_rate: 0,
+    completion_rate: 0,
+    total_rides: 0,
+    monthly_earnings: 0,
+    avg_distance: 0,
+    hours_online: 0,
+    cancellation_rate: 0,
+    weekly_avg_rating: 0,
+    avg_response_time: 0,
+  });
+  const [analyticsHistory, setAnalyticsHistory] = useState([]);
   const setAvailabilitySyncPendingState = useCallback((value) => {
     const nextValue = !!value;
     availabilitySyncPendingRef.current = nextValue;
@@ -379,7 +392,22 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       fetchExpenses().catch(() => null);
     }
   }, [activeRideId, fetchExpenses]);
-  
+
+  const handleReceiptUpload = useCallback(async () => {
+    try {
+      // Placeholder for receipt upload implementation
+      // In real implementation, this would:
+      // 1. Open file picker
+      // 2. Compress image
+      // 3. Upload to backend
+      // 4. Return receipt URL
+      console.warn('Receipt upload not yet implemented - feature available in next release');
+      return null;
+    } catch (err) {
+      console.error('Receipt upload error:', err);
+      return null;
+    }
+  }, []);
 
   const runAction = useCallback(async (fn, successText) => {
     try {
@@ -1060,6 +1088,64 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     refreshDriverRideQueueFromRealtime,
     onSocketError: handleDriverRideSocketError,
   });
+
+  // Real-time ride request notifications
+  useEffect(() => {
+    const socket = rideRequestSocketRef.current;
+    if (!socket) return;
+
+    const handleNewRideRequest = (data) => {
+      const { id: rideId, passenger_name, destination, fare_amount, distance_km } = data || {};
+      if (!rideId) return;
+
+      // Play notification sound if enabled
+      if (driverSettings.sound_enabled !== false) {
+        try {
+          // Play a beep or notification sound
+          const audio = new Audio('data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEAQB8AAAB9AAACABAAZGF0YQIAAAAAAA==');
+          audio.play().catch(() => null);
+        } catch (_e) {
+          // Ignore sound errors
+        }
+      }
+
+      // Show notification alert
+      Alert.alert(
+        '🎉 New Ride Request!',
+        `${passenger_name || 'Passenger'} is requesting a ride to ${destination || 'destination'}\n\nFare: ₹${fare_amount || '??'} | Distance: ${distance_km || '??'}km`,
+        [
+          {
+            text: 'Decline',
+            style: 'destructive',
+            onPress: () => setPendingRequests(prev => prev.filter(r => r.id !== rideId))
+          },
+          {
+            text: 'View',
+            style: 'default',
+            onPress: () => {
+              setActiveTab('requests');
+              setMessage('Ride request ready to accept');
+            }
+          }
+        ],
+        { cancelable: true }
+      );
+
+      // Haptic feedback if enabled
+      if (driverSettings.vibration_enabled !== false) {
+        try {
+          require('react-native').Vibration.vibrate([100, 50, 100]);
+        } catch (_e) {
+          // Ignore haptic errors
+        }
+      }
+    };
+
+    socket.on('new_ride_request', handleNewRideRequest);
+    return () => {
+      socket.off('new_ride_request', handleNewRideRequest);
+    };
+  }, [driverSettings]);
 
   useEffect(() => {
     if (!shouldSyncDriverLocation) {
@@ -1979,11 +2065,14 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                           rideStatus={activeRideStatus}
                           onOpenFullMap={openActiveRideNavigation}
                         />
-                        <ExpenseTracker
+                        <ExpenseTrackerAdvanced
+                          token={token}
+                          driverId={user?.id}
                           expenses={expenses}
                           totalExpense={totalExpense}
                           onAddExpense={addExpense}
                           onRemoveExpense={removeExpense}
+                          onUploadReceipt={handleReceiptUpload}
                           isLoading={expenseLoading}
                           error={expenseError}
                           expenseTypes={expenseTypes}
@@ -2453,7 +2542,13 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
 
           {/* Analytics Tab */}
           {activeTab === 'analytics' && (
-            <AnalyticsDashboard token={token} loading={loading} />
+            <AnalyticsDashboardAdvanced
+              driverId={user?.id}
+              token={token}
+              currentMetrics={driverMetrics}
+              historicalData={analyticsHistory}
+              isLoading={loading}
+            />
           )}
 
           {activeTab === 'reviews' && (

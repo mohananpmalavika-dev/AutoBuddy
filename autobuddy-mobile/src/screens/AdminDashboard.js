@@ -187,6 +187,30 @@ function defaultLaunchVisitReportState() {
   };
 }
 
+function normalizeListResponse(payload, keys = []) {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  if (!payload || typeof payload !== 'object') {
+    return [];
+  }
+
+  const candidateKeys = [...keys, 'data', 'items', 'results'];
+  const containers = [payload];
+  if (payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data)) {
+    containers.push(payload.data);
+  }
+
+  for (const container of containers) {
+    for (const key of candidateKeys) {
+      if (Array.isArray(container[key])) {
+        return container[key];
+      }
+    }
+  }
+  return [];
+}
+
 function normalizeSpinWinConfig(config = null) {
   if (!config || typeof config !== 'object') {
     return defaultSpinWinConfigState();
@@ -490,8 +514,8 @@ export default function AdminDashboard({ token, user, onLogout }) {
         peak_hours: Array.isArray(pricingSettings.peak_hours) ? pricingSettings.peak_hours.join(',') : '8,9,17,18,19',
       });
     }
-    setKycRequests(pending || []);
-    setPassengerKycRequests(Array.isArray(pendingPassengerKyc) ? pendingPassengerKyc : []);
+    setKycRequests(normalizeListResponse(pending, ['pending', 'requests', 'kyc_requests']));
+    setPassengerKycRequests(normalizeListResponse(pendingPassengerKyc, ['pending', 'requests', 'kyc_requests']));
     if (feeSettings) {
       setRegistrationFees({
         passenger_registration_fee: String(feeSettings.passenger_registration_fee ?? 0),
@@ -505,23 +529,23 @@ export default function AdminDashboard({ token, user, onLogout }) {
         razorpay_payment_link: String(feeSettings.razorpay_payment_link || ''),
       });
     }
-    setPendingRegistrationPayments(Array.isArray(pendingRegistrations) ? pendingRegistrations : []);
-    setPendingWalletTopups(Array.isArray(pendingWalletTopupRows) ? pendingWalletTopupRows : []);
+    setPendingRegistrationPayments(normalizeListResponse(pendingRegistrations, ['payments', 'pending_payments']));
+    setPendingWalletTopups(normalizeListResponse(pendingWalletTopupRows, ['topups', 'pending_topups']));
     if (subscriptionSettings) {
       setSubscriptionConfig({
         passenger: normalizeRoleSubscriptionConfig(subscriptionSettings.passenger || {}),
         driver: normalizeRoleSubscriptionConfig(subscriptionSettings.driver || {}),
       });
     }
-    setPendingSubscriptionActivations(Array.isArray(pendingSubscriptions) ? pendingSubscriptions : []);
-    setPendingSubscriptionPayments(Array.isArray(pendingSubscriptionPaymentRows) ? pendingSubscriptionPaymentRows : []);
-    setPendingPhoneChangeRequests(Array.isArray(pendingPhoneChanges) ? pendingPhoneChanges : []);
-    setPendingAccountDeletionRequests(Array.isArray(pendingAccountDeletions) ? pendingAccountDeletions : []);
-    setPendingDriverFareRequests(Array.isArray(pendingDriverFare) ? pendingDriverFare : []);
-    setApprovedDriverFareConfigs(Array.isArray(approvedDriverFare) ? approvedDriverFare : []);
-    setOngoingTrips(Array.isArray(activeTrips) ? activeTrips : []);
-    setDriverUsers(Array.isArray(usersLiveStatus?.drivers) ? usersLiveStatus.drivers : []);
-    setPassengerUsers(Array.isArray(usersLiveStatus?.passengers) ? usersLiveStatus.passengers : []);
+    setPendingSubscriptionActivations(normalizeListResponse(pendingSubscriptions, ['subscriptions', 'pending_subscriptions']));
+    setPendingSubscriptionPayments(normalizeListResponse(pendingSubscriptionPaymentRows, ['payments', 'pending_payments']));
+    setPendingPhoneChangeRequests(normalizeListResponse(pendingPhoneChanges, ['requests', 'phone_changes']));
+    setPendingAccountDeletionRequests(normalizeListResponse(pendingAccountDeletions, ['requests', 'account_deletions']));
+    setPendingDriverFareRequests(normalizeListResponse(pendingDriverFare, ['requests', 'fare_requests']));
+    setApprovedDriverFareConfigs(normalizeListResponse(approvedDriverFare, ['configs', 'fare_configs']));
+    setOngoingTrips(normalizeListResponse(activeTrips, ['bookings', 'trips']));
+    setDriverUsers(normalizeListResponse(usersLiveStatus?.drivers));
+    setPassengerUsers(normalizeListResponse(usersLiveStatus?.passengers));
     setLiveCounts({
       drivers_live: Number(usersLiveStatus?.live_counts?.drivers_live || 0),
       passengers_live: Number(usersLiveStatus?.live_counts?.passengers_live || 0),
@@ -543,7 +567,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
     if (spinWinSettings) {
       setSpinWinConfig(normalizeSpinWinConfig(spinWinSettings));
     }
-    setSpinWinWinners(Array.isArray(spinWinWinnerRows) ? spinWinWinnerRows : []);
+    setSpinWinWinners(normalizeListResponse(spinWinWinnerRows, ['winners']));
     if (rideProductsDistrictSettings) {
       setRideProductDistrictConfig(normalizeRideProductDistrictConfig(rideProductsDistrictSettings));
     }
@@ -1420,7 +1444,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
     if (saved) {
       setSpinWinConfig(normalizeSpinWinConfig(saved));
       const winners = await apiRequest('/admin/spin-win/winners', { token, query: { limit: 50 } }).catch(() => []);
-      setSpinWinWinners(Array.isArray(winners) ? winners : []);
+      setSpinWinWinners(normalizeListResponse(winners, ['winners']));
     }
   };
 

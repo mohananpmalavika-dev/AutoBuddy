@@ -39,7 +39,7 @@ import VehicleManagementPanel from '../components/VehicleManagementPanel';
 import SupportTicketPanel from '../components/SupportTicketPanel';
 import EnhancedSettingsPanel from '../components/EnhancedSettingsPanel';
 import ProfileManagementPanel from '../components/ProfileManagementPanel';
-import AnalyticsDashboard from '../components/AnalyticsDashboard';
+import AnalyticsDashboardAdvanced from '../components/AnalyticsDashboardAdvanced';
 import RideHistoryPanel from '../components/RideHistoryPanel';
 import NotificationCenter from '../components/NotificationCenter';
 import ScheduledRidesPanel from '../components/ScheduledRidesPanel';
@@ -53,7 +53,7 @@ import InTripNavigationDisplay from '../components/InTripNavigationDisplay';
 import DriverPerformanceDashboard from '../components/DriverPerformanceDashboard';
 import SOSButton from '../components/SOSButton';
 import RequestCountdownDisplay from '../components/RequestCountdownDisplay';
-import ExpenseTracker from '../components/ExpenseTracker';
+import ExpenseTrackerAdvanced from '../components/ExpenseTrackerAdvanced';
 import RideFilterPanel from '../components/RideFilterPanel';
 import EarningTargetWidget from '../components/EarningTargetWidget';
 import MaintenanceAlertPanel from '../components/MaintenanceAlertPanel';
@@ -293,6 +293,19 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   const [spinWinStatus, setSpinWinStatus] = useState(null);
   const [spinWinLoading, setSpinWinLoading] = useState(false);
   const [spinningNow, setSpinningNow] = useState(false);
+  const [driverMetrics, setDriverMetrics] = useState({
+    average_rating: 0,
+    acceptance_rate: 0,
+    completion_rate: 0,
+    total_rides: 0,
+    monthly_earnings: 0,
+    avg_distance: 0,
+    hours_online: 0,
+    cancellation_rate: 0,
+    weekly_avg_rating: 0,
+    avg_response_time: 0,
+  });
+  const [analyticsHistory, setAnalyticsHistory] = useState([]);
 
   const setAvailabilitySyncPendingState = useCallback((value) => {
     const nextValue = !!value;
@@ -410,6 +423,23 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       fetchExpenses().catch(() => null);
     }
   }, [activeRideId, fetchExpenses]);
+
+  const handleReceiptUpload = useCallback(async () => {
+    try {
+      // Placeholder for receipt upload implementation
+      // In real implementation, this would:
+      // 1. Open file picker
+      // 2. Compress image
+      // 3. Upload to backend
+      // 4. Return receipt URL
+      console.warn('Receipt upload not yet implemented - feature available in next release');
+      return null;
+    } catch (err) {
+      console.error('Receipt upload error:', err);
+      return null;
+    }
+  }, []);
+
   const visibleBlockedPassengers = useMemo(
     () => filterBlockedPassengers(blockedPassengers, blockedPassengerSearch),
     [blockedPassengerSearch, blockedPassengers],
@@ -2137,11 +2167,14 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                           onOpenFullMap={openActiveRideMap}
                         />
                         {/* TIER 1: Expense Tracking */}
-                        <ExpenseTracker
+                        <ExpenseTrackerAdvanced
+                          token={token}
+                          driverId={user?.id}
                           expenses={expenses}
                           totalExpense={totalExpense}
                           onAddExpense={addExpense}
                           onRemoveExpense={removeExpense}
+                          onUploadReceipt={handleReceiptUpload}
                           isLoading={expenseLoading}
                           error={expenseError}
                           expenseTypes={expenseTypes}
@@ -2601,7 +2634,25 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
 
           {activeTab === 'analytics' && (
             <View style={styles.earningsCard}>
-              <AnalyticsDashboard token={token} loading={loading} />
+              <AnalyticsDashboardAdvanced
+                driverId={user?.id}
+                token={token}
+                currentMetrics={driverMetrics}
+                historicalData={analyticsHistory}
+                isLoading={loading}
+              />
+            </View>
+          )}
+
+          {activeTab === 'favorites' && (
+            <View style={styles.earningsCard}>
+              <FavoritePassengersPanel token={token} loading={loading} />
+            </View>
+          )}
+
+          {activeTab === 'shifts' && (
+            <View style={styles.earningsCard}>
+              <ShiftScheduleCalendar token={token} loading={loading} />
             </View>
           )}
 
