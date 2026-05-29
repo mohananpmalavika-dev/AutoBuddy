@@ -170,6 +170,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [locationValidation, setLocationValidation] = useState({ pickup: false, dropoff: false });
   const [activeBooking, setActiveBooking] = useState(null);
   const [passengerBookings, setPassengerBookings] = useState([]);
+  const [historyPaginationOffset, setHistoryPaginationOffset] = useState(0);
+  const [historyPageSize] = useState(20);
+  const [historyHasMore, setHistoryHasMore] = useState(true);
   const [fare, setFare] = useState(null);
   const [nearbyDrivers, setNearbyDrivers] = useState([]);
   const [favoriteDriverIds, setFavoriteDriverIds] = useState([]);
@@ -720,17 +723,38 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
 
   const refreshPassengerBookings = async ({ silent = false } = {}) => {
     try {
-      const bookings = await apiRequest('/bookings', { token });
+      setError(''); // Clear any previous errors
+      const bookings = await apiRequest('/bookings', { token, limit: 100, offset: 0 });
       setPassengerBookings(Array.isArray(bookings) ? bookings : []);
+      setHistoryPaginationOffset(0);
+      setHistoryHasMore((Array.isArray(bookings) ? bookings.length : 0) >= historyPageSize);
       if (!silent) {
         setMessage('Booking list refreshed.');
       }
       return bookings;
     } catch (err) {
+      const errorMsg = err.message || 'Could not load booking list.';
       if (!silent) {
-        setError(err.message || 'Could not load booking list.');
+        setError(errorMsg);
       }
+      setPassengerBookings([]);
       return [];
+    }
+  };
+
+  const loadMoreHistory = async () => {
+    try {
+      setError(''); // Clear any previous errors
+      const nextOffset = historyPaginationOffset + historyPageSize;
+      const newBookings = await apiRequest('/bookings', { token, limit: 100, offset: nextOffset });
+      const allBookings = [...passengerBookings, ...(Array.isArray(newBookings) ? newBookings : [])];
+      setPassengerBookings(allBookings);
+      setHistoryPaginationOffset(nextOffset);
+      setHistoryHasMore((Array.isArray(newBookings) ? newBookings.length : 0) >= historyPageSize);
+      setMessage('More rides loaded');
+    } catch (err) {
+      const errorMsg = 'Could not load more rides: ' + err.message;
+      setError(errorMsg);
     }
   };
 
@@ -863,6 +887,13 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       clearInterval(timer);
     };
   }, [activePassengerMenu, token]);
+
+  useEffect(() => {
+    // Auto-refresh history when user opens the history tab
+    if (activePassengerMenu === 'history') {
+      refreshPassengerBookings({ silent: true });
+    }
+  }, [activePassengerMenu]);
 
   useEffect(() => {
     const bookingId = activeBooking?.id || null;
@@ -2162,12 +2193,17 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                       <Text style={styles.infoText}>
                         Driver Live: {liveDriverLocation.latitude.toFixed(5)}, {liveDriverLocation.longitude.toFixed(5)}
                       </Text>
-                      <Text style={styles.infoText}>
-                        ETA to Pickup: {etaToPickup ? `${etaToPickup} min` : 'Calculating...'}
-                      </Text>
-                      <Text style={styles.infoText}>
-                        ETA to Drop: {etaToDrop ? `${etaToDrop} min` : 'Calculating...'}
-                      </Text>
+                      {/* Prominently display ETA */}
+                      {(activeBookingStatus === 'driver_arrived' || activeBookingStatus === 'in_progress') && (
+                        <View style={{ backgroundColor: COLORS.secondary, borderRadius: 8, padding: 12, marginVertical: 8 }}>
+                          <Text style={{ color: COLORS.mutedDark, fontSize: 12, fontWeight: '600', marginBottom: 4 }}>
+                            {activeBookingStatus === 'driver_arrived' ? 'ETA to Pickup' : 'ETA to Dropoff'}
+                          </Text>
+                          <Text style={{ color: COLORS.primary, fontSize: 20, fontWeight: 'bold' }}>
+                            {activeBookingStatus === 'driver_arrived' ? (etaToPickup ? `${etaToPickup} min` : 'Calculating...') : (etaToDrop ? `${etaToDrop} min` : 'Calculating...')}
+                          </Text>
+                        </View>
+                      )}
                       <Text style={styles.infoText}>
                         Driver Network: {driverOnline ? 'Online' : 'Reconnecting...'}
                       </Text>
@@ -2310,23 +2346,36 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               {passengerBookings.length === 0 ? (
                 <Text style={styles.infoText}>No rides yet.</Text>
               ) : (
-                passengerBookings.slice(0, 20).map((booking) => (
-                  <View key={booking.id} style={[styles.historyCard, { borderLeftColor: booking.status === 'completed' ? '#4CAF50' : booking.status === 'cancelled' ? '#F44336' : '#2196F3', borderLeftWidth: 4 }]}>
-                    <View style={styles.historyCardRow}>
-                      <Text style={styles.historyCardStatus}>{booking.status.toUpperCase()}</Text>
-                      <Text style={styles.historyCardId}>{booking.id.substring(0, 8)}</Text>
+                <>
+                  {passengerBookings.map((booking) => (
+                    <View key={booking.id} style={[styles.historyCard, { borderLeftColor: booking.status === 'completed' ? '#4CAF50' : booking.status === 'cancelled' ? '#F44336' : '#2196F3', borderLeftWidth: 4 }]}>
+                      <View style={styles.historyCardRow}>
+                        <Text style={styles.historyCardStatus}>{booking.status.toUpperCase()}</Text>
+                        <Text style={styles.historyCardId}>{booking.id.substring(0, 8)}</Text>
+                      </View>
+                      <View style={styles.historyCardRow}>
+                        <Text style={styles.historyCardDriver}>{booking.driver_name || 'Driver not assigned'}</Text>
+                        <Text style={styles.historyCardFare}>INR {booking.estimated_fare}</Text>
+                      </View>
+                      {!!booking.pickup_location && !!booking.drop_location && (
+                        <Text style={styles.historyCardRoute} numberOfLines={1}>
+                          {normalizeLocation(booking.pickup_location)?.address || 'Pickup'} → {normalizeLocation(booking.drop_location)?.address || 'Drop'}
+                        </Text>
+                      )}
                     </View>
-                    <View style={styles.historyCardRow}>
-                      <Text style={styles.historyCardDriver}>{booking.driver_name || 'Driver not assigned'}</Text>
-                      <Text style={styles.historyCardFare}>INR {booking.estimated_fare}</Text>
-                    </View>
-                    {!!booking.pickup_location && !!booking.drop_location && (
-                      <Text style={styles.historyCardRoute} numberOfLines={1}>
-                        {normalizeLocation(booking.pickup_location)?.address || 'Pickup'} → {normalizeLocation(booking.drop_location)?.address || 'Drop'}
-                      </Text>
-                    )}
-                  </View>
-                ))
+                  ))}
+                  {historyHasMore && (
+                    <TouchableOpacity 
+                      style={styles.loadMoreButton}
+                      onPress={loadMoreHistory}
+                      disabled={loading}>
+                      <Text style={styles.loadMoreText}>{loading ? 'Loading...' : 'Load More Rides'}</Text>
+                    </TouchableOpacity>
+                  )}
+                  {!historyHasMore && passengerBookings.length > 0 && (
+                    <Text style={[styles.infoText, { textAlign: 'center', marginTop: 12 }]}>All rides loaded ({passengerBookings.length} total)</Text>
+                  )}
+                </>
               )}
             </View>
           )}

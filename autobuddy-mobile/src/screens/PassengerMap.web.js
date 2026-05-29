@@ -51,6 +51,9 @@ import PassengerDocumentUpload from '../components/PassengerDocumentUpload';
 import PassengerDocumentsPanel from '../components/PassengerDocumentsPanel';
 import ReceiptsPanel from '../components/ReceiptsPanel';
 import SubscriptionPanel from '../components/SubscriptionPanel';
+import RideNotesPanel from '../components/RideNotesPanel';
+import LocationSharingPanel from '../components/LocationSharingPanel';
+import RideStatsPanel from '../components/RideStatsPanel';
 import PostRideRatingModal from '../components/PostRideRatingModal';
 import { NotificationProvider, useNotifications } from '../contexts/NotificationContext';
 import { useNotificationManager } from '../hooks/useNotificationManager';
@@ -94,6 +97,9 @@ const PASSENGER_MENU_SYMBOLS = {
   documents: { ios: 'doc.text.fill', android: 'description', web: 'description' },
   receipts: { ios: 'list.bullet.rectangle.portrait.fill', android: 'receipt_long', web: 'receipt_long' },
   subscription: { ios: 'checkmark.seal.fill', android: 'workspace_premium', web: 'workspace_premium' },
+  notes: { ios: 'note.text', android: 'note', web: 'note' },
+  sharing: { ios: 'location.fill', android: 'location_on', web: 'location_on' },
+  stats: { ios: 'chart.bar.fill', android: 'bar_chart', web: 'bar_chart' },
 };
 const PASSENGER_MENU_OPTIONS = [
   { key: 'ride', symbol: PASSENGER_MENU_SYMBOLS.ride },
@@ -119,15 +125,18 @@ const PASSENGER_MENU_OPTIONS = [
   { key: 'documents', symbol: PASSENGER_MENU_SYMBOLS.documents },
   { key: 'receipts', symbol: PASSENGER_MENU_SYMBOLS.receipts },
   { key: 'subscription', symbol: PASSENGER_MENU_SYMBOLS.subscription },
+  { key: 'notes', symbol: PASSENGER_MENU_SYMBOLS.notes },
+  { key: 'sharing', symbol: PASSENGER_MENU_SYMBOLS.sharing },
+  { key: 'stats', symbol: PASSENGER_MENU_SYMBOLS.stats },
 ];
 const PRIMARY_PASSENGER_MENU_KEY = 'ride';
 const buildPassengerMenuOptions = (keys) =>
   keys.map((key) => PASSENGER_MENU_OPTIONS.find((menu) => menu.key === key)).filter(Boolean);
 const PINNED_PASSENGER_MENU_OPTIONS = buildPassengerMenuOptions(['drivers', 'favorites', 'safety', 'wallet']);
 const SECONDARY_PASSENGER_MENU_GROUPS = [
-  { key: 'trip', title: 'Trip', keys: ['scheduled', 'history', 'ratings', 'receipts'] },
+  { key: 'trip', title: 'Trip', keys: ['scheduled', 'history', 'stats', 'notes', 'ratings', 'receipts'] },
   { key: 'deals', title: 'Deals & Payment', keys: ['spin', 'promo', 'payment', 'subscription'] },
-  { key: 'account', title: 'Account', keys: ['profile', 'kyc', 'documents', 'preferences', 'places', 'accessibility'] },
+  { key: 'account', title: 'Account', keys: ['profile', 'kyc', 'documents', 'preferences', 'places', 'accessibility', 'sharing'] },
   { key: 'help', title: 'Help', keys: ['notifications', 'support', 'emergency'] },
 ].map((section) => ({
   ...section,
@@ -186,7 +195,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   
   const [activeBooking, setActiveBooking] = useState(null);
   const [passengerBookings, setPassengerBookings] = useState([]);
-  const [fare, setFare] = useState(null);
+  const [historyPaginationOffset, setHistoryPaginationOffset] = useState(0);
+  const [historyPageSize] = useState(20);
+  const [historyHasMore, setHistoryHasMore] = useState(true);
   const [nearbyDrivers, setNearbyDrivers] = useState([]);
   const [favoriteDriverIds, setFavoriteDriverIds] = useState([]);
   const [blockedDriverIds, setBlockedDriverIds] = useState([]);
@@ -1179,17 +1190,38 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
 
   const refreshPassengerBookings = async ({ silent = false } = {}) => {
     try {
-      const bookings = await apiRequest('/bookings', { token });
+      setError(''); // Clear any previous errors
+      const bookings = await apiRequest('/bookings', { token, limit: 100, offset: 0 });
       setPassengerBookings(Array.isArray(bookings) ? bookings : []);
+      setHistoryPaginationOffset(0);
+      setHistoryHasMore((Array.isArray(bookings) ? bookings.length : 0) >= historyPageSize);
       if (!silent) {
         setMessage(t.bookingListRefreshed);
       }
       return bookings;
     } catch (err) {
+      const errorMsg = err.message || t.couldNotLoadBookingList;
       if (!silent) {
-        setError(err.message || t.couldNotLoadBookingList);
+        setError(errorMsg);
       }
+      setPassengerBookings([]);
       return [];
+    }
+  };
+
+  const loadMoreHistory = async () => {
+    try {
+      setError(''); // Clear any previous errors
+      const nextOffset = historyPaginationOffset + historyPageSize;
+      const newBookings = await apiRequest('/bookings', { token, limit: 100, offset: nextOffset });
+      const allBookings = [...passengerBookings, ...(Array.isArray(newBookings) ? newBookings : [])];
+      setPassengerBookings(allBookings);
+      setHistoryPaginationOffset(nextOffset);
+      setHistoryHasMore((Array.isArray(newBookings) ? newBookings.length : 0) >= historyPageSize);
+      setMessage('More rides loaded');
+    } catch (err) {
+      const errorMsg = 'Could not load more rides: ' + err.message;
+      setError(errorMsg);
     }
   };
 
@@ -1261,14 +1293,34 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     try {
       setSpinningNow(true);
       setError('');
-      const result = await apiRequest('/spin-win/spin', { method: 'POST', token });
-      const rewardLabel = String(result?.reward?.label || t.rewardFallback);
-      const remaining = Number(result?.spins_left_today ?? 0);
-      setMessage(`${t.spinComplete}: ${rewardLabel}. ${t.spinsLeftToday}: ${remaining}.`);
-      await refreshSpinWinStatus({ silent: true });
+      
+      // If socket is available, emit spin request for real-time update
+      if (socketRef.current && socketRef.current.connected) {
+        socketRef.current.emit('request_spin', { token }, (result) => {
+          const rewardLabel = String(result?.reward?.label || t.rewardFallback);
+          const remaining = Number(result?.spins_left_today ?? 0);
+          setMessage(`${t.spinComplete}: ${rewardLabel}. ${t.spinsLeftToday}: ${remaining}.`);
+          refreshSpinWinStatus({ silent: true });
+          setSpinningNow(false);
+        });
+        // Set timeout fallback in case socket doesn't respond
+        setTimeout(() => {
+          if (spinningNow) {
+            setSpinningNow(false);
+            refreshSpinWinStatus({ silent: false });
+          }
+        }, 5000);
+      } else {
+        // Fallback to REST API
+        const result = await apiRequest('/spin-win/spin', { method: 'POST', token });
+        const rewardLabel = String(result?.reward?.label || t.rewardFallback);
+        const remaining = Number(result?.spins_left_today ?? 0);
+        setMessage(`${t.spinComplete}: ${rewardLabel}. ${t.spinsLeftToday}: ${remaining}.`);
+        await refreshSpinWinStatus({ silent: true });
+        setSpinningNow(false);
+      }
     } catch (err) {
       setError(err.message || t.spinFailedRetry);
-    } finally {
       setSpinningNow(false);
     }
   };
@@ -1445,11 +1497,17 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       socket.emit('request_ride_sync', { booking_id: bookingId });
     };
 
+    const handleBookingCompleted = async (data) => {
+      // Auto-refresh history when a booking completes
+      await refreshPassengerBookings({ silent: true });
+    };
+
     socket.on('connect', joinBookingRoom);
     socket.on('driver_location_changed', handleDriverLocation);
     socket.on('driver_location', handleDriverLocation);
     socket.on('booking_status_changed', handleBookingStatusChanged);
     socket.on('ride_state_sync', handleRideStateSync);
+    socket.on('booking_completed', handleBookingCompleted);
     if (socket.connected) {
       joinBookingRoom();
     }
@@ -1460,6 +1518,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       socket.off('driver_location', handleDriverLocation);
       socket.off('booking_status_changed', handleBookingStatusChanged);
       socket.off('ride_state_sync', handleRideStateSync);
+      socket.off('booking_completed', handleBookingCompleted);
       socket.disconnect();
       socketRef.current = null;
     };
@@ -2533,6 +2592,18 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
 
                 {activeBooking && (
                   <>
+                    {/* Live map visualization with driver tracking */}
+                    {(activeBookingStatus === 'driver_arrived' || activeBookingStatus === 'in_progress') && (
+                      <View style={{ marginVertical: 12, borderRadius: 12, overflow: 'hidden' }}>
+                        <WebGoogleLiveMap
+                          passengerLocation={normalizeLocation(activeBooking.pickup_location)}
+                          driverLocation={liveDriverLocation}
+                          dropoffLocation={normalizeLocation(activeBooking.drop_location || activeBooking.dropoff_location)}
+                          eta={etaToPickup || etaToDrop}
+                          status={activeBookingStatus}
+                        />
+                      </View>
+                    )}
                     <RideProgressTimeline status={activeBookingStatus || 'searching'} />
                     <View style={styles.infoBlock}>
                       <Text style={styles.infoTitle}>{t.activeBooking}</Text>
@@ -2550,6 +2621,17 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                         <Text style={styles.infoText}>
                           {t.to}: {normalizeLocation(activeBooking.drop_location || activeBooking.dropoff_location).address}
                         </Text>
+                      )}
+                      {/* Prominently display ETA */}
+                      {(activeBookingStatus === 'driver_arrived' || activeBookingStatus === 'in_progress') && (etaToPickup || etaToDrop) && (
+                        <View style={{ backgroundColor: COLORS.secondary, borderRadius: 8, padding: 12, marginVertical: 8 }}>
+                          <Text style={{ color: COLORS.mutedDark, fontSize: 12, fontWeight: '600', marginBottom: 4 }}>
+                            {activeBookingStatus === 'driver_arrived' ? 'ETA to Pickup' : 'ETA to Dropoff'}
+                          </Text>
+                          <Text style={{ color: COLORS.primary, fontSize: 20, fontWeight: 'bold' }}>
+                            {activeBookingStatus === 'driver_arrived' ? etaToPickup : etaToDrop} min
+                          </Text>
+                        </View>
                       )}
                       {!!liveDriverLocation && (
                         <Text style={styles.infoText}>
@@ -2649,23 +2731,36 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                     malayalam={t.ridesHistorySubtitle}
                   />
                 ) : (
-                  passengerBookings.slice(0, 20).map((booking) => (
-                    <View key={booking.id} style={[styles.historyCard, { borderLeftColor: booking.status === 'completed' ? '#4CAF50' : booking.status === 'cancelled' ? '#F44336' : '#2196F3', borderLeftWidth: 4 }]}>
-                      <View style={styles.historyCardRow}>
-                        <Text style={styles.historyCardStatus}>{booking.status.toUpperCase()}</Text>
-                        <Text style={styles.historyCardId}>{booking.id.substring(0, 8)}</Text>
+                  <>
+                    {passengerBookings.map((booking) => (
+                      <View key={booking.id} style={[styles.historyCard, { borderLeftColor: booking.status === 'completed' ? '#4CAF50' : booking.status === 'cancelled' ? '#F44336' : '#2196F3', borderLeftWidth: 4 }]}>
+                        <View style={styles.historyCardRow}>
+                          <Text style={styles.historyCardStatus}>{booking.status.toUpperCase()}</Text>
+                          <Text style={styles.historyCardId}>{booking.id.substring(0, 8)}</Text>
+                        </View>
+                        <View style={styles.historyCardRow}>
+                          <Text style={styles.historyCardDriver}>{booking.driver_name || t.driverNotAssigned}</Text>
+                          <Text style={styles.historyCardFare}>INR {booking.estimated_fare}</Text>
+                        </View>
+                        {!!booking.pickup_location && !!booking.drop_location && (
+                          <Text style={styles.historyCardRoute} numberOfLines={1}>
+                            {normalizeLocation(booking.pickup_location)?.address || 'Pickup'} → {normalizeLocation(booking.drop_location)?.address || 'Drop'}
+                          </Text>
+                        )}
                       </View>
-                      <View style={styles.historyCardRow}>
-                        <Text style={styles.historyCardDriver}>{booking.driver_name || t.driverNotAssigned}</Text>
-                        <Text style={styles.historyCardFare}>INR {booking.estimated_fare}</Text>
-                      </View>
-                      {!!booking.pickup_location && !!booking.drop_location && (
-                        <Text style={styles.historyCardRoute} numberOfLines={1}>
-                          {normalizeLocation(booking.pickup_location)?.address || 'Pickup'} → {normalizeLocation(booking.drop_location)?.address || 'Drop'}
-                        </Text>
-                      )}
-                    </View>
-                  ))
+                    ))}
+                    {historyHasMore && (
+                      <TouchableOpacity 
+                        style={styles.loadMoreButton}
+                        onPress={loadMoreHistory}
+                        disabled={loading}>
+                        <Text style={styles.loadMoreText}>{loading ? 'Loading...' : 'Load More Rides'}</Text>
+                      </TouchableOpacity>
+                    )}
+                    {!historyHasMore && passengerBookings.length > 0 && (
+                      <Text style={[styles.infoText, { textAlign: 'center', marginTop: 12 }]}>All rides loaded ({passengerBookings.length} total)</Text>
+                    )}
+                  </>
                 )}
               </View>
             )}
@@ -2713,6 +2808,23 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             )}
             {activePassengerMenu === 'receipts' && <ReceiptsPanel token={token} />}
             {activePassengerMenu === 'subscription' && <SubscriptionPanel token={token} />}
+            {activePassengerMenu === 'notes' && (
+              <RideNotesPanel
+                token={token}
+                bookingId={activeBooking?.id}
+                onNotesUpdated={() => {
+                  setMessage('Ride notes updated');
+                }}
+              />
+            )}
+            {activePassengerMenu === 'sharing' && (
+              <LocationSharingPanel
+                token={token}
+                activeBooking={activeBooking}
+                currentLocation={pickupLocation || activeBooking?.pickup_location}
+              />
+            )}
+            {activePassengerMenu === 'stats' && <RideStatsPanel token={token} />}
           </ScrollView>
         </View>
 

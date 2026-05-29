@@ -9,11 +9,54 @@ import {
   ActivityIndicator,
   Dimensions,
 } from 'react-native';
-import { LineChart, BarChart } from 'react-native-chart-kit';
-import { COLORS, SHADOWS } from '../theme';
-import apiRequest from '../services/apiClient';
+import { SHADOWS } from '../theme';
+import { apiRequest } from '../lib/api';
 
 const screenWidth = Dimensions.get('window').width;
+const chartContentWidth = Math.max(280, screenWidth - 80);
+
+function toChartNumber(value) {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? numericValue : 0;
+}
+
+function getChartValues(chartData) {
+  const values = chartData?.datasets?.[0]?.data;
+  return Array.isArray(values) ? values.map(toChartNumber) : [];
+}
+
+function SimpleBarChart({ data, color = '#FF9800', height = 180, labelEvery = 4 }) {
+  const values = getChartValues(data);
+  if (values.length === 0) {
+    return <Text style={styles.emptyChartText}>No chart data available.</Text>;
+  }
+
+  const maxValue = Math.max(1, ...values);
+  const labels = Array.isArray(data?.labels) ? data.labels : [];
+
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+      <View style={[styles.simpleChart, { minWidth: chartContentWidth, height }]}>
+        <View style={styles.simpleChartBars}>
+          {values.map((value, index) => {
+            const barHeight = Math.max(4, (value / maxValue) * (height - 42));
+            const shouldShowLabel = index % labelEvery === 0 || index === values.length - 1;
+            return (
+              <View key={`${index}-${value}`} style={styles.simpleChartColumn}>
+                <View style={[styles.simpleBar, { height: barHeight, backgroundColor: color }]} />
+                <Text style={styles.simpleChartLabel}>{shouldShowLabel ? labels[index] || index + 1 : ''}</Text>
+              </View>
+            );
+          })}
+        </View>
+      </View>
+    </ScrollView>
+  );
+}
+
+function SimpleLineChart({ data }) {
+  return <SimpleBarChart data={data} color="#1976D2" height={180} labelEvery={5} />;
+}
 
 /**
  * Advanced Analytics Dashboard with trend charts and deeper metrics
@@ -25,7 +68,6 @@ export default function AnalyticsDashboardAdvanced({
   historicalData = [],
   isLoading = false,
 }) {
-  const [selectedMetric, setSelectedMetric] = useState('earnings');
   const [showTrendModal, setShowTrendModal] = useState(false);
   const [showPeakHoursModal, setShowPeakHoursModal] = useState(false);
   const [dashboardData, setDashboardData] = useState(null);
@@ -36,13 +78,10 @@ export default function AnalyticsDashboardAdvanced({
     const loadAnalytics = async () => {
       try {
         setChartLoading(true);
-        const response = await apiRequest({
-          method: 'GET',
-          endpoint: `/api/drivers/${driverId}/analytics/advanced`,
-          token,
-        });
-        if (response?.data) {
-          setDashboardData(response.data);
+        const response = await apiRequest(`/drivers/${driverId}/analytics/advanced`, { token });
+        const payload = response?.data || response;
+        if (payload && typeof payload === 'object') {
+          setDashboardData(payload);
         }
       } catch (err) {
         console.warn('Failed to load analytics:', err?.message);
@@ -212,24 +251,7 @@ export default function AnalyticsDashboardAdvanced({
                 <Text style={styles.chartAction}>View →</Text>
               </TouchableOpacity>
               <View style={styles.chartContainer}>
-                <LineChart
-                  data={earningsTrend}
-                  width={screenWidth - 50}
-                  height={250}
-                  chartConfig={{
-                    backgroundColor: '#FFF',
-                    backgroundGradientFrom: '#FFF',
-                    backgroundGradientTo: '#FFF',
-                    color: (opacity = 1) => `rgba(25, 118, 210, ${opacity})`,
-                    labelColor: (opacity = 1) => `rgba(51, 51, 51, ${opacity})`,
-                    strokeWidth: 2,
-                    propsForBackgroundLines: {
-                      strokeDasharray: '0',
-                      stroke: '#E0E0E0',
-                    },
-                  }}
-                  bezier
-                />
+                <SimpleLineChart data={earningsTrend} />
               </View>
             </View>
           )}
@@ -245,23 +267,7 @@ export default function AnalyticsDashboardAdvanced({
                 <Text style={styles.chartAction}>View →</Text>
               </TouchableOpacity>
               <View style={styles.chartContainer}>
-                <BarChart
-                  data={peakHoursData}
-                  width={screenWidth - 50}
-                  height={250}
-                  chartConfig={{
-                    backgroundColor: '#FFF',
-                    backgroundGradientFrom: '#FFF',
-                    backgroundGradientTo: '#FFF',
-                    color: (opacity = 1) => `rgba(255, 152, 0, ${opacity})`,
-                    labelColor: (opacity = 1) => `rgba(51, 51, 51, ${opacity})`,
-                    barPercentage: 0.8,
-                    propsForBackgroundLines: {
-                      strokeDasharray: '0',
-                      stroke: '#E0E0E0',
-                    },
-                  }}
-                />
+                <SimpleBarChart data={peakHoursData} />
               </View>
             </View>
           )}
@@ -393,20 +399,7 @@ export default function AnalyticsDashboardAdvanced({
 
             {earningsTrend && (
               <ScrollView style={styles.modalContent}>
-                <LineChart
-                  data={earningsTrend}
-                  width={screenWidth - 60}
-                  height={300}
-                  chartConfig={{
-                    backgroundColor: '#FFF',
-                    backgroundGradientFrom: '#FFF',
-                    backgroundGradientTo: '#FFF',
-                    color: (opacity = 1) => `rgba(25, 118, 210, ${opacity})`,
-                    labelColor: (opacity = 1) => `rgba(51, 51, 51, ${opacity})`,
-                    strokeWidth: 2,
-                  }}
-                  bezier
-                />
+                <SimpleLineChart data={earningsTrend} />
                 <Text style={styles.modalInsight}>
                   Your earnings have been stable over the last 30 days. Try increasing your availability
                   during peak hours to boost earnings.
@@ -442,19 +435,7 @@ export default function AnalyticsDashboardAdvanced({
 
             {peakHoursData && (
               <ScrollView style={styles.modalContent}>
-                <BarChart
-                  data={peakHoursData}
-                  width={screenWidth - 60}
-                  height={300}
-                  chartConfig={{
-                    backgroundColor: '#FFF',
-                    backgroundGradientFrom: '#FFF',
-                    backgroundGradientTo: '#FFF',
-                    color: (opacity = 1) => `rgba(255, 152, 0, ${opacity})`,
-                    labelColor: (opacity = 1) => `rgba(51, 51, 51, ${opacity})`,
-                    barPercentage: 0.8,
-                  }}
-                />
+                <SimpleBarChart data={peakHoursData} />
                 <Text style={styles.modalInsight}>
                   Your peak request hours are during morning rush (7-10 AM) and evening rush (5-8 PM).
                   Maximize availability during these times for better earnings.
@@ -476,6 +457,45 @@ export default function AnalyticsDashboardAdvanced({
 }
 
 const styles = StyleSheet.create({
+  simpleChart: {
+    justifyContent: 'flex-end',
+    paddingHorizontal: 8,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  simpleChartBars: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 4,
+  },
+  simpleChartColumn: {
+    flex: 1,
+    minWidth: 18,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  simpleBar: {
+    width: '72%',
+    minWidth: 8,
+    maxWidth: 22,
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 4,
+  },
+  simpleChartLabel: {
+    height: 18,
+    marginTop: 6,
+    color: '#6B7280',
+    fontSize: 9,
+    fontWeight: '600',
+  },
+  emptyChartText: {
+    color: '#666',
+    fontSize: 12,
+    fontWeight: '600',
+    paddingVertical: 24,
+    textAlign: 'center',
+  },
   container: {
     flex: 1,
     backgroundColor: '#FAFAFA',
