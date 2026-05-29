@@ -121,6 +121,22 @@ function RideHistoryCard({ booking, onPress, isLoading, viewerRole = 'passenger'
         <Text style={styles.cardTime}>{formatDate(booking.created_at)}</Text>
       </View>
 
+      {/* Vehicle Info */}
+      {booking.vehicle_type_id && (
+        <View style={styles.vehicleInfoRow}>
+          <Text style={styles.vehicleIcon}>{booking.vehicle_icon || '🚗'}</Text>
+          <Text style={styles.vehicleType}>{booking.vehicle_type_id.toUpperCase()}</Text>
+          {booking.ride_type && (
+            <Text style={styles.rideTypeTag}>{booking.ride_type}</Text>
+          )}
+          {booking.vehicle_type_multiplier && booking.vehicle_type_multiplier !== 1 && (
+            <View style={styles.multiplierBadge}>
+              <Text style={styles.multiplierText}>{booking.vehicle_type_multiplier}x</Text>
+            </View>
+          )}
+        </View>
+      )}
+
       <View style={styles.cardContent}>
         <View style={styles.routeSection}>
           <Text style={styles.routeText} numberOfLines={1}>
@@ -843,6 +859,47 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: COLORS.textMuted,
     fontWeight: '500',
+  },
+
+  vehicleInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#F5F5F5',
+    borderBottomWidth: 1,
+    borderBottomColor: '#EFEFEF',
+  },
+  vehicleIcon: {
+    fontSize: 16,
+    marginRight: 6,
+  },
+  vehicleType: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#333',
+    flex: 1,
+  },
+  rideTypeTag: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: COLORS.primary,
+    backgroundColor: '#E3F2FD',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 3,
+    marginRight: 6,
+  },
+  multiplierBadge: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 3,
+  },
+  multiplierText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#fff',
   },
 
   cardContent: {

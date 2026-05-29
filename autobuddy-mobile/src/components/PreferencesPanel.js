@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 import { apiRequest } from '../lib/api';
+import { buildLanguageOptions, normalizeLanguageCode } from '../locales/indianLanguages';
 import { COLORS, SHADOWS } from '../theme';
 
 const PAYMENT_OPTIONS = [
@@ -10,11 +11,7 @@ const PAYMENT_OPTIONS = [
   { label: 'Cash', value: 'cash' },
 ];
 
-const LANGUAGE_OPTIONS = [
-  { label: 'English', value: 'en' },
-  { label: 'Malayalam', value: 'ml' },
-  { label: 'Hindi', value: 'hi' },
-];
+const LANGUAGE_OPTIONS = buildLanguageOptions();
 
 const DRIVER_GENDER_OPTIONS = [
   { label: 'Any', value: 'any' },
@@ -137,13 +134,24 @@ export default function PreferencesPanel({ token, onPreferencesChange = () => {}
       try {
         setSaving(true);
         setError('');
+        const nextValue = field === 'language' ? normalizeLanguageCode(value) : value;
         const response = await apiRequest('/v1/passengers/preferences', {
           method: 'PATCH',
           token,
-          body: { [field]: value },
+          body: { [field]: nextValue },
         });
         const nextPrefs = response?.data || response || null;
         setPrefs(nextPrefs);
+        if (field === 'language' && typeof window !== 'undefined' && window.localStorage) {
+          window.localStorage.setItem('autobuddy_lang', nextValue);
+          if (typeof window.dispatchEvent === 'function' && typeof CustomEvent !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('autobuddy-language-change', {
+                detail: { language: nextValue },
+              }),
+            );
+          }
+        }
         if (nextPrefs) {
           onPreferencesChange(nextPrefs);
         }

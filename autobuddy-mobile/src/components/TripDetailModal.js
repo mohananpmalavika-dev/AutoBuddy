@@ -181,23 +181,45 @@ export default function TripDetailModal({
               </View>
             </View>
 
-            {/* Driver Info Card */}
-            {booking.driver_name && (
+            {/* Vehicle & Driver Info Card */}
+            {(booking.vehicle_type_id || booking.driver_name) && (
               <View style={[styles.card, SHADOWS.card]}>
-                <Text style={styles.cardTitle}>Driver</Text>
-                <View style={styles.driverInfo}>
-                  <View style={styles.driverAvatar}>
-                    <Text style={styles.driverAvatarText}>👤</Text>
+                {/* Vehicle Info */}
+                {booking.vehicle_type_id && (
+                  <View style={styles.vehicleInfoSection}>
+                    <Text style={styles.cardTitle}>Vehicle</Text>
+                    <View style={styles.vehicleInfoBlock}>
+                      <Text style={styles.vehicleIcon}>{booking.vehicle_icon || '🚗'}</Text>
+                      <View style={styles.vehicleInfoContent}>
+                        <Text style={styles.vehicleTypeName}>{booking.vehicle_type_id.toUpperCase()}</Text>
+                        {booking.vehicle_name && (
+                          <Text style={styles.vehicleBrand}>{booking.vehicle_name}</Text>
+                        )}
+                        {booking.vehicle_number && (
+                          <Text style={styles.vehicleNumber}>📍 {booking.vehicle_number}</Text>
+                        )}
+                        {booking.vehicle_type_multiplier && booking.vehicle_type_multiplier !== 1 && (
+                          <Text style={styles.vehicleMultiplier}>Multiplier: {booking.vehicle_type_multiplier}x</Text>
+                        )}
+                      </View>
+                    </View>
                   </View>
-                  <View style={styles.driverDetails}>
-                    <Text style={styles.driverName}>{booking.driver_name}</Text>
-                    {booking.rating && (
-                      <Text style={styles.driverRating}>⭐ {booking.rating}/5 rating</Text>
-                    )}
-                    {booking.vehicle_number && (
-                      <Text style={styles.vehicleNumber}>{booking.vehicle_number}</Text>
-                    )}
-                  </View>
+                )}
+                
+                {/* Driver Info */}
+                {booking.driver_name && (
+                  <View style={styles.driverInfoSection}>
+                    <Text style={styles.cardTitle}>Driver</Text>
+                    <View style={styles.driverInfo}>
+                      <View style={styles.driverAvatar}>
+                        <Text style={styles.driverAvatarText}>👤</Text>
+                      </View>
+                      <View style={styles.driverDetails}>
+                        <Text style={styles.driverName}>{booking.driver_name}</Text>
+                        {booking.rating && (
+                          <Text style={styles.driverRating}>⭐ {booking.rating}/5 rating</Text>
+                        )}
+                      </View>
                   {booking.rating && (
                     <View style={styles.ratingBadge}>
                       <Text style={styles.ratingValue}>{booking.rating}</Text>
@@ -577,7 +599,52 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 
+  // Vehicle Info
+  vehicleInfoSection: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  vehicleInfoBlock: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginTop: 8,
+  },
+  vehicleIcon: {
+    fontSize: 32,
+    marginRight: 12,
+  },
+  vehicleInfoContent: {
+    flex: 1,
+  },
+  vehicleTypeName: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.text,
+    marginBottom: 2,
+  },
+  vehicleBrand: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
+    marginBottom: 4,
+  },
+  vehicleMultiplier: {
+    fontSize: 11,
+    color: COLORS.primary,
+    fontWeight: '600',
+    backgroundColor: '#E3F2FD',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 3,
+    alignSelf: 'flex-start',
+  },
+
   // Driver Info
+  driverInfoSection: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
   driverInfo: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -13,7 +13,17 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { apiRequest } from '../lib/api';
 import { appendPickerAssetToFormData } from '../lib/uploadFormData';
+import { buildLanguageOptions, getLanguageLabel, normalizeLanguageCode } from '../locales/indianLanguages';
 import { COLORS, SHADOWS } from '../theme';
+
+const LANGUAGE_OPTIONS = buildLanguageOptions({ preferNative: true });
+
+function normalizePassengerProfile(profileData = {}) {
+  return {
+    ...profileData,
+    preferred_language: normalizeLanguageCode(profileData?.preferred_language || 'en'),
+  };
+}
 
 /**
  * PassengerProfilePanel - Passenger profile management
@@ -55,8 +65,9 @@ export default function PassengerProfilePanel({ token, loading: parentLoading = 
       const data = await apiRequest('/passengers/profile', { token });
       const profileData = data?.profile || data;
       if (profileData) {
-        setProfile(profileData);
-        setTempProfile(profileData);
+        const nextProfile = normalizePassengerProfile(profileData);
+        setProfile(nextProfile);
+        setTempProfile(nextProfile);
       }
     } catch (err) {
       setError(err.message || 'Failed to load profile');
@@ -147,7 +158,7 @@ export default function PassengerProfilePanel({ token, loading: parentLoading = 
         body: updateData,
       });
 
-      const nextProfile = response?.profile || tempProfile;
+      const nextProfile = normalizePassengerProfile(response?.profile || tempProfile);
       setProfile(nextProfile);
       setTempProfile(nextProfile);
       setEditMode({ ...editMode, personalInfo: false });
@@ -166,7 +177,7 @@ export default function PassengerProfilePanel({ token, loading: parentLoading = 
       setError('');
 
       const updateData = {
-        preferred_language: tempProfile.preferred_language,
+        preferred_language: normalizeLanguageCode(tempProfile.preferred_language),
         notifications_enabled: tempProfile.notifications_enabled,
         email_notifications: tempProfile.email_notifications,
         ride_sharing_enabled: tempProfile.ride_sharing_enabled,
@@ -178,7 +189,7 @@ export default function PassengerProfilePanel({ token, loading: parentLoading = 
         body: updateData,
       });
 
-      const nextProfile = response?.profile || tempProfile;
+      const nextProfile = normalizePassengerProfile(response?.profile || tempProfile);
       setProfile(nextProfile);
       setTempProfile(nextProfile);
       setEditMode({ ...editMode, preferences: false });
@@ -352,17 +363,21 @@ export default function PassengerProfilePanel({ token, loading: parentLoading = 
           <>
             <Text style={styles.preferenceLabel}>Preferred Language</Text>
             <View style={styles.languageOptions}>
-              {['en', 'ml', 'ta', 'te'].map((lang) => (
+              {LANGUAGE_OPTIONS.map((language) => (
                 <TouchableOpacity
-                  key={lang}
+                  key={language.value}
                   style={[
                     styles.languageButton,
-                    tempProfile.preferred_language === lang && styles.languageButtonActive,
+                    tempProfile.preferred_language === language.value && styles.languageButtonActive,
                   ]}
-                  onPress={() => setTempProfile({ ...tempProfile, preferred_language: lang })}
+                  onPress={() => setTempProfile({ ...tempProfile, preferred_language: language.value })}
                 >
-                  <Text style={[styles.languageButtonText, tempProfile.preferred_language === lang && styles.languageButtonTextActive]}>
-                    {lang.toUpperCase()}
+                  <Text
+                    style={[
+                      styles.languageButtonText,
+                      tempProfile.preferred_language === language.value && styles.languageButtonTextActive,
+                    ]}>
+                    {language.label}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -411,7 +426,7 @@ export default function PassengerProfilePanel({ token, loading: parentLoading = 
         ) : (
           <>
             <Text style={styles.infoLabel}>Language</Text>
-            <Text style={styles.infoValue}>{profile.preferred_language.toUpperCase()}</Text>
+            <Text style={styles.infoValue}>{getLanguageLabel(profile.preferred_language)}</Text>
             <Text style={styles.infoLabel}>Push Notifications</Text>
             <Text style={styles.infoValue}>{profile.notifications_enabled ? 'Enabled' : 'Disabled'}</Text>
             <Text style={styles.infoLabel}>Email Notifications</Text>

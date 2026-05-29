@@ -1,3 +1,5 @@
+import { normalizeLanguageCode } from './indianLanguages';
+
 export const passengerDashboardLocales = {
   en: {
     hi: 'Hi',
@@ -823,9 +825,9 @@ function normalizePassengerLocale(code, locale) {
 }
 
 export function resolvePassengerLocale(languageCode) {
-  const code = String(languageCode || 'en').trim().toLowerCase();
-  if (code.startsWith('ml')) {
-    return normalizePassengerLocale('ml', passengerDashboardLocales.ml);
+  const code = normalizeLanguageCode(languageCode);
+  if (passengerDashboardLocales[code]) {
+    return normalizePassengerLocale(code, passengerDashboardLocales[code]);
   }
   return normalizePassengerLocale('en', passengerDashboardLocales.en);
 }

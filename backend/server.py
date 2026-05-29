@@ -88,6 +88,7 @@ from app.routers.driver_heatmaps import router as modular_heatmaps_router
 from app.routers.fleet_profitability import router as modular_profitability_router
 from app.routers.ride_types_router import router as modular_ride_types_router, init_default_ride_types
 from app.routers.vehicle_types_extended import router as modular_vehicle_types_extended_router, init_default_vehicle_types_extended
+from app.routers.vehicles_canonical import router as modular_vehicles_canonical_router, init_canonical_vehicles
 from app.routers.bookings_extended import router as modular_bookings_extended_router
 from app.routers.coverage_admin import router as modular_coverage_admin_router
 from app.sockets import configure_socket_server as configure_legacy_socket_helpers
@@ -1013,6 +1014,11 @@ async def on_startup():
         await init_default_ride_types(db)
     except Exception:
         logger.exception("Ride types initialization failed during startup")
+    # Initialize canonical vehicles (single source of truth)
+    try:
+        await init_canonical_vehicles(db)
+    except Exception:
+        logger.exception("Canonical vehicles initialization failed during startup")
     # Initialize database-driven rate limit configuration
     try:
         await init_default_rate_limit_configs(db)
@@ -1303,6 +1309,41 @@ OTP_PATTERN = r"^\d{4,8}$"
 TIME_24H_PATTERN = r"^(?:[01]\d|2[0-3]):[0-5]\d$"
 PHONE_REGEX = re.compile(r"^[6-9]\d{9}$")
 NAME_REGEX = re.compile(r"^[A-Za-z\s]{2,80}$")
+SUPPORTED_LANGUAGE_CODES = {
+    "en",
+    "as",
+    "bn",
+    "brx",
+    "doi",
+    "gu",
+    "hi",
+    "kn",
+    "ks",
+    "kok",
+    "mai",
+    "ml",
+    "mni",
+    "mr",
+    "ne",
+    "or",
+    "pa",
+    "sa",
+    "sat",
+    "sd",
+    "ta",
+    "te",
+    "ur",
+}
+
+
+def normalize_language_code(value: Optional[str], default: str = "en") -> str:
+    normalized = str(value or "").strip().lower().replace("_", "-")
+    base_code = normalized.split("-")[0] if normalized else ""
+    if normalized in SUPPORTED_LANGUAGE_CODES:
+        return normalized
+    if base_code in SUPPORTED_LANGUAGE_CODES:
+        return base_code
+    return default
 
 # ==================== MODELS ====================
 class Location(BaseModel):
@@ -1447,6 +1488,16 @@ class PassengerProfilePreferencesUpdate(BaseModel):
     notifications_enabled: Optional[bool] = None
     email_notifications: Optional[bool] = None
     ride_sharing_enabled: Optional[bool] = None
+
+    @field_validator("preferred_language")
+    @classmethod
+    def validate_preferred_language(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        normalized = normalize_language_code(value, default="")
+        if not normalized:
+            raise ValueError("Unsupported language")
+        return normalized
 
 class PassengerKYCVerifyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
@@ -1643,8 +1694,8 @@ class DriverSettingsUpdate(BaseModel):
     def validate_language(cls, value: Optional[str]) -> Optional[str]:
         if value is None:
             return value
-        normalized = str(value or "").strip().lower()
-        if normalized not in {"en", "ml", "hi", "ta"}:
+        normalized = normalize_language_code(value, default="")
+        if not normalized:
             raise ValueError("Unsupported language")
         return normalized
 
@@ -2292,8 +2343,8 @@ def normalize_driver_settings(raw_settings: Optional[Dict[str, Any]]) -> Dict[st
         if re.match(TIME_24H_PATTERN, value):
             next_settings[key] = value
 
-    language = str(source.get("language") or "").strip().lower()
-    if language in {"en", "ml", "hi", "ta"}:
+    language = normalize_language_code(source.get("language"), default="")
+    if language:
         next_settings["language"] = language
 
     theme = str(source.get("theme") or "").strip().lower()
@@ -5198,7 +5249,7 @@ async def build_passenger_profile_response(user: Dict[str, Any]) -> Dict[str, An
         "total_rides": int(profile.get("total_rides", total_rides) or total_rides),
         "completed_rides": completed_rides,
         "account_status": user.get("account_status", "active"),
-        "preferred_language": profile.get("preferred_language", "en"),
+        "preferred_language": normalize_language_code(profile.get("preferred_language"), default="en"),
         "notifications_enabled": bool(profile.get("notifications_enabled", True)),
         "email_notifications": bool(profile.get("email_notifications", True)),
         "ride_sharing_enabled": bool(profile.get("ride_sharing_enabled", False)),
@@ -14682,6 +14733,7 @@ app.include_router(modular_scheduled_rides_router)
 app.include_router(modular_vehicles_router)
 app.include_router(modular_vehicle_types_router)
 app.include_router(modular_vehicle_types_extended_router)
+app.include_router(modular_vehicles_canonical_router)
 app.include_router(modular_ride_types_router)
 app.include_router(modular_bookings_extended_router)
 app.include_router(modular_coverage_admin_router)

@@ -72,6 +72,7 @@ import {
   getPassengerRideProductLabels,
   resolvePassengerLocale,
 } from '../locales/passengerDashboard';
+import { normalizeLanguageCode } from '../locales/indianLanguages';
 import { validateScheduledPickup } from '../lib/scheduling';
 
 const LOGO_SOURCE = require('../../assets/images/autobuddy-logo.jpg');
@@ -278,7 +279,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     if (typeof window === 'undefined') {
       return 'en';
     }
-    return String(window.localStorage.getItem('autobuddy_lang') || 'en').trim().toLowerCase();
+    return normalizeLanguageCode(window.localStorage.getItem('autobuddy_lang') || 'en');
   });
   const placesConfigured = isPlacesConfigured();
   const googleMapsWebKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -666,8 +667,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       return undefined;
     }
     const syncLanguage = () => {
-      const next = String(window.localStorage.getItem('autobuddy_lang') || 'en').trim().toLowerCase();
-      setLanguageCode(next || 'en');
+      const next = normalizeLanguageCode(window.localStorage.getItem('autobuddy_lang') || 'en');
+      setLanguageCode(next);
     };
     const onLanguageEvent = () => {
       syncLanguage();
@@ -2262,12 +2263,26 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                 )}
                 {/* Trip summary removed per UI request */}
                 <View style={styles.infoBlock}>
-                  <Text style={styles.infoTitle}>{t.rideType}</Text>
+                  <Text style={styles.infoTitle}>{t.rideType || 'Ride Type'}</Text>
                   {!!rideProductAvailability?.pickup_district && (
                     <Text style={styles.hint}>
                       {t.districtLabel}: {rideProductAvailability.pickup_district}
                     </Text>
                   )}
+                  
+                  {/* NEW TWO-SCREEN BOOKING FLOW - PRIMARY INTERFACE */}
+                  <TouchableOpacity 
+                    style={[styles.bookingButton, { backgroundColor: COLORS.primary, marginVertical: 12 }]}
+                    onPress={() => setShowBookingFlow(true)}>
+                    <Text style={[styles.actionText, { color: 'white', fontSize: 16, fontWeight: '700' }]}>
+                      🚗 Book Ride (Select Vehicle & Location)
+                    </Text>
+                  </TouchableOpacity>
+                  
+                  <Text style={{ fontSize: 12, color: COLORS.gray, textAlign: 'center', marginVertical: 8 }}>
+                    OR select ride type below
+                  </Text>
+
                   {rideProductsLoading && (
                     <Text style={styles.hint}>{t.updateRideProducts}</Text>
                   )}
@@ -2281,7 +2296,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                     onSelect={setRideProduct}
                   />
 
-                  {/* Vehicle Type Selector */}
+                  {/* Vehicle Type Selector - HIDDEN (replaced by new flow) */}
+                  {false && (
                   <View style={[styles.infoBlock, { marginTop: 16, borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: 16 }]}>
                     <Text style={styles.infoTitle}>{t.vehicleType || 'Vehicle Type'}</Text>
                     {vehicleTypesLoading ? (
@@ -2315,6 +2331,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                       </ScrollView>
                     )}
                   </View>
+                  )}
 
                   {/* PHASE 1 FIX: Inline driver selection (max 5) - Reduces taps from 6-7 to 2 */}
                   {pickupLocation && dropoffLocation && visibleDrivers.length > 0 && (
@@ -3285,7 +3302,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     ...SHADOWS.soft,
   },
-  actionText: { color: '#fff', fontWeight: '700' },
+  actionText: { color: '#fff', fontWeight: '700', textAlign: 'center' },
   infoBlock: {
     borderWidth: 1,
     borderColor: '#D7E2DA',
@@ -3565,6 +3582,14 @@ const styles = StyleSheet.create({
   },
   vehicleTypeChipTextActive: {
     color: COLORS.primaryDark,
+  },
+  bookingButton: {
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...SHADOWS.soft,
   },
 });
 

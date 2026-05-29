@@ -152,27 +152,31 @@ export default function FareBreakdown({
       </View>
 
       {/* Vehicle Type Multiplier */}
-      {vehicleTypeMultiplier > 1 && vehicleTypeId && (
+      {vehicleTypeId && (
         <View style={styles.section}>
           <View style={styles.vehicleTypeExplanation}>
             <Text style={styles.vehicleTypeIcon}>{vehicleTypeIcon}</Text>
             <View style={styles.vehicleTypeContent}>
-              <Text style={styles.vehicleTypeTitle}>Vehicle Type: {vehicleTypeId}</Text>
-              <Text style={styles.vehicleTypeText}>Premium vehicle option increases fare</Text>
+              <Text style={styles.vehicleTypeTitle}>Vehicle Type: {vehicleTypeId.toUpperCase()}</Text>
+              <Text style={styles.vehicleTypeText}>{vehicleTypeMultiplier > 1 ? 'Premium vehicle option increases fare' : 'Standard vehicle pricing'}</Text>
               <Text style={styles.vehicleTypeMultiplier}>{vehicleTypeMultiplier}x multiplier</Text>
             </View>
           </View>
-          <View style={styles.itemRow}>
-            <Text style={styles.itemLabel}>
-              Vehicle Charge ({vehicleTypeMultiplier}x)
-              <Text style={styles.hint}> (Premium surcharge)</Text>
-            </Text>
-            <Text style={[styles.itemValue, styles.vehicleValue]}>₹{(Number(breakdown.subtotal) * (vehicleTypeMultiplier - 1)).toFixed(2)}</Text>
-          </View>
-          <View style={[styles.itemRow, styles.subtotalRow]}>
-            <Text style={styles.subtotalLabel}>After Vehicle Premium</Text>
-            <Text style={styles.subtotalValue}>₹{(Number(breakdown.subtotal) * vehicleTypeMultiplier).toFixed(2)}</Text>
-          </View>
+          {vehicleTypeMultiplier > 1 && (
+            <>
+              <View style={styles.itemRow}>
+                <Text style={styles.itemLabel}>
+                  Vehicle Charge ({vehicleTypeMultiplier}x)
+                  <Text style={styles.hint}> (Premium surcharge)</Text>
+                </Text>
+                <Text style={[styles.itemValue, styles.vehicleValue]}>₹{(Number(breakdown.subtotal) * (vehicleTypeMultiplier - 1)).toFixed(2)}</Text>
+              </View>
+              <View style={[styles.itemRow, styles.subtotalRow]}>
+                <Text style={styles.subtotalLabel}>After Vehicle Premium</Text>
+                <Text style={styles.subtotalValue}>₹{(Number(breakdown.subtotal) * vehicleTypeMultiplier).toFixed(2)}</Text>
+              </View>
+            </>
+          )}
         </View>
       )}
 

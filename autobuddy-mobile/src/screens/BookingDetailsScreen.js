@@ -36,7 +36,22 @@ import ScheduledPickupPicker from '../components/ScheduledPickupPicker';
  */
 
 const BookingDetailsScreen = ({ navigation, route }) => {
-  const { vehicleType, rideType } = route.params;
+  // Extract service data from route params
+  const service = route.params?.service || {};
+  const {
+    vehicle_type_id,
+    vehicle_name,
+    vehicle_icon,
+    vehicle_capacity,
+    capacity_unit,
+    ride_type,
+    ride_type_name,
+    special_fields = [],
+  } = service;
+
+  // Fallback to old params for compatibility
+  const vehicleType = { id: vehicle_type_id, name: vehicle_name, icon: vehicle_icon };
+  const rideType = { id: ride_type, name: ride_type_name };
 
   const [pickupLocation, setPickupLocation] = useState('');
   const [dropoffLocation, setDropoffLocation] = useState('');
@@ -44,7 +59,17 @@ const BookingDetailsScreen = ({ navigation, route }) => {
   const [dropoffCoords, setDropoffCoords] = useState(null);
   const [rideDate, setRideDate] = useState(new Date());
   const [passengerCount, setPassengerCount] = useState(1);
+  
+  // Ride-type specific fields
   const [goodsWeight, setGoodsWeight] = useState(0);
+  const [goodsType, setGoodsType] = useState('package');
+  const [loadingHelpRequired, setLoadingHelpRequired] = useState(false);
+  const [airportTerminal, setAirportTerminal] = useState('');
+  const [flightNumber, setFlightNumber] = useState('');
+  const [rentalHours, setRentalHours] = useState(4);
+  const [tourHours, setTourHours] = useState(4);
+  const [tourItinerary, setTourItinerary] = useState('');
+  
   const [promoCode, setPromoCode] = useState('');
   const [estimatedFare, setEstimatedFare] = useState(null);
   const [estimatedDistance, setEstimatedDistance] = useState(null);
@@ -147,23 +172,36 @@ const BookingDetailsScreen = ({ navigation, route }) => {
     try {
       setLoading(true);
 
+      // Build request with all ride-type specific fields
+      const fareRequest = {
+        pickup_latitude: pickupCoords.latitude,
+        pickup_longitude: pickupCoords.longitude,
+        dropoff_latitude: dropoffCoords.latitude,
+        dropoff_longitude: dropoffCoords.longitude,
+        ride_type: ride_type,
+        vehicle_type_id: vehicle_type_id,
+        passenger_count: passengerCount,
+        scheduled_datetime: ride_type === 'scheduled' ? rideDate.toISOString() : null,
+      };
+
+      // Add ride-type specific fields if present
+      if (ride_type === 'goods') {
+        fareRequest.goods_weight_kg = goodsWeight;
+      } else if (ride_type === 'rental' || ride_type === 'tourism') {
+        fareRequest.rental_hours = ride_type === 'rental' ? rentalHours : tourHours;
+      }
+
       const response = await apiRequest({
         endpoint: '/api/bookings/estimate-fare',
         method: 'POST',
-        body: {
-          pickup_latitude: pickupCoords.latitude,
-          pickup_longitude: pickupCoords.longitude,
-          dropoff_latitude: dropoffCoords.latitude,
-          dropoff_longitude: dropoffCoords.longitude,
-          vehicle_type_id: vehicleType.id,
-          passenger_count: passengerCount,
-          goods_weight_kg: rideType.id === 'goods' ? goodsWeight : null,
-        },
+        body: fareRequest,
       });
 
-      setEstimatedFare(response.data.estimated_fare);
-      setEstimatedDistance(response.data.distance_km);
-      setEstimatedDuration(response.data.duration_minutes);
+      if (response.estimated_fare) {
+        setEstimatedFare(response.estimated_fare);
+        setEstimatedDistance(response.distance_km);
+        setEstimatedDuration(response.estimated_time_minutes);
+      }
     } catch (error) {
       console.error('Error calculating fare:', error);
     } finally {
@@ -180,21 +218,35 @@ const BookingDetailsScreen = ({ navigation, route }) => {
     try {
       setLoading(true);
 
+      // Build comprehensive booking data
       const bookingData = {
         pickup_latitude: pickupCoords.latitude,
         pickup_longitude: pickupCoords.longitude,
-        pickup_address: pickupLocation,
+        pickup_location: pickupLocation,
         dropoff_latitude: dropoffCoords.latitude,
         dropoff_longitude: dropoffCoords.longitude,
-        dropoff_address: dropoffLocation,
-        vehicle_type_id: vehicleType.id,
-        ride_type: rideType.id,
-        scheduled_pickup_time:
-          rideType.id === 'scheduled' ? rideDate.toISOString() : null,
+        dropoff_location: dropoffLocation,
+        vehicle_type_id: vehicle_type_id,
+        ride_type: ride_type,
         passenger_count: passengerCount,
-        goods_weight_kg: rideType.id === 'goods' ? goodsWeight : null,
+        scheduled_datetime: ride_type === 'scheduled' ? rideDate.toISOString() : null,
         promo_code: promoCode || null,
       };
+
+      // Add ride-type specific fields
+      if (ride_type === 'goods') {
+        bookingData.goods_weight_kg = goodsWeight;
+        bookingData.goods_type = goodsType;
+        bookingData.loading_help_required = loadingHelpRequired;
+      } else if (ride_type === 'airport') {
+        bookingData.airport_terminal = airportTerminal;
+        bookingData.flight_number = flightNumber;
+      } else if (ride_type === 'rental') {
+        bookingData.rental_hours = rentalHours;
+      } else if (ride_type === 'tourism') {
+        bookingData.tour_hours = tourHours;
+        bookingData.tour_itinerary = tourItinerary;
+      }
 
       const response = await apiRequest({
         endpoint: '/api/bookings/create',
@@ -202,10 +254,10 @@ const BookingDetailsScreen = ({ navigation, route }) => {
         body: bookingData,
       });
 
-      if (response.data?.booking_id) {
+      if (response.booking_id || response.data?.booking_id) {
         // Navigate to ride details
         navigation.navigate('RideDetails', {
-          bookingId: response.data.booking_id,
+          bookingId: response.booking_id || response.data.booking_id,
         });
       }
     } catch (error) {
@@ -391,6 +443,144 @@ const BookingDetailsScreen = ({ navigation, route }) => {
             </>
           )}
         </View>
+
+        {/* Ride-Type Specific Fields */}
+        
+        {/* GOODS DETAILS */}
+        {ride_type === 'goods' && (
+          <>
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>📦 GOODS TYPE</Text>
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>Type of Goods</Text>
+                <View style={styles.pickupContainer}>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="e.g., package, furniture, electronics"
+                    value={goodsType}
+                    onChangeText={setGoodsType}
+                    placeholderTextColor={COLORS.textSecondary}
+                  />
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>🏋️ LOADING ASSISTANCE</Text>
+              <TouchableOpacity
+                style={[styles.checkboxContainer, loadingHelpRequired && styles.checkboxChecked]}
+                onPress={() => setLoadingHelpRequired(!loadingHelpRequired)}
+              >
+                <Text style={styles.checkbox}>{loadingHelpRequired ? '☑' : '☐'}</Text>
+                <Text style={styles.checkboxLabel}>Need loading assistance? (₹50 extra)</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
+
+        {/* AIRPORT DETAILS */}
+        {ride_type === 'airport' && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>✈️ FLIGHT DETAILS</Text>
+            
+            <View style={styles.fieldGroup}>
+              <Text style={styles.fieldLabel}>Terminal (Optional)</Text>
+              <View style={styles.pickupContainer}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g., A, B, T3"
+                  value={airportTerminal}
+                  onChangeText={setAirportTerminal}
+                  placeholderTextColor={COLORS.textSecondary}
+                />
+              </View>
+            </View>
+
+            <View style={styles.fieldGroup}>
+              <Text style={styles.fieldLabel}>Flight Number (Optional)</Text>
+              <View style={styles.pickupContainer}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g., AI123"
+                  value={flightNumber}
+                  onChangeText={setFlightNumber}
+                  placeholderTextColor={COLORS.textSecondary}
+                />
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* RENTAL DETAILS */}
+        {ride_type === 'rental' && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>⏰ RENTAL DURATION</Text>
+
+            <View style={styles.counterGroup}>
+              <Text style={styles.counterLabel}>Rental Hours</Text>
+              <View style={styles.counterContainer}>
+                <TouchableOpacity
+                  style={styles.counterButton}
+                  onPress={() => setRentalHours(Math.max(1, rentalHours - 1))}
+                >
+                  <Text style={styles.counterButtonText}>−</Text>
+                </TouchableOpacity>
+                <Text style={styles.counterValue}>{rentalHours} hours</Text>
+                <TouchableOpacity
+                  style={styles.counterButton}
+                  onPress={() => setRentalHours(rentalHours + 1)}
+                >
+                  <Text style={styles.counterButtonText}>+</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* TOURISM DETAILS */}
+        {ride_type === 'tourism' && (
+          <>
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>🗺️ TOUR DURATION</Text>
+
+              <View style={styles.counterGroup}>
+                <Text style={styles.counterLabel}>Tour Hours</Text>
+                <View style={styles.counterContainer}>
+                  <TouchableOpacity
+                    style={styles.counterButton}
+                    onPress={() => setTourHours(Math.max(2, tourHours - 1))}
+                  >
+                    <Text style={styles.counterButtonText}>−</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.counterValue}>{tourHours} hours</Text>
+                  <TouchableOpacity
+                    style={styles.counterButton}
+                    onPress={() => setTourHours(tourHours + 1)}
+                  >
+                    <Text style={styles.counterButtonText}>+</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>📋 TOUR ITINERARY</Text>
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>Planned Stops & Route (Optional)</Text>
+                <View style={styles.pickupContainer}>
+                  <TextInput
+                    style={[styles.input, { minHeight: 80, textAlignVertical: 'top' }]}
+                    placeholder="Enter stops and route details"
+                    value={tourItinerary}
+                    onChangeText={setTourItinerary}
+                    placeholderTextColor={COLORS.textSecondary}
+                    multiline
+                  />
+                </View>
+              </View>
+            </View>
+          </>
+        )}
 
         {/* Promo Code */}
         <View style={styles.section}>
@@ -744,6 +934,44 @@ const styles = StyleSheet.create({
     ...TYPOGRAPHY.heading3,
     color: COLORS.primary,
     fontWeight: 'bold',
+  },
+
+  checkboxContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 8,
+    backgroundColor: COLORS.background,
+  },
+
+  checkboxChecked: {
+    borderColor: COLORS.primary,
+    backgroundColor: '#E8F5E9',
+  },
+
+  checkbox: {
+    fontSize: 18,
+    marginRight: 12,
+    color: COLORS.primary,
+  },
+
+  checkboxLabel: {
+    ...TYPOGRAPHY.body,
+    color: COLORS.text,
+    flex: 1,
+  },
+
+  fieldGroup: {
+    marginBottom: 16,
+  },
+
+  fieldLabel: {
+    ...TYPOGRAPHY.label,
+    color: COLORS.text,
+    marginBottom: 6,
   },
 
   spacer: {

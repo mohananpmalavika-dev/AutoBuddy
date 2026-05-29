@@ -1,14 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { INDIAN_LANGUAGE_OPTIONS, normalizeLanguageCode } from '../locales/indianLanguages';
 
-const LANGUAGES = [
-  { code: 'en', label: 'English', speech: 'en-IN' },
-  { code: 'ml', label: '\u0d2e\u0d32\u0d2f\u0d3e\u0d33\u0d02', speech: 'ml-IN' },
-  { code: 'hi', label: '\u0939\u093f\u0928\u094d\u0926\u0940', speech: 'hi-IN' },
-  { code: 'ta', label: '\u0ba4\u0bae\u0bbf\u0bb4\u0bcd', speech: 'ta-IN' },
-  { code: 'te', label: '\u0c24\u0c46\u0c32\u0c41\u0c17\u0c41', speech: 'te-IN' },
-  { code: 'kn', label: '\u0c95\u0ca8\u0ccd\u0ca8\u0ca1', speech: 'kn-IN' },
-];
+const LANGUAGES = INDIAN_LANGUAGE_OPTIONS.map((language) => ({
+  code: language.value,
+  label: language.nativeLabel || language.label,
+  speech: language.speech,
+}));
 
 const TEXT_TRANSLATIONS = {
   'Welcome Back': {
@@ -192,7 +190,7 @@ export default function WebCommandBar({ showLanguageSelector = false }) {
   const [status, setStatus] = useState('');
   const [languageCode, setLanguageCode] = useState(() => {
     if (!isWeb || typeof window === 'undefined') return 'en';
-    return window.localStorage.getItem('autobuddy_lang') || 'en';
+    return normalizeLanguageCode(window.localStorage.getItem('autobuddy_lang') || 'en');
   });
 
   const currentLanguage = useMemo(

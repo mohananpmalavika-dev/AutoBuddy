@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   ScrollView,
@@ -9,7 +9,6 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { SymbolView } from 'expo-symbols';
 import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme';
 import { apiRequest } from '../lib/api';
 
@@ -28,12 +27,13 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
   const [selectedVehicleType, setSelectedVehicleType] = useState(null);
   const [selectedRideType, setSelectedRideType] = useState(null);
   const [vehicleTypes, setVehicleTypes] = useState([]);
+  const [filteredVehicles, setFilteredVehicles] = useState([]);
   const [rideTypes, setRideTypes] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [compatibilityInfo, setCompatibilityInfo] = useState(null);
 
   // Vehicle types with categories and sub-types
-  const VEHICLE_TYPES = [
+  const VEHICLE_TYPES = useMemo(() => [
     {
       id: 'auto',
       name: 'Auto',
@@ -90,10 +90,10 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
       color: '#654321',
       subtypes: ['2.5T', '5T', '10T'],
     },
-  ];
+  ], []);
 
   // Ride types
-  const RIDE_TYPES = [
+  const RIDE_TYPES = useMemo(() => [
     {
       id: 'instant',
       name: 'Instant Ride',
@@ -143,19 +143,47 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
       description: 'Cargo delivery',
       color: '#F39C12',
     },
-  ];
+  ], []);
 
-  useEffect(() => {
-    loadServiceData();
-  }, []);
+  const fetchCompatibleVehicles = useCallback(async (rideTypeId) => {
+    try {
+      // Fetch compatibility info from backend
+      const response = await apiRequest({
+        endpoint: `/api/vehicles/public/compatibility/by-ride-type?ride_type=${rideTypeId}`,
+        method: 'GET',
+      });
 
-  const loadServiceData = async () => {
+      if (response.success === false) {
+        // Fall back to all vehicles if API fails
+        setFilteredVehicles(vehicleTypes);
+        setCompatibilityInfo(null);
+        return;
+      }
+
+      const compatibleVehicleIds = response.compatible_vehicles || [];
+      setCompatibilityInfo(response);
+      
+      // Filter vehicles to show only compatible ones
+      const filtered = vehicleTypes.filter(v => 
+        compatibleVehicleIds.includes(v.id || v.vehicle_type_id)
+      );
+      
+      setFilteredVehicles(filtered.length > 0 ? filtered : vehicleTypes);
+    } catch (err) {
+      console.error('Error fetching compatible vehicles:', err);
+      // Fall back to all vehicles
+      setFilteredVehicles(vehicleTypes);
+      setCompatibilityInfo(null);
+    }
+  }, [vehicleTypes]);
+
+  const loadServiceData = useCallback(async () => {
     try {
       setLoading(true);
       
-      // Fetch available vehicle types from backend
+      // Fetch available vehicle types from CANONICAL vehicles API
       const vehiclesResponse = await apiRequest({
-        endpoint: '/api/admin/vehicle-types/public/all',
+        endpoint: '/api/vehicles/public/all',  // ← Updated to canonical endpoint
         method: 'GET',
       });
 
@@ -165,9 +193,8 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
         method: 'GET',
       });
 
-      setVehicleTypes(vehiclesResponse.data || VEHICLE_TYPES);
-      setRideTypes(rideTypesResponse.data || RIDE_TYPES);
-      setError(null);
+      setVehicleTypes(vehiclesResponse.data || vehiclesResponse || VEHICLE_TYPES);
+      setRideTypes(rideTypesResponse.data || rideTypesResponse || RIDE_TYPES);
     } catch (err) {
       console.error('Error loading service data:', err);
       // Fall back to static data if API fails
@@ -176,7 +203,25 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [RIDE_TYPES, VEHICLE_TYPES]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      loadServiceData();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [loadServiceData]);
+
+  // When ride type is selected, fetch compatible vehicles and filter
+  useEffect(() => {
+    if (selectedRideType) {
+      const timer = setTimeout(() => {
+        fetchCompatibleVehicles(selectedRideType.id);
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+    return undefined;
+  }, [fetchCompatibleVehicles, selectedRideType]);
 
   const handleContinue = () => {
     if (!selectedVehicleType) {
@@ -188,10 +233,19 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
       return;
     }
 
-    // Navigate to BookingDetailsScreen with selected service
+    // Navigate to BookingDetailsScreen with comprehensive service data
     navigation.navigate('BookingDetails', {
-      vehicleType: selectedVehicleType,
-      rideType: selectedRideType,
+      service: {
+        vehicle_type_id: selectedVehicleType.id || selectedVehicleType.vehicle_type_id,
+        vehicle_name: selectedVehicleType.name,
+        vehicle_icon: selectedVehicleType.icon,
+        vehicle_capacity: selectedVehicleType.capacity || 4,
+        capacity_unit: selectedVehicleType.capacity_unit || 'passengers',
+        ride_type: selectedRideType.id,
+        ride_type_name: selectedRideType.name,
+        ride_type_icon: selectedRideType.icon,
+        special_fields: compatibilityInfo?.special_fields || [],
+      }
     });
   };
 
@@ -227,20 +281,29 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
             What type of vehicle do you need?
           </Text>
 
+          {/* Compatibility Info */}
+          {selectedRideType && compatibilityInfo && (
+            <View style={styles.compatibilityInfo}>
+              <Text style={styles.compatibilityLabel}>
+                💡 {compatibilityInfo.ride_type_multiplier}x multiplier for {selectedRideType.name}
+              </Text>
+            </View>
+          )}
+
           <View style={styles.gridContainer}>
-            {vehicleTypes.map((vehicle) => (
+            {(selectedRideType ? filteredVehicles : vehicleTypes).map((vehicle) => (
               <TouchableOpacity
-                key={vehicle.id}
+                key={vehicle.id || vehicle.vehicle_type_id}
                 style={[
                   styles.vehicleCard,
-                  selectedVehicleType?.id === vehicle.id && styles.vehicleCardSelected,
+                  (selectedVehicleType?.id === vehicle.id || selectedVehicleType?.vehicle_type_id === vehicle.vehicle_type_id) && styles.vehicleCardSelected,
                 ]}
                 onPress={() => setSelectedVehicleType(vehicle)}
               >
                 <View
                   style={[
                     styles.vehicleIconBg,
-                    { backgroundColor: vehicle.color + '20' },
+                    { backgroundColor: (vehicle.color || '#FFA500') + '20' },
                   ]}
                 >
                   <Text style={styles.vehicleIcon}>{vehicle.icon}</Text>
@@ -248,10 +311,12 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
 
                 <Text style={styles.vehicleName}>{vehicle.name}</Text>
                 <Text style={styles.vehicleDescription}>
-                  {vehicle.description}
+                  {vehicle.description || vehicle.capacity_unit === 'kg' 
+                    ? `Up to ${vehicle.capacity}${vehicle.capacity_unit}`
+                    : `${vehicle.capacity} ${vehicle.capacity_unit}`}
                 </Text>
 
-                {selectedVehicleType?.id === vehicle.id && (
+                {(selectedVehicleType?.id === vehicle.id || selectedVehicleType?.vehicle_type_id === vehicle.vehicle_type_id) && (
                   <View style={styles.checkmark}>
                     <Text style={styles.checkmarkText}>✓</Text>
                   </View>
@@ -599,6 +664,22 @@ const styles = StyleSheet.create({
   summaryValue: {
     ...TYPOGRAPHY.body,
     color: COLORS.text,
+    fontWeight: '600',
+  },
+
+  compatibilityInfo: {
+    backgroundColor: '#E8F5E9',
+    borderLeftWidth: 4,
+    borderLeftColor: COLORS.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 16,
+    borderRadius: 8,
+  },
+
+  compatibilityLabel: {
+    ...TYPOGRAPHY.body,
+    color: '#2E7D32',
     fontWeight: '600',
   },
 

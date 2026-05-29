@@ -8,6 +8,7 @@ import {
   View,
 } from 'react-native';
 import { apiRequest } from '../lib/api';
+import { buildLanguageOptions, normalizeLanguageCode } from '../locales/indianLanguages';
 import { COLORS, SHADOWS } from '../theme';
 import VoiceTextInput from './VoiceTextInput';
 import { driverDashboardLocales } from '../locales/driverDashboard';
@@ -18,7 +19,7 @@ import { driverDashboardLocales } from '../locales/driverDashboard';
  * @returns {object} Translated strings
  */
 function resolveDriverLocale(languageCode = 'en') {
-  const normalized = String(languageCode || 'en').trim().toLowerCase();
+  const normalized = normalizeLanguageCode(languageCode);
   return driverDashboardLocales[normalized] || driverDashboardLocales.en;
 }
 
@@ -54,7 +55,7 @@ function normalizeSettings(rawSettings = {}) {
     quiet_hours_enabled: source.quiet_hours_enabled ?? DEFAULT_SETTINGS.quiet_hours_enabled,
     quiet_hours_start: isValidTime24(source.quiet_hours_start) ? source.quiet_hours_start : DEFAULT_SETTINGS.quiet_hours_start,
     quiet_hours_end: isValidTime24(source.quiet_hours_end) ? source.quiet_hours_end : DEFAULT_SETTINGS.quiet_hours_end,
-    language: ['en', 'ml', 'hi', 'ta'].includes(String(source.language || '').toLowerCase()) ? String(source.language).toLowerCase() : DEFAULT_SETTINGS.language,
+    language: normalizeLanguageCode(source.language || DEFAULT_SETTINGS.language),
     theme: ['light', 'dark', 'auto'].includes(String(source.theme || '').toLowerCase()) ? String(source.theme).toLowerCase() : DEFAULT_SETTINGS.theme,
     share_location: source.share_location ?? DEFAULT_SETTINGS.share_location,
     accept_promo: source.accept_promo ?? DEFAULT_SETTINGS.accept_promo,
@@ -93,18 +94,10 @@ export default function EnhancedSettingsPanel({
     if (typeof window === 'undefined') {
       return 'en';
     }
-    return String(window.localStorage.getItem('autobuddy_lang') || 'en').trim().toLowerCase();
+    return normalizeLanguageCode(window.localStorage?.getItem('autobuddy_lang') || 'en');
   });
   const t = useMemo(() => resolveDriverLocale(languageCode), [languageCode]);
-  const languages = useMemo(
-    () => [
-      { value: 'en', label: t.english || 'English' },
-      { value: 'ml', label: t.malayalam || 'Malayalam' },
-      { value: 'hi', label: t.hindi || 'Hindi' },
-      { value: 'ta', label: t.tamil || 'Tamil' },
-    ],
-    [t],
-  );
+  const languages = useMemo(() => buildLanguageOptions(), []);
   const themes = useMemo(
     () => [
       { value: 'light', label: t.light || 'Light' },
@@ -121,10 +114,18 @@ export default function EnhancedSettingsPanel({
 
   // Handle language preference updates without triggering setState in effect
   const updateLanguagePreference = useCallback((lang) => {
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem('autobuddy_lang', lang);
-      setLanguageCode(lang);
+    const nextLanguage = normalizeLanguageCode(lang);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem('autobuddy_lang', nextLanguage);
+      if (typeof window.dispatchEvent === 'function' && typeof CustomEvent !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('autobuddy-language-change', {
+            detail: { language: nextLanguage },
+          }),
+        );
+      }
     }
+    setLanguageCode(nextLanguage);
   }, []);
 
   const fetchSettings = useCallback(async () => {

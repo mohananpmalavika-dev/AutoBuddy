@@ -1,6 +1,8 @@
 """
 Fare Estimation and Booking Management for Total Mobility Platform
 Handles fare calculation with vehicle multipliers and ride type configurations
+Uses CANONICAL VEHICLE MODEL as single source of truth
+Integrated with comprehensive fare_calculation_service
 """
 
 from fastapi import APIRouter, HTTPException, Depends, Query
@@ -10,12 +12,42 @@ from datetime import datetime
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from math import radians, cos, sin, asin, sqrt
 from app.db.database import get_db
+from app.models.canonical_vehicle_model import (
+    get_vehicle_by_id,
+    get_vehicle_multiplier as canonical_get_multiplier,
+    get_vehicle_capacity,
+    supports_ride_type
+)
+from app.models.enhanced_booking_models import (
+    EnhancedBookingRequest,
+    BookingFareEstimateRequest,
+    BookingFareEstimateResponse,
+    GoodsDetails,
+    AirportDetails,
+    RentalDetails,
+    TourismDetails,
+    FareBreakdown
+)
+from app.services.fare_calculation_service import (
+    calculate_complete_fare,
+    haversine_distance as service_haversine,
+    estimate_time_minutes
+)
+from app.models.ride_type_compatibility import (
+    RIDE_TYPE_COMPATIBILITY,
+    get_compatible_vehicles,
+    is_vehicle_compatible_with_ride_type
+)
 import uuid
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/bookings", tags=["bookings"])
 
-# Models
-class FareEstimateRequest(BaseModel):
+# Models - Using enhanced booking models
+class LegacyFareEstimateRequest(BaseModel):
+    """Legacy request format for backwards compatibility"""
     pickup_latitude: float
     pickup_longitude: float
     dropoff_latitude: float
@@ -28,7 +60,8 @@ class FareEstimateRequest(BaseModel):
     is_scheduled: bool = False
     discount_percentage: float = 0
 
-class CreateBookingRequest(BaseModel):
+class LegacyCreateBookingRequest(BaseModel):
+    """Legacy request format for backwards compatibility"""
     pickup_latitude: float
     pickup_longitude: float
     pickup_address: str
@@ -43,256 +76,142 @@ class CreateBookingRequest(BaseModel):
     goods_weight_kg: Optional[float] = None
     promo_code: Optional[str] = None
 
-# Utility functions
+
+# Utility function for backwards compatibility
 def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """
     Calculate the great circle distance between two points on earth (in km)
+    Deprecated: Use fare_calculation_service.haversine_distance instead
     """
-    lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
-    
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
-    a = sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2
-    c = 2 * asin(sqrt(a))
-    
-    km = 6371 * c
-    return km
-
-async def get_vehicle_multiplier(
-    db: AsyncIOMotorDatabase,
-    vehicle_type_id: str,
-    vehicle_subtype_id: Optional[str]
-) -> float:
-    """Get multiplier for vehicle type/subtype"""
-    try:
-        collection = db["vehicle_types"]
-        vehicle = await collection.find_one({"_id": vehicle_type_id})
-        
-        if not vehicle:
-            return 1.0
-        
-        if vehicle_subtype_id:
-            for subtype in vehicle.get("subtypes", []):
-                if subtype["id"] == vehicle_subtype_id:
-                    return subtype.get("multiplier", 1.0)
-        
-        return vehicle.get("base_multiplier", 1.0)
-    except:
-        return 1.0
-
-def get_base_fare(vehicle_type_id: str, ride_type: str) -> float:
-    """Get base fare for vehicle type and ride type"""
-    
-    BASE_FARES = {
-        "instant": {
-            "auto": 25, "taxi": 40, "xl": 50, "traveller": 60,
-            "bus": 100, "minitruck": 80, "truck": 120
-        },
-        "scheduled": {
-            "auto": 25, "taxi": 40, "xl": 50, "traveller": 60,
-            "bus": 100, "minitruck": 80, "truck": 120
-        },
-        "rental": {
-            "auto": 200, "taxi": 300, "xl": 400, "traveller": 500,
-            "bus": 800, "minitruck": 600, "truck": 900
-        },
-        "airport": {
-            "auto": 50, "taxi": 75, "xl": 100, "traveller": 150,
-            "bus": 250, "minitruck": 150, "truck": 250
-        },
-        "corporate": {
-            "auto": 40, "taxi": 60, "xl": 80, "traveller": 100,
-            "bus": 200, "minitruck": 120, "truck": 180
-        },
-        "tourism": {
-            "auto": 300, "taxi": 500, "xl": 700, "traveller": 1000,
-            "bus": 1500, "minitruck": 1200, "truck": 1800
-        },
-        "goods": {
-            "minitruck": 100, "truck": 150
-        }
-    }
-    
-    return BASE_FARES.get(ride_type, {}).get(vehicle_type_id, 50)
+    return service_haversine(lat1, lon1, lat2, lon2)
 
 @router.post("/estimate-fare")
 async def estimate_fare(
-    request: FareEstimateRequest,
+    request: BookingFareEstimateRequest,
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
     """
-    Estimate fare for a booking with vehicle type and ride type
+    Comprehensive fare estimation using fare_calculation_service
     
     Calculation flow:
-    1. Calculate distance using haversine
-    2. Estimate time (avg speed ~20 km/h in city)
-    3. Calculate base components (base fare + distance + time)
-    4. Apply vehicle multiplier
-    5. Apply surge pricing
-    6. Add taxes (18% GST)
+    1. Validate vehicle type and ride type compatibility
+    2. Calculate distance using haversine
+    3. Estimate time based on distance and ride type
+    4. Get base fare configuration from database
+    5. Calculate base fare (distance or weight based)
+    6. Apply vehicle multiplier
+    7. Apply ride-type multiplier
+    8. Calculate surge pricing (if provided)
+    9. Apply promo discount
+    10. Calculate taxes
+    11. Return complete FareBreakdown
     """
     try:
-        # Validate vehicle type
-        vehicle_collection = db["vehicle_types"]
-        vehicle = await vehicle_collection.find_one({"_id": request.vehicle_type_id})
+        # Validate vehicle type using CANONICAL vehicles collection
+        vehicle = await db.vehicles.find_one({"vehicle_type_id": request.vehicle_type_id})
         if not vehicle:
-            raise HTTPException(status_code=400, detail="Invalid vehicle type")
+            raise HTTPException(status_code=400, detail=f"Invalid vehicle type: {request.vehicle_type_id}")
         
-        # Validate ride type
-        ride_type_collection = db["ride_types"]
-        ride_type_obj = await ride_type_collection.find_one({"_id": request.ride_type})
-        if not ride_type_obj:
-            raise HTTPException(status_code=400, detail="Invalid ride type")
+        # Validate ride type compatibility
+        if not is_vehicle_compatible_with_ride_type(request.vehicle_type_id, request.ride_type):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Vehicle {request.vehicle_type_id} does not support {request.ride_type} rides"
+            )
         
-        # Calculate distance
-        distance_km = haversine_distance(
-            request.pickup_latitude,
-            request.pickup_longitude,
-            request.dropoff_latitude,
-            request.dropoff_longitude
-        )
-        distance_km = max(distance_km, 1.0)
+        # Get current demand levels (default values if not provided)
+        current_rides = request.current_rides or 0
+        available_drivers = request.available_drivers or 10
+        is_peak = request.is_peak_hours or False
         
-        # Estimate duration (average speed ~20 km/h in city)
-        duration_minutes = int((distance_km / 20) * 60 + 5)
-        
-        # Get base fare
-        base_fare = get_base_fare(request.vehicle_type_id, request.ride_type)
-        
-        # Calculate components
-        distance_charge = distance_km * 12  # ₹12 per km
-        time_charge = duration_minutes * 2   # ₹2 per minute
-        
-        subtotal = base_fare + distance_charge + time_charge
-        
-        # Apply vehicle multiplier
-        vehicle_multiplier = await get_vehicle_multiplier(
-            db,
-            request.vehicle_type_id,
-            request.vehicle_subtype_id
+        # Call comprehensive fare calculation service
+        fare_result = calculate_complete_fare(
+            vehicle_type_id=request.vehicle_type_id,
+            ride_type=request.ride_type,
+            pickup_lat=request.pickup_latitude,
+            pickup_lon=request.pickup_longitude,
+            dropoff_lat=request.dropoff_latitude,
+            dropoff_lon=request.dropoff_longitude,
+            vehicle_subtype_id=request.vehicle_subtype_id,
+            goods_weight_kg=request.goods_weight_kg,
+            rental_hours=request.rental_hours,
+            is_peak_hours=is_peak,
+            current_rides=current_rides,
+            available_drivers=available_drivers,
+            promo_discount=request.promo_discount or 0.0,
+            tax_percentage=5.0  # 5% tax
         )
         
-        # Vehicle charge (premium above base multiplier)
-        vehicle_charge = subtotal * (vehicle_multiplier - 1)
-        after_vehicle = subtotal + vehicle_charge
-        
-        # Apply surge pricing (for now, 1.0x - can be dynamic)
-        surge_multiplier = 1.0
-        surge_charge = after_vehicle * (surge_multiplier - 1)
-        after_surge = after_vehicle + surge_charge
-        
-        # Apply goods weight surcharge
-        goods_charge = 0
-        if request.goods_weight_kg and request.goods_weight_kg > 0:
-            goods_charge = request.goods_weight_kg * 5  # ₹5 per kg
-        
-        # Taxes (18% GST)
-        tax_rate = 0.18
-        taxable_amount = after_surge + goods_charge
-        taxes = taxable_amount * tax_rate
-        
-        # Final fare
-        estimated_fare = taxable_amount + taxes
-        
-        # Apply discount if provided
-        if request.discount_percentage > 0:
-            discount_amount = estimated_fare * (request.discount_percentage / 100)
-            estimated_fare = estimated_fare - discount_amount
+        # Log fare calculation
+        logger.info(f"Fare estimate: {request.vehicle_type_id} {request.ride_type} - ₹{fare_result['total_fare']:.2f}")
         
         return {
             "status": "success",
             "data": {
-                "distance_km": round(distance_km, 2),
-                "duration_minutes": duration_minutes,
-                "base_fare": base_fare,
-                "distance_charge": round(distance_charge, 2),
-                "time_charge": round(time_charge, 2),
-                "subtotal": round(subtotal, 2),
-                "vehicle_multiplier": vehicle_multiplier,
-                "vehicle_charge": round(vehicle_charge, 2),
-                "after_vehicle": round(after_vehicle, 2),
-                "surge_multiplier": surge_multiplier,
-                "surge_charge": round(surge_charge, 2),
-                "after_surge": round(after_surge, 2),
-                "goods_charge": round(goods_charge, 2),
-                "taxes": round(taxes, 2),
-                "estimated_fare": round(estimated_fare, 2),
-                "breakdown": {
-                    "base": base_fare,
-                    "distance": round(distance_charge, 2),
-                    "time": round(time_charge, 2),
-                    "vehicle_premium": round(vehicle_charge, 2),
-                    "surge": round(surge_charge, 2),
-                    "goods": round(goods_charge, 2),
-                    "taxes": round(taxes, 2)
-                }
+                "estimated_fare": fare_result['total_fare'],
+                "distance_km": fare_result['distance_km'],
+                "estimated_time_minutes": fare_result['estimated_time_minutes'],
+                "vehicle_multiplier": fare_result['vehicle_multiplier'],
+                "ride_type_multiplier": fare_result['ride_type_multiplier'],
+                "surge_multiplier": fare_result.get('surge_multiplier', 1.0),
+                "fare_breakdown": fare_result['fare_breakdown'],
+                "valid_until": fare_result['valid_until']
             }
         }
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Fare estimation error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Fare calculation failed: {str(e)}")
 
 @router.post("/create")
 async def create_booking(
-    request: CreateBookingRequest,
+    request: EnhancedBookingRequest,
     db: AsyncIOMotorDatabase = Depends(get_db),
     # current_user = Depends(get_current_user)  # Uncomment when auth is ready
 ):
     """
-    Create a new booking with vehicle type and ride type
+    Create a new booking with complete vehicle and ride type information
+    
+    Supports:
+    - Instant: Standard distance-based rides
+    - Scheduled: Pre-booked rides with discount
+    - Rental: Hourly vehicle rental with minimum hours
+    - Airport: Premium airport transfers with flight details
+    - Corporate: Business rides with premium pricing
+    - Tourism: Extended tours with hourly rates
+    - Goods: Weight-based cargo delivery
     """
     try:
         # Validate vehicle type
-        vehicle_collection = db["vehicle_types"]
-        vehicle = await vehicle_collection.find_one({"_id": request.vehicle_type_id})
+        vehicle = await db.vehicles.find_one({"vehicle_type_id": request.vehicle_type_id})
         if not vehicle:
-            raise HTTPException(status_code=400, detail="Invalid vehicle type")
+            raise HTTPException(status_code=400, detail=f"Invalid vehicle type: {request.vehicle_type_id}")
         
-        # Validate ride type
-        ride_type_collection = db["ride_types"]
-        ride_type_obj = await ride_type_collection.find_one({"_id": request.ride_type})
-        if not ride_type_obj:
-            raise HTTPException(status_code=400, detail="Invalid ride type")
+        # Validate ride type compatibility
+        if not is_vehicle_compatible_with_ride_type(request.vehicle_type_id, request.ride_type):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Vehicle {request.vehicle_type_id} does not support {request.ride_type} rides"
+            )
         
-        # Get vehicle multiplier
-        vehicle_multiplier = await get_vehicle_multiplier(
-            db,
-            request.vehicle_type_id,
-            request.vehicle_subtype_id
+        # Calculate comprehensive fare
+        fare_result = calculate_complete_fare(
+            vehicle_type_id=request.vehicle_type_id,
+            ride_type=request.ride_type,
+            pickup_lat=request.pickup_latitude,
+            pickup_lon=request.pickup_longitude,
+            dropoff_lat=request.dropoff_latitude,
+            dropoff_lon=request.dropoff_longitude,
+            vehicle_subtype_id=request.vehicle_subtype_id,
+            goods_weight_kg=request.goods_details.goods_weight_kg if request.goods_details else None,
+            rental_hours=request.rental_details.rental_hours if request.rental_details else None,
+            is_peak_hours=False,
+            current_rides=0,
+            available_drivers=10,
+            promo_discount=0.0,
+            tax_percentage=5.0
         )
-        
-        # Estimate fare
-        distance_km = haversine_distance(
-            request.pickup_latitude,
-            request.pickup_longitude,
-            request.dropoff_latitude,
-            request.dropoff_longitude
-        )
-        distance_km = max(distance_km, 1.0)
-        duration_minutes = int((distance_km / 20) * 60 + 5)
-        
-        base_fare = get_base_fare(request.vehicle_type_id, request.ride_type)
-        distance_charge = distance_km * 12
-        time_charge = duration_minutes * 2
-        
-        subtotal = base_fare + distance_charge + time_charge
-        vehicle_charge = subtotal * (vehicle_multiplier - 1)
-        after_vehicle = subtotal + vehicle_charge
-        
-        surge_multiplier = 1.0
-        after_surge = after_vehicle
-        
-        # Goods charge
-        goods_charge = 0
-        if request.goods_weight_kg and request.goods_weight_kg > 0:
-            goods_charge = request.goods_weight_kg * 5
-        
-        # Taxes
-        taxable_amount = after_surge + goods_charge
-        taxes = taxable_amount * 0.18
-        
-        estimated_fare = taxable_amount + taxes
         
         # Create booking document
         booking_id = f"booking_{uuid.uuid4().hex[:12]}"
@@ -301,38 +220,65 @@ async def create_booking(
             "_id": booking_id,
             "passenger_id": "TEMP_PASSENGER",  # TODO: Get from current_user
             "status": "pending",
+            
+            # Vehicle information
             "vehicle_type_id": request.vehicle_type_id,
             "vehicle_subtype_id": request.vehicle_subtype_id,
+            "vehicle_name": vehicle.get("name", request.vehicle_type_id),
+            
+            # Ride type and details
             "ride_type": request.ride_type,
+            "scheduled_datetime": request.scheduled_datetime,
+            "passenger_count": request.passenger_count,
+            
+            # Location
             "pickup_latitude": request.pickup_latitude,
             "pickup_longitude": request.pickup_longitude,
-            "pickup_address": request.pickup_address,
+            "pickup_location": request.pickup_location,
             "dropoff_latitude": request.dropoff_latitude,
             "dropoff_longitude": request.dropoff_longitude,
-            "dropoff_address": request.dropoff_address,
-            "passenger_count": request.passenger_count,
-            "goods_weight_kg": request.goods_weight_kg,
-            "scheduled_pickup_time": request.scheduled_pickup_time,
-            "distance_km": round(distance_km, 2),
-            "duration_minutes": duration_minutes,
-            "base_estimated_fare": base_fare,
-            "vehicle_type_multiplier": vehicle_multiplier,
-            "vehicle_charge": round(vehicle_charge, 2),
-            "surge_multiplier": surge_multiplier,
-            "promo_code": request.promo_code,
-            "taxes": round(taxes, 2),
-            "estimated_fare": round(estimated_fare, 2),
-            "final_fare": None,
+            "dropoff_location": request.dropoff_location,
+            
+            # Ride-specific details (conditionally included)
+            "goods_details": request.goods_details.dict() if request.goods_details else None,
+            "airport_details": request.airport_details.dict() if request.airport_details else None,
+            "rental_details": request.rental_details.dict() if request.rental_details else None,
+            "tourism_details": request.tourism_details.dict() if request.tourism_details else None,
+            
+            # Accessibility and preferences
+            "wheelchair_accessible": request.wheelchair_accessible,
+            "ac_required": request.ac_required,
+            "notes": request.notes,
+            
+            # Fare information
+            "distance_km": fare_result['distance_km'],
+            "estimated_time_minutes": fare_result['estimated_time_minutes'],
+            "base_estimated_fare": fare_result['base_fare'],
+            "vehicle_type_multiplier": fare_result['vehicle_multiplier'],
+            "ride_type_multiplier": fare_result['ride_type_multiplier'],
+            "surge_multiplier": fare_result.get('surge_multiplier', 1.0),
+            "estimated_fare": fare_result['total_fare'],
+            "fare_breakdown": fare_result['fare_breakdown'],
+            "final_fare": None,  # Set when ride completes
+            
+            # Driver assignment
             "driver_id": None,
+            "assigned_at": None,
+            
+            # Timestamps
             "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow()
+            "updated_at": datetime.utcnow(),
+            "completed_at": None
         }
         
+        # Insert booking
         bookings_collection = db["bookings"]
         result = await bookings_collection.insert_one(booking)
         
         if not result.inserted_id:
             raise HTTPException(status_code=500, detail="Failed to create booking")
+        
+        logger.info(f"Booking created: {booking_id} - {request.vehicle_type_id} {request.ride_type} - ₹{fare_result['total_fare']:.2f}")
         
         return {
             "status": "success",
@@ -340,17 +286,22 @@ async def create_booking(
                 "booking_id": booking_id,
                 "status": "pending",
                 "vehicle_type_id": request.vehicle_type_id,
+                "vehicle_name": booking["vehicle_name"],
                 "ride_type": request.ride_type,
-                "estimated_fare": round(estimated_fare, 2),
-                "pickup_address": request.pickup_address,
-                "dropoff_address": request.dropoff_address,
+                "distance_km": fare_result['distance_km'],
+                "estimated_time_minutes": fare_result['estimated_time_minutes'],
+                "estimated_fare": fare_result['total_fare'],
+                "fare_breakdown": fare_result['fare_breakdown'],
+                "pickup_location": request.pickup_location,
+                "dropoff_location": request.dropoff_location,
                 "created_at": booking["created_at"].isoformat()
             }
         }
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Booking creation error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Booking creation failed: {str(e)}")
 
 @router.get("/{booking_id}")
 async def get_booking(

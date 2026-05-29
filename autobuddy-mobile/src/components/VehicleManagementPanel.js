@@ -22,7 +22,8 @@ function normalizeVehicle(vehicle = {}) {
     license_plate: vehicle.license_plate || vehicle.licensePlate || '',
     registration_number: vehicle.registration_number || vehicle.registrationNumber || '',
     seating_capacity: Number(vehicle.seating_capacity || vehicle.seatingCapacity || 4),
-    vehicle_type: vehicle.vehicle_type || vehicle.vehicleType || 'auto',
+    vehicle_type_id: vehicle.vehicle_type_id || vehicle.vehicle_type || vehicle.vehicleType || 'auto',
+    vehicle_subtype_id: vehicle.vehicle_subtype_id || vehicle.vehicleSubtypeId || null,
     is_active: Boolean(vehicle.is_active),
   };
 }
@@ -52,7 +53,8 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
     license_plate: '',
     registration_number: '',
     seating_capacity: '4',
-    vehicle_type: '', // Will be vehicle_type_id from backend
+    vehicle_type_id: '', // Will be vehicle_type_id from canonical backend
+    vehicle_subtype_id: '',
   });
 
   const fetchVehicles = useCallback(async () => {
@@ -79,7 +81,7 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
 
   const getEmptyFormData = () => {
     const defaultVehicleType = vehicleTypes && vehicleTypes.length > 0 
-      ? vehicleTypes[0].id 
+      ? vehicleTypes[0].vehicle_type_id || vehicleTypes[0].id
       : '';
     return {
       make: '',
@@ -89,7 +91,8 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
       license_plate: '',
       registration_number: '',
       seating_capacity: '4',
-      vehicle_type: defaultVehicleType,
+      vehicle_type_id: defaultVehicleType,
+      vehicle_subtype_id: '',
     };
   };
 
@@ -101,7 +104,8 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
     license_plate: formData.license_plate,
     registration_number: formData.registration_number || null,
     seating_capacity: Number(formData.seating_capacity),
-    vehicle_type: formData.vehicle_type,
+    vehicle_type_id: formData.vehicle_type_id,
+    vehicle_subtype_id: formData.vehicle_subtype_id || null,
   });
 
   const resetVehicleForm = () => {
@@ -129,7 +133,8 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
       license_plate: vehicle.license_plate || vehicle.licensePlate || '',
       registration_number: vehicle.registration_number || vehicle.registrationNumber || '',
       seating_capacity: String(vehicle.seating_capacity || vehicle.seatingCapacity || '4'),
-      vehicle_type: vehicle.vehicle_type || vehicle.vehicleType || 'sedan',
+      vehicle_type_id: vehicle.vehicle_type_id || vehicle.vehicleType || 'auto',
+      vehicle_subtype_id: vehicle.vehicle_subtype_id || '',
     });
     setEditingVehicleId(vehicle.id);
     setShowAddForm(true);
@@ -216,7 +221,7 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
       {/* Active Vehicle Display */}
       {activeVehicle && (
         <View style={styles.activeVehicleCard}>
-          <Text style={styles.activeLabel}>ACTIVE VEHICLE</Text>
+          <Text style={styles.activeLabel}>🚗 ACTIVE VEHICLE</Text>
           <View style={styles.vehicleDetails}>
             <Text style={styles.vehicleTitle}>
               {activeVehicle.make} {activeVehicle.model} ({activeVehicle.year})
@@ -231,8 +236,13 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
               Capacity: <Text style={styles.bold}>{activeVehicle.seating_capacity} seats</Text>
             </Text>
             <Text style={styles.vehicleInfo}>
-              Type: <Text style={styles.bold}>{activeVehicle.vehicle_type}</Text>
+              Type: <Text style={styles.bold}>{activeVehicle.vehicle_type_id.toUpperCase()}</Text>
             </Text>
+            {activeVehicle.vehicle_subtype_id && (
+              <Text style={styles.vehicleInfo}>
+                Subtype: <Text style={styles.bold}>{activeVehicle.vehicle_subtype_id}</Text>
+              </Text>
+            )}
             {activeVehicle.registration_number && (
               <Text style={styles.vehicleInfo}>
                 Registration: <Text style={styles.bold}>{activeVehicle.registration_number}</Text>
@@ -368,32 +378,79 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
           {vehicleTypesLoading ? (
             <ActivityIndicator size="small" color={COLORS.primary} />
           ) : (
-            <View style={styles.typeSelection}>
-              {vehicleTypes && vehicleTypes.length > 0 ? (
-                vehicleTypes.map((type) => (
-                  <TouchableOpacity
-                    key={type.id}
-                    style={[
-                      styles.typeButton,
-                      formData.vehicle_type === type.id && styles.typeButtonActive,
-                    ]}
-                    onPress={() => updateFormData('vehicle_type', type.id)}
-                  >
-                    <Text style={styles.typeButtonIcon}>{type.icon}</Text>
-                    <Text
-                      style={[
-                        styles.typeButtonText,
-                        formData.vehicle_type === type.id && styles.typeButtonTextActive,
-                      ]}
-                    >
-                      {type.name}
-                    </Text>
-                  </TouchableOpacity>
-                ))
-              ) : (
-                <Text style={styles.noTypesText}>No vehicle types available</Text>
+            <>
+              <View style={styles.typeSelection}>
+                {vehicleTypes && vehicleTypes.length > 0 ? (
+                  vehicleTypes.map((type) => {
+                    const typeId = type.vehicle_type_id || type.id;
+                    return (
+                      <TouchableOpacity
+                        key={typeId}
+                        style={[
+                          styles.typeButton,
+                          formData.vehicle_type_id === typeId && styles.typeButtonActive,
+                        ]}
+                        onPress={() => updateFormData('vehicle_type_id', typeId)}
+                      >
+                        <Text style={styles.typeButtonIcon}>{type.icon || '🚗'}</Text>
+                        <View style={styles.typeButtonContent}>
+                          <Text
+                            style={[
+                              styles.typeButtonText,
+                              formData.vehicle_type_id === typeId && styles.typeButtonTextActive,
+                            ]}
+                          >
+                            {type.name}
+                          </Text>
+                          {type.capacity && (
+                            <Text style={styles.typeButtonSubtext}>
+                              {type.capacity} {type.capacity_unit || 'seats'}
+                            </Text>
+                          )}
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })
+                ) : (
+                  <Text style={styles.noTypesText}>No vehicle types available</Text>
+                )}
+              </View>
+
+              {/* Subtype Selection (if available) */}
+              {formData.vehicle_type_id && vehicleTypes && (
+                (() => {
+                  const selectedType = vehicleTypes.find(
+                    (t) => (t.vehicle_type_id || t.id) === formData.vehicle_type_id
+                  );
+                  return selectedType?.subtypes && selectedType.subtypes.length > 0 ? (
+                    <View style={styles.subtypeSection}>
+                      <Text style={styles.fieldLabel}>Vehicle Subtype (Optional)</Text>
+                      <View style={styles.subtypeSelection}>
+                        {selectedType.subtypes.map((subtype) => (
+                          <TouchableOpacity
+                            key={subtype.id}
+                            style={[
+                              styles.subtypeButton,
+                              formData.vehicle_subtype_id === subtype.id && styles.subtypeButtonActive,
+                            ]}
+                            onPress={() => updateFormData('vehicle_subtype_id', subtype.id)}
+                          >
+                            <Text
+                              style={[
+                                styles.subtypeButtonText,
+                                formData.vehicle_subtype_id === subtype.id && styles.subtypeButtonTextActive,
+                              ]}
+                            >
+                              {subtype.name}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+                  ) : null;
+                })()
               )}
-            </View>
+            </>
           )}
 
           <View style={styles.formButtons}>
@@ -656,6 +713,42 @@ const styles = StyleSheet.create({
   typeButtonIcon: {
     fontSize: 16,
     marginBottom: 2,
+  },
+  typeButtonContent: {
+    alignItems: 'center',
+  },
+  typeButtonSubtext: {
+    fontSize: 10,
+    color: COLORS.textMuted,
+    marginTop: 2,
+  },
+  subtypeSection: {
+    marginTop: 16,
+  },
+  subtypeSelection: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  subtypeButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.background,
+  },
+  subtypeButtonActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  subtypeButtonText: {
+    fontSize: 12,
+    color: COLORS.textMain,
+    fontWeight: '600',
+  },
+  subtypeButtonTextActive: {
+    color: '#fff',
   },
   noTypesText: {
     fontSize: 12,
