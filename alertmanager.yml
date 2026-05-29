@@ -1,0 +1,154 @@
+# Alertmanager Configuration
+# Defines alert routing, grouping, and notification settings
+
+global:
+  resolve_timeout: 5m
+  slack_api_url: ''  # Set your Slack webhook URL here
+
+# Template files for custom alert messages
+templates: []
+
+# Alert routing configuration
+route:
+  receiver: 'default-receiver'
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 24h
+  
+  routes:
+    # Critical alerts - immediate notification
+    - match:
+        severity: critical
+      receiver: critical-receiver
+      group_wait: 10s
+      group_interval: 1m
+      repeat_interval: 1h
+      continue: true
+
+    # High priority alerts - frequent notification
+    - match:
+        severity: warning
+      receiver: warning-receiver
+      group_wait: 1m
+      group_interval: 5m
+      repeat_interval: 4h
+      continue: false
+
+    # API component alerts
+    - match:
+        component: api
+      receiver: api-team
+      group_by: ['component', 'endpoint']
+      continue: false
+
+    # Database component alerts
+    - match:
+        component: database
+      receiver: db-team
+      group_by: ['component']
+      continue: false
+
+    # WebSocket component alerts
+    - match:
+        component: websocket
+      receiver: platform-team
+      group_by: ['component', 'event_type']
+      continue: false
+
+    # Business component alerts
+    - match:
+        component: business
+      receiver: business-team
+      group_by: ['component']
+      continue: false
+
+    # Infrastructure component alerts
+    - match:
+        component: infrastructure
+      receiver: ops-team
+      group_by: ['component', 'instance']
+      continue: false
+
+# Receiver configuration
+receivers:
+  # Default receiver - logs to console/file
+  - name: 'default-receiver'
+    slack_configs:
+      - channel: '#general-alerts'
+        title: 'Alert: {{ .GroupLabels.alertname }}'
+        text: '{{ .CommonAnnotations.summary }}'
+
+  # Critical receiver - immediate attention
+  - name: 'critical-receiver'
+    pagerduty_configs:
+      - service_key: ''  # Set your PagerDuty service key
+    slack_configs:
+      - channel: '#critical-alerts'
+        title: '🚨 CRITICAL: {{ .GroupLabels.alertname }}'
+        text: '{{ .CommonAnnotations.description }}'
+        send_resolved: true
+
+  # Warning receiver
+  - name: 'warning-receiver'
+    slack_configs:
+      - channel: '#warnings'
+        title: '⚠️ WARNING: {{ .GroupLabels.alertname }}'
+        text: '{{ .CommonAnnotations.description }}'
+
+  # Team-specific receivers
+  - name: 'api-team'
+    slack_configs:
+      - channel: '#api-team'
+        title: '[API] {{ .GroupLabels.alertname }}'
+        text: 'Endpoint: {{ .GroupLabels.endpoint }}\n{{ .CommonAnnotations.description }}'
+
+  - name: 'db-team'
+    slack_configs:
+      - channel: '#database-team'
+        title: '[Database] {{ .GroupLabels.alertname }}'
+        text: '{{ .CommonAnnotations.description }}'
+
+  - name: 'platform-team'
+    slack_configs:
+      - channel: '#platform-team'
+        title: '[Platform] {{ .GroupLabels.alertname }}'
+        text: 'Event: {{ .GroupLabels.event_type }}\n{{ .CommonAnnotations.description }}'
+
+  - name: 'business-team'
+    slack_configs:
+      - channel: '#business-ops'
+        title: '[Business] {{ .GroupLabels.alertname }}'
+        text: '{{ .CommonAnnotations.description }}'
+
+  - name: 'ops-team'
+    slack_configs:
+      - channel: '#ops'
+        title: '[Infrastructure] {{ .GroupLabels.alertname }}'
+        text: 'Instance: {{ .GroupLabels.instance }}\n{{ .CommonAnnotations.description }}'
+
+# Inhibition rules - suppress certain alerts under conditions
+inhibit_rules:
+  # Don't alert on high error rate if the whole service is down
+  - source_match:
+      severity: 'critical'
+      alertname: 'PrometheusScrapeFailing'
+    target_match:
+      component: 'api'
+    equal: ['component']
+
+  # Don't alert on slow database queries if database is down
+  - source_match:
+      severity: 'critical'
+      alertname: 'DatabaseDown'
+    target_match:
+      component: 'database'
+    equal: ['component']
+
+  # Don't alert on slow responses if error rate is critical
+  - source_match:
+      severity: 'critical'
+      alertname: 'CriticalErrorRate'
+    target_match:
+      alertname: 'HighResponseTime'
+    equal: ['component']

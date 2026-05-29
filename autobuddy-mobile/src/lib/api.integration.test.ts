@@ -9,7 +9,7 @@ describe('apiRequest integration', () => {
     jest.clearAllMocks();
   });
 
-  async function loadApiModule() {
+  function loadApiModule() {
     jest.doMock('expo-constants', () => ({
       __esModule: true,
       default: {},
@@ -22,7 +22,8 @@ describe('apiRequest integration', () => {
       saveSession: jest.fn(async () => undefined),
       clearSession: jest.fn(async () => undefined),
     }));
-    return import('./api');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require('./api') as typeof import('./api');
   }
 
   it('sends auth header and query params', async () => {
@@ -31,7 +32,7 @@ describe('apiRequest integration', () => {
       ok: true,
       text: async () => JSON.stringify({ ok: true }),
     });
-    const { apiRequest } = await loadApiModule();
+    const { apiRequest } = loadApiModule();
 
     await apiRequest('/bookings', {
       token: 'token-123',
@@ -55,7 +56,7 @@ describe('apiRequest integration', () => {
       status: 429,
       text: async () => JSON.stringify({ detail: 'Too many requests' }),
     });
-    const { apiRequest } = await loadApiModule();
+    const { apiRequest } = loadApiModule();
 
     await expect(apiRequest('/drivers/profile')).rejects.toMatchObject({
       message: 'Too many requests',
@@ -73,7 +74,7 @@ describe('apiRequest integration', () => {
           detail: [{ loc: ['body', 'password'], msg: 'String should have at least 8 characters' }],
         }),
     });
-    const { apiRequest } = await loadApiModule();
+    const { apiRequest } = loadApiModule();
 
     await expect(apiRequest('/auth/login', { method: 'POST' })).rejects.toMatchObject({
       message: 'body.password: String should have at least 8 characters',

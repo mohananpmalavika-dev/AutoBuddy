@@ -1,0 +1,25 @@
+# Prometheus configuration for scraping AutoBuddy on Render.
+#
+# Render injects a dynamic PORT into the web service. Use the Render service
+# hostname instead of a fixed host:port target.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'autobuddy-render'
+    environment: 'production'
+
+rule_files:
+  - 'alert_rules.yml'
+
+scrape_configs:
+  - job_name: 'autobuddy-backend-render'
+    scheme: https
+    metrics_path: '/api/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+    static_configs:
+      # Replace with your actual Render hostname, without https:// or a port.
+      # Example: autobuddy-backend.onrender.com
+      - targets: ['REPLACE_WITH_RENDER_BACKEND_HOST']

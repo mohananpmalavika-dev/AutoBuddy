@@ -1,7 +1,9 @@
 import importlib
 import os
+from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
 
 @pytest.mark.parametrize(
@@ -28,6 +30,163 @@ def test_backend_can_import_server_module_without_crashing(monkeypatch):
     # Import server.py; if it crashes due to missing env/tools, tests will fail.
     server = importlib.import_module('server')
     assert hasattr(server, 'app')
+
+
+def test_no_unprefixed_placeholder_admin_routes_are_mounted(monkeypatch):
+    monkeypatch.setenv('MONGO_URL', os.getenv('MONGO_URL') or 'mongodb://localhost:27017/test')
+    monkeypatch.setenv('JWT_SECRET', os.getenv('JWT_SECRET') or 'a' * 40)
+
+    server = importlib.import_module('server')
+    mounted_paths = {getattr(route, 'path', '') for route in server.app.routes}
+
+    assert not any(path == '/admin' or path.startswith('/admin/') for path in mounted_paths)
+    assert any(path.startswith('/api/admin/') for path in mounted_paths)
+
+
+def test_modular_routers_keep_auth_user_ids_as_uuid_strings():
+    router_dir = Path(__file__).resolve().parents[1] / 'app' / 'routers'
+    router_files = [
+        router_dir / 'scheduled_rides.py',
+        router_dir / 'vehicles.py',
+        router_dir / 'support_tickets.py',
+    ]
+
+    forbidden_patterns = [
+        'ObjectId(current_',
+        'ObjectId(assign_to_admin_id',
+        '"_id": ObjectId(assign_to_admin_id',
+    ]
+
+    for router_file in router_files:
+        source = router_file.read_text(encoding='utf-8')
+        assert not any(pattern in source for pattern in forbidden_patterns), router_file.name
+
+
+def test_upload_router_is_mounted_and_vehicle_uploads_are_real(monkeypatch):
+    monkeypatch.setenv('MONGO_URL', os.getenv('MONGO_URL') or 'mongodb://localhost:27017/test')
+    monkeypatch.setenv('JWT_SECRET', os.getenv('JWT_SECRET') or 'a' * 40)
+
+    server = importlib.import_module('server')
+    mounted_paths = {getattr(route, 'path', '') for route in server.app.routes}
+
+    assert '/api/uploads/profile-photo' in mounted_paths
+    assert '/api/uploads/download/{file_key:path}' in mounted_paths
+
+    vehicle_router = Path(__file__).resolve().parents[1] / 'app' / 'routers' / 'vehicles.py'
+    source = vehicle_router.read_text(encoding='utf-8')
+    assert 's3://uploads' not in source
+    assert 'upload_vehicle_document' in source
+
+
+def test_realtime_uses_single_socketio_server():
+    backend_dir = Path(__file__).resolve().parents[1]
+    socket_dir = backend_dir / 'app' / 'sockets'
+    socket_sources = '\n'.join(
+        path.read_text(encoding='utf-8')
+        for path in socket_dir.glob('*.py')
+        if path.name != '__init__.py'
+    )
+
+    assert "cors_allowed_origins='*'" not in socket_sources
+    assert 'cors_allowed_origins="*"' not in socket_sources
+    assert 'AsyncServer(' not in socket_sources
+
+    server_source = (backend_dir / 'server.py').read_text(encoding='utf-8')
+    assert server_source.count('socketio.AsyncServer(') == 1
+    assert 'configure_legacy_socket_helpers(sio)' in server_source
+
+
+def test_unsafe_payment_prototype_router_is_removed():
+    backend_dir = Path(__file__).resolve().parents[1]
+    assert not (backend_dir / 'app' / 'routers' / 'payments.py').exists()
+
+    server_source = (backend_dir / 'server.py').read_text(encoding='utf-8')
+    assert '/payments/order' in server_source
+    assert '/payments/verify' in server_source
+    assert 'from app.routers.payments' not in server_source
+    assert 'include_router(modular_payments' not in server_source
+
+
+def test_full_server_route_graph_contains_critical_routes(monkeypatch):
+    monkeypatch.setenv('MONGO_URL', os.getenv('MONGO_URL') or 'mongodb://localhost:27017/test')
+    monkeypatch.setenv('JWT_SECRET', os.getenv('JWT_SECRET') or 'a' * 40)
+
+    server = importlib.import_module('server')
+    mounted_paths = {getattr(route, 'path', '') for route in server.app.routes}
+    expected_paths = {
+        '/api/v1/passengers/preferences',
+        '/api/v1/passengers/support/tickets',
+        '/api/v1/passengers/scheduled-rides',
+        '/api/drivers/availability',
+        '/api/drivers/location',
+        '/api/drivers-tier2/ride-filters',
+        '/api/drivers-tier3/badges/earned',
+        '/api/bookings',
+        '/api/wallet/topup/order',
+        '/api/wallet/topup/verify',
+        '/api/admin/passengers/kyc/pending',
+        '/api/admin/wallet/topups/pending',
+        '/api/uploads/profile-photo',
+    }
+
+    assert expected_paths <= mounted_paths
+
+
+def test_full_server_smoke_requests_reach_real_app(monkeypatch):
+    monkeypatch.setenv('MONGO_URL', os.getenv('MONGO_URL') or 'mongodb://localhost:27017/test')
+    monkeypatch.setenv('JWT_SECRET', os.getenv('JWT_SECRET') or 'a' * 40)
+    monkeypatch.setenv('ENABLE_METRICS', 'true')
+
+    server = importlib.import_module('server')
+    client = TestClient(server.app, raise_server_exceptions=False)
+
+    api_root = client.get('/api')
+    assert api_root.status_code == 200
+    assert api_root.json()['metrics'] == '/api/metrics'
+
+    metrics = client.get('/api/metrics')
+    assert metrics.status_code == 200
+    assert 'python_gc_objects_collected_total' in metrics.text
+
+    protected_paths = [
+        '/api/v1/passengers/preferences',
+        '/api/admin/dashboard',
+        '/api/uploads/download/example',
+    ]
+    for path in protected_paths:
+        response = client.get(path)
+        assert response.status_code in {401, 403}, path
+        assert response.status_code != 404, path
+        assert response.status_code != 500, path
+
+
+def test_ci_and_render_keep_mongo_and_feature_databases_separate():
+    repo_root = Path(__file__).resolve().parents[2]
+    backend_ci = (repo_root / '.github' / 'workflows' / 'backend-pipeline.yml').read_text(encoding='utf-8')
+    render_config = (repo_root / 'render.yaml').read_text(encoding='utf-8')
+    backend_ci_lines = {line.strip() for line in backend_ci.splitlines()}
+
+    assert 'MONGO_URL=mongodb://' in backend_ci
+    assert 'FEATURE_DATABASE_URL=postgresql://' in backend_ci
+    assert not any(line.startswith('DATABASE_URL=postgresql://') for line in backend_ci_lines)
+
+    assert 'key: MONGO_URL' in render_config
+    assert 'key: FEATURE_DATABASE_URL' in render_config
+
+
+def test_prometheus_config_matches_backend_metrics_route():
+    repo_root = Path(__file__).resolve().parents[2]
+    prometheus_config = (repo_root / 'prometheus.yml').read_text(encoding='utf-8')
+    render_config = (repo_root / 'prometheus.render.example.yml').read_text(encoding='utf-8')
+
+    assert "metrics_path: '/api/metrics'" in prometheus_config
+    assert "host.docker.internal:8001" in prometheus_config
+    assert "localhost:8000" not in prometheus_config
+    assert "metrics_path: '/metrics'" not in prometheus_config
+
+    assert "metrics_path: '/api/metrics'" in render_config
+    assert "localhost" not in render_config
+    assert "$PORT" not in render_config
 
 
 def test_backend_import_app_core_config(monkeypatch):

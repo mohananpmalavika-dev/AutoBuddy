@@ -58,6 +58,10 @@ jest.mock('../hooks/useKeralaSafety', () => ({
   }),
 }));
 
+jest.mock('../hooks/useNotificationManager', () => ({
+  useNotificationManager: jest.fn(),
+}));
+
 jest.mock('../components/InteractiveMap', () => mockPanel('InteractiveMap'));
 jest.mock('../components/RevenueCard', () => mockPanel('RevenueCard'));
 jest.mock('../components/RideProductsGrid', () => mockPanel('RideProductsGrid'));
@@ -69,6 +73,7 @@ jest.mock('../components/VoiceTextInput', () => {
 });
 jest.mock('../components/BookingConfirmationCard', () => () => null);
 jest.mock('../components/KeralaSafetyCard', () => mockPanel('KeralaSafetyCard'));
+jest.mock('../components/NotificationCenter', () => mockPanel('NotificationCenter'));
 jest.mock('../components/PromoCodePanel', () => mockPanel('PromoCodePanel'));
 jest.mock('../components/SupportTicketsPanel', () => mockPanel('SupportTicketsPanel'));
 jest.mock('../components/PaymentMethodsPanel', () => mockPanel('PaymentMethodsPanel'));
@@ -122,7 +127,7 @@ describe('PassengerMap native menu flow', () => {
   });
 
   it('opens secondary menus and switches to spin and notifications tabs', async () => {
-    const { getByText, queryByText } = render(
+    const { getAllByText, getByText, queryByText } = render(
       <PassengerMap
         token="token-1"
         user={{ id: 'passenger-1', name: 'Alex' }}
@@ -134,12 +139,12 @@ describe('PassengerMap native menu flow', () => {
 
     fireEvent.press(getByText('Other Menus'));
     fireEvent.press(getByText('Spin & Win'));
-    expect(getByText('Spin & Win')).toBeTruthy();
+    expect(getAllByText('Spin & Win').length).toBeGreaterThan(0);
 
     fireEvent.press(getByText('Other Menus'));
     fireEvent.press(getByText('Notifications'));
 
-    expect(getByText('Notifications')).toBeTruthy();
+    expect(getAllByText('Notifications').length).toBeGreaterThan(0);
     expect(queryByText('Spin status is unavailable. Tap refresh.')).toBeNull();
   });
 
@@ -191,9 +196,11 @@ describe('PassengerMap native menu flow', () => {
       />,
     );
 
-    await waitFor(() => expect(getByText('Emergency during this ride')).toBeTruthy());
+    await waitFor(() => expect(getByText('Live Ride')).toBeTruthy());
 
-    fireEvent.press(getByText('Open'));
+    fireEvent.press(getByText('Live Ride'));
+    await waitFor(() => expect(getByText('SOS quick access')).toBeTruthy());
+    fireEvent.press(getByText('Contacts'));
 
     expect(getByText('EmergencyContactsPanel')).toBeTruthy();
   });

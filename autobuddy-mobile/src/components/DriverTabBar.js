@@ -49,6 +49,10 @@ const ICON_KIND_BY_TAB = {
   favorites: 'heart',
   shifts: 'calendar',
   badges: 'medal',
+  tier: 'medal',
+  expiry: 'document',
+  appeals: 'shield',
+  referral: 'people',
 };
 
 function LineIcon({ kind, color, size }) {
@@ -538,6 +542,35 @@ export default function DriverTabBar({
       section: 'tools',
       badge: getBadgeCount('badges'),
       hint: 'Open earned badges and achievements.',
+    },
+    // NEW MISSING FEATURES
+    {
+      key: 'tier',
+      label: 'My Tier',
+      section: 'account',
+      badge: null,
+      hint: 'View your driver tier and benefits.',
+    },
+    {
+      key: 'expiry',
+      label: 'Document Alerts',
+      section: 'account',
+      badge: getBadgeCount('expiry'),
+      hint: 'View document expiry alerts and renewals.',
+    },
+    {
+      key: 'appeals',
+      label: 'Appeals',
+      section: 'safety',
+      badge: getBadgeCount('appeals'),
+      hint: 'Submit suspension appeals.',
+    },
+    {
+      key: 'referral',
+      label: 'Referrals',
+      section: 'money',
+      badge: getBadgeCount('referral'),
+      hint: 'Open referral program and earnings.',
     },
   ], [getBadgeCount, notificationCount, requestCount, upcomingCount]);
 

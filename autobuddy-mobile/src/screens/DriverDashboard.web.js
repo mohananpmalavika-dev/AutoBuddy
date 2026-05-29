@@ -61,6 +61,10 @@ import { TaxReportWidget } from '../components/TaxReportWidget';
 import { FavoritePassengersPanel } from '../components/FavoritePassengersPanel';
 import { ShiftScheduleCalendar } from '../components/ShiftScheduleCalendar';
 import { BadgesAchievementsWidget } from '../components/BadgesAchievementsWidget';
+import DriverTierBenefitsPanel from '../components/DriverTierBenefitsPanel';
+import DocumentExpiryAlertsPanel from '../components/DocumentExpiryAlertsPanel';
+import DriverSuspensionAppealPanel from '../components/DriverSuspensionAppealPanel';
+import DriverReferralPanel from '../components/DriverReferralPanel';
 import { useNotifications } from '../contexts/NotificationContext';
 import { usePreferences } from '../contexts/PreferencesContext';
 import { DRIVER_QUICK_ACTIONS } from '../constants/driverQuickActions';
@@ -2648,6 +2652,42 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
               onClose={() => setActiveTab('earnings')}
               token={token}
               driverId={user?.id}
+            />
+          )}
+
+          {/* NEW: Driver Tier Benefits Tab */}
+          {activeTab === 'tier' && (
+            <DriverTierBenefitsPanel
+              token={token}
+              onTierUpgrade={() => setMessage('Visit the app store for tier upgrades')}
+            />
+          )}
+
+          {/* NEW: Document Expiry Alerts Tab */}
+          {activeTab === 'expiry' && (
+            <DocumentExpiryAlertsPanel
+              token={token}
+              onDocumentExpiring={(data) => {
+                const { critical, warning } = data;
+                setMessage(`Document alerts: ${critical} critical, ${warning} warnings`);
+              }}
+            />
+          )}
+
+          {/* NEW: Driver Suspension Appeals Tab */}
+          {activeTab === 'appeals' && (
+            <DriverSuspensionAppealPanel
+              token={token}
+              onAppealSubmitted={() => setMessage('Appeal submitted successfully. You will receive a response within 48 hours.')}
+            />
+          )}
+
+          {/* NEW: Driver Referral Program Tab */}
+          {activeTab === 'referral' && (
+            <DriverReferralPanel
+              token={token}
+              driverId={user?.id}
+              onReferralShare={(code) => setMessage(`Referral code ${code} shared successfully!`)}
             />
           )}
 

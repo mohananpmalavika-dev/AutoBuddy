@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 import time
 import logging
 from typing import Callable, Optional
+from starlette.middleware.base import BaseHTTPMiddleware
 from app.utils.rate_limiting import (
     get_rate_limiter,
     get_rate_limit_key,
@@ -16,23 +17,26 @@ from app.utils.rate_limiting import (
 logger = logging.getLogger(__name__)
 
 
-class RateLimitingMiddleware:
+class RateLimitingMiddleware(BaseHTTPMiddleware):
     """ASGI middleware for rate limiting"""
     
     def __init__(self, app, limiter=None):
-        self.app = app
+        super().__init__(app)
         self.limiter = limiter or get_rate_limiter()
         # Endpoints to exclude from rate limiting
         self.excluded_paths = {
             "/health",
+            "/api/health",
+            "/api/ready",
             "/metrics",
+            "/api/metrics",
             "/docs",
             "/openapi.json",
             "/redoc",
             "/ws",
         }
     
-    async def __call__(self, request: Request, call_next: Callable) -> Response:
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
         # Skip rate limiting for excluded paths
         path = request.url.path
         if any(path.startswith(excluded) for excluded in self.excluded_paths):

@@ -16,6 +16,11 @@ from app.utils.rbac import require_roles
 router = APIRouter(prefix="/api/support/tickets", tags=["support"])
 logger = logging.getLogger(__name__)
 
+
+def _current_user_id(current_user: dict) -> str:
+    return str(current_user.get("id", "")).strip()
+
+
 # Constants
 ESCALATION_LEVELS = ["level1", "level2", "level3", "management"]
 PRIORITY_LEVELS = ["low", "medium", "high", "critical"]
@@ -77,9 +82,10 @@ async def create_support_ticket(
     """Create a new support ticket"""
     try:
         now = datetime.now(timezone.utc)
+        user_id = _current_user_id(current_user)
         
         ticket_doc = {
-            "user_id": ObjectId(current_user["id"]),
+            "user_id": user_id,
             "user_email": current_user.get("email"),
             "user_type": current_user.get("role", "passenger"),
             "subject": ticket.subject,
@@ -106,7 +112,7 @@ async def create_support_ticket(
         # Create audit log
         await db.audit_logs.insert_one({
             "action_type": "SUPPORT_TICKET_CREATED",
-            "user_id": ObjectId(current_user["id"]),
+            "user_id": user_id,
             "entity_type": "support_ticket",
             "entity_id": str(result.inserted_id),
             "data": {"subject": ticket.subject, "priority": ticket.priority},
@@ -139,10 +145,10 @@ async def list_support_tickets(
     try:
         # Passengers/drivers see only their tickets
         if current_user.get("role") != "admin":
-            query = {"user_id": ObjectId(current_user["id"])}
+            query = {"user_id": _current_user_id(current_user)}
         else:
             # Admins can see all tickets assigned to them
-            query = {"assigned_to": ObjectId(current_user["id"])}
+            query = {"assigned_to": _current_user_id(current_user)}
         
         if status_filter:
             query["status"] = status_filter
@@ -183,7 +189,7 @@ async def get_support_ticket(
         
         # Verify access (owner or assigned admin)
         if current_user.get("role") != "admin":
-            if ticket["user_id"] != ObjectId(current_user["id"]):
+            if str(ticket["user_id"]) != _current_user_id(current_user):
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Not authorized to view this ticket"
@@ -219,7 +225,7 @@ async def update_support_ticket(
             )
         
         # Check admin is assigned to ticket
-        if ticket.get("assigned_to") and ticket["assigned_to"] != ObjectId(current_admin["id"]):
+        if ticket.get("assigned_to") and str(ticket["assigned_to"]) != _current_user_id(current_admin):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Ticket not assigned to you"
@@ -337,7 +343,7 @@ async def escalate_ticket(
         # Create audit log
         await db.audit_logs.insert_one({
             "action_type": "SUPPORT_TICKET_ESCALATED",
-            "user_id": ObjectId(current_admin["id"]),
+            "user_id": _current_user_id(current_admin),
             "entity_type": "support_ticket",
             "entity_id": str(ticket_id),
             "data": {
@@ -379,7 +385,7 @@ async def assign_ticket(
         
         # Verify target admin exists
         admin = await db.users.find_one({
-            "_id": ObjectId(assign_to_admin_id),
+            "id": assign_to_admin_id,
             "role": "admin"
         })
         
@@ -395,7 +401,7 @@ async def assign_ticket(
             {"_id": ObjectId(ticket_id)},
             {
                 "$set": {
-                    "assigned_to": ObjectId(assign_to_admin_id),
+                    "assigned_to": assign_to_admin_id,
                     "status": "in_progress",
                     "updated_at": now
                 },
@@ -435,7 +441,7 @@ async def rate_ticket_resolution(
     try:
         ticket = await db.support_tickets.find_one({
             "_id": ObjectId(ticket_id),
-            "user_id": ObjectId(current_user["id"])
+            "user_id": _current_user_id(current_user)
         })
         
         if not ticket:
@@ -495,7 +501,7 @@ async def support_dashboard_overview(
         # Get statistics
         total_open = await db.support_tickets.count_documents({"status": "open"})
         total_assigned = await db.support_tickets.count_documents(
-            {"assigned_to": ObjectId(current_admin["id"])}
+            {"assigned_to": _current_user_id(current_admin)}
         )
         
         urgent_tickets = await db.support_tickets.find({

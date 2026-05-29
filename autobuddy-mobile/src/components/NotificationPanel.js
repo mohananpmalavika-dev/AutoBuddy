@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { View, ScrollView, TouchableOpacity, Text, StyleSheet, Animated, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -43,14 +43,42 @@ const DEFAULT_SETTINGS = {
   silentHours: { enabled: false, start: '22:00', end: '08:00' },
 };
 
+function notificationId(data = {}, fallbackPrefix = 'notification') {
+  return String(
+    data.id ||
+      data.notification_id ||
+      data._id ||
+      data.data?.id ||
+      data.data?.notification_id ||
+      `${fallbackPrefix}-${Date.now()}-${Math.random()}`
+  );
+}
+
+function normalizeGenericNotification(data = {}) {
+  const nested = data.data && typeof data.data === 'object' ? data.data : {};
+  return {
+    id: notificationId(data),
+    type: data.type || nested.type || 'info',
+    title: data.title || nested.title || 'Notification',
+    message: data.message || data.body || nested.message || nested.body || '',
+    timestamp: data.timestamp || data.created_at || nested.timestamp || new Date(),
+    read: Boolean(data.read || data.is_read),
+    action: data.action || nested.action || null,
+    data,
+  };
+}
+
 const NotificationPanel = ({ socket = null, isConnected = false } = {}) => {
   const [notifications, setNotifications] = useState([]);
-  const [unreadCount, setUnreadCount] = useState(0);
   const [isVisible, setIsVisible] = useState(false);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [showSettings, setShowSettings] = useState(false);
 
   const [slideAnim] = useState(() => new Animated.Value(-400));
+  const unreadCount = useMemo(
+    () => notifications.filter((notification) => !notification.read).length,
+    [notifications]
+  );
 
   const saveSettings = useCallback(async (newSettings) => {
     try {
@@ -90,6 +118,21 @@ const NotificationPanel = ({ socket = null, isConnected = false } = {}) => {
     }
   }, [isInSilentHours, settings.pushEnabled, settings.soundEnabled, settings.vibrationEnabled]);
 
+  const addIncomingNotification = useCallback((notification) => {
+    if (!notification?.id) return;
+
+    if (!isInSilentHours()) {
+      triggerNotification(notification);
+    }
+
+    setNotifications((prev) => {
+      if (prev.some((item) => String(item.id) === String(notification.id))) {
+        return prev;
+      }
+      return [notification, ...prev];
+    });
+  }, [isInSilentHours, triggerNotification]);
+
   // Load settings on mount
   useEffect(() => {
     let cancelled = false;
@@ -114,116 +157,101 @@ const NotificationPanel = ({ socket = null, isConnected = false } = {}) => {
     if (!socket) return;
 
     const handleNotification = (data) => {
-      const notification = {
-        id: Date.now().toString(),
-        type: data.type || 'info',
-        title: data.title || 'Notification',
-        message: data.message || '',
-        timestamp: new Date(),
-        read: false,
-        action: data.action || null,
-        data: data
-      };
-
-      // Check silent hours
-      if (!isInSilentHours()) {
-        triggerNotification(notification);
-      }
-
-      setNotifications(prev => [notification, ...prev]);
-      setUnreadCount(prev => prev + 1);
+      addIncomingNotification(normalizeGenericNotification(data));
     };
 
     const handleRideUpdate = (data) => {
       if (!settings.notifyOnRideUpdate) return;
       
       const notification = {
-        id: Date.now().toString(),
+        id: notificationId(data, 'ride'),
         type: 'ride',
         title: 'Ride Update',
-        message: data.message || `Ride ${data.rideId} updated to ${data.status}`,
-        timestamp: new Date(),
+        message: data.message || `Ride ${data.rideId || data.booking_id || data.bookingId || ''} updated to ${data.status || 'latest status'}`,
+        timestamp: data.timestamp || data.updated_at || new Date(),
         read: false,
-        action: { type: 'view_ride', rideId: data.rideId },
+        action: { type: 'view_ride', rideId: data.rideId || data.booking_id || data.bookingId },
         data
       };
 
-      triggerNotification(notification);
-      setNotifications(prev => [notification, ...prev]);
-      setUnreadCount(prev => prev + 1);
+      addIncomingNotification(notification);
     };
 
     const handleMessage = (data) => {
       if (!settings.notifyOnMessage) return;
       
       const notification = {
-        id: Date.now().toString(),
+        id: notificationId(data, 'message'),
         type: 'message',
-        title: `Message from ${data.senderName}`,
-        message: data.text,
-        timestamp: new Date(),
+        title: `Message from ${data.senderName || data.sender_name || 'AutoBuddy'}`,
+        message: data.text || data.message || '',
+        timestamp: data.timestamp || data.created_at || new Date(),
         read: false,
         action: { type: 'view_messages' },
         data
       };
 
-      triggerNotification(notification);
-      setNotifications(prev => [notification, ...prev]);
-      setUnreadCount(prev => prev + 1);
+      addIncomingNotification(notification);
     };
 
     const handlePayment = (data) => {
       if (!settings.notifyOnPayment) return;
       
       const notification = {
-        id: Date.now().toString(),
+        id: notificationId(data, 'payment'),
         type: data.status === 'success' ? 'success' : 'error',
         title: data.status === 'success' ? 'Payment Successful' : 'Payment Failed',
         message: data.message || `Rs. ${data.amount} ${data.status}`,
-        timestamp: new Date(),
+        timestamp: data.timestamp || data.created_at || new Date(),
         read: false,
         action: { type: 'view_wallet' },
         data
       };
 
-      triggerNotification(notification);
-      setNotifications(prev => [notification, ...prev]);
-      setUnreadCount(prev => prev + 1);
+      addIncomingNotification(notification);
     };
 
     const handlePromotion = (data) => {
       if (!settings.notifyOnPromotion) return;
       
       const notification = {
-        id: Date.now().toString(),
+        id: notificationId(data, 'promotion'),
         type: 'promotion',
         title: data.title || 'Special Offer',
         message: data.description || data.code,
-        timestamp: new Date(),
+        timestamp: data.timestamp || data.created_at || new Date(),
         read: false,
         action: { type: 'view_promo', promoId: data.promoId },
         data
       };
 
-      triggerNotification(notification);
-      setNotifications(prev => [notification, ...prev]);
-      setUnreadCount(prev => prev + 1);
+      addIncomingNotification(notification);
     };
 
+    socket.on('in_app_notification', handleNotification);
     socket.on('notification', handleNotification);
+    socket.on('booking_status_changed', handleRideUpdate);
+    socket.on('ride_state_sync', handleRideUpdate);
     socket.on('ride:update', handleRideUpdate);
+    socket.on('booking_chat_message', handleMessage);
     socket.on('message:received', handleMessage);
     socket.on('payment:update', handlePayment);
+    socket.on('new_promo_available', handlePromotion);
     socket.on('promotion:available', handlePromotion);
 
     return () => {
+      socket.off('in_app_notification', handleNotification);
       socket.off('notification', handleNotification);
+      socket.off('booking_status_changed', handleRideUpdate);
+      socket.off('ride_state_sync', handleRideUpdate);
       socket.off('ride:update', handleRideUpdate);
+      socket.off('booking_chat_message', handleMessage);
       socket.off('message:received', handleMessage);
       socket.off('payment:update', handlePayment);
+      socket.off('new_promo_available', handlePromotion);
       socket.off('promotion:available', handlePromotion);
     };
-  }, [isInSilentHours, settings, socket, triggerNotification]);
+  }, [addIncomingNotification, settings, socket]);
 
   const togglePanel = () => {
     setIsVisible(!isVisible);
@@ -238,14 +266,12 @@ const NotificationPanel = ({ socket = null, isConnected = false } = {}) => {
     setNotifications(prev =>
       prev.map(n => n.id === id ? { ...n, read: true } : n)
     );
-    setUnreadCount(prev => Math.max(0, prev - 1));
   };
 
   const markAllAsRead = () => {
     setNotifications(prev =>
       prev.map(n => ({ ...n, read: true }))
     );
-    setUnreadCount(0);
   };
 
   const deleteNotification = (id) => {
@@ -262,7 +288,6 @@ const NotificationPanel = ({ socket = null, isConnected = false } = {}) => {
           text: 'Delete',
           onPress: () => {
             setNotifications([]);
-            setUnreadCount(0);
           }
         }
       ]

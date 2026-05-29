@@ -17,6 +17,11 @@ from app.utils.rbac import require_roles
 router = APIRouter(prefix="/api/scheduled-rides", tags=["scheduled_rides"])
 logger = logging.getLogger(__name__)
 
+
+def _current_user_id(current_user: dict) -> str:
+    return str(current_user.get("id", "")).strip()
+
+
 # Models
 class Location(BaseModel):
     address: str
@@ -100,9 +105,11 @@ async def create_scheduled_ride(
                     detail="recurring_days is required for weekly recurring rides"
                 )
         
+        passenger_id = _current_user_id(current_passenger)
+
         # Create scheduled ride document
         scheduled_ride = {
-            "passenger_id": ObjectId(current_passenger["id"]),
+            "passenger_id": passenger_id,
             "pickup_location": ride.pickup_location.model_dump(),
             "dropoff_location": ride.dropoff_location.model_dump(),
             "scheduled_time": ride.scheduled_time,
@@ -151,7 +158,7 @@ async def list_scheduled_rides(
 ):
     """List all scheduled rides for the current passenger"""
     try:
-        query = {"passenger_id": ObjectId(current_passenger["id"])}
+        query = {"passenger_id": _current_user_id(current_passenger)}
         
         if status_filter:
             query["status"] = status_filter
@@ -182,7 +189,7 @@ async def get_scheduled_ride(
     try:
         ride = await db.scheduled_rides.find_one({
             "_id": ObjectId(ride_id),
-            "passenger_id": ObjectId(current_passenger["id"])
+            "passenger_id": _current_user_id(current_passenger)
         })
         
         if not ride:
@@ -215,7 +222,7 @@ async def update_scheduled_ride(
         # Verify ownership
         ride = await db.scheduled_rides.find_one({
             "_id": ObjectId(ride_id),
-            "passenger_id": ObjectId(current_passenger["id"])
+            "passenger_id": _current_user_id(current_passenger)
         })
         
         if not ride:
@@ -275,7 +282,7 @@ async def delete_scheduled_ride(
     try:
         result = await db.scheduled_rides.delete_one({
             "_id": ObjectId(ride_id),
-            "passenger_id": ObjectId(current_passenger["id"])
+            "passenger_id": _current_user_id(current_passenger)
         })
         
         if result.deleted_count == 0:
@@ -306,7 +313,7 @@ async def confirm_scheduled_ride(
     try:
         ride = await db.scheduled_rides.find_one({
             "_id": ObjectId(ride_id),
-            "passenger_id": ObjectId(current_passenger["id"])
+            "passenger_id": _current_user_id(current_passenger)
         })
         
         if not ride:

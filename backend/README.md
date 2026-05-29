@@ -54,6 +54,8 @@ Notes:
 - Set `ENVIRONMENT=production`.
 - Set `MONGO_URL` (or `DATABASE_URL`) to your MongoDB Atlas connection string.
 - Set `FEATURE_DATABASE_URL` to a durable PostgreSQL database for passenger features. The local SQLite fallback is disabled in production/staging.
+- Treat MongoDB and the passenger feature PostgreSQL database as separate production data stores: monitor both, back up both, and rehearse restore for both.
+- Run Mongo index migrations and PostgreSQL feature schema migrations as part of deployment. Do not rely on local SQLite data for shared environments.
 - Set a strong `JWT_SECRET` (minimum 32 chars).
 - Set a strong `JWT_REFRESH_SECRET` (minimum 32 chars). Optional strict mode: set `REQUIRE_REFRESH_SECRET_IN_PRODUCTION=true` to require a separate refresh secret.
 - Set `FERNET_SECRET` (generated via `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`). Optional strict mode: set `REQUIRE_FERNET_SECRET_IN_PRODUCTION=true`.

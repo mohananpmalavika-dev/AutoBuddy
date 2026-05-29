@@ -9,13 +9,18 @@ from datetime import datetime, timezone, date
 from typing import List, Optional
 from bson import ObjectId
 import logging
+from urllib.parse import quote
 
 from app.db.deps import get_db
+from app.services.file_upload import file_upload_service
 from app.utils.rbac import require_roles
-from app.utils.production import FileUploadValidator
 
 router = APIRouter(prefix="/api/vehicles", tags=["vehicles"])
 logger = logging.getLogger(__name__)
+
+
+def _current_user_id(current_user: dict) -> str:
+    return str(current_user.get("id", "")).strip()
 
 
 # Models
@@ -91,9 +96,11 @@ async def create_vehicle(
 ):
     """Create a new vehicle for the driver"""
     try:
+        driver_id = _current_user_id(current_driver)
+
         # Check if driver already has a vehicle (limit to 1 active vehicle)
         existing = await db.vehicles.find_one({
-            "driver_id": ObjectId(current_driver["id"]),
+            "driver_id": driver_id,
             "is_active": True
         })
         
@@ -105,7 +112,7 @@ async def create_vehicle(
         
         now = datetime.now(timezone.utc)
         vehicle_doc = {
-            "driver_id": ObjectId(current_driver["id"]),
+            "driver_id": driver_id,
             "make": vehicle.make,
             "model": vehicle.model,
             "year": vehicle.year,
@@ -149,7 +156,7 @@ async def list_driver_vehicles(
     """Get all vehicles for the current driver"""
     try:
         vehicles = await db.vehicles.find({
-            "driver_id": ObjectId(current_driver["id"])
+            "driver_id": _current_user_id(current_driver)
         }).to_list(None)
         
         return [_format_vehicle(v) for v in vehicles]
@@ -172,7 +179,7 @@ async def get_vehicle(
     try:
         vehicle = await db.vehicles.find_one({
             "_id": ObjectId(vehicle_id),
-            "driver_id": ObjectId(current_driver["id"])
+            "driver_id": _current_user_id(current_driver)
         })
         
         if not vehicle:
@@ -204,7 +211,7 @@ async def update_vehicle(
     try:
         vehicle = await db.vehicles.find_one({
             "_id": ObjectId(vehicle_id),
-            "driver_id": ObjectId(current_driver["id"])
+            "driver_id": _current_user_id(current_driver)
         })
         
         if not vehicle:
@@ -271,7 +278,7 @@ async def delete_vehicle(
         
         result = await db.vehicles.delete_one({
             "_id": ObjectId(vehicle_id),
-            "driver_id": ObjectId(current_driver["id"])
+            "driver_id": _current_user_id(current_driver)
         })
         
         if result.deleted_count == 0:
@@ -303,6 +310,9 @@ async def upload_vehicle_document(
 ):
     """Upload vehicle document (RC, insurance, pollution certificate, etc.)"""
     try:
+        driver_id = _current_user_id(current_driver)
+        vehicle_object_id = ObjectId(vehicle_id)
+
         # Validate doc type
         valid_types = ["rc", "insurance", "pollution_cert", "badge_photo"]
         if doc_type not in valid_types:
@@ -310,27 +320,50 @@ async def upload_vehicle_document(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid document type. Must be one of: {', '.join(valid_types)}"
             )
-        
-        # Read and validate file
-        content = await file.read()
-        validation = FileUploadValidator.validate_file(
-            content,
-            file.filename,
-            allowed_types="image" if doc_type == "badge_photo" else "document",
-            max_size_mb=50
-        )
-        
-        if not validation["valid"]:
+
+        vehicle = await db.vehicles.find_one({
+            "_id": vehicle_object_id,
+            "driver_id": driver_id
+        })
+
+        if not vehicle:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=validation["error"]
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Vehicle not found"
             )
         
-        # In production, upload to S3/cloud storage
-        # For now, create document record
+        content = await file.read()
+        filename = file.filename or f"{doc_type}.upload"
+        content_type = file.content_type or "application/octet-stream"
+
+        success, file_key, error = await file_upload_service.upload_vehicle_document(
+            file_content=content,
+            file_name=filename,
+            vehicle_id=vehicle_id,
+            driver_id=driver_id,
+            document_type=doc_type,
+            mime_type=content_type
+        )
+
+        if not success or not file_key:
+            is_storage_error = "s3 client" in str(error or "").lower()
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_503_SERVICE_UNAVAILABLE
+                    if is_storage_error
+                    else status.HTTP_400_BAD_REQUEST
+                ),
+                detail=error or "Failed to upload document"
+            )
+        
         document = {
             "type": doc_type,
-            "url": f"s3://uploads/{vehicle_id}/{doc_type}/{file.filename}",
+            "url": f"/api/uploads/download/{quote(file_key, safe='/')}",
+            "storage_backend": "s3",
+            "storage_key": file_key,
+            "filename": filename,
+            "content_type": content_type,
+            "size": len(content),
             "expiry_date": expiry_date,
             "verified": False,
             "uploaded_at": datetime.now(timezone.utc)
@@ -339,8 +372,8 @@ async def upload_vehicle_document(
         # Update vehicle with document
         updated_vehicle = await db.vehicles.find_one_and_update(
             {
-                "_id": ObjectId(vehicle_id),
-                "driver_id": ObjectId(current_driver["id"])
+                "_id": vehicle_object_id,
+                "driver_id": driver_id
             },
             {
                 "$push": {"documents": document},
@@ -431,7 +464,7 @@ async def check_vehicle_expiry(
     try:
         vehicle = await db.vehicles.find_one({
             "_id": ObjectId(vehicle_id),
-            "driver_id": ObjectId(current_driver["id"])
+            "driver_id": _current_user_id(current_driver)
         })
         
         if not vehicle:

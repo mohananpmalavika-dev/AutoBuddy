@@ -124,7 +124,8 @@ class RateLimitConfig:
     STRICT_ENDPOINTS = {
         "/api/auth/login",
         "/api/auth/register",
-        "/api/payments/process",
+        "/api/payments/order",
+        "/api/payments/verify",
         "/api/admin/audit-log",
     }
     
@@ -148,9 +149,11 @@ def get_rate_limit_key(request) -> str:
     Generate rate limit key based on request
     Prefers authenticated user ID, falls back to IP address
     """
-    # Try to get user ID from JWT token
-    if hasattr(request, "user") and hasattr(request.user, "id"):
-        return f"user:{request.user.id}"
+    # Try to get user ID from AuthenticationMiddleware without forcing
+    # Starlette's request.user property when that middleware is not installed.
+    scope_user = getattr(request, "scope", {}).get("user")
+    if scope_user is not None and hasattr(scope_user, "id"):
+        return f"user:{scope_user.id}"
     
     # Fall back to IP address
     client_ip = request.client.host if request.client else "unknown"

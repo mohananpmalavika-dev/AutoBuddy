@@ -1,0 +1,103 @@
+# Prometheus Configuration
+# Save as: prometheus.yml in project root or monitoring directory
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'autobuddy-production'
+    environment: 'production'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - 'localhost:9093'
+
+# Load rules once and periodically evaluate them
+rule_files:
+  - 'alert_rules.yml'
+
+scrape_configs:
+  # ============================================================================
+  # Prometheus Self-Monitoring
+  # ============================================================================
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # ============================================================================
+  # FastAPI Backend Application
+  # ============================================================================
+  - job_name: 'autobuddy-backend'
+    static_configs:
+      # Prometheus runs in Docker; host.docker.internal points back to the
+      # backend running on the host. Use localhost:8001 only when Prometheus
+      # runs directly on the same host process namespace as the backend.
+      - targets: ['host.docker.internal:8001']
+    metrics_path: '/api/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+    
+    # Metric relabeling for better organization
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'http_.*'
+        action: keep
+      - source_labels: [__name__]
+        regex: 'db_.*'
+        action: keep
+      - source_labels: [__name__]
+        regex: 'errors_.*'
+        action: keep
+      - source_labels: [__name__]
+        regex: 'websocket_.*'
+        action: keep
+      - source_labels: [__name__]
+        regex: 'payments_.*'
+        action: keep
+
+  # ============================================================================
+  # Node Exporter (System Metrics)
+  # ============================================================================
+  - job_name: 'node'
+    static_configs:
+      - targets: ['localhost:9100']
+    scrape_interval: 30s
+
+  # ============================================================================
+  # PostgreSQL Database
+  # ============================================================================
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['localhost:9187']  # postgres_exporter
+    scrape_interval: 30s
+
+  # ============================================================================
+  # MongoDB Database
+  # ============================================================================
+  - job_name: 'mongodb'
+    static_configs:
+      - targets: ['localhost:9216']  # mongodb_exporter
+    scrape_interval: 30s
+
+  # ============================================================================
+  # Redis (Cache/Sessions)
+  # ============================================================================
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['localhost:9121']  # redis_exporter
+    scrape_interval: 30s
+
+# Service discovery configurations (Optional - for dynamic environments)
+# ---
+# consul_sd_configs:
+#   - server: 'localhost:8500'
+#     datacenter: 'dc1'
+#
+# kubernetes_sd_configs:
+#   - role: pod
+#     namespaces:
+#       names:
+#         - production

@@ -1,0 +1,284 @@
+# Prometheus Alert Rules
+# Save as: alert_rules.yml in project root or monitoring directory
+
+groups:
+  - name: AutoBuddy Alerts
+    interval: 30s
+    rules:
+      # ========================================================================
+      # API Performance Alerts
+      # ========================================================================
+      - alert: HighResponseTime
+        expr: 'histogram_quantile(0.95, http_request_duration_seconds_bucket) > 5'
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: 'High API Response Time'
+          description: '{{ $labels.endpoint }} has 95th percentile response time > 5 seconds (current: {{ $value }}s)'
+
+      - alert: CriticalResponseTime
+        expr: 'histogram_quantile(0.99, http_request_duration_seconds_bucket) > 10'
+        for: 2m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: 'Critical API Response Time'
+          description: '{{ $labels.endpoint }} has 99th percentile response time > 10 seconds (current: {{ $value }}s)'
+
+      # ========================================================================
+      # Error Rate Alerts
+      # ========================================================================
+      - alert: HighErrorRate
+        expr: |
+          (sum(rate(http_requests_total{status="error"}[5m])) / 
+           sum(rate(http_requests_total[5m]))) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: 'High API Error Rate'
+          description: 'Error rate is > 1% (current: {{ $value | humanizePercentage }})'
+
+      - alert: CriticalErrorRate
+        expr: |
+          (sum(rate(http_requests_total{status="error"}[5m])) / 
+           sum(rate(http_requests_total[5m]))) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: 'Critical API Error Rate'
+          description: 'Error rate is > 5% (current: {{ $value | humanizePercentage }})'
+
+      # ========================================================================
+      # Database Performance Alerts
+      # ========================================================================
+      - alert: SlowDatabaseQueries
+        expr: |
+          rate(slow_queries_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: 'Slow Database Queries Detected'
+          description: '{{ $labels.collection }}.{{ $labels.operation }} averaging {{ $value }} slow queries per second'
+
+      - alert: HighDatabaseLatency
+        expr: 'histogram_quantile(0.95, db_query_duration_seconds_bucket{status="success"}) > 1'
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: 'High Database Latency'
+          description: '{{ $labels.collection }}.{{ $labels.operation }} 95th percentile latency > 1 second (current: {{ $value }}s)'
+
+      - alert: DatabaseConnectionPoolExhausted
+        expr: 'db_connections_active > 95'
+        for: 2m
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          summary: 'Database Connection Pool Exhausted'
+          description: 'Database connection pool is {{ $value }}% full'
+
+      # ========================================================================
+      # WebSocket Alerts
+      # ========================================================================
+      - alert: HighWebSocketEventFailureRate
+        expr: |
+          (sum(rate(websocket_events_total{status="error"}[5m])) / 
+           sum(rate(websocket_events_total[5m]))) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          component: websocket
+        annotations:
+          summary: 'High WebSocket Event Failure Rate'
+          description: 'WebSocket event failure rate is > 5% (current: {{ $value | humanizePercentage }})'
+
+      - alert: TooManyWebSocketConnections
+        expr: 'websocket_connections_active > 10000'
+        for: 5m
+        labels:
+          severity: warning
+          component: websocket
+        annotations:
+          summary: 'High Number of WebSocket Connections'
+          description: 'Current WebSocket connections: {{ $value }} (threshold: 10000)'
+
+      # ========================================================================
+      # Authentication Alerts
+      # ========================================================================
+      - alert: HighAuthenticationFailureRate
+        expr: |
+          (sum(rate(auth_attempts_total{status="failed"}[5m])) / 
+           sum(rate(auth_attempts_total[5m]))) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: auth
+        annotations:
+          summary: 'High Authentication Failure Rate'
+          description: 'Authentication failure rate is > 10% (current: {{ $value | humanizePercentage }})'
+
+      # ========================================================================
+      # Rate Limiting Alerts
+      # ========================================================================
+      - alert: HighRateLimitViolations
+        expr: |
+          rate(rate_limit_violations_total[5m]) > 1
+        for: 5m
+        labels:
+          severity: warning
+          component: rate-limiting
+        annotations:
+          summary: 'High Rate Limit Violations'
+          description: '{{ $labels.endpoint }} averaging {{ $value }} violations per second'
+
+      # ========================================================================
+      # Business Alerts
+      # ========================================================================
+      - alert: BookingCompletionTimeHigh
+        expr: 'booking_duration_seconds_quantile{quantile="0.95"} > 600'
+        for: 10m
+        labels:
+          severity: warning
+          component: business
+        annotations:
+          summary: 'High Booking Completion Time'
+          description: '95th percentile booking completion time > 10 minutes (current: {{ $value }}s)'
+
+      - alert: PaymentFailureRate
+        expr: |
+          (sum(rate(payments_total{status="failed"}[5m])) / 
+           sum(rate(payments_total[5m]))) > 0.02
+        for: 5m
+        labels:
+          severity: critical
+          component: business
+        annotations:
+          summary: 'High Payment Failure Rate'
+          description: 'Payment failure rate is > 2% (current: {{ $value | humanizePercentage }})'
+
+      - alert: RefundProcessingDelayed
+        expr: |
+          rate(refunds_total{status="pending"}[5m]) > 0
+        for: 30m
+        labels:
+          severity: warning
+          component: business
+        annotations:
+          summary: 'Refunds Pending for Extended Period'
+          description: 'Refunds have been pending for > 30 minutes'
+
+      # ========================================================================
+      # File Upload Alerts
+      # ========================================================================
+      - alert: HighFileUploadFailureRate
+        expr: |
+          (sum(rate(file_uploads_total{status="failed"}[5m])) / 
+           sum(rate(file_uploads_total[5m]))) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          component: uploads
+        annotations:
+          summary: 'High File Upload Failure Rate'
+          description: 'File upload failure rate is > 5% (current: {{ $value | humanizePercentage }})'
+
+      - alert: SlowFileUploads
+        expr: 'histogram_quantile(0.95, file_upload_duration_seconds_bucket) > 30'
+        for: 5m
+        labels:
+          severity: warning
+          component: uploads
+        annotations:
+          summary: 'Slow File Uploads'
+          description: '{{ $labels.file_type }} uploads 95th percentile time > 30 seconds (current: {{ $value }}s)'
+
+      # ========================================================================
+      # System Alerts
+      # ========================================================================
+      - alert: HighBackgroundTaskQueueSize
+        expr: 'background_task_queue_size > 1000'
+        for: 5m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: 'High Background Task Queue Size'
+          description: 'Background task queue size: {{ $value }} (threshold: 1000)'
+
+      - alert: SlowBackgroundTasks
+        expr: |
+          histogram_quantile(0.95, background_task_duration_seconds_bucket) > 60
+        for: 5m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: 'Slow Background Task Processing'
+          description: '{{ $labels.task_name }} 95th percentile duration > 60 seconds (current: {{ $value }}s)'
+
+      # ========================================================================
+      # Infrastructure Alerts
+      # ========================================================================
+      - alert: PrometheusScrapeFailing
+        expr: 'up{job="autobuddy-backend"} == 0'
+        for: 5m
+        labels:
+          severity: critical
+          component: infrastructure
+        annotations:
+          summary: 'Prometheus Unable to Scrape Metrics'
+          description: 'Cannot scrape metrics from {{ $labels.job }} for > 5 minutes'
+
+      - alert: DatabaseDown
+        expr: 'up{job=~"postgres|mongodb"} == 0'
+        for: 2m
+        labels:
+          severity: critical
+          component: infrastructure
+        annotations:
+          summary: 'Database is Down'
+          description: '{{ $labels.job }} is not responding'
+
+      - alert: LowDiskSpace
+        expr: 'node_filesystem_avail_bytes{fstype!~"tmpfs"} / node_filesystem_size_bytes < 0.1'
+        for: 10m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: 'Low Disk Space'
+          description: '{{ $labels.device }} has < 10% disk space available'
+
+      - alert: HighMemoryUsage
+        expr: |
+          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) > 0.85
+        for: 10m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: 'High Memory Usage'
+          description: 'System memory usage is {{ $value | humanizePercentage }}'
+
+      - alert: HighCPUUsage
+        expr: |
+          (1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))) > 0.8
+        for: 10m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: 'High CPU Usage'
+          description: 'System CPU usage is {{ $value | humanizePercentage }}'

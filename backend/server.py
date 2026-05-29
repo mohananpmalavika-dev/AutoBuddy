@@ -49,11 +49,29 @@ from app.routers.notifications_addon import router as modular_notifications_rout
 from app.routers.tier1_driver_features import router as modular_tier1_router
 from app.routers.tier2_driver_features import router as modular_tier2_router
 from app.routers.tier3_polish_features import router as modular_tier3_router
-from app.routers.admin import router as modular_admin_router
 from app.routers.health import router as modular_health_router
 from app.routers.scheduled_rides import router as modular_scheduled_rides_router
 from app.routers.vehicles import router as modular_vehicles_router
 from app.routers.support_tickets import router as modular_support_tickets_router
+from app.routers.uploads import router as modular_uploads_router
+from app.routers.admin_account_deletions import router as modular_admin_account_deletions_router
+from app.routers.admin_audit_compliance import router as modular_admin_audit_compliance_router
+from app.routers.admin_dispute_management import router as modular_admin_dispute_management_router
+from app.routers.admin_driver_management import router as modular_admin_driver_management_router
+from app.routers.admin_financial_management import router as modular_admin_financial_management_router
+from app.routers.admin_kyc_enhanced import router as modular_admin_kyc_enhanced_router
+from app.routers.admin_launch_visitors import router as modular_admin_launch_visitors_router
+from app.routers.admin_passenger_management import router as modular_admin_passenger_management_router
+from app.routers.admin_phone_requests import router as modular_admin_phone_requests_router
+from app.routers.admin_promotions_marketing import router as modular_admin_promotions_marketing_router
+from app.routers.admin_reports_analytics import router as modular_admin_reports_analytics_router
+from app.routers.admin_safety_compliance import router as modular_admin_safety_compliance_router
+from app.routers.admin_subscriptions_enhanced import router as modular_admin_subscriptions_enhanced_router
+from app.routers.admin_support_management import router as modular_admin_support_management_router
+from app.routers.admin_system_config import router as modular_admin_system_config_router
+from app.routers.admin_trip_management import router as modular_admin_trip_management_router
+from app.routers.admin_wallet_topups import router as modular_admin_wallet_topups_router
+from app.sockets import configure_socket_server as configure_legacy_socket_helpers
 from app.db.database import SessionLocal, get_feature_database_status
 from app.db.tier2_models import (
     DriverPaymentMethod,
@@ -357,6 +375,7 @@ sio = socketio.AsyncServer(
     engineio_logger=False
 )
 app.state.sio = sio
+configure_legacy_socket_helpers(sio)
 socket_app = socketio.ASGIApp(sio, socketio_path="/ws/socket.io")
 
 driver_health_monitor_task: Optional[asyncio.Task] = None
@@ -3691,6 +3710,7 @@ async def notify_user(user_id: str, title: str, body: str, data: Optional[Dict[s
 
     if push_enabled and not quiet_hours_suppressed:
         await emit_to_user(user_id, "in_app_notification", payload)
+        await emit_to_user(user_id, "notification", payload)
 
     token_doc = await db.push_tokens.find_one({"user_id": user_id}) if push_enabled and not quiet_hours_suppressed else None
     if token_doc and token_doc.get("token"):
@@ -14514,11 +14534,28 @@ app.include_router(modular_notifications_router)
 app.include_router(modular_tier1_router)
 app.include_router(modular_tier2_router)
 app.include_router(modular_tier3_router)
-app.include_router(modular_admin_router)
 app.include_router(modular_health_router)
 app.include_router(modular_scheduled_rides_router)
 app.include_router(modular_vehicles_router)
 app.include_router(modular_support_tickets_router)
+app.include_router(modular_uploads_router)
+app.include_router(modular_admin_account_deletions_router)
+app.include_router(modular_admin_audit_compliance_router)
+app.include_router(modular_admin_dispute_management_router)
+app.include_router(modular_admin_driver_management_router)
+app.include_router(modular_admin_financial_management_router)
+app.include_router(modular_admin_kyc_enhanced_router)
+app.include_router(modular_admin_launch_visitors_router)
+app.include_router(modular_admin_passenger_management_router)
+app.include_router(modular_admin_phone_requests_router)
+app.include_router(modular_admin_promotions_marketing_router)
+app.include_router(modular_admin_reports_analytics_router)
+app.include_router(modular_admin_safety_compliance_router)
+app.include_router(modular_admin_subscriptions_enhanced_router)
+app.include_router(modular_admin_support_management_router)
+app.include_router(modular_admin_system_config_router)
+app.include_router(modular_admin_trip_management_router)
+app.include_router(modular_admin_wallet_topups_router)
 app.include_router(api_router)
 app.mount("/ws", socket_app)
 
