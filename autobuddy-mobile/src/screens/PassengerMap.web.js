@@ -175,6 +175,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const pickupAddressRequestRef = useRef(0);
   const dropAddressRequestRef = useRef(0);
   const socketRef = useRef(null);
+  const refreshPassengerBookingsRef = useRef(null);
   const passengerPollInFlightRef = useRef(false);
   const passengerPollCycleRef = useRef(0);
   const passengerPollCooldownUntilRef = useRef(0);
@@ -199,6 +200,13 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [historyPaginationOffset, setHistoryPaginationOffset] = useState(0);
   const [historyPageSize] = useState(20);
   const [historyHasMore, setHistoryHasMore] = useState(true);
+  const [fare, setFare] = useState(null);
+  const [rideRealtime, setRideRealtime] = useState({
+    bookingId: null,
+    status: null,
+    etaToPickup: null,
+    etaToDrop: null,
+  });
   const [nearbyDrivers, setNearbyDrivers] = useState([]);
   const [favoriteDriverIds, setFavoriteDriverIds] = useState([]);
   const [blockedDriverIds, setBlockedDriverIds] = useState([]);
@@ -239,6 +247,10 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const { vehicleTypes: availableVehicleTypes, loading: vehicleTypesLoading } = useVehicleTypes();
   const [rideProduct, setRideProduct] = useState('normal');
   const [selectedVehicleTypeId, setSelectedVehicleTypeId] = useState('');
+  const effectiveSelectedVehicleTypeId = useMemo(
+    () => selectedVehicleTypeId || availableVehicleTypes?.[0]?.id || '',
+    [availableVehicleTypes, selectedVehicleTypeId],
+  );
   const [corporateCode, setCorporateCode] = useState('');
   const [airportTerminal, setAirportTerminal] = useState('');
   const [flightNumber, setFlightNumber] = useState('');
@@ -394,7 +406,11 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     return raw;
   }, []);
 
-  const activeBookingStatus = normalizeBookingStatus(activeBooking?.status);
+  const activeBookingId = activeBooking?.id ? String(activeBooking.id) : '';
+  const activeRideRealtime = rideRealtime.bookingId === activeBookingId ? rideRealtime : null;
+  const etaToPickup = activeRideRealtime?.etaToPickup ?? null;
+  const etaToDrop = activeRideRealtime?.etaToDrop ?? null;
+  const activeBookingStatus = normalizeBookingStatus(activeRideRealtime?.status || activeBooking?.status);
   const activeRideStartOtp = String(activeBooking?.ride_start_otp || '').trim();
   const activeRideEndOtp = String(activeBooking?.ride_end_otp || '').trim();
   const isDriverLiveSharing = liveTrackStatuses.has(activeBookingStatus);
@@ -426,7 +442,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     userName: user?.name,
     activeBooking,
   });
-  const liveDriverLocation = normalizeLocation(activeBooking?.driver_location);
+  const liveDriverLocation = normalizeLocation(
+    activeBooking?.driver_live_location || activeBooking?.driver_location,
+  );
   const formatCoordinateAddress = useCallback(
     (latitude, longitude) => `Lat ${Number(latitude).toFixed(6)}, Lng ${Number(longitude).toFixed(6)}`,
     [],
@@ -498,7 +516,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const mapState = useMemo(() => {
     const origin = selectedPickupLocation;
     const destination = selectedDropoffLocation;
-    const driverLiveLocation = normalizeLocation(activeBooking?.driver_location);
+    const driverLiveLocation = liveDriverLocation;
     const liveTarget = activeBookingStatus === 'in_progress' ? (destination || origin) : (origin || destination);
     const usingBasicEmbed = !googleMapsWebKey;
     let fallbackUrl = '';
@@ -554,7 +572,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       routeOrigin,
       routeDestination,
     };
-  }, [googleMapsWebKey, selectedPickupLocation, selectedDropoffLocation, activeBooking, activeBookingStatus, isDriverLiveSharing]);
+  }, [googleMapsWebKey, selectedPickupLocation, selectedDropoffLocation, liveDriverLocation, activeBookingStatus, isDriverLiveSharing]);
 
   const fareExpectation = useMemo(() => {
     const parsed = Number(String(fareExpectationInput || '').trim());
@@ -660,13 +678,6 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       window.removeEventListener('autobuddy-language-change', onLanguageEvent);
     };
   }, []);
-
-  // Initialize default vehicle type when available types are loaded
-  useEffect(() => {
-    if (availableVehicleTypes && availableVehicleTypes.length > 0 && !selectedVehicleTypeId) {
-      setSelectedVehicleTypeId(availableVehicleTypes[0].id);
-    }
-  }, [availableVehicleTypes, selectedVehicleTypeId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1218,6 +1229,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       return [];
     }
   };
+  useEffect(() => {
+    refreshPassengerBookingsRef.current = refreshPassengerBookings;
+  });
 
   const loadMoreHistory = async () => {
     try {
@@ -1436,6 +1450,18 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         return { ...prev, ...patch };
       });
     };
+    const applyRealtimePatch = (patch) => {
+      setRideRealtime((prev) => {
+        const sameBooking = prev.bookingId === bookingId;
+        return {
+          bookingId,
+          status: sameBooking ? prev.status : null,
+          etaToPickup: sameBooking ? prev.etaToPickup : null,
+          etaToDrop: sameBooking ? prev.etaToDrop : null,
+          ...patch,
+        };
+      });
+    };
 
     const handleDriverLocation = (payload) => {
       if (!payload || String(payload.booking_id || '') !== bookingId) {
@@ -1460,12 +1486,19 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         }
         return { ...prev, driver_location: nextLocation };
       });
+      applyRealtimePatch({
+        etaToPickup: payload.eta_to_pickup_min ?? null,
+        etaToDrop: payload.eta_to_drop_min ?? null,
+      });
     };
     const handleBookingStatusChanged = (payload) => {
       if (!payload || String(payload.booking_id || '') !== bookingId) {
         return;
       }
       const nextStatus = normalizeBookingStatus(payload.status);
+      applyRealtimePatch({
+        status: nextStatus || payload.status || null,
+      });
       applyBookingPatch({
         status: nextStatus || payload.status,
       });
@@ -1479,6 +1512,11 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       if (nextStatus) {
         nextPatch.status = nextStatus;
       }
+      applyRealtimePatch({
+        status: nextStatus || payload.status || null,
+        etaToPickup: payload.eta_to_pickup_min ?? null,
+        etaToDrop: payload.eta_to_drop_min ?? null,
+      });
       if (payload.driver_live_location || payload.driver_location) {
         const source = payload.driver_live_location || payload.driver_location;
         const latitude = Number(source?.latitude ?? source?.lat);
@@ -1509,7 +1547,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
 
     const handleBookingCompleted = async (data) => {
       // Auto-refresh history when a booking completes
-      await refreshPassengerBookings({ silent: true });
+      await refreshPassengerBookingsRef.current?.({ silent: true });
     };
 
     socket.on('connect', joinBookingRoom);
@@ -1813,7 +1851,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           rental_hours: effectiveRideProduct === 'rental_hourly' ? rentalHours : undefined,
           safe_ride_priority:
             effectiveRideProduct === 'school_elderly_safe' ? safeRidePriority : undefined,
-          vehicle_type_id: selectedVehicleTypeId || undefined,
+          vehicle_type_id: effectiveSelectedVehicleTypeId || undefined,
           notes: rideNotes.length > 0 ? rideNotes.join(' | ') : undefined,
         },
       }),
@@ -2245,7 +2283,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                             key={type.id}
                             style={[
                               styles.vehicleTypeChip,
-                              selectedVehicleTypeId === type.id && styles.vehicleTypeChipActive,
+                              effectiveSelectedVehicleTypeId === type.id && styles.vehicleTypeChipActive,
                             ]}
                             onPress={() => setSelectedVehicleTypeId(type.id)}
                           >
@@ -2253,7 +2291,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                             <Text
                               style={[
                                 styles.vehicleTypeChipText,
-                                selectedVehicleTypeId === type.id && styles.vehicleTypeChipTextActive,
+                                effectiveSelectedVehicleTypeId === type.id && styles.vehicleTypeChipTextActive,
                               ]}
                             >
                               {type.name}

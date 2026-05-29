@@ -73,6 +73,7 @@ from app.routers.admin_system_config import router as modular_admin_system_confi
 from app.routers.admin_trip_management import router as modular_admin_trip_management_router
 from app.routers.admin_wallet_topups import router as modular_admin_wallet_topups_router
 from app.routers.admin_document_requirements import router as modular_admin_document_requirements_router
+from app.routers.rate_limit_config import router as modular_rate_limit_config_router, init_default_rate_limit_configs
 from app.routers.driver_documents import router as modular_driver_documents_router
 from app.routers.passenger_documents import router as modular_passenger_documents_router
 from app.routers.admin_fare_management import router as modular_admin_fare_management_router
@@ -145,6 +146,10 @@ from app.utils.rate_limiting import (
     ensure_rate_limit_defaults,
     get_rate_limit_profile_rule,
     get_rate_limit_rule_for_path,
+)
+from app.routers.rate_limit_config import (
+    init_default_rate_limit_configs,
+    get_effective_rate_limit,
 )
 
 try:
@@ -973,6 +978,12 @@ async def on_startup():
         await init_default_vehicle_types(db)
     except Exception:
         logger.exception("Vehicle types initialization failed during startup")
+    # Initialize database-driven rate limit configuration
+    try:
+        await init_default_rate_limit_configs(db)
+    except Exception:
+        logger.exception("Rate limit configuration initialization failed during startup")
+    # Keep legacy rate limit defaults for backward compatibility
     try:
         await ensure_rate_limit_defaults(db)
     except Exception:
@@ -14667,6 +14678,7 @@ app.include_router(modular_corporate_portal_router)
 app.include_router(modular_airport_router)
 app.include_router(modular_heatmaps_router)
 app.include_router(modular_profitability_router)
+app.include_router(modular_rate_limit_config_router)
 app.include_router(api_router)
 app.mount("/ws", socket_app)
 
