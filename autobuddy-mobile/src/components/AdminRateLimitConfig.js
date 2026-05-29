@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -14,7 +14,7 @@ import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
 import ConfirmationDialog from './ConfirmationDialog';
 
-const AdminRateLimitConfig = ({ token, onClose }) => {
+const AdminRateLimitConfig = ({ token, isActive = true, onClose }) => {
   const [loading, setLoading] = useState(false);
   const [rateLimits, setRateLimits] = useState([]);
   const [endpointLimits, setEndpointLimits] = useState([]);
@@ -37,35 +37,52 @@ const AdminRateLimitConfig = ({ token, onClose }) => {
     description: '',
     enabled: true,
   });
+  const fetchSequenceRef = useRef(0);
 
-  const fetchRateLimits = useCallback(async () => {
+  const fetchRateLimitData = useCallback(async ({ showSpinner = true } = {}) => {
+    const requestId = fetchSequenceRef.current + 1;
+    fetchSequenceRef.current = requestId;
+
     try {
-      setLoading(true);
-      const response = await apiRequest('/admin/config/rate-limits', { token });
-      setRateLimits(response.limits || []);
+      if (showSpinner) {
+        setLoading(true);
+      }
+      const cacheBust = Date.now();
+      const [limitsResponse, endpointsResponse] = await Promise.all([
+        apiRequest('/admin/config/rate-limits', { token, query: { _: cacheBust } }),
+        apiRequest('/admin/config/rate-limits/endpoints', { token, query: { _: cacheBust } }),
+      ]);
+
+      if (requestId !== fetchSequenceRef.current) {
+        return;
+      }
+
+      setRateLimits(limitsResponse.limits || []);
+      setEndpointLimits(endpointsResponse.endpoints || []);
     } catch (error) {
       console.error('Error fetching rate limits:', error);
       Alert.alert('Error', 'Failed to fetch rate limits');
     } finally {
-      setLoading(false);
+      if (requestId === fetchSequenceRef.current) {
+        setLoading(false);
+      }
     }
   }, [token]);
 
-  const fetchEndpointLimits = useCallback(async () => {
-    try {
-      const response = await apiRequest('/admin/config/rate-limits/endpoints', { token });
-      setEndpointLimits(response.endpoints || []);
-    } catch (error) {
-      console.error('Error fetching endpoint limits:', error);
-    }
-  }, [token]);
+  const refreshRateLimitData = useCallback(async () => {
+    await fetchRateLimitData({ showSpinner: false });
+  }, [fetchRateLimitData]);
 
-  // Fetch rate limits on mount
   useEffect(() => {
+    if (!isActive) {
+      return undefined;
+    }
+
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    fetchRateLimits();
-    fetchEndpointLimits();
-  }, [fetchEndpointLimits, fetchRateLimits]);
+    fetchRateLimitData();
+    const refreshTimer = setInterval(refreshRateLimitData, 15000);
+    return () => clearInterval(refreshTimer);
+  }, [fetchRateLimitData, isActive, refreshRateLimitData]);
 
   const handleEditLimit = (limit) => {
     setEditingLimit(limit.limit_type);
@@ -110,9 +127,23 @@ const AdminRateLimitConfig = ({ token, onClose }) => {
         },
       });
 
-      Alert.alert('Success', 'Rate limit updated successfully');
+      setRateLimits((currentLimits) =>
+        currentLimits.map((limit) =>
+          limit.limit_type === formData.limit_type
+            ? {
+                ...limit,
+                max_requests: Number.parseInt(formData.max_requests, 10),
+                window_seconds: Number.parseInt(formData.window_seconds, 10),
+                description: formData.description,
+                enabled: formData.enabled,
+                is_default: false,
+              }
+            : limit
+        )
+      );
       setEditingLimit(null);
-      await fetchRateLimits();
+      await refreshRateLimitData();
+      Alert.alert('Success', 'Rate limit updated successfully');
     } catch (error) {
       console.error('Error saving rate limit:', error);
       Alert.alert('Error', error.message || 'Failed to save rate limit');
@@ -145,7 +176,8 @@ const AdminRateLimitConfig = ({ token, onClose }) => {
 
     try {
       setLoading(true);
-      if (editingEndpoint) {
+      const isEditingEndpoint = Boolean(editingEndpoint);
+      if (isEditingEndpoint) {
         await apiRequest(`/admin/config/rate-limits/endpoints/${editingEndpoint}`, {
           method: 'PUT',
           token,
@@ -158,7 +190,6 @@ const AdminRateLimitConfig = ({ token, onClose }) => {
             enabled: endpointFormData.enabled,
           },
         });
-        Alert.alert('Success', 'Endpoint rate limit updated successfully');
       } else {
         await apiRequest('/admin/config/rate-limits/endpoints/add', {
           method: 'POST',
@@ -172,11 +203,16 @@ const AdminRateLimitConfig = ({ token, onClose }) => {
             enabled: endpointFormData.enabled,
           },
         });
-        Alert.alert('Success', 'Endpoint rate limit created successfully');
       }
       setEditingEndpoint(null);
       resetEndpointForm();
-      await fetchEndpointLimits();
+      await refreshRateLimitData();
+      Alert.alert(
+        'Success',
+        isEditingEndpoint
+          ? 'Endpoint rate limit updated successfully'
+          : 'Endpoint rate limit created successfully'
+      );
     } catch (error) {
       console.error('Error saving endpoint rate limit:', error);
       Alert.alert('Error', error.message || 'Failed to save endpoint rate limit');
@@ -192,8 +228,8 @@ const AdminRateLimitConfig = ({ token, onClose }) => {
         method: 'DELETE',
         token,
       });
+      await refreshRateLimitData();
       Alert.alert('Success', 'Endpoint rate limit deleted successfully');
-      await fetchEndpointLimits();
     } catch (error) {
       console.error('Error deleting endpoint rate limit:', error);
       Alert.alert('Error', error.message || 'Failed to delete endpoint rate limit');

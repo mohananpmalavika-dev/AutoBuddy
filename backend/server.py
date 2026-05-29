@@ -14541,9 +14541,9 @@ async def add_security_headers(request: Request, call_next):
     response.headers["X-XSS-Protection"] = "0"
     if request.url.path.startswith("/api"):
         response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
-    if request.url.path.startswith("/api/auth"):
-        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
     if IS_PRODUCTION_ENV:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     # Ensure CORS response headers are set in a strict, explicit way.
@@ -14555,7 +14555,7 @@ async def add_security_headers(request: Request, call_next):
             elif not IS_PRODUCTION_ENV:
                 response.headers["Access-Control-Allow-Origin"] = "*"
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
-        response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, X-Requested-With"
+        response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, X-Requested-With, Cache-Control, Pragma"
         response.headers["Access-Control-Allow-Credentials"] = "false"
         response.headers["Vary"] = "Origin"
     except Exception:

@@ -582,6 +582,38 @@ export default function AdminDashboard({ token, user, onLogout }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') {
+      return undefined;
+    }
+
+    let lastRefreshAt = 0;
+    const refreshVisibleAdminData = () => {
+      const now = Date.now();
+      if (now - lastRefreshAt < 1000) {
+        return;
+      }
+      lastRefreshAt = now;
+      refreshAdminData().catch(() => null);
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refreshVisibleAdminData();
+      }
+    };
+
+    window.addEventListener('pageshow', refreshVisibleAdminData);
+    window.addEventListener('focus', refreshVisibleAdminData);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      window.removeEventListener('pageshow', refreshVisibleAdminData);
+      window.removeEventListener('focus', refreshVisibleAdminData);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
   // PHASE 1: FILTERING & PAGINATION FUNCTIONS
   // Filter trips (without pagination)
   const filterAndPaginateTrips = useCallback(() => {
@@ -3177,24 +3209,28 @@ export default function AdminDashboard({ token, user, onLogout }) {
         <View style={[styles.section, activeAdminMenu !== 'rate_limits' && styles.hiddenSection]}>
           <AdminRateLimitConfig
             token={token}
+            isActive={activeAdminMenu === 'rate_limits'}
             onClose={() => setActiveAdminMenu(PRIMARY_ADMIN_MENU_KEY)}
           />
         </View>
 
         <View style={[styles.section, activeAdminMenu !== 'documents' && styles.hiddenSection]}>
           <AdminDocumentRequirements
+            isActive={activeAdminMenu === 'documents'}
             onClose={() => setActiveAdminMenu(PRIMARY_ADMIN_MENU_KEY)}
           />
         </View>
 
         <View style={[styles.section, activeAdminMenu !== 'fares' && styles.hiddenSection]}>
           <AdminFareConfiguration
+            isActive={activeAdminMenu === 'fares'}
             onClose={() => setActiveAdminMenu(PRIMARY_ADMIN_MENU_KEY)}
           />
         </View>
 
         <View style={[styles.section, activeAdminMenu !== 'fare_proposals' && styles.hiddenSection]}>
           <AdminFareProposals
+            isActive={activeAdminMenu === 'fare_proposals'}
             onClose={() => setActiveAdminMenu(PRIMARY_ADMIN_MENU_KEY)}
           />
         </View>

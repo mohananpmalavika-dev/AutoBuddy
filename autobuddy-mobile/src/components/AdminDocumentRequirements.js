@@ -15,7 +15,7 @@ import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
 import ConfirmationDialog from './ConfirmationDialog';
 
-const AdminDocumentRequirements = ({ onClose }) => {
+const AdminDocumentRequirements = ({ isActive = true, onClose }) => {
   const [loading, setLoading] = useState(false);
   const [requirements, setRequirements] = useState([]);
   const [activeTab, setActiveTab] = useState('requirements');
@@ -71,6 +71,10 @@ const AdminDocumentRequirements = ({ onClose }) => {
   }, []);
 
   useEffect(() => {
+    if (!isActive) {
+      return undefined;
+    }
+
     let mounted = true;
     (async () => {
       if (mounted) {
@@ -80,7 +84,7 @@ const AdminDocumentRequirements = ({ onClose }) => {
     return () => {
       mounted = false;
     };
-  }, [fetchRequirements]);
+  }, [fetchRequirements, isActive]);
 
   const handleAddNew = () => {
     setEditingReq(null);

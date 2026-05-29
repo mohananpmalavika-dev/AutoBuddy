@@ -79,7 +79,7 @@ function TabButton({ tab, label, activeTab, onPress, loading }) {
   );
 }
 
-export default function AdminFareConfiguration({ onClose }) {
+export default function AdminFareConfiguration({ isActive = true, onClose }) {
   const [activeTab, setActiveTab] = useState(TAB_OPTIONS.GLOBAL);
   const [loading, setLoading] = useState(false);
 
@@ -188,6 +188,10 @@ export default function AdminFareConfiguration({ onClose }) {
 
   // Initial loads
   useEffect(() => {
+    if (!isActive) {
+      return undefined;
+    }
+
     let mounted = true;
     (async () => {
       if (mounted && activeTab === TAB_OPTIONS.GLOBAL) {
@@ -197,9 +201,13 @@ export default function AdminFareConfiguration({ onClose }) {
     return () => {
       mounted = false;
     };
-  }, [activeTab, fetchGlobalFares]);
+  }, [activeTab, fetchGlobalFares, isActive]);
 
   useEffect(() => {
+    if (!isActive) {
+      return undefined;
+    }
+
     let mounted = true;
     (async () => {
       if (mounted && activeTab === TAB_OPTIONS.DISTRICT) {
@@ -209,9 +217,13 @@ export default function AdminFareConfiguration({ onClose }) {
     return () => {
       mounted = false;
     };
-  }, [activeTab, selectedDistrict, fetchDistrictFares]);
+  }, [activeTab, selectedDistrict, fetchDistrictFares, isActive]);
 
   useEffect(() => {
+    if (!isActive) {
+      return undefined;
+    }
+
     let mounted = true;
     (async () => {
       if (mounted && activeTab === TAB_OPTIONS.LOCALITY) {
@@ -221,9 +233,13 @@ export default function AdminFareConfiguration({ onClose }) {
     return () => {
       mounted = false;
     };
-  }, [activeTab, selectedDistrictLocality, selectedLocality, fetchLocalityFares]);
+  }, [activeTab, selectedDistrictLocality, selectedLocality, fetchLocalityFares, isActive]);
 
   useEffect(() => {
+    if (!isActive) {
+      return undefined;
+    }
+
     let mounted = true;
     (async () => {
       if (mounted && activeTab === TAB_OPTIONS.DRIVER) {
@@ -233,7 +249,7 @@ export default function AdminFareConfiguration({ onClose }) {
     return () => {
       mounted = false;
     };
-  }, [activeTab, driverSearchId, fetchDriverFares]);
+  }, [activeTab, driverSearchId, fetchDriverFares, isActive]);
 
   // Save global fare
   const handleSaveGlobalFare = useCallback(async () => {

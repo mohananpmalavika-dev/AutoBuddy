@@ -43,10 +43,29 @@ describe('apiRequest integration', () => {
     const [url, requestInit] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('https://api.example.test/api/bookings?page=2&q=airport');
     expect(requestInit.method).toBe('GET');
+    expect(requestInit.cache).toBe('no-store');
     expect(requestInit.headers).toMatchObject({
       Authorization: 'Bearer token-123',
       Accept: 'application/json',
+      'Cache-Control': 'no-store',
+      Pragma: 'no-cache',
     });
+  });
+
+  it('supports older method-first callers without wrapping the response', async () => {
+    const fetchMock = (global as unknown as { fetch: jest.Mock }).fetch;
+    fetchMock.mockResolvedValue({
+      ok: true,
+      text: async () => JSON.stringify({ requirements: [{ id: 'license' }] }),
+    });
+    const { apiRequest } = loadApiModule();
+
+    const result = await apiRequest('GET', '/api/admin/documents/requirements');
+
+    expect(result).toEqual({ requirements: [{ id: 'license' }] });
+    const [url, requestInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.example.test/api/admin/documents/requirements');
+    expect(requestInit.method).toBe('GET');
   });
 
   it('throws typed error details for non-2xx responses', async () => {

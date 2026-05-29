@@ -158,7 +158,7 @@ function getStatusColor(status) {
   return COLORS.warning;
 }
 
-export default function AdminFareProposals() {
+export default function AdminFareProposals({ isActive = true }) {
   const [proposals, setProposals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('pending');
@@ -195,12 +195,17 @@ export default function AdminFareProposals() {
 
   // Load data on mount
   useEffect(() => {
+    if (!isActive) {
+      return undefined;
+    }
+
     const loadData = async () => {
       await fetchProposals();
       await fetchStats();
     };
     loadData();
-  }, [fetchProposals, fetchStats]);
+    return undefined;
+  }, [fetchProposals, fetchStats, isActive]);
 
   // Apply filters whenever proposals or filters change (using useMemo instead of useEffect)
   const filteredProposals = useMemo(() => {

@@ -57,6 +57,7 @@ let backendOutageUntilMs = 0;
 let consecutiveServerErrors = 0;
 const SERVER_ERROR_THRESHOLD = 3;
 const OUTAGE_COOLDOWN_MS = 15000;
+const HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
 
 function extractErrorMessage(data, status) {
   const detail = data?.detail;
@@ -135,17 +136,42 @@ export async function refreshAccessToken() {
 }
 
 export async function apiRequest(path, options = {}, legacyPath = undefined, legacyBody = undefined) {
-  const legacySignature = typeof options === 'string';
-  if (legacySignature) {
-    options = {
-      method: options,
-      token: path,
-      body: legacyBody,
-    };
-    path = legacyPath;
+  const requestArgs = Array.from(arguments);
+  let shouldWrapLegacyResponse = false;
+  if (typeof options === 'string') {
+    const firstArg = String(path || '').trim();
+    const secondArg = String(options || '').trim();
+    const firstArgAsMethod = firstArg.toUpperCase();
+
+    if (HTTP_METHODS.has(firstArgAsMethod)) {
+      const fifthArg = requestArgs[4];
+      const legacyOptions =
+        legacyBody && typeof legacyBody === 'object' && !Array.isArray(legacyBody) ? legacyBody : {};
+      options = {
+        ...legacyOptions,
+        method: firstArgAsMethod,
+        body: legacyPath,
+        token:
+          typeof fifthArg === 'string'
+            ? fifthArg
+            : typeof legacyBody === 'string'
+              ? legacyBody
+              : legacyOptions.token,
+      };
+      path = secondArg;
+    } else {
+      shouldWrapLegacyResponse = true;
+      options = {
+        method: secondArg,
+        token: firstArg,
+        body: legacyBody,
+      };
+      path = legacyPath;
+    }
   }
 
   const { method = 'GET', token, body, query, timeoutMs = 20000, _retry = false, isFormData = false } = options;
+  const normalizedMethod = String(method || 'GET').toUpperCase();
   const nowMs = Date.now();
   let normalizedPath = String(path || '');
   if (normalizedPath === '/api') {
@@ -173,8 +199,13 @@ export async function apiRequest(path, options = {}, legacyPath = undefined, leg
     });
   }
 
+  const isAuthPath =
+    normalizedPath.includes('/auth/login') ||
+    normalizedPath.includes('/auth/register') ||
+    normalizedPath.includes('/auth/refresh') ||
+    normalizedPath.includes('/auth/_legacy/login');
   let effectiveToken = token ? String(token).trim() : '';
-  if (effectiveToken) {
+  if (effectiveToken || !isAuthPath) {
     try {
       // Prefer the latest persisted access token to avoid stale in-memory token loops.
       const latestSession = await loadSession();
@@ -193,11 +224,14 @@ export async function apiRequest(path, options = {}, legacyPath = undefined, leg
   try {
     const hasBody = body !== undefined && body !== null;
     const requestBody = isFormData || typeof body === 'string' ? body : hasBody ? JSON.stringify(body) : undefined;
+    const shouldBypassCache = normalizedMethod === 'GET';
     const response = await fetch(url.toString(), {
-      method,
+      method: normalizedMethod,
       signal: controller.signal,
+      cache: shouldBypassCache ? 'no-store' : 'default',
       headers: {
         Accept: 'application/json',
+        ...(shouldBypassCache ? { 'Cache-Control': 'no-store', Pragma: 'no-cache' } : {}),
         ...(hasBody && !isFormData ? { 'Content-Type': 'application/json' } : {}),
         ...(effectiveToken ? { Authorization: `Bearer ${effectiveToken}` } : {}),
       },
@@ -225,7 +259,7 @@ export async function apiRequest(path, options = {}, legacyPath = undefined, leg
       if (
         response.status === 503 &&
         normalizedPath === '/auth/login' &&
-        method.toUpperCase() === 'POST' &&
+        normalizedMethod === 'POST' &&
         body &&
         !options._legacyTried
       ) {
@@ -257,7 +291,7 @@ export async function apiRequest(path, options = {}, legacyPath = undefined, leg
     consecutiveServerErrors = 0;
     backendOutageUntilMs = 0;
 
-    return legacySignature ? { data } : data;
+    return shouldWrapLegacyResponse ? { data } : data;
   } catch (err) {
     if (err.name === 'AbortError') {
       throw new Error('Network timeout. Please check connection.');
