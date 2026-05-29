@@ -64,6 +64,9 @@ export default function FareBreakdown({
   surgeLongText = '',
   promos = [],
   taxes = 0,
+  vehicleTypeId = '',
+  vehicleTypeIcon = '🚗',
+  vehicleTypeMultiplier = 1.0,
   modal = false,
   onClose,
 }) {
@@ -147,6 +150,31 @@ export default function FareBreakdown({
           <Text style={styles.subtotalValue}>₹{breakdown.subtotal}</Text>
         </View>
       </View>
+
+      {/* Vehicle Type Multiplier */}
+      {vehicleTypeMultiplier > 1 && vehicleTypeId && (
+        <View style={styles.section}>
+          <View style={styles.vehicleTypeExplanation}>
+            <Text style={styles.vehicleTypeIcon}>{vehicleTypeIcon}</Text>
+            <View style={styles.vehicleTypeContent}>
+              <Text style={styles.vehicleTypeTitle}>Vehicle Type: {vehicleTypeId}</Text>
+              <Text style={styles.vehicleTypeText}>Premium vehicle option increases fare</Text>
+              <Text style={styles.vehicleTypeMultiplier}>{vehicleTypeMultiplier}x multiplier</Text>
+            </View>
+          </View>
+          <View style={styles.itemRow}>
+            <Text style={styles.itemLabel}>
+              Vehicle Charge ({vehicleTypeMultiplier}x)
+              <Text style={styles.hint}> (Premium surcharge)</Text>
+            </Text>
+            <Text style={[styles.itemValue, styles.vehicleValue]}>₹{(Number(breakdown.subtotal) * (vehicleTypeMultiplier - 1)).toFixed(2)}</Text>
+          </View>
+          <View style={[styles.itemRow, styles.subtotalRow]}>
+            <Text style={styles.subtotalLabel}>After Vehicle Premium</Text>
+            <Text style={styles.subtotalValue}>₹{(Number(breakdown.subtotal) * vehicleTypeMultiplier).toFixed(2)}</Text>
+          </View>
+        </View>
+      )}
 
       {/* Surge Pricing */}
       {surgeMultiplier > 1 && (
@@ -332,6 +360,40 @@ const styles = StyleSheet.create({
   },
   surgeValue: {
     color: '#FF9800',
+  },
+  vehicleValue: {
+    color: '#2196F3',
+  },
+  vehicleTypeExplanation: {
+    flexDirection: 'row',
+    backgroundColor: '#E3F2FD',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+    alignItems: 'flex-start',
+  },
+  vehicleTypeIcon: {
+    fontSize: 24,
+    marginRight: 12,
+  },
+  vehicleTypeContent: {
+    flex: 1,
+  },
+  vehicleTypeTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1565C0',
+    marginBottom: 4,
+  },
+  vehicleTypeText: {
+    fontSize: 11,
+    color: '#1976D2',
+    marginBottom: 4,
+  },
+  vehicleTypeMultiplier: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1565C0',
   },
 
   // Subtotal

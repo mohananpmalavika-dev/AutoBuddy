@@ -56,6 +56,7 @@ import RideNotesPanel from '../components/RideNotesPanel';
 import LocationSharingPanel from '../components/LocationSharingPanel';
 import RideStatsPanel from '../components/RideStatsPanel';
 import PostRideRatingModal from '../components/PostRideRatingModal';
+import PassengerBookingNavigator from '../screens/PassengerBookingNavigator';
 import { NotificationProvider, useNotifications } from '../contexts/NotificationContext';
 import { useNotificationManager } from '../hooks/useNotificationManager';
 import {
@@ -233,6 +234,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [selectingPoint, setSelectingPoint] = useState('pickup');
   const [showRatingModal, setShowRatingModal] = useState(false);
   const [justCompletedBooking, setJustCompletedBooking] = useState(null);
+  const [showBookingFlow, setShowBookingFlow] = useState(false);
   
   // Initialize notifications
   const passengerNotificationSettings = useMemo(
@@ -845,6 +847,18 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     }
     return undefined;
   }, [activeBooking, activeBooking?.id, activeBooking?.status, showRatingModal]);
+
+  const handleBookingComplete = useCallback((bookingData) => {
+    if (bookingData && bookingData.booking_id) {
+      setMessage(`Booking created! ID: ${bookingData.booking_id}`);
+      setActiveBooking(bookingData);
+    }
+    setShowBookingFlow(false);
+  }, []);
+
+  const handleBookingCancel = useCallback(() => {
+    setShowBookingFlow(false);
+  }, []);
 
   const handlePromoDiscountApplied = useCallback((promoState) => {
     const nextPromo = {
@@ -2512,6 +2526,13 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                   </View>
                 </View>
                 <View style={styles.actionsRow}>
+                  <TouchableOpacity
+                    style={[styles.actionButton, { backgroundColor: COLORS.primary }]}
+                    onPress={() => setShowBookingFlow(true)}>
+                    <Text style={styles.actionText}>📱 Book New Ride (Two-Screen Flow)</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.actionsRow}>
                   <TouchableOpacity style={styles.actionButton} onPress={createBooking} disabled={loading}>
                     <Text style={styles.actionText}>
                       {effectiveRideProduct === 'scheduled'
@@ -2919,6 +2940,16 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               token={token}
               onClose={closeNotificationCenter}
               onNotificationPress={handleNotificationPress}
+            />
+          </View>
+        )}
+
+        {/* Booking Flow Overlay */}
+        {showBookingFlow && (
+          <View style={styles.bookingFlowOverlay}>
+            <PassengerBookingNavigator
+              onBookingComplete={handleBookingComplete}
+              onCancel={handleBookingCancel}
             />
           </View>
         )}
@@ -3493,6 +3524,15 @@ const styles = StyleSheet.create({
     bottom: 0,
     backgroundColor: 'white',
     zIndex: 1000,
+  },
+  bookingFlowOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'white',
+    zIndex: 1001,
   },
   headerButton: {
     marginRight: 8,

@@ -425,6 +425,9 @@ export default function TripDetailModal({
           surgeLongText={booking.surge_reason}
           promos={booking.promotions || []}
           taxes={booking.taxes || 0}
+          vehicleTypeId={booking.vehicle_type_id || ''}
+          vehicleTypeIcon={booking.vehicle_icon || '🚗'}
+          vehicleTypeMultiplier={booking.vehicle_type_multiplier || 1.0}
           onClose={() => setShowFareModal(false)}
         />
       </View>

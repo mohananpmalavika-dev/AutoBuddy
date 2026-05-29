@@ -3,6 +3,7 @@ import {
   AccessibilityInfo,
   ActivityIndicator,
   Alert,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
@@ -37,6 +38,7 @@ import PaymentMethodsPanel from '../components/PaymentMethodsPanel';
 import PassengerRatingsPanel from '../components/PassengerRatingsPanel';
 import FavoriteDriversPanel from '../components/FavoriteDriversPanel';
 import PostRideRatingModal from '../components/PostRideRatingModal';
+import PassengerBookingNavigator from '../screens/PassengerBookingNavigator';
 import SavedPlacesQuickSelect from '../components/SavedPlacesQuickSelect';
 import PreferencesPanel from '../components/PreferencesPanel';
 import SavedPlacesPanel from '../components/SavedPlacesPanel';
@@ -222,6 +224,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [spinningNow, setSpinningNow] = useState(false);
   const [showRatingModal, setShowRatingModal] = useState(false);
   const [justCompletedBooking, setJustCompletedBooking] = useState(null);
+  const [showBookingFlow, setShowBookingFlow] = useState(false);
+  const [showBookingFlow, setShowBookingFlow] = useState(false);
   const passengerNotificationSettings = useMemo(
     () => ({
       ...(passengerPreferences || {}),
@@ -319,6 +323,19 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     }
     return undefined;
   }, [activeBooking, activeBooking?.id, activeBooking?.status, showRatingModal]);
+
+  const handleBookingComplete = useCallback((bookingData) => {
+    if (bookingData && bookingData.booking_id) {
+      setMessage(`Booking created! ID: ${bookingData.booking_id}`);
+      // Auto-refresh active bookings list
+      setActiveBooking(bookingData);
+    }
+    setShowBookingFlow(false);
+  }, []);
+
+  const handleBookingCancel = useCallback(() => {
+    setShowBookingFlow(false);
+  }, []);
 
   const handlePromoDiscountApplied = useCallback((promoState) => {
     const nextPromo = {
@@ -1767,6 +1784,28 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                 </TouchableOpacity>
               ) : null}
 
+              <TouchableOpacity
+                onPress={() => setShowBookingFlow(true)}
+                style={[
+                  styles.confirmButton,
+                  { backgroundColor: COLORS.primary, marginHorizontal: 12, marginBottom: 12, paddingVertical: 12 },
+                ]}>
+                <Text style={{ color: '#FFF', fontSize: 16, fontWeight: '600', textAlign: 'center' }}>
+                  📱 Book New Ride (Two-Screen Flow)
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => setShowBookingFlow(true)}
+                style={[
+                  styles.confirmButton,
+                  { backgroundColor: COLORS.primary, marginHorizontal: 12, marginBottom: 12 },
+                ]}>
+                <Text style={{ color: '#FFF', fontSize: 16, fontWeight: '600' }}>
+                  📱 Book New Ride
+                </Text>
+              </TouchableOpacity>
+
               <View style={styles.searchBlock}>
                 <Text style={styles.searchLabel}>Select Point</Text>
                 <View style={styles.modeRow}>
@@ -2542,6 +2581,18 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           )}
           {activePassengerMenu === 'stats' && <RideStatsPanel token={token} />}
         </ScrollView>
+
+        {/* Booking Flow Modal */}
+        <Modal
+          visible={showBookingFlow}
+          animationType="slide"
+          transparent={false}
+          onRequestClose={() => setShowBookingFlow(false)}>
+          <PassengerBookingNavigator
+            onBookingComplete={handleBookingComplete}
+            onCancel={handleBookingCancel}
+          />
+        </Modal>
 
         {/* Post-Ride Rating Modal */}
         {showRatingModal && justCompletedBooking && (

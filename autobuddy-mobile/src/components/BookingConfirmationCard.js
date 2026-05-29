@@ -37,8 +37,37 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 12,
     ...SHADOWS.small,
+  },  vehicleTypeRow: {
+    marginBottom: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+    borderRadius: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  headerRow: {
+  vehicleTypeIcon: {
+    fontSize: 16,
+    marginRight: 8,
+  },
+  vehicleTypeText: {
+    fontSize: 12,
+    color: '#1B5E20',
+    fontWeight: '600',
+    flex: 1,
+  },
+  multiplierBadge: {
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 3,
+    marginLeft: 6,
+  },
+  multiplierText: {
+    fontSize: 10,
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },  headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -210,6 +239,19 @@ export default function BookingConfirmationCard({
           <Text style={styles.detailValue} numberOfLines={1}>
             {dropoff.address || 'Location set'}
           </Text>
+        </View>
+      )}
+
+      {/* Vehicle Type */}
+      {booking.vehicle_type_id && (
+        <View style={styles.vehicleTypeRow}>
+          <Text style={styles.vehicleTypeIcon}>{booking.vehicle_icon || '🚗'}</Text>
+          <Text style={styles.vehicleTypeText}>{booking.vehicle_type_id}</Text>
+          {booking.vehicle_type_multiplier && booking.vehicle_type_multiplier !== 1 && (
+            <View style={styles.multiplierBadge}>
+              <Text style={styles.multiplierText}>{booking.vehicle_type_multiplier}x</Text>
+            </View>
+          )}
         </View>
       )}
 

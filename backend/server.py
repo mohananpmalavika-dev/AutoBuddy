@@ -86,6 +86,10 @@ from app.routers.corporate_portal import router as modular_corporate_portal_rout
 from app.routers.airport_rides import router as modular_airport_router
 from app.routers.driver_heatmaps import router as modular_heatmaps_router
 from app.routers.fleet_profitability import router as modular_profitability_router
+from app.routers.ride_types_router import router as modular_ride_types_router, init_default_ride_types
+from app.routers.vehicle_types_extended import router as modular_vehicle_types_extended_router, init_default_vehicle_types_extended
+from app.routers.bookings_extended import router as modular_bookings_extended_router
+from app.routers.coverage_admin import router as modular_coverage_admin_router
 from app.sockets import configure_socket_server as configure_legacy_socket_helpers
 from app.db.database import SessionLocal, get_feature_database_status
 from app.db.tier2_models import (
@@ -855,6 +859,27 @@ async def seed_admin():
         await db.launch_page_visits.create_index([("event_date", 1)])
         await db.launch_page_visits.create_index([("identity_key", 1), ("created_at", -1)])
         await db.launch_page_visits.create_index([("ip_address", 1), ("created_at", -1)])
+        # Total Mobility Platform indexes
+        try:
+            await db.ride_types.create_index("_id", unique=True)
+            await db.ride_types.create_index("active")
+        except OperationFailure:
+            pass
+        try:
+            await db.vehicle_types.create_index("_id", unique=True)
+            await db.vehicle_types.create_index("active")
+        except OperationFailure:
+            pass
+        try:
+            await db.coverage_areas.create_index("_id", unique=True)
+            await db.coverage_areas.create_index([("level", 1), ("active", 1)])
+        except OperationFailure:
+            pass
+        try:
+            await db.bookings.create_index([("vehicle_type_id", 1), ("created_at", -1)])
+            await db.bookings.create_index([("ride_type", 1), ("created_at", -1)])
+        except OperationFailure:
+            pass
     except Exception as e:
         logger.error(f"Seed error: {e}")
         import traceback
@@ -978,6 +1003,16 @@ async def on_startup():
         await init_default_vehicle_types(db)
     except Exception:
         logger.exception("Vehicle types initialization failed during startup")
+    # Initialize default extended vehicle types
+    try:
+        await init_default_vehicle_types_extended(db)
+    except Exception:
+        logger.exception("Extended vehicle types initialization failed during startup")
+    # Initialize default ride types
+    try:
+        await init_default_ride_types(db)
+    except Exception:
+        logger.exception("Ride types initialization failed during startup")
     # Initialize database-driven rate limit configuration
     try:
         await init_default_rate_limit_configs(db)
@@ -14646,6 +14681,10 @@ app.include_router(modular_health_router)
 app.include_router(modular_scheduled_rides_router)
 app.include_router(modular_vehicles_router)
 app.include_router(modular_vehicle_types_router)
+app.include_router(modular_vehicle_types_extended_router)
+app.include_router(modular_ride_types_router)
+app.include_router(modular_bookings_extended_router)
+app.include_router(modular_coverage_admin_router)
 app.include_router(modular_support_tickets_router)
 app.include_router(modular_uploads_router)
 app.include_router(modular_admin_account_deletions_router)
