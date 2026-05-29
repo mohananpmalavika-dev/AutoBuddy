@@ -1,10 +1,12 @@
 import { DarkTheme, DefaultTheme, Slot, ThemeProvider } from 'expo-router';
 import { Platform, View, useColorScheme } from 'react-native';
+import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as Sentry from '@sentry/react-native';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import RealtimeNotificationHost from '@/components/RealtimeNotificationHost';
+import { initializeBackgroundNotifications } from '@/lib/backgroundNotificationService';
 
 // Feature Context Providers
 import { NotificationProvider } from '@/contexts/NotificationContext';
@@ -32,6 +34,20 @@ if (SENTRY_DSN) {
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
+
+  // Initialize background notifications on app startup
+  useEffect(() => {
+    async function setupBackgroundNotifications() {
+      try {
+        await initializeBackgroundNotifications();
+      } catch (error) {
+        console.error('Failed to initialize background notifications:', error);
+      }
+    }
+
+    setupBackgroundNotifications();
+  }, []);
+
   return (
     <RootView style={{ flex: 1 }}>
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>

@@ -71,6 +71,9 @@ from app.routers.admin_support_management import router as modular_admin_support
 from app.routers.admin_system_config import router as modular_admin_system_config_router
 from app.routers.admin_trip_management import router as modular_admin_trip_management_router
 from app.routers.admin_wallet_topups import router as modular_admin_wallet_topups_router
+from app.routers.admin_document_requirements import router as modular_admin_document_requirements_router
+from app.routers.driver_documents import router as modular_driver_documents_router
+from app.routers.passenger_documents import router as modular_passenger_documents_router
 from app.sockets import configure_socket_server as configure_legacy_socket_helpers
 from app.db.database import SessionLocal, get_feature_database_status
 from app.db.tier2_models import (
@@ -14556,6 +14559,9 @@ app.include_router(modular_admin_support_management_router)
 app.include_router(modular_admin_system_config_router)
 app.include_router(modular_admin_trip_management_router)
 app.include_router(modular_admin_wallet_topups_router)
+app.include_router(modular_admin_document_requirements_router)
+app.include_router(modular_driver_documents_router)
+app.include_router(modular_passenger_documents_router)
 app.include_router(api_router)
 app.mount("/ws", socket_app)
 

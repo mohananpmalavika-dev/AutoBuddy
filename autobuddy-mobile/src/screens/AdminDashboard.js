@@ -21,6 +21,8 @@ import PaginationControls from '../components/PaginationControls';
 import ConfirmationDialog from '../components/ConfirmationDialog';
 import AdminSearchBar from '../components/AdminSearchBar';
 import KycDocumentPreview from '../components/KycDocumentPreview';
+import AdminRateLimitConfig from '../components/AdminRateLimitConfig';
+import AdminDocumentRequirements from '../components/AdminDocumentRequirements';
 
 const SUBSCRIPTION_PERIOD_OPTIONS = ['monthly', 'quarterly', 'annually', 'per_trip'];
 const RIDE_PRODUCT_KEYS = [
@@ -80,6 +82,8 @@ const ADMIN_MENU_OPTIONS = [
   { key: 'registration', label: 'Registration' },
   { key: 'wallet', label: 'Wallet Top-ups' },
   { key: 'kyc', label: 'KYC' },
+  { key: 'rate_limits', label: 'Rate Limits' },
+  { key: 'documents', label: 'Documents' },
 ];
 const PRIMARY_ADMIN_MENU_KEY = 'analytics';
 const SECONDARY_ADMIN_MENU_OPTIONS = ADMIN_MENU_OPTIONS.filter(
@@ -3139,6 +3143,18 @@ export default function AdminDashboard({ token, user, onLogout }) {
             }}
             onCancel={() => setShowConfirmKycModal(false)}
             isLoading={auditLogging}
+          />
+        </View>
+
+        <View style={[styles.section, activeAdminMenu !== 'rate_limits' && styles.hiddenSection]}>
+          <AdminRateLimitConfig
+            onClose={() => setActiveAdminMenu(PRIMARY_ADMIN_MENU_KEY)}
+          />
+        </View>
+
+        <View style={[styles.section, activeAdminMenu !== 'documents' && styles.hiddenSection]}>
+          <AdminDocumentRequirements
+            onClose={() => setActiveAdminMenu(PRIMARY_ADMIN_MENU_KEY)}
           />
         </View>
       </ScrollView>

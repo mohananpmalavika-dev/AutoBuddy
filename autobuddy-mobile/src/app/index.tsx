@@ -11,6 +11,9 @@ import type { ApiNotification, AppSession, PlanOption, SubscriptionConfigPayload
 import { resolveRoleScreenKey } from '../lib/navigation';
 import { getPlanOptions } from '../lib/subscriptions';
 import { clearSession, loadSession, saveSession } from '../lib/session';
+import { loadSession as loadPersistentSession, saveSession as savePersistentSession, clearSession as clearPersistentSession, subscribeSession as subscribePersistentSession, extendSessionExpiry } from '../lib/persistentSessionManager';
+import { initializeBackgroundNotifications } from '../lib/backgroundNotificationService';
+import { disconnectSocket } from '../lib/socketManager';
 import '../services/driverBackgroundTracking';
 import { AdminDashboard, AuthScreen, DriverDashboard, PassengerMap } from '../screens';
 import { COLORS } from '../theme';
@@ -137,14 +140,20 @@ export default function HomeScreen() {
   useEffect(() => {
     async function hydrate() {
       try {
-        const stored = await loadSession();
+        // Try to load from persistent session first (survives app close)
+        let stored = await loadPersistentSession();
+
+        // Fallback to legacy session storage
+        if (!stored) {
+          stored = await loadSession();
+        }
 
         if (!stored?.token) {
           setSession(null);
           return;
         }
 
-        // Keep previously saved user for resilient web sessions across browser restarts,
+        // Keep previously saved user for resilient sessions across restarts,
         // even when backend is temporarily unavailable at boot.
         if (stored?.user) {
           setSession(stored);
@@ -154,10 +163,17 @@ export default function HomeScreen() {
           const user = await apiRequest<AppSession['user']>('/auth/me', { token: stored.token });
           const nextSession = { ...stored, token: stored.token, user };
           setSession(nextSession);
+          
+          // Save to both persistent and legacy session
+          await savePersistentSession(nextSession);
           await saveSession(nextSession);
+          
+          // Extend session expiry on successful auth
+          await extendSessionExpiry();
         } catch (err: unknown) {
           if (isAuthSessionInvalid(err)) {
             setSession(null);
+            await clearPersistentSession();
             await clearSession();
             return;
           }
@@ -165,6 +181,11 @@ export default function HomeScreen() {
           if (!stored?.user) {
             setSession(null);
           }
+        }
+
+        // Initialize background services for persistent connectivity
+        if (stored?.token) {
+          await initializeBackgroundNotifications();
         }
       } catch {
         setSession(null);
@@ -178,16 +199,46 @@ export default function HomeScreen() {
 
   const handleAuthenticated = useCallback(async (nextSession: AppSession) => {
     setSession(nextSession);
+    // Save to both persistent session managers
+    await savePersistentSession(nextSession);
     await saveSession(nextSession);
+    // Extend expiry
+    await extendSessionExpiry();
   }, []);
 
+  /**
+   * Handle logout - ONLY CLEARS SESSION ON EXPLICIT USER ACTION
+   * Closing browser/app does NOT trigger logout
+   */
   const handleLogout = useCallback(async () => {
     setSession(null);
     setShowPlanGate(false);
     setGateRole(null);
     setPlanOptions([]);
     setPlanSelectionError('');
+    
+    // Only clear when user explicitly logs out
+    await clearPersistentSession();
     await clearSession();
+    
+    // Disconnect socket
+    disconnectSocket();
+  }, []);
+
+  // Subscribe to persistent session changes for auto-restore functionality
+  useEffect(() => {
+    const unsubscribe = subscribePersistentSession((session: AppSession | null) => {
+      if (session && session.token) {
+        setSession(session);
+      } else {
+        // Session was explicitly cleared
+        setSession(null);
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {

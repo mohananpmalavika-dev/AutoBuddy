@@ -45,6 +45,7 @@ import PassengerScheduledRidesPanel from '../components/PassengerScheduledRidesP
 import NotificationCenter from '../components/NotificationCenter';
 import PassengerProfilePanel from '../components/PassengerProfilePanel';
 import PassengerKYCPanel from '../components/PassengerKYCPanel';
+import PassengerDocumentUpload from '../components/PassengerDocumentUpload';
 import PassengerDocumentsPanel from '../components/PassengerDocumentsPanel';
 import ReceiptsPanel from '../components/ReceiptsPanel';
 import SubscriptionPanel from '../components/SubscriptionPanel';
@@ -2420,7 +2421,12 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           )}
           {activePassengerMenu === 'profile' && <PassengerProfilePanel token={token} />}
           {activePassengerMenu === 'kyc' && <PassengerKYCPanel token={token} />}
-          {activePassengerMenu === 'documents' && <PassengerDocumentsPanel token={token} />}
+          {activePassengerMenu === 'documents' && (
+            <>
+              <PassengerDocumentUpload token={token} />
+              <PassengerDocumentsPanel token={token} />
+            </>
+          )}
           {activePassengerMenu === 'receipts' && <ReceiptsPanel token={token} />}
           {activePassengerMenu === 'subscription' && <SubscriptionPanel token={token} />}
           {activePassengerMenu === 'notes' && (

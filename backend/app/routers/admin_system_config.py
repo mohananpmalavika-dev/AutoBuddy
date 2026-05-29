@@ -35,6 +35,25 @@ class EmailTemplate(BaseModel):
     template_type: str = Field(..., description="confirmation, notification, reminder")
 
 
+class RateLimitConfig(BaseModel):
+    """Rate limit configuration for endpoints"""
+    limit_type: str = Field(..., description="strict, moderate, normal, authenticated, anonymous")
+    max_requests: int = Field(..., ge=1, le=10000, description="Maximum requests allowed")
+    window_seconds: int = Field(..., ge=1, le=3600, description="Time window in seconds")
+    description: Optional[str] = None
+    enabled: bool = True
+
+
+class RateLimitEndpointConfig(BaseModel):
+    """Rate limit configuration for specific endpoints"""
+    endpoint: str = Field(..., description="API endpoint path")
+    limit_type: str = Field(..., description="strict, moderate, normal")
+    max_requests: int = Field(..., ge=1, le=10000)
+    window_seconds: int = Field(..., ge=1, le=3600)
+    description: Optional[str] = None
+    enabled: bool = True
+
+
 # ==================== GET Endpoints ====================
 
 @router.get("/feature-flags")
@@ -140,6 +159,232 @@ async def get_email_template(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching template: {str(e)}")
+
+
+# ==================== RATE LIMIT ENDPOINTS ====================
+
+@router.get("/rate-limits")
+async def get_rate_limits(
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    admin_user: dict = Depends(require_roles("admin")),
+):
+    """Get all rate limit configurations"""
+    try:
+        # Get all rate limit configs from DB
+        configs = await db.rate_limit_configs.find({}).to_list(None)
+        
+        # If no configs exist, return defaults
+        if not configs:
+            default_limits = {
+                "strict": {"max_requests": 5, "window_seconds": 60, "description": "Strict limit for sensitive endpoints"},
+                "moderate": {"max_requests": 30, "window_seconds": 60, "description": "Moderate limit for common endpoints"},
+                "normal": {"max_requests": 100, "window_seconds": 60, "description": "Normal limit for general endpoints"},
+                "authenticated": {"max_requests": 500, "window_seconds": 3600, "description": "Per-user limit for authenticated requests"},
+                "anonymous": {"max_requests": 50, "window_seconds": 3600, "description": "Per-IP limit for anonymous requests"},
+            }
+            return {
+                "total": len(default_limits),
+                "limits": [
+                    {
+                        "limit_id": limit_type,
+                        "limit_type": limit_type,
+                        "max_requests": data.get("max_requests"),
+                        "window_seconds": data.get("window_seconds"),
+                        "description": data.get("description"),
+                        "enabled": True,
+                        "is_default": True,
+                    }
+                    for limit_type, data in default_limits.items()
+                ]
+            }
+        
+        return {
+            "total": len(configs),
+            "limits": [
+                {
+                    "limit_id": str(c.get("_id")),
+                    "limit_type": c.get("limit_type"),
+                    "max_requests": c.get("max_requests"),
+                    "window_seconds": c.get("window_seconds"),
+                    "description": c.get("description"),
+                    "enabled": c.get("enabled", True),
+                    "is_default": False,
+                }
+                for c in configs
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching rate limits: {str(e)}")
+
+
+@router.get("/rate-limits/endpoints")
+async def get_endpoint_rate_limits(
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    admin_user: dict = Depends(require_roles("admin")),
+):
+    """Get rate limit configurations for specific endpoints"""
+    try:
+        endpoint_configs = await db.endpoint_rate_limits.find({}).to_list(None)
+        
+        return {
+            "total": len(endpoint_configs),
+            "endpoints": [
+                {
+                    "config_id": str(e.get("_id")),
+                    "endpoint": e.get("endpoint"),
+                    "limit_type": e.get("limit_type"),
+                    "max_requests": e.get("max_requests"),
+                    "window_seconds": e.get("window_seconds"),
+                    "description": e.get("description"),
+                    "enabled": e.get("enabled", True),
+                }
+                for e in endpoint_configs
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching endpoint rate limits: {str(e)}")
+
+
+@router.put("/rate-limits/{limit_type}")
+async def update_rate_limit(
+    limit_type: str,
+    update: RateLimitConfig,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    admin_user: dict = Depends(require_roles("admin")),
+):
+    """Update rate limit configuration"""
+    try:
+        # Validate limit type
+        valid_types = ["strict", "moderate", "normal", "authenticated", "anonymous"]
+        if limit_type not in valid_types:
+            raise HTTPException(status_code=400, detail=f"Invalid limit type. Must be one of: {', '.join(valid_types)}")
+        
+        await db.rate_limit_configs.update_one(
+            {"limit_type": limit_type},
+            {
+                "$set": {
+                    "limit_type": update.limit_type,
+                    "max_requests": update.max_requests,
+                    "window_seconds": update.window_seconds,
+                    "description": update.description,
+                    "enabled": update.enabled,
+                    "updated_by": admin_user.get("user_id"),
+                    "updated_at": datetime.utcnow(),
+                }
+            },
+            upsert=True
+        )
+        
+        return {
+            "status": "success",
+            "message": f"Rate limit '{limit_type}' updated successfully",
+            "limit_type": limit_type,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating rate limit: {str(e)}")
+
+
+@router.post("/rate-limits/endpoints/add")
+async def add_endpoint_rate_limit(
+    config: RateLimitEndpointConfig,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    admin_user: dict = Depends(require_roles("admin")),
+):
+    """Add rate limit configuration for a specific endpoint"""
+    try:
+        result = await db.endpoint_rate_limits.insert_one({
+            "endpoint": config.endpoint,
+            "limit_type": config.limit_type,
+            "max_requests": config.max_requests,
+            "window_seconds": config.window_seconds,
+            "description": config.description,
+            "enabled": config.enabled,
+            "created_by": admin_user.get("user_id"),
+            "created_at": datetime.utcnow(),
+        })
+        
+        return {
+            "status": "success",
+            "message": f"Endpoint rate limit created for {config.endpoint}",
+            "config_id": str(result.inserted_id),
+            "endpoint": config.endpoint,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creating endpoint rate limit: {str(e)}")
+
+
+@router.put("/rate-limits/endpoints/{config_id}")
+async def update_endpoint_rate_limit(
+    config_id: str,
+    config: RateLimitEndpointConfig,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    admin_user: dict = Depends(require_roles("admin")),
+):
+    """Update rate limit configuration for a specific endpoint"""
+    try:
+        from bson import ObjectId
+        
+        if not ObjectId.is_valid(config_id):
+            raise HTTPException(status_code=400, detail="Invalid config ID")
+        
+        result = await db.endpoint_rate_limits.update_one(
+            {"_id": ObjectId(config_id)},
+            {
+                "$set": {
+                    "endpoint": config.endpoint,
+                    "limit_type": config.limit_type,
+                    "max_requests": config.max_requests,
+                    "window_seconds": config.window_seconds,
+                    "description": config.description,
+                    "enabled": config.enabled,
+                    "updated_by": admin_user.get("user_id"),
+                    "updated_at": datetime.utcnow(),
+                }
+            }
+        )
+        
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Configuration not found")
+        
+        return {
+            "status": "success",
+            "message": f"Endpoint rate limit updated",
+            "config_id": config_id,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating endpoint rate limit: {str(e)}")
+
+
+@router.delete("/rate-limits/endpoints/{config_id}")
+async def delete_endpoint_rate_limit(
+    config_id: str,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    admin_user: dict = Depends(require_roles("admin")),
+):
+    """Delete endpoint rate limit configuration"""
+    try:
+        from bson import ObjectId
+        
+        if not ObjectId.is_valid(config_id):
+            raise HTTPException(status_code=400, detail="Invalid config ID")
+        
+        result = await db.endpoint_rate_limits.delete_one({"_id": ObjectId(config_id)})
+        
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Configuration not found")
+        
+        return {
+            "status": "success",
+            "message": "Endpoint rate limit deleted successfully",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting endpoint rate limit: {str(e)}")
 
 
 # ==================== PUT Endpoints ====================

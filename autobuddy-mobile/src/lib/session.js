@@ -41,3 +41,8 @@ export function subscribeSession(listener) {
     sessionListeners.delete(listener);
   };
 }
+
+/**
+ * @deprecated Use persistentSessionManager instead
+ * This is kept for backwards compatibility
+ */
