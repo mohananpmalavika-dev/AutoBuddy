@@ -26,6 +26,8 @@ PRODUCTION_ENVIRONMENTS = {"production", "staging"}
 
 def _normalize_database_url(database_url: str) -> str:
     normalized = str(database_url or "").strip()
+    while len(normalized) >= 2 and normalized[0] == normalized[-1] and normalized[0] in {"'", '"'}:
+        normalized = normalized[1:-1].strip()
     if normalized.startswith("postgres://"):
         return f"postgresql://{normalized[len('postgres://'):]}"
     return normalized
@@ -43,6 +45,17 @@ def _is_sqlite_url(database_url: str) -> bool:
 def _is_postgresql_url(database_url: str) -> bool:
     normalized = str(database_url or "").strip().lower()
     return normalized.startswith("postgresql:") or normalized.startswith("postgresql+")
+
+
+def _describe_database_url(database_url: str) -> str:
+    normalized = str(database_url or "").strip()
+    if _is_sqlite_url(normalized):
+        return "sqlite"
+    if _is_postgresql_url(normalized):
+        return "postgresql"
+    if normalized:
+        return normalized.split(":", 1)[0] or "configured"
+    return "missing"
 
 
 def resolve_feature_database_url(environ=None) -> tuple[str, str]:
@@ -141,5 +154,13 @@ try:
     init_db()
 except Exception as e:
     if _is_production_environment():
-        raise RuntimeError("Could not initialize passenger feature database tables.") from e
+        logger.exception(
+            "Could not initialize passenger feature database tables from %s (%s).",
+            DATABASE_URL_SOURCE,
+            _describe_database_url(DATABASE_URL),
+        )
+        raise RuntimeError(
+            "Could not initialize passenger feature database tables "
+            f"from {DATABASE_URL_SOURCE} ({_describe_database_url(DATABASE_URL)}): {e}"
+        ) from e
     logger.warning("Could not initialize passenger feature database tables: %s", e)
