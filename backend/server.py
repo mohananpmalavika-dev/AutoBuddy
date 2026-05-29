@@ -78,6 +78,12 @@ from app.routers.admin_fare_management import router as modular_admin_fare_manag
 from app.routers.driver_fare_override import router as modular_driver_fare_override_router
 from app.routers.driver_fare_proposals import router as modular_driver_fare_proposals_router
 from app.routers.admin_fare_proposals import router as modular_admin_fare_proposals_router
+from app.routers.fleet_advanced import router as modular_fleet_advanced_router
+from app.routers.operations_center import router as modular_operations_center_router
+from app.routers.corporate_portal import router as modular_corporate_portal_router
+from app.routers.airport_rides import router as modular_airport_router
+from app.routers.driver_heatmaps import router as modular_heatmaps_router
+from app.routers.fleet_profitability import router as modular_profitability_router
 from app.sockets import configure_socket_server as configure_legacy_socket_helpers
 from app.db.database import SessionLocal, get_feature_database_status
 from app.db.tier2_models import (
@@ -383,6 +389,12 @@ sio = socketio.AsyncServer(
 )
 app.state.sio = sio
 configure_legacy_socket_helpers(sio)
+# Register Fleet Portal Socket.IO events
+from app.sockets.fleet_events import register_fleet_socket_events
+register_fleet_socket_events(sio)
+# Register Operations Center Socket.IO events
+from app.sockets.operations_events import register_operations_socket_events
+register_operations_socket_events(sio)
 socket_app = socketio.ASGIApp(sio, socketio_path="/ws/socket.io")
 
 driver_health_monitor_task: Optional[asyncio.Task] = None
@@ -964,6 +976,48 @@ async def on_startup():
             redis_client = None
             app.state.redis_client = None
     await seed_admin()
+    # Initialize Fleet Advanced features database indexes
+    try:
+        from app.db.migration_fleet_advanced import create_fleet_advanced_indexes
+        await create_fleet_advanced_indexes(db)
+    except Exception:
+        logger.exception("Fleet Advanced features initialization failed during startup")
+    
+    # Initialize Operations Center database indexes
+    try:
+        from app.db.migration_operations_center import create_operations_center_indexes
+        await create_operations_center_indexes(db)
+    except Exception:
+        logger.exception("Operations Center initialization failed during startup")
+    
+    # Initialize Corporate Portal database indexes
+    try:
+        from app.db.migration_corporate_portal import create_corporate_portal_indexes
+        await create_corporate_portal_indexes(db)
+    except Exception:
+        logger.exception("Corporate Portal initialization failed during startup")
+    
+    # Initialize Airport Ride System database indexes
+    try:
+        from app.db.migration_airport import create_airport_indexes
+        await create_airport_indexes(db)
+    except Exception:
+        logger.exception("Airport Ride System initialization failed during startup")
+    
+    # Initialize Driver Heatmaps database indexes
+    try:
+        from app.db.migration_heatmaps import create_heatmap_indexes
+        await create_heatmap_indexes(db)
+    except Exception:
+        logger.exception("Driver Heatmaps initialization failed during startup")
+    
+    # Initialize Fleet Profitability database indexes
+    try:
+        from app.db.migration_fleet_profitability import create_fleet_profitability_indexes
+        await create_fleet_profitability_indexes(db)
+    except Exception:
+        logger.exception("Fleet Profitability initialization failed during startup")
+    
     try:
         referral_backfill = await backfill_referrals_for_existing_users(db)
         if referral_backfill.get("ran"):
@@ -14570,6 +14624,12 @@ app.include_router(modular_admin_fare_management_router)
 app.include_router(modular_driver_fare_override_router)
 app.include_router(modular_driver_fare_proposals_router)
 app.include_router(modular_admin_fare_proposals_router)
+app.include_router(modular_fleet_advanced_router)
+app.include_router(modular_operations_center_router)
+app.include_router(modular_corporate_portal_router)
+app.include_router(modular_airport_router)
+app.include_router(modular_heatmaps_router)
+app.include_router(modular_profitability_router)
 app.include_router(api_router)
 app.mount("/ws", socket_app)
 
