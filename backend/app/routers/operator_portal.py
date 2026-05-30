@@ -525,25 +525,6 @@ async def update_operator_vehicle(
     return {"vehicle": _vehicle_response(updated)}
 
 
-async def _record_assignment_history(
-    db: AsyncIOMotorDatabase,
-    operator_id: str,
-    vehicle_id: str,
-    driver_id: str,
-    event_type: str,
-    details: Optional[Dict[str, Any]] = None,
-) -> None:
-    await db[OPERATOR_ASSIGNMENT_HISTORY_COLLECTION].insert_one({
-        "id": str(uuid.uuid4()),
-        "operator_id": operator_id,
-        "vehicle_id": vehicle_id,
-        "driver_id": driver_id,
-        "event_type": event_type,
-        "details": details or {},
-        "created_at": _now(),
-    })
-
-
 @router.put("/vehicles/{vehicle_id}/assign-driver")
 async def assign_operator_vehicle_driver(
     vehicle_id: str,
