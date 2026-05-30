@@ -1,3 +1,5 @@
+import { formatToIST } from '../utils/time';
+
 function cleanString(value) {
   const text = String(value || '').trim();
   return text || null;
@@ -91,29 +93,18 @@ export function formatBlockedPassengerDate(value) {
     return 'Date not recorded';
   }
 
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
+  try {
+    return formatToIST(value, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  } catch {
     return 'Date not recorded';
   }
-
-  import { formatToIST } from '../utils/time';
-
-  export function formatBlockedPassengerDate(value) {
-    if (!value) {
-      return 'Date not recorded';
-    }
-    try {
-      return formatToIST(value, {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-      });
-    } catch {
-      return 'Date not recorded';
-    }
-  }
+}
 
 export function filterBlockedPassengers(passengers, query) {
   const normalizedQuery = cleanString(query)?.toLowerCase();
