@@ -33,7 +33,6 @@ const REGISTER_AUTH_METHODS = [
   { key: 'google', label: 'Google' },
   { key: 'password', label: 'Password' },
 ];
-const FALLBACK_GOOGLE_WEB_CLIENT_ID = '475485627719-lgd8c3sgr1d5unie68d2qjcifjoolt5f.apps.googleusercontent.com';
 const INDIAN_PHONE_REGEX = /^[6-9]\d{9}$/;
 
 try {
@@ -140,19 +139,30 @@ export default function AuthScreen({ onAuthenticated }) {
   const GOOGLE_EXPO_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID;
   const GOOGLE_ANDROID_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID;
   const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
-  const GOOGLE_WEB_CLIENT_ID =
-    process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || FALLBACK_GOOGLE_WEB_CLIENT_ID;
-  const hasGoogleClientId = Boolean(
-    GOOGLE_EXPO_CLIENT_ID || GOOGLE_ANDROID_CLIENT_ID || GOOGLE_IOS_CLIENT_ID || GOOGLE_WEB_CLIENT_ID,
-  );
-  const isGoogleConfiguredForPlatform =
-    Platform.OS === 'web'
-      ? Boolean(GOOGLE_WEB_CLIENT_ID)
-      : Platform.OS === 'android'
-        ? Boolean(GOOGLE_ANDROID_CLIENT_ID || GOOGLE_EXPO_CLIENT_ID)
+  const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+
+  const missingGoogleClientIdEnv = useMemo(() => {
+    if (Platform.OS === 'web') {
+      return GOOGLE_WEB_CLIENT_ID ? [] : ['EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID'];
+    }
+
+    const nativeClientId =
+      Platform.OS === 'android'
+        ? GOOGLE_ANDROID_CLIENT_ID
         : Platform.OS === 'ios'
-          ? Boolean(GOOGLE_IOS_CLIENT_ID || GOOGLE_EXPO_CLIENT_ID)
-          : hasGoogleClientId;
+          ? GOOGLE_IOS_CLIENT_ID
+          : GOOGLE_EXPO_CLIENT_ID;
+
+    if (nativeClientId) {
+      return [];
+    }
+
+    return Platform.OS === 'android'
+      ? ['EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID or EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID']
+      : ['EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID or EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID'];
+  }, [GOOGLE_ANDROID_CLIENT_ID, GOOGLE_EXPO_CLIENT_ID, GOOGLE_IOS_CLIENT_ID, GOOGLE_WEB_CLIENT_ID]);
+
+  const isGoogleConfiguredForPlatform = missingGoogleClientIdEnv.length === 0;
   const googleRedirectUri = useMemo(
     () => {
       if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.origin) {
@@ -163,15 +173,24 @@ export default function AuthScreen({ onAuthenticated }) {
     [],
   );
 
-  const [googleRequest, , promptGoogleAsync] = Google.useIdTokenAuthRequest({
-    // Keep these defined to avoid provider-level invariant crashes in environments
-    // where Google OAuth vars are not set yet.
-    expoClientId: GOOGLE_EXPO_CLIENT_ID || 'MISSING_EXPO_CLIENT_ID',
-    androidClientId: GOOGLE_ANDROID_CLIENT_ID || GOOGLE_EXPO_CLIENT_ID || 'MISSING_ANDROID_CLIENT_ID',
-    iosClientId: GOOGLE_IOS_CLIENT_ID || GOOGLE_EXPO_CLIENT_ID || 'MISSING_IOS_CLIENT_ID',
-    webClientId: GOOGLE_WEB_CLIENT_ID || GOOGLE_EXPO_CLIENT_ID || 'MISSING_WEB_CLIENT_ID',
-    redirectUri: googleRedirectUri,
-  });
+  const googleConfig = useMemo(() => {
+    const config = { redirectUri: googleRedirectUri };
+    if (GOOGLE_EXPO_CLIENT_ID) {
+      config.expoClientId = GOOGLE_EXPO_CLIENT_ID;
+    }
+    if (GOOGLE_ANDROID_CLIENT_ID) {
+      config.androidClientId = GOOGLE_ANDROID_CLIENT_ID;
+    }
+    if (GOOGLE_IOS_CLIENT_ID) {
+      config.iosClientId = GOOGLE_IOS_CLIENT_ID;
+    }
+    if (GOOGLE_WEB_CLIENT_ID) {
+      config.webClientId = GOOGLE_WEB_CLIENT_ID;
+    }
+    return config;
+  }, [GOOGLE_ANDROID_CLIENT_ID, GOOGLE_EXPO_CLIENT_ID, GOOGLE_IOS_CLIENT_ID, GOOGLE_WEB_CLIENT_ID, googleRedirectUri]);
+
+  const [googleRequest, , promptGoogleAsync] = Google.useIdTokenAuthRequest(googleConfig);
 
   const isLogin = mode === 'login';
   const authMethodsForMode = isLogin ? AUTH_METHODS : REGISTER_AUTH_METHODS;
@@ -415,7 +434,7 @@ export default function AuthScreen({ onAuthenticated }) {
 
   const handleGoogleAuth = async () => {
     if (!isGoogleConfiguredForPlatform) {
-      setError('Google login is not configured for this platform. Set EXPO_PUBLIC_GOOGLE_*_CLIENT_ID env values.');
+      setError(`Google login is not configured for this platform. Set ${missingGoogleClientIdEnv.join(', ')}.`);
       return;
     }
     if (!googleRequest) {
@@ -661,7 +680,7 @@ export default function AuthScreen({ onAuthenticated }) {
             <Image
               source={LAUNCH_BANNER_SOURCE}
               style={[styles.launchBanner, Platform.OS === 'web' && styles.launchBannerWeb]}
-              resizeMode="cover"
+              resizeMode="contain"
             />
             <View style={styles.brandCopy}>
               <Text style={styles.title}>{isLogin ? 'Welcome' : 'Create Account'}</Text>
@@ -714,7 +733,7 @@ export default function AuthScreen({ onAuthenticated }) {
                   key={method.key}
                   onPress={() => {
                     if (methodUnavailable) {
-                      setError('Google login is not configured for this platform.');
+                      setError(`Google sign-in is not configured for this platform. Set ${missingGoogleClientIdEnv.join(', ')}.`);
                       return;
                     }
                     setAuthMethod(method.key);
@@ -957,6 +976,7 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 260,
     borderRadius: 18,
+    backgroundColor: '#FFFFFF',
   },
   launchBannerWeb: {
     objectPosition: 'center top',

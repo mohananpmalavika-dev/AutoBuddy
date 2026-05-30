@@ -1,6 +1,6 @@
 /**
  * Socket.IO Client Service - Real-time communication
- * 
+ *
  * Handles real-time events:
  * - Driver location updates
  * - Ride status changes
@@ -8,11 +8,8 @@
  * - Admin alerts
  */
 
-import io, { Socket } from 'socket.io-client';
-
-const SOCKET_URL = process.env.EXPO_PUBLIC_SOCKET_URL || process.env.REACT_APP_SOCKET_URL || 'http://localhost:10000';
-
-let socketInstance: Socket | null = null;
+import type { Socket } from 'socket.io-client';
+import { createAutoBuddySocket, disconnectAutoBuddySocket, getAutoBuddySocket } from '../lib/socket';
 
 export interface SocketEventHandlers {
   onDriverLocation?: (data: any) => void;
@@ -29,86 +26,76 @@ export interface SocketEventHandlers {
 /**
  * Initialize Socket.IO connection with auth token
  */
-export const initializeSocket = (token: string): Socket => {
-  if (socketInstance && socketInstance.connected) {
-    return socketInstance;
+export const initializeSocket = (token: string, baseUrl?: string): Socket | null => {
+  if (!token) {
+    return null;
   }
 
-  socketInstance = io(SOCKET_URL, {
-    auth: {
-      token,
-    },
-    reconnection: true,
-    reconnectionDelay: 1000,
-    reconnectionDelayMax: 5000,
-    reconnectionAttempts: 5,
-  });
+  try {
+    const socket = createAutoBuddySocket(token, baseUrl);
 
-  socketInstance.on('connect', () => {
-    console.log('Socket connected:', socketInstance?.id);
-  });
+    socket.on('connect', () => {
+      console.log('Socket connected:', socket.id);
+    });
 
-  socketInstance.on('disconnect', () => {
-    console.log('Socket disconnected');
-  });
+    socket.on('disconnect', () => {
+      console.log('Socket disconnected');
+    });
 
-  socketInstance.on('error', (error) => {
-    console.error('Socket error:', error);
-  });
+    socket.on('error', (error: unknown) => {
+      console.error('Socket error:', error);
+    });
 
-  return socketInstance;
+    return socket;
+  } catch (error) {
+    console.error('Socket initialization failed:', error);
+    return null;
+  }
 };
 
 /**
- * Get or initialize Socket instance
+ * Get current shared Socket instance
  */
 export const getSocket = (): Socket | null => {
-  return socketInstance;
+  return getAutoBuddySocket();
 };
 
 /**
  * Register all event listeners for passenger user
  */
 export const registerPassengerListeners = (handlers: SocketEventHandlers) => {
-  if (!socketInstance) return;
+  const socket = getSocket();
+  if (!socket) return;
 
-  // Real-time location updates from driver
-  socketInstance.on('driver_location_updated', (data) => {
+  socket.on('driver_location_updated', (data) => {
     handlers.onDriverLocation?.(data);
   });
 
-  // Ride status changes
-  socketInstance.on('ride_status_changed', (data) => {
+  socket.on('ride_status_changed', (data) => {
     handlers.onRideStatusChanged?.(data);
   });
 
-  // Notifications
-  socketInstance.on('notification', (data) => {
+  socket.on('notification', (data) => {
     handlers.onNotification?.(data);
   });
 
-  // Support ticket messages
-  socketInstance.on('support_ticket_message', (data) => {
+  socket.on('support_ticket_message', (data) => {
     handlers.onSupportTicketMessage?.(data);
   });
 
-  // Lost item reported
-  socketInstance.on('lost_item_reported', (data) => {
+  socket.on('lost_item_reported', (data) => {
     handlers.onLostItemReported?.(data);
   });
 
-  // Pool created
-  socketInstance.on('pool_created', (data) => {
+  socket.on('pool_created', (data) => {
     handlers.onPoolCreated?.(data);
   });
 
-  // Accessibility notification
-  socketInstance.on('accessibility_notification', (data) => {
+  socket.on('accessibility_notification', (data) => {
     handlers.onAccessibilityNotification?.(data);
   });
 
-  // Payment succeeded
-  socketInstance.on('payment_succeeded', (data) => {
+  socket.on('payment_succeeded', (data) => {
     handlers.onPaymentSucceeded?.(data);
   });
 };
@@ -117,25 +104,22 @@ export const registerPassengerListeners = (handlers: SocketEventHandlers) => {
  * Register all event listeners for driver user
  */
 export const registerDriverListeners = (handlers: SocketEventHandlers) => {
-  if (!socketInstance) return;
+  const socket = getSocket();
+  if (!socket) return;
 
-  // Ride offers from dispatcher
-  socketInstance.on('ride_offer', (data) => {
+  socket.on('ride_offer', (data) => {
     handlers.onNotification?.(data);
   });
 
-  // Ride status updates
-  socketInstance.on('ride_status_changed', (data) => {
+  socket.on('ride_status_changed', (data) => {
     handlers.onRideStatusChanged?.(data);
   });
 
-  // Notifications
-  socketInstance.on('notification', (data) => {
+  socket.on('notification', (data) => {
     handlers.onNotification?.(data);
   });
 
-  // Support messages
-  socketInstance.on('support_ticket_message', (data) => {
+  socket.on('support_ticket_message', (data) => {
     handlers.onSupportTicketMessage?.(data);
   });
 };
@@ -144,30 +128,26 @@ export const registerDriverListeners = (handlers: SocketEventHandlers) => {
  * Register event listeners for admin user
  */
 export const registerAdminListeners = (handlers: SocketEventHandlers) => {
-  if (!socketInstance) return;
+  const socket = getSocket();
+  if (!socket) return;
 
-  // All system notifications
-  socketInstance.on('notification', (data) => {
+  socket.on('notification', (data) => {
     handlers.onNotification?.(data);
   });
 
-  // Ride status changes (all rides)
-  socketInstance.on('ride_status_changed', (data) => {
+  socket.on('ride_status_changed', (data) => {
     handlers.onRideStatusChanged?.(data);
   });
 
-  // Support tickets
-  socketInstance.on('support_ticket_message', (data) => {
+  socket.on('support_ticket_message', (data) => {
     handlers.onSupportTicketMessage?.(data);
   });
 
-  // Lost items
-  socketInstance.on('lost_item_reported', (data) => {
+  socket.on('lost_item_reported', (data) => {
     handlers.onLostItemReported?.(data);
   });
 
-  // Ride pools
-  socketInstance.on('pool_created', (data) => {
+  socket.on('pool_created', (data) => {
     handlers.onPoolCreated?.(data);
   });
 };
@@ -176,26 +156,26 @@ export const registerAdminListeners = (handlers: SocketEventHandlers) => {
  * Join a specific room (e.g., user_{userId}, driver_{driverId}, admin)
  */
 export const joinRoom = (room: string) => {
-  if (!socketInstance) return;
-  socketInstance.emit('join_room', { room });
+  const socket = getSocket();
+  if (!socket) return;
+  socket.emit('join_room', { room });
 };
 
 /**
  * Join ride tracking room and listen for location updates
  */
 export const joinRideTracking = (rideId: string, handlers: SocketEventHandlers) => {
-  if (!socketInstance) return;
-  
+  const socket = getSocket();
+  if (!socket) return;
+
   const roomName = `ride_${rideId}`;
-  socketInstance.emit('join_room', { room: roomName });
-  
-  // Listen for driver location updates in this ride
-  socketInstance.on('driver_location', (data) => {
+  socket.emit('join_room', { room: roomName });
+
+  socket.on('driver_location', (data) => {
     handlers.onDriverLocation?.(data);
   });
-  
-  // Listen for ride status changes
-  socketInstance.on('ride_status_changed', (data) => {
+
+  socket.on('ride_status_changed', (data) => {
     handlers.onRideStatusChanged?.(data);
   });
 };
@@ -204,9 +184,10 @@ export const joinRideTracking = (rideId: string, handlers: SocketEventHandlers) 
  * Emit driver location for real-time tracking
  */
 export const emitDriverLocation = (rideId: string, latitude: number, longitude: number, accuracy?: number) => {
-  if (!socketInstance) return;
-  
-  socketInstance.emit('driver_location_update', {
+  const socket = getSocket();
+  if (!socket) return;
+
+  socket.emit('driver_location_update', {
     ride_id: rideId,
     latitude,
     longitude,
@@ -219,40 +200,39 @@ export const emitDriverLocation = (rideId: string, latitude: number, longitude: 
  * Leave a specific room
  */
 export const leaveRoom = (room: string) => {
-  if (!socketInstance) return;
-  socketInstance.emit('leave_room', { room });
+  const socket = getSocket();
+  if (!socket) return;
+  socket.emit('leave_room', { room });
 };
 
 /**
  * Leave ride tracking room
  */
 export const leaveRideTracking = (rideId: string) => {
-  if (!socketInstance) return;
-  
+  const socket = getSocket();
+  if (!socket) return;
+
   const roomName = `ride_${rideId}`;
-  socketInstance.emit('leave_room', { room: roomName });
-  
-  // Unsubscribe from location events
-  socketInstance.off('driver_location');
-  socketInstance.off('ride_status_changed');
+  socket.emit('leave_room', { room: roomName });
+
+  socket.off('driver_location');
+  socket.off('ride_status_changed');
 };
 
 /**
  * Disconnect socket
  */
 export const disconnectSocket = () => {
-  if (socketInstance) {
-    socketInstance.disconnect();
-    socketInstance = null;
-  }
+  disconnectAutoBuddySocket();
 };
 
 /**
  * Emit event to server
  */
 export const emitEvent = (event: string, data: any) => {
-  if (!socketInstance) return;
-  socketInstance.emit(event, data);
+  const socket = getSocket();
+  if (!socket) return;
+  socket.emit(event, data);
 };
 
-export default socketInstance;
+export default getSocket();

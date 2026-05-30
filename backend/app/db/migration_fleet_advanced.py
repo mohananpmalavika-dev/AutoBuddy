@@ -45,6 +45,9 @@ async def create_fleet_advanced_indexes(db: AsyncIOMotorDatabase) -> None:
             "bulk_operations",
             "bulk_driver_approvals",
             "bulk_document_uploads",
+            "operator_profiles",
+            "operator_fleet_vehicles",
+            "operator_vehicle_assignment_history",
         ]
 
         # Create collections and indexes
@@ -144,6 +147,20 @@ async def create_fleet_advanced_indexes(db: AsyncIOMotorDatabase) -> None:
         await db["bulk_driver_approvals"].create_index([("fleet_id", 1), ("bulk_op_id", 1)])
 
         await db["bulk_document_uploads"].create_index([("fleet_id", 1), ("bulk_op_id", 1)])
+
+        # Operator portal indexes
+        await db["operator_profiles"].create_index([("operator_id", 1)], unique=True)
+        await db["operator_fleet_vehicles"].create_index([("id", 1)], unique=True)
+        await db["operator_fleet_vehicles"].create_index([("operator_id", 1)])
+        await db["operator_fleet_vehicles"].create_index([("license_plate", 1)])
+        await db["operator_fleet_vehicles"].create_index([("assigned_driver_id", 1)])
+        await db["operator_fleet_vehicles"].create_index([("updated_at", -1)])
+
+        await db["operator_vehicle_assignment_history"].create_index([("operator_id", 1)])
+        await db["operator_vehicle_assignment_history"].create_index([("vehicle_id", 1)])
+        await db["operator_vehicle_assignment_history"].create_index([("driver_id", 1)])
+        await db["operator_vehicle_assignment_history"].create_index([("event_type", 1)])
+        await db["operator_vehicle_assignment_history"].create_index([("created_at", -1)])
 
         logger.info("✓ Fleet Advanced collections and indexes created successfully")
 

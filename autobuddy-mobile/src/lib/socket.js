@@ -6,6 +6,11 @@ const DEFAULT_SOCKET_PATH = '/ws/socket.io';
 const DEFAULT_SOCKET_TRANSPORTS = ['polling', 'websocket'];
 const VALID_SOCKET_TRANSPORTS = new Set(DEFAULT_SOCKET_TRANSPORTS);
 
+let sharedSocket = null;
+let sharedToken = null;
+let sharedBaseUrl = null;
+let sharedRefCount = 0;
+
 function trimTrailingSlashes(value) {
   return String(value || '').replace(/\/+$/, '');
 }
@@ -32,7 +37,9 @@ function resolveSocketTransports() {
 
 function resolveSocketBaseUrl() {
   const configuredSocketUrl =
-    process.env.EXPO_PUBLIC_SOCKET_BASE_URL || process.env.EXPO_PUBLIC_SOCKET_URL;
+    process.env.EXPO_PUBLIC_SOCKET_BASE_URL ||
+    process.env.EXPO_PUBLIC_SOCKET_URL ||
+    process.env.REACT_APP_SOCKET_URL;
   const configured = trimTrailingSlashes(configuredSocketUrl);
   if (configured) {
     return configured;
@@ -40,14 +47,131 @@ function resolveSocketBaseUrl() {
 
   const trimmed = trimTrailingSlashes(API_BASE_URL);
   if (!trimmed) {
-    return '';
+    return 'http://localhost:10000';
   }
   return trimmed.endsWith('/api') ? trimmed.slice(0, -4) : trimmed;
 }
 
-export function createAutoBuddySocket(token) {
-  const baseUrl = resolveSocketBaseUrl();
-  return io(baseUrl, {
+function resolveSocketUrl(baseUrl) {
+  if (baseUrl) {
+    return trimTrailingSlashes(baseUrl);
+  }
+  return resolveSocketBaseUrl();
+}
+
+export function getSocketUrl(baseUrl) {
+  return resolveSocketUrl(baseUrl);
+}
+
+function releaseSharedSocket() {
+  sharedRefCount = Math.max(0, sharedRefCount - 1);
+  if (sharedRefCount > 0) {
+    return;
+  }
+
+  if (sharedSocket) {
+    try {
+      const originalDisconnect = sharedSocket.__autoBuddyOriginalDisconnect;
+      if (typeof originalDisconnect === 'function') {
+        originalDisconnect();
+      } else {
+        sharedSocket.disconnect();
+      }
+    } catch (error) {
+      console.error('Error disconnecting shared socket:', error);
+    }
+  }
+
+  sharedSocket = null;
+  sharedToken = null;
+  sharedBaseUrl = null;
+}
+
+function wrapSocketInstance(socket) {
+  if (socket.__autoBuddySocketWrapped) {
+    return socket;
+  }
+
+  const originalDisconnect = socket.disconnect.bind(socket);
+  Object.defineProperty(socket, '__autoBuddyOriginalDisconnect', {
+    value: originalDisconnect,
+    configurable: true,
+    writable: false,
+  });
+
+  socket.disconnect = () => {
+    releaseSharedSocket();
+  };
+
+  Object.defineProperty(socket, '__autoBuddySocketWrapped', {
+    value: true,
+    configurable: true,
+    writable: false,
+  });
+
+  return socket;
+}
+
+export function getAutoBuddySocket() {
+  return sharedSocket;
+}
+
+export function disconnectAutoBuddySocket() {
+  if (!sharedSocket) {
+    sharedRefCount = 0;
+    sharedToken = null;
+    sharedBaseUrl = null;
+    return;
+  }
+
+  try {
+    const originalDisconnect = sharedSocket.__autoBuddyOriginalDisconnect;
+    if (typeof originalDisconnect === 'function') {
+      originalDisconnect();
+    } else {
+      sharedSocket.disconnect();
+    }
+  } catch (error) {
+    console.error('Error disconnecting shared socket:', error);
+  }
+
+  sharedSocket = null;
+  sharedToken = null;
+  sharedBaseUrl = null;
+  sharedRefCount = 0;
+}
+
+export function createAutoBuddySocket(token, baseUrl) {
+  if (!token) {
+    throw new Error('Socket token is required.');
+  }
+
+  const url = resolveSocketUrl(baseUrl);
+  if (!url) {
+    throw new Error('Unable to resolve socket base URL.');
+  }
+
+  if (sharedSocket && sharedToken === token && sharedBaseUrl === url) {
+    sharedRefCount += 1;
+    return wrapSocketInstance(sharedSocket);
+  }
+
+  if (sharedSocket) {
+    try {
+      const originalDisconnect = sharedSocket.__autoBuddyOriginalDisconnect;
+      if (typeof originalDisconnect === 'function') {
+        originalDisconnect();
+      } else {
+        sharedSocket.disconnect();
+      }
+    } catch (error) {
+      console.error('Error disconnecting previous shared socket:', error);
+    }
+    sharedSocket = null;
+    sharedRefCount = 0;
+  }
+
+  sharedSocket = io(url, {
     path: normalizeSocketPath(process.env.EXPO_PUBLIC_SOCKET_PATH),
     transports: resolveSocketTransports(),
     upgrade: true,
@@ -60,4 +184,10 @@ export function createAutoBuddySocket(token) {
     timeout: 20000,
     autoConnect: true,
   });
+
+  sharedToken = token;
+  sharedBaseUrl = url;
+  sharedRefCount = 1;
+
+  return wrapSocketInstance(sharedSocket);
 }

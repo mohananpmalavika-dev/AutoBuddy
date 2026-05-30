@@ -19,6 +19,21 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/driver/documents", tags=["driver-documents"])
 
 
+async def _find_driver_record(db: AsyncIOMotorDatabase, driver_id: str):
+    if ObjectId.is_valid(driver_id):
+        driver_data = await db.drivers.find_one({"user_id": ObjectId(driver_id)})
+        if driver_data:
+            return driver_data
+        driver_data = await db.users.find_one({"_id": ObjectId(driver_id)})
+        if driver_data:
+            return driver_data
+
+    driver_data = await db.drivers.find_one({"user_id": driver_id})
+    if driver_data:
+        return driver_data
+    return await db.users.find_one({"id": driver_id})
+
+
 # ==================== Document Types (shared with admin) ====================
 
 DOCUMENT_TYPES = {
@@ -146,10 +161,7 @@ async def get_driver_document_status(
         total_mandatory = len(mandatory_docs)
         
         # Get driver's account created date for grace period
-        driver_data = await db.drivers.find_one({"user_id": ObjectId(driver_id)})
-        if not driver_data:
-            driver_data = await db.users.find_one({"_id": ObjectId(driver_id)})
-        
+        driver_data = await _find_driver_record(db, driver_id)
         created_at = driver_data.get("created_at", datetime.utcnow()) if driver_data else datetime.utcnow()
         
         # Use the longest grace period from mandatory documents
@@ -362,10 +374,7 @@ async def check_can_take_ride(
             }
         
         # Check grace period
-        driver_data = await db.drivers.find_one({"user_id": ObjectId(driver_id)})
-        if not driver_data:
-            driver_data = await db.users.find_one({"_id": ObjectId(driver_id)})
-        
+        driver_data = await _find_driver_record(db, driver_id)
         created_at = driver_data.get("created_at", datetime.utcnow()) if driver_data else datetime.utcnow()
         max_grace_days = max([req.get("grace_period_days", 7) for req in mandatory_docs], default=7)
         grace_expires = created_at + timedelta(days=max_grace_days)

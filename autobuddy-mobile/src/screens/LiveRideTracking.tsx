@@ -10,7 +10,7 @@
  * - Contact driver button
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   StyleSheet,
@@ -23,18 +23,55 @@ import {
 } from 'react-native';
 import { rideAPI } from '../services/apiClient';
 import { getSocket } from '../services/socketClient';
-import { COLORS, TYPOGRAPHY } from '../theme';
+import { COLORS } from '../theme';
 
-export const LiveRideTracking = ({ route, navigation }) => {
+type DriverLocation = {
+  latitude: number;
+  longitude: number;
+  heading?: number;
+};
+
+type RideStatus = {
+  status?: string;
+  driver?: {
+    name?: string;
+    phone?: string;
+    rating?: number;
+    vehicle_name?: string;
+    license_plate?: string;
+  };
+  estimated_arrival_minutes?: number;
+  fare_breakdown?: {
+    base?: number;
+    distance?: number;
+    time?: number;
+  };
+  final_fare?: number;
+};
+
+type LiveRideTrackingProps = {
+  route: { params?: { bookingId?: string } };
+  navigation: { goBack: () => void };
+};
+
+type MapRef = {
+  animateToRegion?: (region: DriverLocation & { latitudeDelta: number; longitudeDelta: number }) => void;
+};
+
+export const LiveRideTracking = ({ route, navigation }: LiveRideTrackingProps) => {
   const { bookingId } = route.params || {};
 
-  const [rideStatus, setRideStatus] = useState(null);
-  const [driverLocation, setDriverLocation] = useState(null);
+  const [rideStatus, setRideStatus] = useState<RideStatus | null>(null);
+  const [driverLocation, setDriverLocation] = useState<DriverLocation | null>(null);
   const [loading, setLoading] = useState(true);
-  const mapRef = useRef(null);
+  const mapRef = useRef<MapRef | null>(null);
 
   // Fetch current ride status
-  const fetchRideStatus = async () => {
+  const fetchRideStatus = useCallback(async () => {
+    if (!bookingId) {
+      setLoading(false);
+      return;
+    }
     try {
       const response = await rideAPI.getRideStatus(bookingId);
       setRideStatus(response.data);
@@ -44,15 +81,15 @@ export const LiveRideTracking = ({ route, navigation }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [bookingId]);
 
   useEffect(() => {
-    fetchRideStatus();
+    void Promise.resolve().then(fetchRideStatus);
 
     // Listen to Socket.IO location updates
     const socket = getSocket();
     if (socket && bookingId) {
-      socket.on('driver_location_updated', (data) => {
+      socket.on('driver_location_updated', (data: any) => {
         if (data.booking_id === bookingId) {
           setDriverLocation({
             latitude: data.latitude,
@@ -62,7 +99,7 @@ export const LiveRideTracking = ({ route, navigation }) => {
           
           // Update map if available
           if (mapRef.current) {
-            mapRef.current.animateToRegion({
+            mapRef.current.animateToRegion?.({
               latitude: data.latitude,
               longitude: data.longitude,
               latitudeDelta: 0.01,
@@ -73,7 +110,7 @@ export const LiveRideTracking = ({ route, navigation }) => {
       });
 
       // Listen to ride status changes
-      socket.on('ride_status_changed', (data) => {
+      socket.on('ride_status_changed', (data: RideStatus & { booking_id?: string }) => {
         if (data.booking_id === bookingId) {
           setRideStatus(data);
         }
@@ -86,7 +123,7 @@ export const LiveRideTracking = ({ route, navigation }) => {
         socket.off('ride_status_changed');
       }
     };
-  }, [bookingId]);
+  }, [bookingId, fetchRideStatus]);
 
   const handleContactDriver = () => {
     if (rideStatus?.driver?.phone) {

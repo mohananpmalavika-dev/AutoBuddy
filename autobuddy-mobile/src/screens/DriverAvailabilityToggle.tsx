@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   TouchableOpacity,
@@ -14,10 +14,15 @@ import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { driverAPI } from '@/services/apiClient';
 import { getSocket } from '@/services/socketClient';
 
+type LocationPoint = {
+  latitude: number;
+  longitude: number;
+};
+
 const DriverAvailabilityToggle: React.FC<{ driverId: string }> = ({ driverId }) => {
   const [isOnline, setIsOnline] = useState(false);
-  const [currentLocation, setCurrentLocation] = useState(null);
-  const [lastUpdated, setLastUpdated] = useState(null);
+  const [currentLocation, setCurrentLocation] = useState<LocationPoint | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | string | null>(null);
   const [loading, setLoading] = useState(false);
   const [shiftStarted, setShiftStarted] = useState(false);
   const [shiftLoading, setShiftLoading] = useState(false);
@@ -27,20 +32,7 @@ const DriverAvailabilityToggle: React.FC<{ driverId: string }> = ({ driverId }) 
     avg_rating: 0,
   });
 
-  useEffect(() => {
-    loadAvailabilityStatus();
-    registerSocketListeners();
-
-    return () => {
-      const socket = getSocket();
-      if (socket) {
-        socket.off('driver_location_updated');
-        socket.off('driver_availability_changed');
-      }
-    };
-  }, [driverId]);
-
-  const loadAvailabilityStatus = async () => {
+  const loadAvailabilityStatus = useCallback(async () => {
     try {
       setLoading(true);
       const status = await driverAPI.getAvailability(driverId);
@@ -58,11 +50,11 @@ const DriverAvailabilityToggle: React.FC<{ driverId: string }> = ({ driverId }) 
     } finally {
       setLoading(false);
     }
-  };
+  }, [driverId]);
 
-  const registerSocketListeners = () => {
+  const registerSocketListeners = useCallback(() => {
     const socket = getSocket();
-    if (!socket) return;
+    if (!socket) {return;}
 
     socket.on('driver_location_updated', (data) => {
       if (data.driver_id === driverId) {
@@ -76,7 +68,20 @@ const DriverAvailabilityToggle: React.FC<{ driverId: string }> = ({ driverId }) 
         setIsOnline(data.is_online);
       }
     });
-  };
+  }, [driverId]);
+
+  useEffect(() => {
+    void Promise.resolve().then(loadAvailabilityStatus);
+    registerSocketListeners();
+
+    return () => {
+      const socket = getSocket();
+      if (socket) {
+        socket.off('driver_location_updated');
+        socket.off('driver_availability_changed');
+      }
+    };
+  }, [loadAvailabilityStatus, registerSocketListeners]);
 
   const handleToggleAvailability = async (value: boolean) => {
     try {
@@ -87,7 +92,7 @@ const DriverAvailabilityToggle: React.FC<{ driverId: string }> = ({ driverId }) 
         return;
       }
 
-      const response = await driverAPI.setAvailability(driverId, {
+      await driverAPI.setAvailability(driverId, {
         is_online: value,
       });
 
@@ -108,7 +113,7 @@ const DriverAvailabilityToggle: React.FC<{ driverId: string }> = ({ driverId }) 
   const handleStartShift = async () => {
     try {
       setShiftLoading(true);
-      const response = await driverAPI.startShift(driverId, {
+      await driverAPI.startShift(driverId, {
         start_location: currentLocation || {
           latitude: 0,
           longitude: 0,
@@ -164,21 +169,13 @@ const DriverAvailabilityToggle: React.FC<{ driverId: string }> = ({ driverId }) 
   };
 
   const getLocationString = () => {
-    if (!currentLocation) return 'Location not available';
+    if (!currentLocation) {return 'Location not available';}
     return `${currentLocation.latitude?.toFixed(4)}, ${currentLocation.longitude?.toFixed(4)}`;
   };
 
   const getLastUpdatedString = () => {
-    if (!lastUpdated) return 'Never';
-    const diff = Date.now() - new Date(lastUpdated).getTime();
-    const seconds = Math.floor(diff / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const hours = Math.floor(minutes / 60);
-
-    if (seconds < 60) return 'Just now';
-    if (minutes < 60) return `${minutes}m ago`;
-    if (hours < 24) return `${hours}h ago`;
-    return new Date(lastUpdated).toLocaleDateString();
+    if (!lastUpdated) {return 'Never';}
+    return new Date(lastUpdated).toLocaleString();
   };
 
   if (loading) {
@@ -260,7 +257,7 @@ const DriverAvailabilityToggle: React.FC<{ driverId: string }> = ({ driverId }) 
                   <ActivityIndicator color="white" />
                 ) : (
                   <>
-                    <MaterialIcons name="stop-circle-outline" size={20} color="white" />
+                    <MaterialIcons name="stop-circle" size={20} color="white" />
                     <Text style={styles.buttonText}>End Shift</Text>
                   </>
                 )}
@@ -294,7 +291,7 @@ const DriverAvailabilityToggle: React.FC<{ driverId: string }> = ({ driverId }) 
 
         {/* Today's Earnings */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Today's Earnings</Text>
+          <Text style={styles.sectionTitle}>{"Today's Earnings"}</Text>
 
           <View style={styles.earningsGrid}>
             <View style={styles.earningsCard}>

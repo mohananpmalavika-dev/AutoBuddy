@@ -1,5 +1,7 @@
 /**
- * Enhanced Socket Manager
+ * DEPRECATED: Legacy socket manager.
+ * Use services/socketClient.ts and lib/socket.js for the shared socket implementation.
+ *
  * Handles auto-reconnection, background persistence, and resilience
  * Works even when app is closed or in background
  */

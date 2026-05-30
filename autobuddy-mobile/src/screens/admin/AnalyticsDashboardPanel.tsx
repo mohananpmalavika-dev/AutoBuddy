@@ -3,7 +3,7 @@
  * Real-time analytics, charts, and KPI monitoring
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   ScrollView,
@@ -12,20 +12,37 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
-  Dimensions,
 } from 'react-native';
 
-const AnalyticsDashboardPanel = ({ adminToken }) => {
-  const [stats, setStats] = useState(null);
+type DateRange = 'today' | 'week' | 'month' | 'year';
+
+type DashboardStats = Record<string, any>;
+
+type AnalyticsDashboardPanelProps = {
+  adminToken: string;
+};
+
+type KPICardProps = {
+  title: string;
+  value: string | number;
+  subtitle?: string;
+  color: string;
+};
+
+const KPICard = ({ title, value, subtitle, color }: KPICardProps) => (
+  <View style={[styles.kpiCard, { borderLeftColor: color, borderLeftWidth: 4 }]}>
+    <Text style={styles.kpiTitle}>{title}</Text>
+    <Text style={[styles.kpiValue, { color }]}>{value}</Text>
+    {subtitle && <Text style={styles.kpiSubtitle}>{subtitle}</Text>}
+  </View>
+);
+
+const AnalyticsDashboardPanel = ({ adminToken }: AnalyticsDashboardPanelProps) => {
+  const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [dateRange, setDateRange] = useState('today'); // today, week, month, year
-  const [revenueData, setRevenueData] = useState([]);
+  const [dateRange, setDateRange] = useState<DateRange>('today');
 
-  useEffect(() => {
-    loadDashboardData();
-  }, [dateRange]);
-
-  const loadDashboardData = async () => {
+  const loadDashboardData = useCallback(async () => {
     setLoading(true);
     try {
       const response = await fetch(`/api/admin/analytics/dashboard?range=${dateRange}`, {
@@ -39,19 +56,15 @@ const AnalyticsDashboardPanel = ({ adminToken }) => {
         Alert.alert('Error', 'Failed to load analytics');
       }
     } catch (error) {
-      Alert.alert('Error', error.message);
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to load analytics');
     } finally {
       setLoading(false);
     }
-  };
+  }, [adminToken, dateRange]);
 
-  const KPICard = ({ title, value, subtitle, color }) => (
-    <View style={[styles.kpiCard, { borderLeftColor: color, borderLeftWidth: 4 }]}>
-      <Text style={styles.kpiTitle}>{title}</Text>
-      <Text style={[styles.kpiValue, { color }]}>{value}</Text>
-      {subtitle && <Text style={styles.kpiSubtitle}>{subtitle}</Text>}
-    </View>
-  );
+  useEffect(() => {
+    void Promise.resolve().then(loadDashboardData);
+  }, [loadDashboardData]);
 
   if (loading) {
     return (
@@ -67,7 +80,7 @@ const AnalyticsDashboardPanel = ({ adminToken }) => {
 
       {/* Date Range Selector */}
       <View style={styles.dateRangeContainer}>
-        {['today', 'week', 'month', 'year'].map((range) => (
+        {(['today', 'week', 'month', 'year'] as DateRange[]).map((range) => (
           <TouchableOpacity
             key={range}
             style={[styles.dateRangeButton, dateRange === range && styles.dateRangeButtonActive]}

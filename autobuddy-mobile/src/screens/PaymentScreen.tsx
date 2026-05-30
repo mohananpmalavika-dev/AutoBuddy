@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, Button, Alert, StyleSheet } from 'react-native';
+import { View, Text, Button, Alert, StyleSheet } from 'react-native';
 import { CardField, useStripe } from '@stripe/stripe-react-native';
 import { paymentAPI } from '../services/apiClient';
 
@@ -41,7 +41,7 @@ export default function PaymentScreen({ bookingId, onSuccess }: { bookingId: str
       }
 
       // 3. Confirm server-side if required
-      await paymentAPI.confirmPayment(paymentIntent?.id || paymentIntent?.client_secret);
+      await paymentAPI.confirmPayment(paymentIntent?.id || paymentIntent?.clientSecret);
 
       Alert.alert('Payment successful');
       onSuccess?.();
@@ -57,10 +57,10 @@ export default function PaymentScreen({ bookingId, onSuccess }: { bookingId: str
       <Text style={styles.title}>Payment</Text>
       <CardField
         postalCodeEnabled={true}
-        placeholder={{ number: '4242 4242 4242 4242' }}
+        placeholders={{ number: '4242 4242 4242 4242' }}
         cardStyle={{ backgroundColor: '#FFFFFF', textColor: '#000000' }}
         style={{ width: '100%', height: 50, marginVertical: 10 }}
-        onCardChange={(details) => setCardDetails(details)}
+        onCardChange={(details: any) => setCardDetails(details)}
       />
       <Button title={loading ? 'Processing...' : 'Pay'} onPress={handlePay} disabled={loading} />
     </View>

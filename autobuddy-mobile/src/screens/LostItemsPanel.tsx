@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   ScrollView,
@@ -12,22 +12,36 @@ import {
   ActivityIndicator,
   RefreshControl,
   Alert,
-  Picker,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { Picker } from '@react-native-picker/picker';
 import { lostItemsAPI } from '@/services/apiClient';
 import { getSocket } from '@/services/socketClient';
+
+type LostItem = {
+  _id: string;
+  id?: string;
+  item_name: string;
+  category: string;
+  description?: string;
+  location_lost: string;
+  booking_id?: string | null;
+  contact_preference: string;
+  created_at: string;
+  status: string;
+  resolution_notes?: string;
+};
 
 const LostItemsPanel: React.FC<{ userId: string; userType: 'passenger' | 'driver' | 'admin' }> = ({
   userId,
   userType,
 }) => {
-  const [items, setItems] = useState([]);
+  const [items, setItems] = useState<LostItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [selectedItem, setSelectedItem] = useState(null);
+  const [selectedItem, setSelectedItem] = useState<LostItem | null>(null);
   const [adminStatusUpdate, setAdminStatusUpdate] = useState('');
 
   const [formData, setFormData] = useState({
@@ -43,8 +57,47 @@ const LostItemsPanel: React.FC<{ userId: string; userType: 'passenger' | 'driver
   const contactPreferences = ['in_app', 'sms', 'email'];
   const statusOptions = ['reported', 'found', 'returned', 'not_found', 'closed'];
 
+  const loadItems = useCallback(async () => {
+    try {
+      setLoading(true);
+      const result = await lostItemsAPI.listItems();
+      setItems((result.items || result || []) as LostItem[]);
+    } catch (error) {
+      console.error('Error loading lost items:', error);
+      Alert.alert('Error', 'Failed to load lost items');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadItems();
+    setRefreshing(false);
+  };
+
+  const registerSocketListeners = useCallback(() => {
+    const socket = getSocket();
+    if (!socket) {return;}
+
+    socket.on('lost_item_reported', (data: LostItem) => {
+      setItems((prev) => [data, ...prev]);
+    });
+
+    socket.on('lost_item_status_updated', (data: { item_id: string; status: string }) => {
+      setItems((prev) =>
+        prev.map((item) =>
+          item._id === data.item_id ? { ...item, status: data.status } : item
+        )
+      );
+      setSelectedItem((prev) =>
+        prev && prev._id === data.item_id ? { ...prev, status: data.status } : prev
+      );
+    });
+  }, []);
+
   useEffect(() => {
-    loadItems();
+    void Promise.resolve().then(loadItems);
     registerSocketListeners();
 
     return () => {
@@ -54,49 +107,7 @@ const LostItemsPanel: React.FC<{ userId: string; userType: 'passenger' | 'driver
         socket.off('lost_item_status_updated');
       }
     };
-  }, [userId]);
-
-  const loadItems = async () => {
-    try {
-      setLoading(true);
-      const result = await lostItemsAPI.listItems();
-      setItems(result.items || result || []);
-    } catch (error) {
-      console.error('Error loading lost items:', error);
-      Alert.alert('Error', 'Failed to load lost items');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await loadItems();
-    setRefreshing(false);
-  };
-
-  const registerSocketListeners = () => {
-    const socket = getSocket();
-    if (!socket) return;
-
-    socket.on('lost_item_reported', (data) => {
-      setItems((prev) => [data, ...prev]);
-    });
-
-    socket.on('lost_item_status_updated', (data) => {
-      setItems((prev) =>
-        prev.map((item) =>
-          item._id === data.item_id ? { ...item, status: data.status } : item
-        )
-      );
-      if (selectedItem && selectedItem._id === data.item_id) {
-        setSelectedItem((prev) => ({
-          ...prev,
-          status: data.status,
-        }));
-      }
-    });
-  };
+  }, [loadItems, registerSocketListeners, userId]);
 
   const handleReportItem = async () => {
     if (!formData.item_name.trim() || !formData.location_lost.trim()) {
@@ -115,7 +126,7 @@ const LostItemsPanel: React.FC<{ userId: string; userType: 'passenger' | 'driver
         contact_preference: formData.contact_preference,
       });
 
-      setItems([newItem, ...items]);
+      setItems([newItem as LostItem, ...items]);
       setFormData({
         item_name: '',
         category: 'other',
@@ -135,7 +146,7 @@ const LostItemsPanel: React.FC<{ userId: string; userType: 'passenger' | 'driver
   };
 
   const handleUpdateStatus = async (newStatus: string) => {
-    if (!selectedItem) return;
+    if (!selectedItem) {return;}
 
     try {
       const updated = await lostItemsAPI.updateItemStatus(selectedItem._id, {
@@ -144,19 +155,19 @@ const LostItemsPanel: React.FC<{ userId: string; userType: 'passenger' | 'driver
       });
 
       setItems((prev) =>
-        prev.map((item) => (item._id === selectedItem._id ? updated : item))
+        prev.map((item) => (item._id === selectedItem._id ? (updated as LostItem) : item))
       );
-      setSelectedItem(updated);
+      setSelectedItem(updated as LostItem);
       setAdminStatusUpdate('');
 
       Alert.alert('Success', `Item status updated to ${newStatus}`);
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'Failed to update item status');
     }
   };
 
   const handleDeleteItem = async () => {
-    if (!selectedItem) return;
+    if (!selectedItem) {return;}
 
     Alert.alert('Delete Report', 'Are you sure you want to delete this report?', [
       { text: 'Cancel' },
@@ -168,7 +179,7 @@ const LostItemsPanel: React.FC<{ userId: string; userType: 'passenger' | 'driver
             setItems((prev) => prev.filter((i) => i._id !== selectedItem._id));
             setShowDetailModal(false);
             Alert.alert('Success', 'Report deleted');
-          } catch (error) {
+          } catch {
             Alert.alert('Error', 'Failed to delete report');
           }
         },
@@ -199,7 +210,7 @@ const LostItemsPanel: React.FC<{ userId: string; userType: 'passenger' | 'driver
     return icons[category] || '📦';
   };
 
-  const LostItemCard = ({ item }) => (
+  const LostItemCard = ({ item }: { item: LostItem }) => (
     <TouchableOpacity
       style={styles.itemCard}
       onPress={() => {
@@ -272,8 +283,8 @@ const LostItemsPanel: React.FC<{ userId: string; userType: 'passenger' | 'driver
       ) : (
         <FlatList
           data={items}
-          renderItem={({ item }) => <LostItemCard item={item} />}
-          keyExtractor={(item) => item._id}
+          renderItem={({ item }: { item: LostItem }) => <LostItemCard item={item} />}
+          keyExtractor={(item) => item._id || String(item.id)}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
           contentContainerStyle={styles.listContent}
         />
@@ -306,7 +317,7 @@ const LostItemsPanel: React.FC<{ userId: string; userType: 'passenger' | 'driver
             <View style={styles.pickerContainer}>
               <Picker
                 selectedValue={formData.category}
-                onValueChange={(value) =>
+                onValueChange={(value: string) =>
                   setFormData({ ...formData, category: value })
                 }
               >
@@ -355,7 +366,7 @@ const LostItemsPanel: React.FC<{ userId: string; userType: 'passenger' | 'driver
             <View style={styles.pickerContainer}>
               <Picker
                 selectedValue={formData.contact_preference}
-                onValueChange={(value) =>
+                onValueChange={(value: string) =>
                   setFormData({ ...formData, contact_preference: value })
                 }
               >
@@ -463,7 +474,7 @@ const LostItemsPanel: React.FC<{ userId: string; userType: 'passenger' | 'driver
                     <View style={styles.pickerContainer}>
                       <Picker
                         selectedValue={adminStatusUpdate || selectedItem.status}
-                        onValueChange={(value) => setAdminStatusUpdate(value)}
+                        onValueChange={(value: string) => setAdminStatusUpdate(value)}
                       >
                         {statusOptions.map((status) => (
                           <Picker.Item

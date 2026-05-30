@@ -3,7 +3,7 @@
  * Manage users: search, view details, block/unblock, view history
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   ScrollView,
@@ -17,19 +17,34 @@ import {
   Modal,
 } from 'react-native';
 
-const UserManagementPanel = ({ adminToken }) => {
+type UserType = 'all' | 'passenger' | 'driver' | 'admin';
+
+type AdminUser = {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string;
+  user_type: Exclude<UserType, 'all'> | string;
+  created_at: string;
+  blocked?: boolean;
+  rating?: number;
+  total_rides?: number;
+  wallet_balance?: number;
+};
+
+type UserManagementPanelProps = {
+  adminToken: string;
+};
+
+const UserManagementPanel = ({ adminToken }: UserManagementPanelProps) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [users, setUsers] = useState([]);
+  const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(false);
-  const [selectedUser, setSelectedUser] = useState(null);
+  const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
   const [detailsModalVisible, setDetailsModalVisible] = useState(false);
-  const [filterType, setFilterType] = useState('all'); // all, passenger, driver, admin
+  const [filterType, setFilterType] = useState<UserType>('all');
 
-  useEffect(() => {
-    searchUsers();
-  }, []);
-
-  const searchUsers = async () => {
+  const searchUsers = useCallback(async () => {
     setLoading(true);
     try {
       const endpoint = searchQuery
@@ -42,18 +57,22 @@ const UserManagementPanel = ({ adminToken }) => {
 
       if (response.ok) {
         const data = await response.json();
-        setUsers(data.users || []);
+        setUsers((data.users || []) as AdminUser[]);
       } else {
         Alert.alert('Error', 'Failed to search users');
       }
     } catch (error) {
-      Alert.alert('Error', error.message);
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to search users');
     } finally {
       setLoading(false);
     }
-  };
+  }, [adminToken, filterType, searchQuery]);
 
-  const handleBlockUser = async (userId) => {
+  useEffect(() => {
+    void Promise.resolve().then(searchUsers);
+  }, [searchUsers]);
+
+  const handleBlockUser = async (userId: string) => {
     Alert.alert('Block User', 'Are you sure?', [
       { text: 'Cancel' },
       {
@@ -71,14 +90,14 @@ const UserManagementPanel = ({ adminToken }) => {
               searchUsers();
             }
           } catch (error) {
-            Alert.alert('Error', error.message);
+            Alert.alert('Error', error instanceof Error ? error.message : 'Failed to block user');
           }
         },
       },
     ]);
   };
 
-  const handleUnblockUser = async (userId) => {
+  const handleUnblockUser = async (userId: string) => {
     try {
       const response = await fetch(`/api/admin/users/${userId}/unblock`, {
         method: 'PUT',
@@ -90,11 +109,11 @@ const UserManagementPanel = ({ adminToken }) => {
         searchUsers();
       }
     } catch (error) {
-      Alert.alert('Error', error.message);
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to unblock user');
     }
   };
 
-  const renderUserItem = ({ item }) => (
+  const renderUserItem = ({ item }: { item: AdminUser }) => (
     <TouchableOpacity
       style={styles.userCard}
       onPress={() => {
@@ -134,7 +153,7 @@ const UserManagementPanel = ({ adminToken }) => {
 
       {/* Filter Tabs */}
       <View style={styles.filterTabs}>
-        {['all', 'passenger', 'driver', 'admin'].map((type) => (
+        {(['all', 'passenger', 'driver', 'admin'] as UserType[]).map((type) => (
           <TouchableOpacity
             key={type}
             style={[styles.filterTab, filterType === type && styles.filterTabActive]}

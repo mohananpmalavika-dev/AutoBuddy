@@ -73,7 +73,8 @@ from app.routers.admin_trip_management import router as modular_admin_trip_manag
 from app.routers.admin_wallet_topups import router as modular_admin_wallet_topups_router
 from app.routers.admin_document_requirements import router as modular_admin_document_requirements_router
 from app.routers.rate_limit_config import router as modular_rate_limit_config_router, init_default_rate_limit_configs
-from app.routers.driver_documents import router as modular_driver_documents_router
+from app.routers.driver_documents import router as modular_driver_documents_router, get_driver_document_status
+from app.routers.driver_operations import router as modular_driver_operations_router
 from app.routers.passenger_documents import router as modular_passenger_documents_router
 from app.routers.admin_fare_management import router as modular_admin_fare_management_router
 from app.routers.driver_fare_override import router as modular_driver_fare_override_router
@@ -96,7 +97,6 @@ from app.routers.operator_portal import (
 )
 from app.services.email_delivery import send_otp_email_message
 from app.models.canonical_vehicle_model import CANONICAL_VEHICLES_COLLECTION
-from app.routers.driver_availability_operations import router as modular_driver_availability_operations_router
 from app.routers.dispatch_service import router as modular_dispatch_service_router
 from app.routers.stripe_webhooks import router as modular_stripe_webhooks_router
 from app.routers.ride_operations import router as modular_ride_operations_router
@@ -793,6 +793,16 @@ async def seed_admin():
         except OperationFailure:
             pass
         try:
+            await db.document_uploads.create_index([("user_id", 1), ("document_type", 1)], unique=True)
+            await db.document_uploads.create_index([("user_id", 1), ("uploaded_at", -1)])
+        except OperationFailure:
+            pass
+        try:
+            await db.document_requirements.create_index("document_type", unique=True)
+            await db.document_requirements.create_index([("enabled", 1), ("applicable_to", 1)])
+        except OperationFailure:
+            pass
+        try:
             await db.support_attachments.create_index([("user_id", 1), ("created_at", -1)])
         except OperationFailure:
             pass
@@ -1107,18 +1117,19 @@ async def on_startup():
     
     # Initialize dependencies for critical routers
     try:
-        import app.routers.driver_availability_operations as driver_availability_operations
         import app.routers.dispatch_service as dispatch_service
         import app.routers.stripe_webhooks as stripe_webhooks
         import app.routers.ride_operations as ride_operations
         import app.routers.notifications_backend as notifications_backend
         
-        driver_availability_operations.set_dependencies(db, sio)
         dispatch_service.set_dependencies(db, sio)
         stripe_webhooks.set_dependencies(db, sio)
         ride_operations.set_dependencies(db, sio)
         notifications_backend.set_dependencies(db, sio)
         
+        import app.routers.driver_operations as driver_operations
+        driver_operations.set_dependencies(db, sio)
+
         import app.routers.support_backend as support_backend
         support_backend.set_dependencies(db, sio)
         
@@ -6487,6 +6498,35 @@ async def download_support_attachment(filename: str, current_user: dict = Depend
         as_attachment=True,
     )
 
+@api_router.get("/passengers/support/attachments")
+async def list_support_attachments(current_user: dict = Depends(get_current_user)):
+    require_passenger(current_user)
+    attachments = await db.support_attachments.find(
+        {"user_id": current_user["id"]}
+    ).sort("created_at", -1).to_list(200)
+    return {"attachments": [without_upload_storage_fields(attachment) for attachment in attachments]}
+
+@api_router.get("/passengers/lost-items")
+async def list_passenger_lost_items(current_user: dict = Depends(get_current_user)):
+    require_passenger(current_user)
+    lost_items = await db.passenger_lost_items.find(
+        {"passenger_id": current_user["id"]}
+    ).sort("created_at", -1).to_list(200)
+    return {"lost_items": [without_mongo_id(item) for item in lost_items]}
+
+@api_router.get("/passengers/bookings/history")
+async def get_passenger_booking_history(
+    current_user: dict = Depends(get_current_user),
+    limit: int = Query(50, ge=1, le=200),
+    status: Optional[str] = None,
+):
+    require_passenger(current_user)
+    query = {"passenger_id": current_user["id"]}
+    if status:
+        query["status"] = status
+    bookings = await db.bookings.find(query).sort("created_at", -1).limit(limit).to_list(limit)
+    return {"bookings": [without_mongo_id(booking) for booking in bookings]}
+
 @api_router.post("/passengers/subscription/cancel")
 async def cancel_passenger_subscription(current_user: dict = Depends(get_current_user)):
     require_passenger(current_user)
@@ -7020,6 +7060,195 @@ async def get_driver_profile(current_user: dict = Depends(get_current_user)):
     await cache_set(cache_key, response_profile, ttl_seconds=60)
 
     return response_profile
+
+@app.get("/driver/ride/requests")
+async def legacy_driver_ride_requests(current_user: dict = Depends(get_current_user)):
+    require_driver(current_user)
+    driver_doc = await db.drivers.find_one({"user_id": current_user["id"]})
+    if not driver_doc or not driver_doc.get("is_available"):
+        return {"data": []}
+
+    nearby_rides = await db.ride_offers.find({
+        "driver_id": driver_doc["_id"],
+        "status": "pending",
+        "expires_at": {"$gt": datetime.utcnow()},
+    }).to_list(None)
+
+    requests = []
+    for ride_offer in nearby_rides:
+        booking = await db.bookings.find_one({"_id": ride_offer.get("booking_id")})
+        if not booking:
+            continue
+
+        requests.append({
+            "id": str(booking.get("_id")),
+            "booking_id": str(booking.get("_id")),
+            "passenger_name": booking.get("passenger_name"),
+            "pickup_location": booking.get("pickup_location"),
+            "dropoff_location": booking.get("dropoff_location"),
+            "estimated_fare": booking.get("estimated_fare"),
+            "ride_type": booking.get("ride_type"),
+            "expires_in_seconds": int((ride_offer.get("expires_at") - datetime.utcnow()).total_seconds()),
+        })
+
+    return {"data": requests}
+
+@app.post("/driver/ride/{booking_id}/accept")
+async def legacy_driver_accept_ride(booking_id: str, current_user: dict = Depends(get_current_user)):
+    require_driver(current_user)
+    driver_doc = await db.drivers.find_one({"user_id": current_user["id"]})
+    if not driver_doc:
+        raise HTTPException(status_code=404, detail="Driver profile not found")
+
+    booking = await db.bookings.find_one({"_id": ObjectId(booking_id)})
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+
+    ride_offer = await db.ride_offers.find_one({
+        "booking_id": booking["_id"],
+        "driver_id": driver_doc["_id"],
+        "status": "pending",
+    })
+    if not ride_offer:
+        raise HTTPException(status_code=403, detail="No offer for this ride")
+
+    if ride_offer.get("expires_at") and ride_offer.get("expires_at") < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Offer has expired")
+
+    updated = await db.bookings.find_one_and_update(
+        {"_id": booking["_id"]},
+        {
+            "$set": {
+                "status": "accepted",
+                "accepted_driver_id": driver_doc["_id"],
+                "accepted_at": datetime.utcnow(),
+                "driver_name": current_user.get("name"),
+                "driver_phone": current_user.get("phone"),
+                "driver_rating": current_user.get("rating", 0),
+            }
+        },
+        return_document=True,
+    )
+
+    await db.ride_offers.find_one_and_update(
+        {"_id": ride_offer["_id"]},
+        {"$set": {"status": "accepted", "accepted_at": datetime.utcnow()}},
+    )
+
+    await db.ride_offers.update_many(
+        {
+            "booking_id": booking["_id"],
+            "driver_id": {"$ne": driver_doc["_id"]},
+            "status": "pending",
+        },
+        {"$set": {"status": "canceled", "canceled_at": datetime.utcnow()}},
+    )
+
+    passenger_id = str(booking.get("passenger_id", ""))
+    sio.emit(
+        "ride_accepted",
+        {
+            "booking_id": str(booking.get("_id")),
+            "driver_name": current_user.get("name"),
+            "driver_phone": current_user.get("phone"),
+            "driver_rating": current_user.get("rating", 0),
+            "driver_location": driver_doc.get("current_location"),
+            "accepted_at": datetime.utcnow().isoformat(),
+        },
+        room=f"passenger_{passenger_id}",
+    )
+
+    return {
+        "status": "success",
+        "message": "Ride accepted",
+        "booking_id": str(booking.get("_id")),
+        "driver_id": str(driver_doc.get("_id")),
+    }
+
+@app.post("/driver/location/update")
+async def legacy_driver_location_update(request: Request, current_user: dict = Depends(get_current_user)):
+    require_driver(current_user)
+    driver_doc = await db.drivers.find_one({"user_id": current_user["id"]})
+    if not driver_doc:
+        raise HTTPException(status_code=404, detail="Driver profile not found")
+
+    payload = await request.json()
+    latitude = payload.get("latitude")
+    longitude = payload.get("longitude")
+    if latitude is None or longitude is None:
+        raise HTTPException(status_code=400, detail="Latitude and longitude are required")
+
+    await db.drivers.find_one_and_update(
+        {"_id": driver_doc["_id"]},
+        {
+            "$set": {
+                "current_location": {
+                    "type": "Point",
+                    "coordinates": [longitude, latitude],
+                },
+                "location_updated_at": datetime.utcnow(),
+            }
+        },
+    )
+
+    active_bookings = await db.bookings.find({
+        "accepted_driver_id": driver_doc["_id"],
+        "status": {"$in": ["accepted", "in_progress"]},
+    }).to_list(None)
+    for booking in active_bookings:
+        passenger_id = str(booking.get("passenger_id", ""))
+        sio.emit(
+            "driver_location_update",
+            {
+                "driver_id": str(driver_doc["_id"]),
+                "latitude": latitude,
+                "longitude": longitude,
+                "updated_at": datetime.utcnow().isoformat(),
+            },
+            room=f"passenger_{passenger_id}",
+        )
+
+    return {"status": "success", "message": "Location updated", "driver_id": str(driver_doc["_id"]) }
+
+@app.get("/driver/earnings/today")
+async def legacy_driver_earnings_today(current_user: dict = Depends(get_current_user)):
+    require_driver(current_user)
+    return await get_driver_earnings(current_user)
+
+@app.get("/driver/trip/history")
+async def legacy_driver_trip_history(limit: int = 10, current_user: dict = Depends(get_current_user)):
+    require_driver(current_user)
+    driver_doc = await db.drivers.find_one({"user_id": current_user["id"]})
+    if not driver_doc:
+        return {"data": []}
+
+    bookings = await db.bookings.find({"accepted_driver_id": driver_doc["_id"]}).sort("created_at", -1).limit(limit).to_list(None)
+    return {"data": [
+        {
+            "id": str(booking.get("_id")),
+            "pickup_location": booking.get("pickup_location"),
+            "dropoff_location": booking.get("dropoff_location"),
+            "status": booking.get("status"),
+            "estimated_fare": booking.get("estimated_fare"),
+            "final_fare": booking.get("final_fare"),
+            "created_at": booking.get("created_at"),
+            "updated_at": booking.get("updated_at"),
+        }
+        for booking in bookings
+    ]}
+
+@app.get("/driver/profile")
+async def legacy_driver_profile(current_user: dict = Depends(get_current_user)):
+    require_driver(current_user)
+    return await get_driver_profile(current_user)
+
+@app.get("/driver/documents/status")
+async def legacy_driver_documents_status(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    require_driver(current_user)
+    return await get_driver_document_status(db, current_user)
 
 @api_router.put("/drivers/profile")
 async def update_driver_profile(payload: DriverProfileUpdate, current_user: dict = Depends(get_current_user)):
@@ -15202,6 +15431,7 @@ app.include_router(modular_admin_trip_management_router)
 app.include_router(modular_admin_wallet_topups_router)
 app.include_router(modular_admin_document_requirements_router)
 app.include_router(modular_driver_documents_router)
+app.include_router(modular_driver_operations_router)
 app.include_router(modular_passenger_documents_router)
 app.include_router(modular_admin_fare_management_router)
 app.include_router(modular_driver_fare_override_router)
@@ -15214,7 +15444,6 @@ app.include_router(modular_airport_router)
 app.include_router(modular_heatmaps_router)
 app.include_router(modular_profitability_router)
 app.include_router(modular_rate_limit_config_router)
-app.include_router(modular_driver_availability_operations_router)
 app.include_router(modular_dispatch_service_router)
 app.include_router(modular_stripe_webhooks_router)
 app.include_router(modular_ride_operations_router)

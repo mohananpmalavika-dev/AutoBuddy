@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -10,7 +10,36 @@ import {
   View,
   FlatList,
 } from 'react-native';
+import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
+
+type PayoutStatus = 'completed' | 'processing' | 'failed' | string;
+
+type PayoutHistoryItem = {
+  id: string;
+  amount: number;
+  method: string;
+  status: PayoutStatus;
+  date: string;
+  time: string;
+  reference: string;
+  eta?: string;
+};
+
+type PaymentMethod = {
+  id: string;
+  type: 'bank' | 'upi' | 'card' | 'wallet' | string;
+  icon: string;
+  details: string;
+  label: string;
+  isDefault: boolean;
+};
+
+type InstantPayoutPanelProps = {
+  driverId: string;
+  currentBalance?: number;
+  disabled?: boolean;
+};
 
 /**
  * InstantPayoutPanel - On-demand withdrawal system for drivers
@@ -23,42 +52,117 @@ export default function InstantPayoutPanel({
   driverId,
   currentBalance = 2450,
   disabled = false,
-}) {
+}: InstantPayoutPanelProps) {
   const [loading, setLoading] = useState(false);
   const [balance, setBalance] = useState(currentBalance);
-  const [payoutHistory, setPayoutHistory] = useState([]);
-  const [paymentMethods, setPaymentMethods] = useState([]);
+  const [payoutHistory, setPayoutHistory] = useState<PayoutHistoryItem[]>([]);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [showPayoutModal, setShowPayoutModal] = useState(false);
   const [showAddPayment, setShowAddPayment] = useState(false);
-  const [selectedMethod, setSelectedMethod] = useState(null);
+  const [selectedMethod, setSelectedMethod] = useState<string | null>(null);
   const [error, setError] = useState('');
 
   const [payoutRequest, setPayoutRequest] = useState({
     amount: '',
-    method: null,
+    method: null as string | null,
   });
 
   const [newPaymentMethod, setNewPaymentMethod] = useState({
-    type: 'bank', // bank, upi, card, wallet
+    type: 'bank' as PaymentMethod['type'],
     details: '',
   });
 
-  useEffect(() => {
-    loadPayoutData();
-  }, []);
-
-  const loadPayoutData = async () => {
+  const loadPayoutData = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      // TODO: Replace with API calls
-      // const balanceResponse = await payoutAPI.getBalance(driverId);
-      // const historyResponse = await payoutAPI.getPayoutHistory(driverId);
-      // const methodsResponse = await payoutAPI.getPaymentMethods(driverId);
+      const [balanceResponse, historyResponse, methodsResponse] = await Promise.all([
+        apiRequest('/driver/payouts/balance', { query: { driver_id: driverId } }),
+        apiRequest('/driver/payouts/history', { query: { driver_id: driverId } }),
+        apiRequest('/driver/payouts/methods', { query: { driver_id: driverId } }),
+      ]);
 
+      const apiBalance = Number(balanceResponse?.balance ?? currentBalance);
+      const apiHistory = Array.isArray(historyResponse?.history)
+        ? historyResponse.history
+        : Array.isArray(historyResponse?.data?.history)
+          ? historyResponse.data.history
+          : [];
+      const apiMethods = Array.isArray(methodsResponse?.methods)
+        ? methodsResponse.methods
+        : Array.isArray(methodsResponse?.data?.methods)
+          ? methodsResponse.data.methods
+          : [];
+
+      setBalance(apiBalance);
+      if (apiHistory.length > 0) {
+        setPayoutHistory(apiHistory);
+      } else {
+        setPayoutHistory([
+          {
+            id: 'payout_1',
+            amount: 1000,
+            method: 'Bank Transfer',
+            status: 'completed',
+            date: '2024-01-15',
+            time: '3:45 PM',
+            reference: 'PAY123456',
+          },
+          {
+            id: 'payout_2',
+            amount: 500,
+            method: 'UPI',
+            status: 'completed',
+            date: '2024-01-13',
+            time: '11:20 AM',
+            reference: 'PAY123455',
+          },
+          {
+            id: 'payout_3',
+            amount: 2000,
+            method: 'Bank Transfer',
+            status: 'processing',
+            date: '2024-01-16',
+            time: 'Initiated now',
+            reference: 'PAY123457',
+            eta: '2-4 hours',
+          },
+        ]);
+      }
+
+      if (apiMethods.length > 0) {
+        setPaymentMethods(apiMethods);
+      } else {
+        setPaymentMethods([
+          {
+            id: 'method_1',
+            type: 'bank',
+            icon: '🏦',
+            details: 'HDFC • 1234',
+            label: 'HDFC - **** 1234',
+            isDefault: true,
+          },
+          {
+            id: 'method_2',
+            type: 'upi',
+            icon: '📱',
+            details: 'name@okhdfcbank',
+            label: 'name@okhdfcbank',
+            isDefault: false,
+          },
+          {
+            id: 'method_3',
+            type: 'wallet',
+            icon: '💳',
+            details: 'AutoBuddy Wallet',
+            label: 'AutoBuddy Wallet',
+            isDefault: false,
+          },
+        ]);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load payout data');
       setBalance(currentBalance);
-
-      // Mock payout history
       setPayoutHistory([
         {
           id: 'payout_1',
@@ -89,8 +193,6 @@ export default function InstantPayoutPanel({
           eta: '2-4 hours',
         },
       ]);
-
-      // Mock payment methods
       setPaymentMethods([
         {
           id: 'method_1',
@@ -117,12 +219,14 @@ export default function InstantPayoutPanel({
           isDefault: false,
         },
       ]);
-    } catch (err) {
-      setError(err?.message || 'Failed to load payout data');
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentBalance, driverId]);
+
+  useEffect(() => {
+    void Promise.resolve().then(loadPayoutData);
+  }, [loadPayoutData]);
 
   const handleRequestPayout = async () => {
     if (!payoutRequest.amount || !payoutRequest.method) {
@@ -138,20 +242,34 @@ export default function InstantPayoutPanel({
 
     setLoading(true);
     try {
-      // TODO: Call API to request payout
-      // await payoutAPI.requestInstantPayout(driverId, payoutRequest);
+      const payoutResponse = await apiRequest('/driver/payouts/request', {
+        method: 'POST',
+        body: {
+          driver_id: driverId,
+          amount,
+          payment_method_id: payoutRequest.method,
+        },
+      });
 
       const method = paymentMethods.find((m) => m.id === payoutRequest.method);
-      const newPayout = {
-        id: `payout_${Date.now()}`,
-        amount: amount,
-        method: method.label,
-        status: 'processing',
-        date: new Date().toLocaleDateString('en-IN'),
-        time: 'Initiated now',
-        reference: `PAY${Math.floor(Math.random() * 1000000)}`,
-        eta: '2-4 hours',
-      };
+      if (!method) {
+        Alert.alert('Missing Info', 'Please select a valid payment method');
+        return;
+      }
+
+      const newPayout =
+        payoutResponse?.payout ||
+        payoutResponse?.data?.payout ||
+        {
+          id: `payout_${Date.now()}`,
+          amount: amount,
+          method: method.label,
+          status: 'processing',
+          date: new Date().toLocaleDateString('en-IN'),
+          time: 'Initiated now',
+          reference: `PAY${Math.floor(Math.random() * 1000000)}`,
+          eta: '2-4 hours',
+        };
 
       setPayoutHistory([newPayout, ...payoutHistory]);
       setBalance(balance - amount);
@@ -164,7 +282,8 @@ export default function InstantPayoutPanel({
         `₹${amount} will be transferred to ${method.label} within 2-4 hours`
       );
     } catch (err) {
-      Alert.alert('Error', 'Failed to request payout');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to request payout';
+      Alert.alert('Error', errorMessage);
     } finally {
       setLoading(false);
     }
@@ -178,40 +297,40 @@ export default function InstantPayoutPanel({
 
     setLoading(true);
     try {
-      // TODO: Call API to add payment method
-      // await payoutAPI.addPaymentMethod(driverId, newPaymentMethod);
+      const paymentResponse = await apiRequest('/driver/payouts/methods', {
+        method: 'POST',
+        body: {
+          driver_id: driverId,
+          ...newPaymentMethod,
+        },
+      });
 
-      const typeLabels = {
-        bank: '🏦 Bank Account',
-        upi: '📱 UPI',
-        card: '💳 Debit Card',
-        wallet: '💰 Wallet',
-      };
+      const createdMethod =
+        paymentResponse?.method || paymentResponse?.data?.method || {
+          id: `method_${Date.now()}`,
+          type: newPaymentMethod.type,
+          icon: ['🏦', '📱', '💳', '💰'][
+            Object.keys({ bank: '🏦', upi: '📱', card: '💳', wallet: '💰' }).indexOf(newPaymentMethod.type)
+          ],
+          details: newPaymentMethod.details,
+          label: `${newPaymentMethod.type === 'bank' ? '🏦 Bank Account' : newPaymentMethod.type === 'upi' ? '📱 UPI' : newPaymentMethod.type === 'card' ? '💳 Debit Card' : '💰 Wallet'} - ${newPaymentMethod.details}`,
+          isDefault: paymentMethods.length === 0,
+        };
 
-      const newMethod = {
-        id: `method_${Date.now()}`,
-        type: newPaymentMethod.type,
-        icon: ['🏦', '📱', '💳', '💰'][
-          Object.keys(typeLabels).indexOf(newPaymentMethod.type)
-        ],
-        details: newPaymentMethod.details,
-        label: `${typeLabels[newPaymentMethod.type]} - ${newPaymentMethod.details}`,
-        isDefault: paymentMethods.length === 0,
-      };
-
-      setPaymentMethods([...paymentMethods, newMethod]);
+      setPaymentMethods([...paymentMethods, createdMethod]);
       setNewPaymentMethod({ type: 'bank', details: '' });
       setShowAddPayment(false);
 
       Alert.alert('✅ Payment Method Added', 'You can now use this for payouts');
     } catch (err) {
-      Alert.alert('Error', 'Failed to add payment method');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to add payment method';
+      Alert.alert('Error', errorMessage);
     } finally {
       setLoading(false);
     }
   };
 
-  const getStatusColor = (status) => {
+  const getStatusColor = (status: PayoutStatus) => {
     switch (status) {
       case 'completed':
         return '#34C759';
@@ -224,8 +343,8 @@ export default function InstantPayoutPanel({
     }
   };
 
-  const formatAmount = (amt) => {
-    return parseFloat(amt || 0).toLocaleString('en-IN', {
+  const formatAmount = (amt: number | string) => {
+    return parseFloat(String(amt || 0)).toLocaleString('en-IN', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });

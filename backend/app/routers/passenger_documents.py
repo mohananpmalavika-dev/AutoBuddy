@@ -151,10 +151,16 @@ async def get_passenger_document_status(
         total_mandatory = len(mandatory_docs)
         
         # Get passenger's account created date for grace period
-        passenger_data = await db.passengers.find_one({"user_id": ObjectId(passenger_id)})
+        passenger_data = None
+        if ObjectId.is_valid(passenger_id):
+            passenger_data = await db.passengers.find_one({"user_id": ObjectId(passenger_id)})
+            if not passenger_data:
+                passenger_data = await db.users.find_one({"_id": ObjectId(passenger_id)})
+
         if not passenger_data:
-            passenger_data = await db.users.find_one({"_id": ObjectId(passenger_id)})
-        
+            passenger_data = await db.passengers.find_one({"user_id": passenger_id})
+            if not passenger_data:
+                passenger_data = await db.users.find_one({"id": passenger_id})
         created_at = passenger_data.get("created_at", datetime.utcnow()) if passenger_data else datetime.utcnow()
         
         # Use the longest grace period from mandatory documents

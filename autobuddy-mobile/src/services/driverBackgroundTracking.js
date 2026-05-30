@@ -5,6 +5,9 @@ import { Platform } from 'react-native';
 
 import { API_BASE_URL } from '../lib/api';
 import { emitDriverLocation } from './socketClient';
+import { getSocketUrl } from '../lib/socket';
+import io from 'socket.io-client';
+import * as Sentry from '@sentry/react-native';
 
 export const DRIVER_BACKGROUND_LOCATION_TASK = 'AUTOBUDDY_DRIVER_BACKGROUND_LOCATION_TASK';
 
@@ -93,13 +96,34 @@ if (!TaskManager.isTaskDefined(DRIVER_BACKGROUND_LOCATION_TASK)) {
 
     // Telemetry/logging: attempt socket emit for background updates
     try {
-      const rideId = await AsyncStorage.getItem(BG_TRACKING_RIDE_ID_KEY) || '';
+        const rideId = await AsyncStorage.getItem(BG_TRACKING_RIDE_ID_KEY) || '';
       const latitude = toNumber(coords.latitude);
       const longitude = toNumber(coords.longitude);
       const accuracy = toNumber(coords.accuracy);
       if (latitude !== null && longitude !== null) {
-        // emitDriverLocation is resilient if socket isn't connected in background
-        emitDriverLocation(rideId || '', latitude, longitude, accuracy);
+          // Best-effort: emit via the in-app socket if present
+          emitDriverLocation(rideId || '', latitude, longitude, accuracy);
+
+          // Attempt a short-lived socket connection in background as a fallback
+          try {
+            const bgSocket = io(getSocketUrl(), { reconnection: false, transports: ['websocket'] });
+            bgSocket.on('connect', () => {
+              bgSocket.emit('driver_location_update', {
+                ride_id: rideId || '',
+                latitude,
+                longitude,
+                accuracy: accuracy || 0,
+                timestamp: new Date().toISOString(),
+              });
+              bgSocket.disconnect();
+            });
+            // ensure we don't hang the task: set a short timeout to force disconnect
+            setTimeout(() => {
+              try { bgSocket.disconnect(); } catch (e) {}
+            }, 3000);
+          } catch (e) {
+            // ignore; best-effort only
+          }
         await appendBackgroundLog({ type: 'emit', rideId: rideId || null, latitude, longitude, accuracy, ts: Date.now() });
       }
     } catch (e) {
@@ -111,6 +135,58 @@ if (!TaskManager.isTaskDefined(DRIVER_BACKGROUND_LOCATION_TASK)) {
 
 async function appendBackgroundLog(entry) {
   try {
+    // Ensure breadcrumb includes rideId and userId for richer traces
+    let rideId = entry?.rideId;
+    if (!rideId) {
+      try {
+        rideId = await AsyncStorage.getItem(BG_TRACKING_RIDE_ID_KEY);
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    let userId = null;
+    try {
+      const sessionRaw = await AsyncStorage.getItem(SESSION_KEY);
+      if (sessionRaw) {
+        try {
+          const parsed = JSON.parse(sessionRaw);
+          userId = parsed?.user?.id || parsed?.userId || parsed?.id || null;
+        } catch {
+          userId = null;
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    // Send to Sentry as breadcrumb and optionally as a message for errors
+    try {
+      Sentry.addBreadcrumb({
+        category: 'background_emit',
+        message: entry?.type ? `${entry.type}` : 'background_emit',
+        data: { ...entry, rideId, userId },
+        level: Sentry.Severity.Info,
+      });
+
+      if (entry?.type === 'emit_error' || entry?.type === 'emit_exception') {
+        // capture error for visibility in Sentry
+        const err = entry?.error || entry?.message || JSON.stringify(entry);
+        try {
+          if (err instanceof Error) {
+            Sentry.captureException(err);
+          } else {
+            Sentry.captureMessage(String(err), Sentry.Severity.Error);
+          }
+        } catch (e) {
+          // swallow Sentry failures
+        }
+      }
+    } catch (e) {
+      // ignore Sentry failures
+    }
+
+    // Also keep a local bounded copy for the in-app debug screen (best-effort)
     const key = 'autobuddy_bg_emit_logs_v1';
     const raw = await AsyncStorage.getItem(key);
     const arr = raw ? JSON.parse(raw) : [];

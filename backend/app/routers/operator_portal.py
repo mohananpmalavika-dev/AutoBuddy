@@ -24,6 +24,7 @@ admin_router = APIRouter(prefix="/api/admin/operators", tags=["admin_operators"]
 
 OPERATOR_PROFILES_COLLECTION = "operator_profiles"
 OPERATOR_FLEET_VEHICLES_COLLECTION = "operator_fleet_vehicles"
+OPERATOR_ASSIGNMENT_HISTORY_COLLECTION = "operator_vehicle_assignment_history"
 
 
 def _user_id(current_user: dict) -> str:
@@ -115,6 +116,25 @@ def _vehicle_response(document: Dict[str, Any]) -> Dict[str, Any]:
     return _strip_mongo_id(document)
 
 
+async def _record_assignment_history(
+    db: AsyncIOMotorDatabase,
+    operator_id: str,
+    vehicle_id: str,
+    driver_id: str,
+    event_type: str,
+    details: Optional[Dict[str, Any]] = None,
+) -> None:
+    await db[OPERATOR_ASSIGNMENT_HISTORY_COLLECTION].insert_one({
+        "id": str(uuid.uuid4()),
+        "operator_id": operator_id,
+        "vehicle_id": vehicle_id,
+        "driver_id": driver_id,
+        "event_type": event_type,
+        "details": details or {},
+        "created_at": _now(),
+    })
+
+
 async def _sync_assigned_driver_vehicle(
     db: AsyncIOMotorDatabase,
     vehicle: Dict[str, Any],
@@ -167,6 +187,18 @@ async def _sync_assigned_driver_vehicle(
             "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": now},
         },
         upsert=True,
+    )
+
+    await _record_assignment_history(
+        db=db,
+        operator_id=vehicle.get("operator_id"),
+        vehicle_id=vehicle.get("id"),
+        driver_id=driver_id,
+        event_type="assign",
+        details={
+            "license_plate": vehicle.get("license_plate"),
+            "vehicle_type_id": vehicle.get("vehicle_type_id"),
+        },
     )
 
     if is_active:
@@ -235,6 +267,18 @@ async def _remove_assigned_driver_vehicle(
                 {"user_id": resolved_driver_id},
                 {"$set": {"vehicle_info": None, "updated_at": _now()}},
             )
+
+    await _record_assignment_history(
+        db=db,
+        operator_id=vehicle.get("operator_id"),
+        vehicle_id=vehicle.get("id"),
+        driver_id=resolved_driver_id,
+        event_type="unassign",
+        details={
+            "license_plate": vehicle.get("license_plate"),
+            "vehicle_type_id": vehicle.get("vehicle_type_id"),
+        },
+    )
 
 
 class OperatorProfileUpdate(BaseModel):
@@ -318,7 +362,10 @@ async def get_operator_dashboard(
         if vehicle.get("assigned_driver_id")
     })
     completed_bookings = await db.bookings.find({
-        "driver_id": {"$in": assigned_driver_ids},
+        "$or": [
+            {"driver_id": {"$in": assigned_driver_ids}},
+            {"accepted_driver_id": {"$in": assigned_driver_ids}},
+        ],
         "status": {"$in": ["completed", "COMPLETED"]},
     }).sort("created_at", -1).to_list(100)
     gross_earnings = sum(
@@ -349,6 +396,44 @@ async def list_operator_vehicles(
         query["active"] = True
     vehicles = await db[OPERATOR_FLEET_VEHICLES_COLLECTION].find(query).sort("updated_at", -1).to_list(500)
     return {"vehicles": [_vehicle_response(item) for item in vehicles]}
+
+
+@router.get("/vehicles/{vehicle_id}")
+async def get_operator_vehicle(
+    vehicle_id: str,
+    current_user: dict = Depends(require_roles("operator")),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    operator_id = _user_id(current_user)
+    vehicle = await db[OPERATOR_FLEET_VEHICLES_COLLECTION].find_one({"operator_id": operator_id, "id": vehicle_id})
+    if not vehicle:
+        raise HTTPException(status_code=404, detail="Vehicle not found")
+    return {"vehicle": _vehicle_response(vehicle)}
+
+
+@router.get("/drivers")
+async def list_operator_drivers(
+    current_user: dict = Depends(require_roles("operator")),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    operator_id = _user_id(current_user)
+    vehicles = await db[OPERATOR_FLEET_VEHICLES_COLLECTION].find({"operator_id": operator_id, "assigned_driver_id": {"$exists": True, "$ne": None}}).to_list(500)
+    driver_ids = sorted({str(vehicle.get("assigned_driver_id")) for vehicle in vehicles if vehicle.get("assigned_driver_id")})
+    if not driver_ids:
+        return {"drivers": []}
+
+    drivers = await db.users.find({"id": {"$in": driver_ids}}).to_list(500)
+    return {"drivers": [{"id": driver.get("id"), "name": driver.get("name"), "email": driver.get("email"), "phone": driver.get("phone")} for driver in drivers]}
+
+
+@router.get("/assignments")
+async def list_operator_assignments(
+    current_user: dict = Depends(require_roles("operator")),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    operator_id = _user_id(current_user)
+    history = await db[OPERATOR_ASSIGNMENT_HISTORY_COLLECTION].find({"operator_id": operator_id}).sort("created_at", -1).to_list(200)
+    return {"assignments": [_strip_mongo_id(item) for item in history]}
 
 
 @router.post("/vehicles")
@@ -440,6 +525,25 @@ async def update_operator_vehicle(
     return {"vehicle": _vehicle_response(updated)}
 
 
+async def _record_assignment_history(
+    db: AsyncIOMotorDatabase,
+    operator_id: str,
+    vehicle_id: str,
+    driver_id: str,
+    event_type: str,
+    details: Optional[Dict[str, Any]] = None,
+) -> None:
+    await db[OPERATOR_ASSIGNMENT_HISTORY_COLLECTION].insert_one({
+        "id": str(uuid.uuid4()),
+        "operator_id": operator_id,
+        "vehicle_id": vehicle_id,
+        "driver_id": driver_id,
+        "event_type": event_type,
+        "details": details or {},
+        "created_at": _now(),
+    })
+
+
 @router.put("/vehicles/{vehicle_id}/assign-driver")
 async def assign_operator_vehicle_driver(
     vehicle_id: str,
@@ -518,6 +622,20 @@ async def delete_operator_vehicle(
         {"$set": {"active": False, "updated_at": _now()}},
     )
     return {"success": True, "message": "Vehicle disabled"}
+
+
+@router.get("/vehicles/{vehicle_id}/assignment-history")
+async def get_vehicle_assignment_history(
+    vehicle_id: str,
+    current_user: dict = Depends(require_roles("operator")),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    operator_id = _user_id(current_user)
+    history = await db[OPERATOR_ASSIGNMENT_HISTORY_COLLECTION].find({
+        "operator_id": operator_id,
+        "vehicle_id": vehicle_id,
+    }).sort("created_at", -1).to_list(200)
+    return {"assignments": [_strip_mongo_id(item) for item in history]}
 
 
 @admin_router.get("")

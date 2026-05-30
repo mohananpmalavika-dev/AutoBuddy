@@ -2,11 +2,37 @@
  * useNotifications Hook - Handles notification fetching and Socket.IO integration
  */
 
-import { useEffect, useCallback } from 'react';
-import { notificationAPI } from '../services/apiClient';
+import { useEffect, useCallback, useState } from 'react';
+import { notificationAPI , supportAPI , scheduledRidesAPI , promoAPI , accessibilityAPI } from '../services/apiClient';
 import { getSocket, registerPassengerListeners } from '../services/socketClient';
 
-export const useNotifications = (notificationContext, userId) => {
+/**
+ * useSupportTickets Hook - Handles support ticket operations
+ */
+
+
+
+/**
+ * useScheduledRides Hook - Handles scheduled ride operations
+ */
+
+
+
+/**
+ * usePromoCode Hook - Handles promo code validation
+ */
+
+
+
+/**
+ * useAccessibility Hook - Handles accessibility features
+ */
+
+
+
+type AnyRecord = Record<string, any>;
+
+export const useNotifications = (notificationContext: AnyRecord, userId: string | null) => {
   // Fetch notifications from backend
   const fetchNotifications = useCallback(async () => {
     try {
@@ -15,7 +41,7 @@ export const useNotifications = (notificationContext, userId) => {
       
       // Clear existing and load all
       notificationContext.clearAll?.();
-      notifications.forEach((notif) => {
+      notifications.forEach((notif: AnyRecord) => {
         notificationContext.addNotification?.(notif);
       });
     } catch (error) {
@@ -24,7 +50,7 @@ export const useNotifications = (notificationContext, userId) => {
   }, [notificationContext]);
 
   // Mark notification as read (both local + backend)
-  const markAsRead = useCallback(async (notificationId) => {
+  const markAsRead = useCallback(async (notificationId: string) => {
     try {
       // Update local state immediately
       notificationContext.markAsRead?.(notificationId);
@@ -47,7 +73,7 @@ export const useNotifications = (notificationContext, userId) => {
   }, [notificationContext]);
 
   // Delete notification
-  const deleteNotification = useCallback(async (notificationId) => {
+  const deleteNotification = useCallback(async (notificationId: string) => {
     try {
       notificationContext.removeNotification?.(notificationId);
       await notificationAPI.deleteNotification(notificationId);
@@ -58,7 +84,7 @@ export const useNotifications = (notificationContext, userId) => {
 
   // Socket.IO listeners
   useEffect(() => {
-    fetchNotifications();
+    void Promise.resolve().then(fetchNotifications);
 
     const socket = getSocket();
     if (socket && userId) {
@@ -95,15 +121,9 @@ export const useNotifications = (notificationContext, userId) => {
   };
 };
 
-/**
- * useSupportTickets Hook - Handles support ticket operations
- */
-
-import { supportAPI } from '../services/apiClient';
-
-export const useSupportTickets = (supportContext) => {
+export const useSupportTickets = (supportContext: AnyRecord) => {
   // Fetch tickets from backend
-  const fetchTickets = useCallback(async (filters) => {
+  const fetchTickets = useCallback(async (filters: AnyRecord = {}) => {
     try {
       const response = await supportAPI.listTickets(filters, 0, 50);
       const tickets = response.data.tickets || [];
@@ -114,7 +134,7 @@ export const useSupportTickets = (supportContext) => {
   }, [supportContext]);
 
   // Create ticket
-  const createTicket = useCallback(async (ticketData) => {
+  const createTicket = useCallback(async (ticketData: AnyRecord) => {
     try {
       const response = await supportAPI.createTicket(ticketData);
       const newTicket = response.data.ticket || response.data;
@@ -127,7 +147,7 @@ export const useSupportTickets = (supportContext) => {
   }, [supportContext]);
 
   // Add message to ticket
-  const addMessage = useCallback(async (ticketId, message) => {
+  const addMessage = useCallback(async (ticketId: string, message: string) => {
     try {
       const response = await supportAPI.addMessage(ticketId, message);
       supportContext.addMessage?.(ticketId, message, 'passenger');
@@ -139,7 +159,7 @@ export const useSupportTickets = (supportContext) => {
   }, [supportContext]);
 
   // Close ticket
-  const closeTicket = useCallback(async (ticketId) => {
+  const closeTicket = useCallback(async (ticketId: string) => {
     try {
       await supportAPI.updateTicketStatus(ticketId, 'closed');
       supportContext.closeSupportTicket?.(ticketId);
@@ -157,13 +177,7 @@ export const useSupportTickets = (supportContext) => {
   };
 };
 
-/**
- * useScheduledRides Hook - Handles scheduled ride operations
- */
-
-import { scheduledRidesAPI } from '../services/apiClient';
-
-export const useScheduledRides = (scheduledRidesContext) => {
+export const useScheduledRides = (scheduledRidesContext: AnyRecord) => {
   // Fetch scheduled rides from backend
   const fetchScheduledRides = useCallback(async () => {
     try {
@@ -176,7 +190,7 @@ export const useScheduledRides = (scheduledRidesContext) => {
   }, [scheduledRidesContext]);
 
   // Create scheduled ride
-  const createScheduledRide = useCallback(async (rideData) => {
+  const createScheduledRide = useCallback(async (rideData: AnyRecord) => {
     try {
       const response = await scheduledRidesAPI.createScheduledRide(rideData);
       const newRide = response.data.ride || response.data;
@@ -189,7 +203,7 @@ export const useScheduledRides = (scheduledRidesContext) => {
   }, [scheduledRidesContext]);
 
   // Update scheduled ride
-  const updateScheduledRide = useCallback(async (rideId, updates) => {
+  const updateScheduledRide = useCallback(async (rideId: string, updates: AnyRecord) => {
     try {
       const response = await scheduledRidesAPI.updateScheduledRide(rideId, updates);
       // Refetch to get updated data
@@ -199,10 +213,10 @@ export const useScheduledRides = (scheduledRidesContext) => {
       console.error('Error updating scheduled ride:', error);
       throw error;
     }
-  }, [scheduledRidesContext, fetchScheduledRides]);
+  }, [fetchScheduledRides]);
 
   // Cancel scheduled ride
-  const cancelScheduledRide = useCallback(async (rideId) => {
+  const cancelScheduledRide = useCallback(async (rideId: string) => {
     try {
       await scheduledRidesAPI.cancelScheduledRide(rideId);
       scheduledRidesContext.cancelScheduledRide?.(rideId);
@@ -213,7 +227,7 @@ export const useScheduledRides = (scheduledRidesContext) => {
   }, [scheduledRidesContext]);
 
   // Confirm scheduled ride (when time comes)
-  const confirmScheduledRide = useCallback(async (rideId) => {
+  const confirmScheduledRide = useCallback(async (rideId: string) => {
     try {
       const response = await scheduledRidesAPI.confirmScheduledRide(rideId);
       await fetchScheduledRides();
@@ -225,8 +239,8 @@ export const useScheduledRides = (scheduledRidesContext) => {
   }, [fetchScheduledRides]);
 
   useEffect(() => {
-    fetchScheduledRides();
-  }, []);
+    void Promise.resolve().then(fetchScheduledRides);
+  }, [fetchScheduledRides]);
 
   return {
     fetchScheduledRides,
@@ -237,15 +251,9 @@ export const useScheduledRides = (scheduledRidesContext) => {
   };
 };
 
-/**
- * usePromoCode Hook - Handles promo code validation
- */
-
-import { promoAPI } from '../services/apiClient';
-
-export const usePromoCode = (promoCodesContext) => {
+export const usePromoCode = (promoCodesContext: AnyRecord) => {
   // Validate promo code
-  const validateCode = useCallback(async (code, fare) => {
+  const validateCode = useCallback(async (code: string, fare: number) => {
     try {
       const response = await promoAPI.validateCode(code, fare);
       return response.data; // { discount_amount, final_fare }
@@ -267,8 +275,8 @@ export const usePromoCode = (promoCodesContext) => {
   }, [promoCodesContext]);
 
   useEffect(() => {
-    fetchAvailableCodes();
-  }, []);
+    void Promise.resolve().then(fetchAvailableCodes);
+  }, [fetchAvailableCodes]);
 
   return {
     validateCode,
@@ -276,15 +284,9 @@ export const usePromoCode = (promoCodesContext) => {
   };
 };
 
-/**
- * useAccessibility Hook - Handles accessibility features
- */
-
-import { accessibilityAPI } from '../services/apiClient';
-
-export const useAccessibility = (userId) => {
-  const [requirements, setRequirements] = useState(null);
-  const [settings, setSettings] = useState(null);
+export const useAccessibility = (userId: string) => {
+  const [requirements, setRequirements] = useState<AnyRecord | null>(null);
+  const [settings, setSettings] = useState<AnyRecord | null>(null);
   const [loading, setLoading] = useState(false);
 
   // Fetch accessibility requirements
@@ -301,7 +303,7 @@ export const useAccessibility = (userId) => {
   }, [userId]);
 
   // Update accessibility requirements
-  const updateRequirements = useCallback(async (newRequirements) => {
+  const updateRequirements = useCallback(async (newRequirements: AnyRecord) => {
     try {
       const response = await accessibilityAPI.updateRequirements(userId, newRequirements);
       setRequirements(response.data.requirements || newRequirements);
@@ -322,7 +324,7 @@ export const useAccessibility = (userId) => {
   }, []);
 
   // Update text size settings
-  const updateSettings = useCallback(async (newSettings) => {
+  const updateSettings = useCallback(async (newSettings: AnyRecord) => {
     try {
       const response = await accessibilityAPI.updateTextSizeSettings(newSettings);
       setSettings(response.data.settings || newSettings);
@@ -334,8 +336,10 @@ export const useAccessibility = (userId) => {
 
   useEffect(() => {
     if (userId) {
-      fetchRequirements();
-      fetchSettings();
+      void Promise.resolve().then(() => {
+        void fetchRequirements();
+        void fetchSettings();
+      });
     }
   }, [userId, fetchRequirements, fetchSettings]);
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   ScrollView,
@@ -8,15 +8,18 @@ import {
   View,
 } from 'react-native';
 import { LineChart } from 'react-native-chart-kit';
+import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
 
 interface ForecastData {
   period: string;
   predicted_earnings: number;
   confidence: number;
-  daily_forecast?: Array<{ day: string; earnings: number; rides: number }>;
-  peak_hours?: Array<{ time: string; predicted_rides: number; predicted_earnings: number }>;
+  daily_forecast?: { day: string; earnings: number; rides: number }[];
+  weekly_forecast?: { week: string; earnings: number }[];
+  peak_hours?: { time: string; predicted_rides: number; predicted_earnings: number }[];
   peak_days?: string[];
+  growth_projection?: string;
   historical_avg: number;
   trend: string;
   suggestions: string[];
@@ -42,20 +45,21 @@ export default function EarningsForecastingPanel({
   const [selectedPeriod, setSelectedPeriod] = useState<'day' | 'week' | 'month'>('week');
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    loadForecast();
-  }, [selectedPeriod]);
-
-  const loadForecast = async () => {
+  const loadForecast = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      // TODO: Replace with API call
-      // const response = await earningsAPI.getEarningsForecast(driverId, selectedPeriod);
-      // setForecast(response.data);
+      const forecastResponse = await apiRequest('/driver/earnings/forecast', {
+        query: { driver_id: driverId, period: selectedPeriod },
+      });
+      const apiForecast =
+        forecastResponse?.forecast ||
+        forecastResponse?.data?.forecast ||
+        null;
 
-      // Mock forecast data
-      if (selectedPeriod === 'day') {
+      if (apiForecast) {
+        setForecast(apiForecast);
+      } else if (selectedPeriod === 'day') {
         setForecast({
           period: 'Today',
           predicted_earnings: 1850,
@@ -125,7 +129,11 @@ export default function EarningsForecastingPanel({
     } finally {
       setLoading(false);
     }
-  };
+  }, [driverId, selectedPeriod]);
+
+  useEffect(() => {
+    void Promise.resolve().then(loadForecast);
+  }, [loadForecast]);
 
   const chartData = {
     labels: forecast?.daily_forecast?.map((d) => d.day) || [],
@@ -159,7 +167,7 @@ export default function EarningsForecastingPanel({
 
       {/* Period Selector */}
       <View style={styles.periodSelector}>
-        {['day', 'week', 'month'].map((period) => (
+        {(['day', 'week', 'month'] as const).map((period) => (
           <TouchableOpacity
             key={period}
             style={[

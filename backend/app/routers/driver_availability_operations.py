@@ -26,25 +26,77 @@ def set_dependencies(database, socket_io):
 async def verify_driver_token(request: Request):
     """Verify driver JWT token and return driver data"""
     try:
+        # Prefer JWT Authorization header and decode using shared helper
+        from app.core.config import get_settings
+        from app.utils.security import decode_token
+
         auth_header = request.headers.get("Authorization", "")
-        if not auth_header.startswith("Bearer "):
-            raise HTTPException(status_code=401, detail="Missing authorization header")
-        
-        token = auth_header.split("Bearer ")[1]
-        # Token verification logic here
-        # For now, return mock driver data
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split("Bearer ")[1].strip()
+            settings = get_settings()
+            payload = decode_token(token, settings)
+            driver_id = payload.get("sub")
+            if not driver_id:
+                raise HTTPException(status_code=401, detail="Invalid token payload")
+
+            driver = await db.drivers.find_one({"_id": ObjectId(driver_id)})
+            if not driver:
+                raise HTTPException(status_code=401, detail="Driver not found")
+
+            return driver
+
+        # Fallback: legacy header-based driver id (keeps backward compatibility)
         driver_id = request.headers.get("X-Driver-ID")
-        if not driver_id:
-            raise HTTPException(status_code=401, detail="Missing driver ID")
-        
-        driver = await db.drivers.find_one({"_id": ObjectId(driver_id)})
-        if not driver:
-            raise HTTPException(status_code=401, detail="Driver not found")
-        
-        return driver
+        if driver_id:
+            logger.warning("Using legacy X-Driver-ID header for authentication; migrate clients to JWT")
+            driver = await db.drivers.find_one({"_id": ObjectId(driver_id)})
+            if not driver:
+                raise HTTPException(status_code=401, detail="Driver not found")
+            return driver
+
+        raise HTTPException(status_code=401, detail="Missing authorization header")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Token verification failed: {str(e)}")
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+def _assert_driver_owns_resource(driver_data: dict, driver_id: str):
+    if str(driver_data.get("_id")) != driver_id:
+        raise HTTPException(status_code=403, detail="Cannot update another driver's availability")
+
+
+@router.put("/availability", tags=["driver-availability"])
+async def set_my_availability(request: Request):
+    driver_data = await verify_driver_token(request)
+    return await set_driver_availability(str(driver_data["_id"]), request)
+
+
+@router.get("/availability", tags=["driver-availability"])
+async def get_my_availability(request: Request):
+    driver_data = await verify_driver_token(request)
+    return await get_driver_availability(str(driver_data["_id"]), request)
+
+
+@router.get("/status", tags=["driver-availability"])
+async def get_driver_status(request: Request):
+    driver_data = await verify_driver_token(request)
+    driver_id = str(driver_data["_id"])
+
+    return {
+        'driver_id': driver_id,
+        'name': driver_data.get('name'),
+        'is_available': driver_data.get('is_available', False),
+        'current_location': {
+            'latitude': driver_data.get('current_latitude'),
+            'longitude': driver_data.get('current_longitude')
+        },
+        'rating': driver_data.get('rating', 0),
+        'total_rides': driver_data.get('total_rides', 0),
+        'acceptance_rate': driver_data.get('acceptance_rate', 0),
+        'availability_updated_at': driver_data.get('availability_updated_at'),
+    }
 
 
 @router.put("/{driver_id}/availability", tags=["driver-availability"])
@@ -62,11 +114,7 @@ async def set_driver_availability(driver_id: str, request: Request):
     try:
         # Verify request is from authenticated driver
         driver_data = await verify_driver_token(request)
-        requesting_driver_id = str(driver_data['_id'])
-        
-        # Verify driver can only update their own availability
-        if requesting_driver_id != driver_id:
-            raise HTTPException(status_code=403, detail="Cannot update another driver's availability")
+        _assert_driver_owns_resource(driver_data, driver_id)
         
         body = await request.json()
         is_available = body.get("is_available", False)
@@ -110,7 +158,7 @@ async def set_driver_availability(driver_id: str, request: Request):
             'location': {
                 'latitude': latitude,
                 'longitude': longitude
-            } if latitude and longitude else None
+            } if latitude is not None and longitude is not None else None
         }, room='admin')
         
         return {
@@ -131,10 +179,13 @@ async def set_driver_availability(driver_id: str, request: Request):
 async def get_driver_availability(driver_id: str, request: Request):
     """Get current availability status of a driver"""
     try:
+        driver_data = await verify_driver_token(request)
+        _assert_driver_owns_resource(driver_data, driver_id)
+
         driver = await db.drivers.find_one({'_id': ObjectId(driver_id)})
         if not driver:
             raise HTTPException(status_code=404, detail="Driver not found")
-        
+
         return {
             'driver_id': driver_id,
             'is_available': driver.get('is_available', False),
@@ -236,6 +287,7 @@ async def start_driver_shift(driver_id: str, request: Request):
     """
     try:
         driver_data = await verify_driver_token(request)
+        _assert_driver_owns_resource(driver_data, driver_id)
         
         body = await request.json()
         latitude = body.get('latitude')
@@ -280,6 +332,7 @@ async def end_driver_shift(driver_id: str, request: Request):
     """
     try:
         driver_data = await verify_driver_token(request)
+        _assert_driver_owns_resource(driver_data, driver_id)
         
         body = await request.json()
         earnings_today = body.get('earnings_today', 0)

@@ -25,105 +25,42 @@
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
                 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
             background: linear-gradient(135deg, #E9F7EC 0%, #F7FCF4 100%);
-            height: 100vh;
+            min-height: 100vh;
             display: flex;
             justify-content: center;
             align-items: center;
-            padding: 12px;
-            overflow: hidden;
+            padding: 18px;
+            overflow: auto;
         }
 
         .launch-card {
-            max-width: 540px;
-            width: min(540px, 96vw);
+            max-width: 1160px;
+            width: min(1160px, 96vw);
             margin: 0 auto;
-            padding: 24px;
+            padding: 16px;
             background: #ffffff;
-            border-radius: 28px;
+            border-radius: 24px;
             text-align: center;
             box-shadow: 0 24px 60px rgba(0, 80, 40, 0.12);
-            max-height: calc(100vh - 24px);
         }
 
-        .logo-box {
-            width: 182px;
-            height: 182px;
-            margin: 0 auto 14px;
-            border-radius: 36px;
-            display: grid;
-            place-items: center;
-            background: #ffffff;
-            box-shadow: 0 12px 35px rgba(0, 0, 0, 0.06);
-        }
-
-        .logo-box img {
-            width: 150px;
-            height: 150px;
-            object-fit: contain;
-        }
-
-        .launch-card h1 {
-            margin: 0;
-            font-size: 38px;
-            color: #064e1f;
-            font-weight: 900;
-            line-height: 1.05;
-        }
-
-        .subtitle {
-            margin: 8px 0 14px;
-            color: #31513a;
-            font-size: 15px;
-        }
-
-        .badge {
-            display: inline-block;
-            margin-bottom: 14px;
-            padding: 9px 18px;
-            border-radius: 999px;
-            background: #e4f7e7;
-            color: #086522;
-            font-weight: 800;
-            font-size: 13px;
-        }
-
-        .info-box {
-            text-align: left;
-            padding: 14px;
-            border-radius: 14px;
-            background: #e8f4ff;
-            border-left: 5px solid #2087ff;
-            margin-bottom: 14px;
-        }
-
-        .info-box h3 {
-            margin: 0 0 6px;
-            color: #0758a8;
-            font-size: 16px;
-        }
-
-        .info-box p {
-            margin: 0;
-            color: #3d4f5f;
-            font-size: 13px;
-        }
-
-        .features {
-            text-align: left;
-            padding: 14px 16px;
+        .launch-image-box {
+            width: 100%;
+            margin: 0 auto 16px;
             border-radius: 18px;
-            background: #fafafa;
-            margin-bottom: 14px;
+            background: #ffffff;
+            overflow: hidden;
         }
 
-        .features p {
-            margin: 10px 0;
-            color: #1f2933;
-            font-size: 15px;
+        .launch-image-box img {
+            display: block;
+            width: 100%;
+            height: auto;
         }
 
         .primary-btn {
-            width: 100%;
+            width: min(360px, 100%);
+            margin: 0 auto;
             padding: 14px;
             border-radius: 14px;
             font-size: 16px;
@@ -154,55 +91,16 @@
 
         @media (max-width: 600px) {
             .launch-card {
-                padding: 18px 14px;
-                border-radius: 22px;
-            }
-
-            .logo-box {
-                width: 132px;
-                height: 132px;
-                border-radius: 24px;
-            }
-
-            .logo-box img {
-                width: 104px;
-                height: 104px;
-            }
-
-            .launch-card h1 {
-                font-size: 32px;
-            }
-
-            .features p {
-                margin: 8px 0;
+                padding: 10px;
+                border-radius: 18px;
             }
         }
     </style>
 </head>
 <body>
     <div class="launch-card">
-        <div class="logo-box">
-            <img src="/logo.png" alt="AutoBuddy logo" />
-        </div>
-
-        <h1>AutoBuddy</h1>
-        <p class="subtitle">Safe, fast and affordable rides across Kerala</p>
-
-        <div class="badge">Early Access Now Open</div>
-
-        <div class="info-box">
-            <h3>AutoBuddy Early Access</h3>
-            <p>
-                Be among the first users to experience smarter, safer and faster ride
-                booking with AutoBuddy.
-            </p>
-        </div>
-
-        <div class="features">
-            <p>Instant ride booking</p>
-            <p>Safe and verified drivers</p>
-            <p>Live ride tracking</p>
-            <p>Trusted ratings and reviews</p>
+        <div class="launch-image-box">
+            <img src="/launch-image.jpg" alt="AutoBuddy launch preview" />
         </div>
 
         <a href="/app" class="primary-btn">Start Riding</a>

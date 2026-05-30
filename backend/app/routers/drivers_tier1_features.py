@@ -1,6 +1,6 @@
-# TIER 1 Feature Endpoints - Backend Stubs
-# These endpoints handle GPS tracking, SOS alerts, request countdown, and expense tracking
-# To be integrated into backend/app/routers/drivers.py
+# DEPRECATED STUB: This file is a legacy placeholder and is not currently imported by backend/server.py.
+# The real Tier 1 driver feature implementation lives in backend/app/routers/tier1_driver_features.py.
+# These stubs were originally intended for GPS tracking, SOS alerts, request countdown, and expense tracking.
 
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field

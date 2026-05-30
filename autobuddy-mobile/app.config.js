@@ -12,6 +12,10 @@ module.exports = ({ config }) => {
     plugins.push('@react-native-community/datetimepicker');
   }
 
+  if (!hasPlugin('@stripe/stripe-react-native')) {
+    plugins.push(['@stripe/stripe-react-native', {}]);
+  }
+
   const mapsPluginIndex = plugins.findIndex((entry) =>
     Array.isArray(entry) ? entry[0] === 'react-native-maps' : entry === 'react-native-maps',
   );

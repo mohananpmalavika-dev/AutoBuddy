@@ -3062,7 +3062,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   headerUserBlock: { flex: 1, paddingRight: 8 },
-  headerLogo: { width: 44, height: 44, marginHorizontal: 8 },
+  headerLogo: { width: 80, height: 44, marginHorizontal: 8, borderRadius: 10 },
   hello: { color: COLORS.textMain, fontSize: 19, fontWeight: '900' },
   sub: { color: COLORS.textMuted, fontSize: 12, marginTop: 2 },
   profileButton: {

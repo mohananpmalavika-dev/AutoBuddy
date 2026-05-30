@@ -13,8 +13,9 @@ import { getPlanOptions } from '../lib/subscriptions';
 import { clearSession, loadSession, saveSession } from '../lib/session';
 import { loadSession as loadPersistentSession, saveSession as savePersistentSession, clearSession as clearPersistentSession, subscribeSession as subscribePersistentSession, extendSessionExpiry } from '../lib/persistentSessionManager';
 import { initializeBackgroundNotifications } from '../lib/backgroundNotificationService';
-import { disconnectSocket } from '../lib/socketManager';
+import { disconnectSocket } from '../services/socketClient';
 import '../services/driverBackgroundTracking';
+import * as Sentry from '@sentry/react-native';
 import { AdminDashboard, AuthScreen, DriverDashboard, OperatorDashboard, PassengerMap } from '../screens';
 import { COLORS } from '../theme';
 
@@ -157,6 +158,9 @@ export default function HomeScreen() {
         // even when backend is temporarily unavailable at boot.
         if (stored?.user) {
           setSession(stored);
+          if (stored.user?.id) {
+            Sentry.setUser({ id: String(stored.user.id) });
+          }
         }
 
         try {
@@ -199,11 +203,15 @@ export default function HomeScreen() {
 
   const handleAuthenticated = useCallback(async (nextSession: AppSession) => {
     setSession(nextSession);
-    // Save to both persistent session managers
+    // Persist session data
     await savePersistentSession(nextSession);
     await saveSession(nextSession);
-    // Extend expiry
     await extendSessionExpiry();
+
+    // Provide persistent Sentry context for user/driver issues
+    if (nextSession?.user?.id) {
+      Sentry.setUser({ id: String(nextSession.user.id) });
+    }
   }, []);
 
   /**
@@ -216,11 +224,14 @@ export default function HomeScreen() {
     setGateRole(null);
     setPlanOptions([]);
     setPlanSelectionError('');
-    
+
+    // Clear Sentry user context when the session is ended
+    Sentry.setUser(null);
+
     // Only clear when user explicitly logs out
     await clearPersistentSession();
     await clearSession();
-    
+
     // Disconnect socket
     disconnectSocket();
   }, []);

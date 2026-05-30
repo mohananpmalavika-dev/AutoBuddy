@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  FlatList,
   Linking,
   StyleSheet,
   Text,
@@ -38,21 +37,20 @@ export default function DriverPassengerCommunication({
   const callTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    if (callActive) {
-      callTimerRef.current = setInterval(() => {
-        setCallDuration((prev) => prev + 1);
-      }, 1000);
-    } else {
-      if (callTimerRef.current) clearInterval(callTimerRef.current);
-      setCallDuration(0);
+    if (!callActive) {
+      return undefined;
     }
 
+    callTimerRef.current = setInterval(() => {
+      setCallDuration((prev) => prev + 1);
+    }, 1000);
+
     return () => {
-      if (callTimerRef.current) clearInterval(callTimerRef.current);
+      if (callTimerRef.current) {clearInterval(callTimerRef.current);}
     };
   }, [callActive]);
 
-  const formatCallDuration = (seconds) => {
+  const formatCallDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
@@ -62,21 +60,15 @@ export default function DriverPassengerCommunication({
     setLoading(true);
     setError('');
     try {
-      // TODO: Integrate with Twilio/Vonage for real VoIP
-      // const response = await driverCommunicationAPI.initiateVoiceCall({
-      //   passenger_id: passengerId,
-      //   ride_id: rideId,
-      // });
-
-      setCallActive(true);
-      setCallType('voice');
-
-      // Mock call initiated
-      Alert.alert('📞 Call Initiated', `Connecting to passenger...`);
+      if (!passengerPhone) {
+        throw new Error('Passenger phone number is not available.');
+      }
+      await Linking.openURL(`tel:${passengerPhone}`);
+      Alert.alert('📞 Voice Call', 'Opening the native phone dialer to contact the passenger.');
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to initiate call';
+      const errorMessage = err instanceof Error ? err.message : 'Failed to start voice call';
       setError(errorMessage);
-      Alert.alert('Error', 'Failed to start voice call');
+      Alert.alert('Error', errorMessage);
     } finally {
       setLoading(false);
     }
@@ -86,20 +78,14 @@ export default function DriverPassengerCommunication({
     setLoading(true);
     setError('');
     try {
-      // TODO: Integrate with Twilio/Vonage for real video
-      // const response = await driverCommunicationAPI.initiateVideoCall({
-      //   passenger_id: passengerId,
-      //   ride_id: rideId,
-      // });
-
-      setCallActive(true);
-      setCallType('video');
-
-      Alert.alert('📹 Video Call Initiated', `Connecting to passenger...`);
+      Alert.alert(
+        '📹 Video Calling Not Available',
+        'Video calling is not configured yet. Please use the direct phone call option or integrate a VoIP provider.'
+      );
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to initiate call';
+      const errorMessage = err instanceof Error ? err.message : 'Failed to start video call';
       setError(errorMessage);
-      Alert.alert('Error', 'Failed to start video call');
+      Alert.alert('Error', errorMessage);
     } finally {
       setLoading(false);
     }
@@ -113,13 +99,14 @@ export default function DriverPassengerCommunication({
 
       setCallActive(false);
       setCallType(null);
+      setCallDuration(0);
 
       Alert.alert(
         '📞 Call Ended',
         `Call duration: ${formatCallDuration(callDuration)}`
       );
     } catch (err) {
-      setError(err?.message || 'Failed to end call');
+      setError(err instanceof Error ? err.message : 'Failed to end call');
     } finally {
       setLoading(false);
     }

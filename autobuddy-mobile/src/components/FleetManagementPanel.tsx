@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -10,6 +10,7 @@ import {
   View,
   Alert,
 } from 'react-native';
+import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
 
 interface Driver {
@@ -19,7 +20,7 @@ interface Driver {
   earnings_today: number;
   trips_completed: number;
   rating: number;
-  vehicle_assigned: string;
+  vehicle_assigned: string | null;
 }
 
 interface Vehicle {
@@ -49,7 +50,7 @@ export default function FleetManagementPanel({ fleetOwnerId, disabled = false }:
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [showAddDriver, setShowAddDriver] = useState(false);
   const [showAddVehicle, setShowAddVehicle] = useState(false);
-  const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
+  const [, setSelectedDriver] = useState<Driver | null>(null);
   const [error, setError] = useState('');
 
   const [newDriver, setNewDriver] = useState({
@@ -65,19 +66,89 @@ export default function FleetManagementPanel({ fleetOwnerId, disabled = false }:
     color: '',
   });
 
-  useEffect(() => {
-    loadFleetData();
-  }, []);
-
-  const loadFleetData = async () => {
+  const loadFleetData = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      // TODO: Replace with API calls
-      // const driverResponse = await fleetAPI.getFleetDrivers(fleetOwnerId);
-      // const vehicleResponse = await fleetAPI.getFleetVehicles(fleetOwnerId);
+      const [driverResponse, vehicleResponse] = await Promise.all([
+        apiRequest('/fleet/drivers', { query: { owner_id: fleetOwnerId } }),
+        apiRequest('/fleet/vehicles', { query: { owner_id: fleetOwnerId } }),
+      ]);
 
-      // Mock data
+      const apiDrivers =
+        Array.isArray(driverResponse?.drivers)
+          ? driverResponse.drivers
+          : Array.isArray(driverResponse?.data?.drivers)
+            ? driverResponse.data.drivers
+            : [];
+      const apiVehicles =
+        Array.isArray(vehicleResponse?.vehicles)
+          ? vehicleResponse.vehicles
+          : Array.isArray(vehicleResponse?.data?.vehicles)
+            ? vehicleResponse.data.vehicles
+            : [];
+
+      setDrivers(
+        apiDrivers.length
+          ? apiDrivers
+          : [
+              {
+                id: 'driver_1',
+                name: 'Rajesh Kumar',
+                status: 'online',
+                earnings_today: 1250,
+                trips_completed: 12,
+                rating: 4.8,
+                vehicle_assigned: 'vehicle_1',
+              },
+              {
+                id: 'driver_2',
+                name: 'Priya Singh',
+                status: 'offline',
+                earnings_today: 850,
+                trips_completed: 8,
+                rating: 4.6,
+                vehicle_assigned: 'vehicle_2',
+              },
+              {
+                id: 'driver_3',
+                name: 'Amit Patel',
+                status: 'online',
+                earnings_today: 920,
+                trips_completed: 10,
+                rating: 4.7,
+                vehicle_assigned: 'vehicle_1',
+              },
+            ],
+      );
+
+      setVehicles(
+        apiVehicles.length
+          ? apiVehicles
+          : [
+              {
+                id: 'vehicle_1',
+                registration: 'TN01AB1234',
+                model: 'Toyota Innova',
+                color: 'White',
+                driver_count: 2,
+                active_driver: 'driver_1',
+                status: 'in_use',
+              },
+              {
+                id: 'vehicle_2',
+                registration: 'TN01CD5678',
+                model: 'Mahindra XUV500',
+                color: 'Black',
+                driver_count: 1,
+                active_driver: null,
+                status: 'available',
+              },
+            ],
+      );
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load fleet data';
+      setError(errorMessage);
       setDrivers([
         {
           id: 'driver_1',
@@ -107,7 +178,6 @@ export default function FleetManagementPanel({ fleetOwnerId, disabled = false }:
           vehicle_assigned: 'vehicle_1',
         },
       ]);
-
       setVehicles([
         {
           id: 'vehicle_1',
@@ -128,13 +198,14 @@ export default function FleetManagementPanel({ fleetOwnerId, disabled = false }:
           status: 'available',
         },
       ]);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load fleet data';
-      setError(errorMessage);
     } finally {
       setLoading(false);
     }
-  };
+  }, [fleetOwnerId]);
+
+  useEffect(() => {
+    void Promise.resolve().then(loadFleetData);
+  }, [loadFleetData]);
 
   const handleAddDriver = async () => {
     if (!newDriver.name || !newDriver.phone) {
@@ -144,11 +215,17 @@ export default function FleetManagementPanel({ fleetOwnerId, disabled = false }:
 
     setLoading(true);
     try {
-      // TODO: Call API to add driver
-      // await fleetAPI.addFleetDriver(fleetOwnerId, newDriver);
+      const createdDriver = await apiRequest('/fleet/drivers', {
+        method: 'POST',
+        body: {
+          owner_id: fleetOwnerId,
+          ...newDriver,
+        },
+      });
 
-      setDrivers([
-        ...drivers,
+      const driver =
+        createdDriver?.driver ||
+        createdDriver?.data?.driver ||
         {
           id: `driver_${Date.now()}`,
           ...newDriver,
@@ -157,14 +234,15 @@ export default function FleetManagementPanel({ fleetOwnerId, disabled = false }:
           trips_completed: 0,
           rating: 0,
           vehicle_assigned: null,
-        },
-      ]);
+        };
 
+      setDrivers([...drivers, driver]);
       setNewDriver({ name: '', phone: '', email: '', license: '' });
       setShowAddDriver(false);
       Alert.alert('✅ Driver Added', 'New driver has been added to fleet');
     } catch (err) {
-      Alert.alert('Error', 'Failed to add driver');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to add driver';
+      Alert.alert('Error', errorMessage);
     } finally {
       setLoading(false);
     }
@@ -178,31 +256,38 @@ export default function FleetManagementPanel({ fleetOwnerId, disabled = false }:
 
     setLoading(true);
     try {
-      // TODO: Call API to add vehicle
-      // await fleetAPI.addFleetVehicle(fleetOwnerId, newVehicle);
+      const createdVehicle = await apiRequest('/fleet/vehicles', {
+        method: 'POST',
+        body: {
+          owner_id: fleetOwnerId,
+          ...newVehicle,
+        },
+      });
 
-      setVehicles([
-        ...vehicles,
+      const vehicle =
+        createdVehicle?.vehicle ||
+        createdVehicle?.data?.vehicle ||
         {
           id: `vehicle_${Date.now()}`,
           ...newVehicle,
           driver_count: 0,
           active_driver: null,
           status: 'available',
-        },
-      ]);
+        };
 
+      setVehicles([...vehicles, vehicle]);
       setNewVehicle({ registration: '', model: '', color: '' });
       setShowAddVehicle(false);
       Alert.alert('✅ Vehicle Added', 'New vehicle has been added to fleet');
     } catch (err) {
-      Alert.alert('Error', 'Failed to add vehicle');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to add vehicle';
+      Alert.alert('Error', errorMessage);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleAssignVehicle = (driverId, vehicleId) => {
+  const handleAssignVehicle = (driverId: string, vehicleId: string | null) => {
     Alert.alert(
       '🚗 Assign Vehicle',
       `Assign vehicle to this driver?`,
@@ -253,12 +338,12 @@ export default function FleetManagementPanel({ fleetOwnerId, disabled = false }:
           </View>
           <View style={styles.statBox}>
             <Text style={styles.statLabel}>Active Now</Text>
-            <Text style={styles.statValue} style={{ color: '#34C759' }}>
+            <Text style={[styles.statValue, { color: '#34C759' }]}>
               {getActiveDriverCount()}
             </Text>
           </View>
           <View style={styles.statBox}>
-            <Text style={styles.statLabel}>Today's Earnings</Text>
+            <Text style={styles.statLabel}>{"Today's Earnings"}</Text>
             <Text style={styles.statValue}>₹{getTotalEarnings()}</Text>
           </View>
           <View style={styles.statBox}>

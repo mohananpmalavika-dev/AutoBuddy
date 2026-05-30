@@ -3,7 +3,7 @@ import { Platform } from 'react-native';
 
 import NotificationPanel from './NotificationPanel';
 import { loadSession, subscribeSession } from '../lib/session';
-import { initializeSocket } from '../lib/socketManager';
+import { initializeSocket } from '../services/socketClient';
 import { initializeBackgroundNotifications } from '../lib/backgroundNotificationService';
 import { API_BASE_URL } from '../lib/api-client';
 
@@ -52,14 +52,18 @@ export default function RealtimeNotificationHost() {
     }
 
     let mounted = true;
+    let socket = null;
 
     async function setupSocket() {
       try {
-        const socketManager = await initializeSocket(token, API_BASE_URL);
-        
+        socket = await initializeSocket(token, API_BASE_URL);
+        if (!socket) {
+          return undefined;
+        }
+
         const handleConnect = () => {
           if (mounted) {
-            setSocketState({ token, socket: socketManager });
+            setSocketState({ token, socket });
             setIsConnected(true);
           }
         };
@@ -76,31 +80,35 @@ export default function RealtimeNotificationHost() {
           }
         };
 
-        // Subscribe to socket events
-        const unsubscribe = socketManager.subscribe((event) => {
-          if (event.type === 'connected') {
-            handleConnect();
-          } else if (event.type === 'disconnected') {
-            handleDisconnect();
-          } else if (event.type === 'error') {
-            handleConnectError();
-          } else if (event.type === 'notification') {
-            // Handle notification
-            if (mounted) {
-              setBackgroundNotifications((prev) => [
-                ...prev,
-                { ...event.data, id: Math.random() },
-              ]);
-            }
+        const handleNotification = (data) => {
+          if (mounted) {
+            setBackgroundNotifications((prev) => [
+              ...prev,
+              { ...data, id: Math.random() },
+            ]);
           }
-        });
+        };
+
+        socket.on('connect', handleConnect);
+        socket.on('disconnect', handleDisconnect);
+        socket.on('connect_error', handleConnectError);
+        socket.on('notification', handleNotification);
+
+        if (socket.connected) {
+          handleConnect();
+        }
 
         return () => {
-          unsubscribe();
+          socket.off('connect', handleConnect);
+          socket.off('disconnect', handleDisconnect);
+          socket.off('connect_error', handleConnectError);
+          socket.off('notification', handleNotification);
         };
       } catch (error) {
         console.error('Error setting up socket:', error);
       }
+
+      return undefined;
     }
 
     const cleanup = setupSocket();

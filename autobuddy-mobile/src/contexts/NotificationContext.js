@@ -5,7 +5,7 @@ import React, { createContext, useCallback, useContext, useMemo, useState } from
  * Manages real-time alerts for booking updates, driver notices, support, and payouts.
  */
 
-const NotificationContext = createContext(null);
+export const NotificationContext = createContext(null);
 
 function getNotificationId(notification = {}) {
   return String(

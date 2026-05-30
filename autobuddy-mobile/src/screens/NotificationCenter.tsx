@@ -10,7 +10,7 @@
  * - Real-time Socket.IO integration
  */
 
-import React, { useContext, useEffect, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useState } from 'react';
 import {
   View,
   ScrollView,
@@ -24,10 +24,33 @@ import {
 } from 'react-native';
 import { NotificationContext } from '../contexts/NotificationContext';
 import { useNotifications } from '../hooks/useBackendIntegration';
-import { COLORS, TYPOGRAPHY } from '../theme';
+import { COLORS } from '../theme';
 
-export const NotificationCenter = ({ navigation }) => {
-  const notificationContext = useContext(NotificationContext);
+type AppNotification = {
+  id: string;
+  type?: string;
+  title?: string;
+  body?: string;
+  timestamp?: string;
+  read?: boolean;
+};
+
+type NotificationContextValue = {
+  notifications: AppNotification[];
+  unreadCount: number;
+  clearAll?: () => void;
+  addNotification?: (notification: AppNotification) => void;
+  markAsRead?: (notificationId: string) => void;
+  markAllAsRead?: () => void;
+  removeNotification?: (notificationId: string) => void;
+};
+
+type NotificationCenterProps = {
+  navigation?: { goBack?: () => void };
+};
+
+export const NotificationCenter = ({ navigation }: NotificationCenterProps) => {
+  const notificationContext = useContext(NotificationContext) as unknown as NotificationContextValue;
   const { markAsRead, markAllAsRead, deleteNotification, fetchNotifications } =
     useNotifications(notificationContext, null);
 
@@ -40,20 +63,20 @@ export const NotificationCenter = ({ navigation }) => {
     if (filterType === 'all') {
       return notificationContext.notifications || [];
     }
-    return (notificationContext.notifications || []).filter((n) => n.type === filterType);
+    return (notificationContext.notifications || []).filter((n: AppNotification) => n.type === filterType);
   };
 
-  const handleRefresh = async () => {
+  const handleRefresh = useCallback(async () => {
     setLoading(true);
     await fetchNotifications();
     setLoading(false);
-  };
+  }, [fetchNotifications]);
 
   useEffect(() => {
-    handleRefresh();
-  }, []);
+    void Promise.resolve().then(handleRefresh);
+  }, [handleRefresh]);
 
-  const renderNotificationItem = ({ item }) => (
+  const renderNotificationItem = ({ item }: { item: AppNotification }) => (
     <TouchableOpacity
       style={[styles.notificationCard, item.read && styles.notificationCardRead]}
       onPress={() => markAsRead(item.id)}
@@ -64,7 +87,7 @@ export const NotificationCenter = ({ navigation }) => {
           {item.body}
         </Text>
         <Text style={styles.notificationTime}>
-          {new Date(item.timestamp).toLocaleDateString()}
+          {item.timestamp ? new Date(item.timestamp).toLocaleDateString() : ''}
         </Text>
       </View>
 
