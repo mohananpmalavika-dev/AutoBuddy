@@ -19,7 +19,7 @@ export function SubscriptionGate({
   isSubmitting,
   onSelectPlan,
 }: SubscriptionGateProps) {
-  const roleLabel = role === 'driver' ? 'driver' : 'passenger';
+  const roleLabel = role === 'driver' ? 'driver' : role === 'operator' ? 'operator' : 'passenger';
 
   return (
     <View style={styles.card}>

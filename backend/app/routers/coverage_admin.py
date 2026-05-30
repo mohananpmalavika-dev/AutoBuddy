@@ -9,8 +9,13 @@ from typing import List, Optional
 from datetime import datetime
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.db.database import get_db
+from app.utils.rbac import require_roles
 
-router = APIRouter(prefix="/api/admin/coverage", tags=["coverage"])
+router = APIRouter(
+    prefix="/api/admin/coverage",
+    tags=["coverage"],
+    dependencies=[Depends(require_roles("admin"))],
+)
 
 class CoverageArea(BaseModel):
     level: str  # "state", "district", "locality", "pincode"

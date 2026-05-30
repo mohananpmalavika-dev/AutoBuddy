@@ -10,9 +10,15 @@ from pydantic import BaseModel, Field, ConfigDict
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from bson import ObjectId
 
-from app.core.auth import get_current_user
-from app.core.database import get_db
-from app.utils.rbac import check_rbac_permission
+from app.core.auth import get_current_user_secure as get_current_user
+from app.db.deps import get_db
+
+
+async def check_rbac_permission(current_user: Dict, permission: str) -> bool:
+    role = str((current_user or {}).get("role") or "").strip().lower()
+    if role != "admin":
+        raise HTTPException(status_code=403, detail=f"Missing permission: {permission}")
+    return True
 
 router = APIRouter(prefix="/api/admin/rate-limit-config", tags=["Rate Limit Configuration"])
 

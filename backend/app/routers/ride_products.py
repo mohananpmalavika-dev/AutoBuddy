@@ -1,6 +1,7 @@
 import asyncio
+import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set
 
@@ -17,6 +18,10 @@ from app.utils.rbac import get_current_user_secure
 
 router = APIRouter(prefix="/api", tags=["ride_products"])
 PER_TRIP_BLOCK_GRACE_RIDES = 2
+PASSENGER_KYC_REQUIRED_FOR_BOOKING = (
+    os.environ.get("PASSENGER_KYC_REQUIRED_FOR_BOOKING", "true").strip().lower()
+    not in {"0", "false", "no", "off"}
+)
 
 
 class RideProduct(str, Enum):
@@ -400,6 +405,78 @@ def _as_utc_naive(value: Any) -> Optional[datetime]:
     return None
 
 
+def _normalize_status_value(value: Any) -> str:
+    status = str(value or "").strip().lower()
+    if "." in status:
+        status = status.split(".")[-1]
+    return status
+
+
+async def _ensure_passenger_booking_compliance(
+    db: AsyncIOMotorDatabase,
+    user: Dict[str, Any],
+) -> None:
+    passenger_id = str(user.get("id") or "").strip()
+    if not passenger_id:
+        raise HTTPException(status_code=401, detail="Invalid passenger account. Please login again.")
+
+    now = datetime.utcnow()
+    if PASSENGER_KYC_REQUIRED_FOR_BOOKING:
+        kyc_doc = await db.passenger_kyc.find_one({"user_id": passenger_id}, {"_id": 0})
+        kyc_status = _normalize_status_value(
+            (kyc_doc or {}).get("status")
+            or (kyc_doc or {}).get("verification_level")
+            or user.get("kyc_status")
+            or "unverified"
+        )
+        kyc_verified = bool((kyc_doc or {}).get("is_verified")) or kyc_status in {"approved", "verified"}
+        if not kyc_verified:
+            raise HTTPException(
+                status_code=403,
+                detail="Passenger KYC must be approved before booking a ride.",
+            )
+
+    requirements = await db.document_requirements.find(
+        {
+            "enabled": True,
+            "applicable_to": {"$in": ["passenger", "both"]},
+            "is_mandatory": True,
+        }
+    ).to_list(None)
+    if not requirements:
+        return
+
+    upload_rows = await db.document_uploads.find({"user_id": passenger_id}).to_list(None)
+    legacy_rows = await db.passenger_documents.find({"user_id": passenger_id}).to_list(None)
+    uploaded_types = {
+        str(row.get("document_type") or row.get("type") or "").strip()
+        for row in [*upload_rows, *legacy_rows]
+        if str(row.get("document_type") or row.get("type") or "").strip()
+    }
+    missing = [
+        requirement
+        for requirement in requirements
+        if str(requirement.get("document_type") or "").strip() not in uploaded_types
+    ]
+    if not missing:
+        return
+
+    user_record = await db.users.find_one({"id": passenger_id}, {"_id": 0, "created_at": 1}) or {}
+    created_at = _as_utc_naive(user_record.get("created_at") or user.get("created_at")) or now
+    max_grace_days = max(int(requirement.get("grace_period_days", 0) or 0) for requirement in requirements)
+    if max_grace_days > 0 and now <= created_at + timedelta(days=max_grace_days):
+        return
+
+    missing_names = [
+        str(requirement.get("display_name") or requirement.get("document_type") or "required document")
+        for requirement in missing
+    ]
+    raise HTTPException(
+        status_code=403,
+        detail=f"Mandatory passenger documents are required before booking: {', '.join(missing_names)}.",
+    )
+
+
 def _is_scheme_active(plan: Dict[str, Any]) -> bool:
     amount = _to_float(plan.get("amount"), 0.0)
     if amount <= 0 or not bool(plan.get("active")):
@@ -624,6 +701,7 @@ async def create_advanced_booking(
     if not current_user_id:
         raise HTTPException(status_code=401, detail="Invalid account data. Please login again.")
     await _ensure_subscription_allows_advanced_booking(db, current_user)
+    await _ensure_passenger_booking_compliance(db, current_user)
     config = await _get_ride_product_config(db)
     pickup_address = str((payload.pickup_location or {}).get("address") or "").strip() or None
     pickup_district = str((payload.pickup_location or {}).get("district") or "").strip() or None
@@ -737,6 +815,15 @@ async def create_advanced_booking(
         "promo_discount_amount": promo_discount_amount,
         "fare_before_discount": raw_estimated_fare,
         "status": "scheduled" if is_scheduled else "pending",
+        "dispatch_status": "scheduled" if is_scheduled else "searching",
+        "dispatch_algorithm": "advanced_product_pool_v1",
+        "candidate_driver_ids": [],
+        "progress_handoff": {
+            "active_booking_endpoint": "/api/bookings/active",
+            "booking_status_event": "booking_status_changed",
+            "driver_request_event": "new_booking_available",
+            "recommended_poll_seconds": 5,
+        },
         "estimated_fare": estimated_fare,
         "distance_km": round(distance_km, 2),
         "pickup_surcharge": 0.0,

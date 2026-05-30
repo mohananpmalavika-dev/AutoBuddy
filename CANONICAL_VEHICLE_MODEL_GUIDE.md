@@ -19,7 +19,7 @@ Ride products → base_multiplier defined in code
 ```
 CANONICAL_VEHICLE_TYPES in canonical_vehicle_model.py
 ↓
-vehicles collection (database)
+canonical_vehicle_types collection (database)
 ↓
 All references → canonical vehicle_type_id
 ```
@@ -28,7 +28,7 @@ All references → canonical vehicle_type_id
 
 ## Database Schema
 
-### vehicles Collection
+### canonical_vehicle_types Collection
 
 ```javascript
 {
@@ -284,7 +284,7 @@ goods_types = get_goods_carrying_vehicles()
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 async def get_vehicle_by_type(db: AsyncIOMotorDatabase, vehicle_type_id: str):
-    vehicle = await db.vehicles.find_one({"vehicle_type_id": vehicle_type_id})
+    vehicle = await db.canonical_vehicle_types.find_one({"vehicle_type_id": vehicle_type_id})
     return vehicle
 ```
 
@@ -425,9 +425,9 @@ curl -X PUT http://localhost:8000/api/vehicles/admin/taxi \
 ## Troubleshooting
 
 ### Issue: "Vehicle type not found"
-**Solution**: Check that vehicle exists in canonical vehicles collection
+**Solution**: Check that vehicle exists in the `canonical_vehicle_types` collection
 ```bash
-db.vehicles.find({vehicle_type_id: "taxi"})
+db.canonical_vehicle_types.find({vehicle_type_id: "taxi"})
 ```
 
 ### Issue: Multiplier returning 1.0 for invalid types

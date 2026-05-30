@@ -8,6 +8,10 @@ module.exports = ({ config }) => {
     plugins.push('expo-image');
   }
 
+  if (!hasPlugin('@react-native-community/datetimepicker')) {
+    plugins.push('@react-native-community/datetimepicker');
+  }
+
   const mapsPluginIndex = plugins.findIndex((entry) =>
     Array.isArray(entry) ? entry[0] === 'react-native-maps' : entry === 'react-native-maps',
   );

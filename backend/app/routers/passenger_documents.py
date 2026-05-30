@@ -13,10 +13,15 @@ from app.db.client import get_db
 from app.core.auth import require_roles
 from app.services.file_upload import file_upload_service
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/passenger/documents", tags=["passenger-documents"])
+PASSENGER_KYC_REQUIRED_FOR_BOOKING = (
+    os.environ.get("PASSENGER_KYC_REQUIRED_FOR_BOOKING", "true").strip().lower()
+    not in {"0", "false", "no", "off"}
+)
 
 
 # ==================== Document Types (shared with admin) ====================
@@ -327,7 +332,22 @@ async def check_can_book_ride(
 ):
     """Check if passenger can book a ride based on document status"""
     try:
-        passenger_id = passenger.get("id")
+        passenger_id = str(passenger.get("id") or "").strip()
+        if PASSENGER_KYC_REQUIRED_FOR_BOOKING:
+            kyc = await db.passenger_kyc.find_one({"user_id": passenger_id})
+            raw_status = str(
+                (kyc or {}).get("status")
+                or (kyc or {}).get("verification_level")
+                or passenger.get("kyc_status")
+                or "unverified"
+            ).lower()
+            if "." in raw_status:
+                raw_status = raw_status.split(".")[-1]
+            if not (bool((kyc or {}).get("is_verified")) or raw_status in {"approved", "verified"}):
+                return {
+                    "can_book_ride": False,
+                    "reason": "Passenger KYC must be approved before booking a ride."
+                }
         
         # Get document requirements for passengers
         requirements = await db.document_requirements.find({
@@ -362,9 +382,16 @@ async def check_can_book_ride(
             }
         
         # Check grace period
-        passenger_data = await db.passengers.find_one({"user_id": ObjectId(passenger_id)})
+        passenger_query = {"$or": [{"user_id": passenger_id}, {"id": passenger_id}]}
+        if ObjectId.is_valid(passenger_id):
+            passenger_query["$or"].append({"user_id": ObjectId(passenger_id)})
+            passenger_query["$or"].append({"_id": ObjectId(passenger_id)})
+        passenger_data = await db.passengers.find_one(passenger_query)
         if not passenger_data:
-            passenger_data = await db.users.find_one({"_id": ObjectId(passenger_id)})
+            user_query = {"$or": [{"id": passenger_id}, {"user_id": passenger_id}]}
+            if ObjectId.is_valid(passenger_id):
+                user_query["$or"].append({"_id": ObjectId(passenger_id)})
+            passenger_data = await db.users.find_one(user_query)
         
         created_at = passenger_data.get("created_at", datetime.utcnow()) if passenger_data else datetime.utcnow()
         max_grace_days = max([req.get("grace_period_days", 7) for req in mandatory_docs], default=7)

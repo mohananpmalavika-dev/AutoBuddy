@@ -4,7 +4,7 @@ import React, { createContext, useContext, useState, useCallback } from 'react';
  * SupportContext - Manage support tickets and help requests
  */
 
-const SupportContext = createContext(null);
+export const SupportContext = createContext(null);
 
 export function SupportProvider({ children }) {
   const [tickets, setTickets] = useState([]);
@@ -39,6 +39,11 @@ export function SupportProvider({ children }) {
     return ticket;
   }, []);
 
+  const addTicket = useCallback((ticket) => {
+    setTickets((prev) => [ticket, ...prev]);
+    return ticket;
+  }, []);
+
   const closeSupportTicket = useCallback((ticketId) => {
     setTickets((prev) =>
       prev.map((t) => (t.id === ticketId ? { ...t, status: 'closed' } : t))
@@ -64,6 +69,7 @@ export function SupportProvider({ children }) {
   const value = {
     tickets,
     faqs,
+    addTicket,
     createSupportTicket,
     closeSupportTicket,
     addMessage,

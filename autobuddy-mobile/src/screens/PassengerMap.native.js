@@ -225,7 +225,6 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [showRatingModal, setShowRatingModal] = useState(false);
   const [justCompletedBooking, setJustCompletedBooking] = useState(null);
   const [showBookingFlow, setShowBookingFlow] = useState(false);
-  const [showBookingFlow, setShowBookingFlow] = useState(false);
   const passengerNotificationSettings = useMemo(
     () => ({
       ...(passengerPreferences || {}),
@@ -292,8 +291,12 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   // Initialize default vehicle type when available types are loaded
   useEffect(() => {
     if (availableVehicleTypes && availableVehicleTypes.length > 0 && !selectedVehicleTypeId) {
-      setSelectedVehicleTypeId(availableVehicleTypes[0].id);
+      const timer = setTimeout(() => {
+        setSelectedVehicleTypeId(availableVehicleTypes[0].id);
+      }, 0);
+      return () => clearTimeout(timer);
     }
+    return undefined;
   }, [availableVehicleTypes, selectedVehicleTypeId]);
 
   useEffect(() => {
@@ -918,9 +921,13 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   useEffect(() => {
     // Auto-refresh history when user opens the history tab
     if (activePassengerMenu === 'history') {
-      refreshPassengerBookings({ silent: true });
+      const timer = setTimeout(() => {
+        refreshPassengerBookings({ silent: true });
+      }, 0);
+      return () => clearTimeout(timer);
     }
-  }, [activePassengerMenu]);
+    return undefined;
+  }, [activePassengerMenu, refreshPassengerBookings]);
 
   useEffect(() => {
     const bookingId = activeBooking?.id || null;
@@ -1399,6 +1406,19 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       return;
     }
 
+    const bookingEligibility = await callApi(() =>
+      apiRequest('/passenger/documents/can-book-ride', { token }),
+    );
+    if (!bookingEligibility) {
+      return;
+    }
+    if (bookingEligibility.can_book_ride === false) {
+      const eligibilityReason = bookingEligibility.reason || 'Complete KYC and mandatory documents before booking.';
+      setError(eligibilityReason);
+      setActivePassengerMenu(String(eligibilityReason).toLowerCase().includes('document') ? 'documents' : 'kyc');
+      return;
+    }
+
     const existingActive = await apiRequest('/bookings/active', { token }).catch(() => null);
     let allowParallel = false;
     if (existingActive) {
@@ -1479,7 +1499,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     return new Promise((resolve) => {
       Alert.alert(
         'Confirm Cancellation',
-        `Are you sure you want to cancel this ride?\n\nFrom: ${pickupAddr}\nTo: ${dropAddr}`,
+        `Are you sure you want to cancel this ride?\n\nFrom: ${pickupAddr}\nTo: ${dropAddr}\n\nFree cancellation applies while the ride is pending or scheduled. Cancellation is no longer available after driver acceptance.`,
         [
           { text: 'Keep Ride', style: 'cancel', onPress: () => {
             setMessage('Cancellation aborted.');
@@ -1487,7 +1507,20 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           } },
           { text: 'Cancel Ride', style: 'destructive', onPress: async () => {
             const cancelled = await callApi(() =>
-              apiRequest(`/bookings/${activeBooking.id}/cancel`, { method: 'PUT', token }),
+              apiRequest(`/bookings/${activeBooking.id}/cancel`, {
+                method: 'PUT',
+                token,
+                body: {
+                  reason_code: 'passenger_pending_cancelled',
+                  reason_text: 'Passenger cancelled before driver acceptance.',
+                  policy_acknowledged: true,
+                  policy_version: 'passenger_pending_cancel_v1',
+                  passenger_context: {
+                    source: 'passenger_map',
+                    status_before_cancel: activeBooking.status,
+                  },
+                },
+              }),
             );
             if (cancelled) {
               setMessage('Booking cancelled.');

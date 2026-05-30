@@ -17,7 +17,7 @@ export function useVehicleTypes() {
     try {
       const endpoint = token 
         ? '/admin/vehicle-types/'  // Admin endpoint for all types
-        : '/api/admin/vehicle-types/public/all';  // Public endpoint
+        : '/api/vehicles/public/all';  // Canonical public endpoint
       
       const data = await apiRequest(endpoint, { token });
       setVehicleTypes(data || []);
@@ -34,7 +34,10 @@ export function useVehicleTypes() {
 
   // Fetch vehicle types on mount
   useEffect(() => {
-    fetchVehicleTypes();
+    const timer = setTimeout(() => {
+      fetchVehicleTypes();
+    }, 0);
+    return () => clearTimeout(timer);
   }, [fetchVehicleTypes]);
 
   const createVehicleType = useCallback(async (token, vehicleTypeData) => {

@@ -9,6 +9,7 @@ from datetime import datetime
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.models.ride_types_model import RideTypeResponse, DEFAULT_RIDE_TYPES, RideTypeEnum
 from app.db.database import get_db
+from app.utils.rbac import require_roles
 
 router = APIRouter(prefix="/api/ride-types", tags=["ride-types"])
 
@@ -43,6 +44,7 @@ async def get_all_ride_types(db: AsyncIOMotorDatabase = Depends(get_db)):
         
         # Remove MongoDB _id field
         for rt in ride_types:
+            rt["id"] = str(rt.get("_id") or rt.get("id") or "")
             rt.pop("_id", None)
         
         return {
@@ -66,6 +68,7 @@ async def get_ride_type(ride_type_id: str, db: AsyncIOMotorDatabase = Depends(ge
         if not ride_type:
             raise HTTPException(status_code=404, detail="Ride type not found")
         
+        ride_type["id"] = str(ride_type.get("_id") or ride_type.get("id") or "")
         ride_type.pop("_id", None)
         
         return {
@@ -95,6 +98,7 @@ async def get_ride_types_for_vehicle(
         }).to_list(None)
         
         for rt in ride_types:
+            rt["id"] = str(rt.get("_id") or rt.get("id") or "")
             rt.pop("_id", None)
         
         return {
@@ -105,7 +109,7 @@ async def get_ride_types_for_vehicle(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/admin/create")
+@router.post("/admin/create", dependencies=[Depends(require_roles("admin"))])
 async def create_ride_type(
     ride_type_data: dict,
     db: AsyncIOMotorDatabase = Depends(get_db)
@@ -150,7 +154,7 @@ async def create_ride_type(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.put("/admin/update/{ride_type_id}")
+@router.put("/admin/update/{ride_type_id}", dependencies=[Depends(require_roles("admin"))])
 async def update_ride_type(
     ride_type_id: str,
     update_data: dict,
@@ -181,7 +185,7 @@ async def update_ride_type(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.delete("/admin/delete/{ride_type_id}")
+@router.delete("/admin/delete/{ride_type_id}", dependencies=[Depends(require_roles("admin"))])
 async def delete_ride_type(
     ride_type_id: str,
     db: AsyncIOMotorDatabase = Depends(get_db)

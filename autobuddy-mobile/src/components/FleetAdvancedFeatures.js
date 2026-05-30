@@ -25,12 +25,10 @@ import {
   FlatList,
   Modal,
   TextInput,
-  Dimensions,
   Alert,
 } from 'react-native';
-import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme';
-
-const { width } = Dimensions.get('window');
+import { apiRequest } from '../lib/api';
+import { COLORS, SHADOWS } from '../theme';
 
 // ============================================================================
 // 1. FLEET DASHBOARD ADVANCED
@@ -40,33 +38,26 @@ export const FleetDashboardAdvanced = ({ token, fleetId, onTabChange }) => {
   const [kpis, setKpis] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [refreshing, setRefreshing] = useState(false);
 
   const fetchKPIs = useCallback(async () => {
     try {
       setError('');
-      const response = await fetch(`/api/v1/fleet/dashboard/kpis/${fleetId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setKpis(data.data);
-      } else {
-        throw new Error('Failed to fetch KPIs');
-      }
+      const payload = await apiRequest(`/v1/fleet/dashboard/kpis/${fleetId}`, { token });
+      setKpis(payload?.data || payload);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   }, [fleetId, token]);
 
   useEffect(() => {
-    fetchKPIs();
+    const initialTimer = setTimeout(fetchKPIs, 0);
     const interval = setInterval(fetchKPIs, 30000);
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(interval);
+    };
   }, [fetchKPIs]);
 
   const getHealthColor = (score) => {
@@ -222,29 +213,26 @@ export const FleetWalletPanel = ({ token, fleetId }) => {
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState('');
 
-  useEffect(() => {
-    fetchWalletData();
-  }, []);
-
-  const fetchWalletData = async () => {
+  const fetchWalletData = useCallback(async () => {
     try {
-      const walletRes = await fetch(`/api/v1/fleet/wallet/${fleetId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const settleRes = await fetch(`/api/v1/fleet/settlements/${fleetId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const [walletPayload, settlementsPayload] = await Promise.all([
+        apiRequest(`/v1/fleet/wallet/${fleetId}`, { token }),
+        apiRequest(`/v1/fleet/settlements/${fleetId}`, { token }),
+      ]);
 
-      if (walletRes.ok && settleRes.ok) {
-        setWallet((await walletRes.json()).data);
-        setSettlements((await settleRes.json()).settlements);
-      }
+      setWallet(walletPayload?.data || walletPayload);
+      setSettlements(settlementsPayload?.settlements || []);
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [fleetId, token]);
+
+  useEffect(() => {
+    const timer = setTimeout(fetchWalletData, 0);
+    return () => clearTimeout(timer);
+  }, [fetchWalletData]);
 
   const handleWithdraw = async () => {
     if (!withdrawAmount) {
@@ -253,24 +241,18 @@ export const FleetWalletPanel = ({ token, fleetId }) => {
     }
 
     try {
-      const res = await fetch(`/api/v1/fleet/withdraw/${fleetId}`, {
+      await apiRequest(`/v1/fleet/withdraw/${fleetId}`, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+        token,
+        query: {
           amount: parseFloat(withdrawAmount),
           method: 'bank_transfer',
-        }),
+        },
       });
-
-      if (res.ok) {
-        Alert.alert('Success', 'Withdrawal request submitted');
-        setShowWithdraw(false);
-        setWithdrawAmount('');
-        fetchWalletData();
-      }
+      Alert.alert('Success', 'Withdrawal request submitted');
+      setShowWithdraw(false);
+      setWithdrawAmount('');
+      fetchWalletData();
     } catch (err) {
       Alert.alert('Error', err.message);
     }
@@ -384,26 +366,22 @@ export const DriverAssignmentPanel = ({ token, fleetId }) => {
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  const fetchAssignmentResources = useCallback(async () => {
+    try {
+      const payload = await apiRequest(`/v1/fleet/driver-assignment/resources/${fleetId}`, { token });
+      setDrivers(Array.isArray(payload?.drivers) ? payload.drivers : []);
+      setVehicles(Array.isArray(payload?.vehicles) ? payload.vehicles : []);
+    } catch (err) {
+      Alert.alert('Error', err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [fleetId, token]);
+
   useEffect(() => {
-    // Load drivers and vehicles
-    setDrivers(Array.from({ length: 48 }, (_, i) => ({
-      id: `DRIVER_${i+1:03d}`,
-      name: `Driver ${i+1}`,
-      status: i % 3 === 0 ? 'available' : 'assigned',
-      currentVehicle: `VEHICLE_${Math.floor(i/1.2):03d}`,
-      rating: (4.5 + Math.random() * 0.5).toFixed(1),
-    })));
-
-    setVehicles(Array.from({ length: 50 }, (_, i) => ({
-      id: `VEHICLE_${i:03d}`,
-      plate: `KL-01-${String(i).padStart(4, '0')}`,
-      model: 'Maruti Swift',
-      status: i % 4 === 0 ? 'unassigned' : 'assigned',
-      driver: i % 4 === 0 ? null : `DRIVER_${i:03d}`,
-    })));
-
-    setLoading(false);
-  }, []);
+    const timer = setTimeout(fetchAssignmentResources, 0);
+    return () => clearTimeout(timer);
+  }, [fetchAssignmentResources]);
 
   const handleAssign = async () => {
     if (!selectedDriver || !selectedVehicle) {
@@ -412,26 +390,21 @@ export const DriverAssignmentPanel = ({ token, fleetId }) => {
     }
 
     try {
-      const res = await fetch(`/api/v1/fleet/driver-assignment/assign`, {
+      await apiRequest('/v1/fleet/driver-assignment/assign', {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+        token,
+        query: {
           fleet_id: fleetId,
           driver_id: selectedDriver.id,
           vehicle_id: selectedVehicle.id,
           shift: 'full_day',
-        }),
+        },
       });
-
-      if (res.ok) {
-        Alert.alert('Success', 'Driver assigned to vehicle');
-        setShowAssignModal(false);
-        setSelectedDriver(null);
-        setSelectedVehicle(null);
-      }
+      Alert.alert('Success', 'Driver assigned to vehicle');
+      setShowAssignModal(false);
+      setSelectedDriver(null);
+      setSelectedVehicle(null);
+      fetchAssignmentResources();
     } catch (err) {
       Alert.alert('Error', err.message);
     }
@@ -545,26 +518,21 @@ export const PerformanceRankingsPanel = ({ token, fleetId }) => {
   const [rankings, setRankings] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchRankings();
-  }, []);
-
-  const fetchRankings = async () => {
+  const fetchRankings = useCallback(async () => {
     try {
-      const res = await fetch(`/api/v1/fleet/performance/rankings/${fleetId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        setRankings(data.rankings);
-      }
+      const payload = await apiRequest(`/v1/fleet/performance/rankings/${fleetId}`, { token });
+      setRankings(Array.isArray(payload?.rankings) ? payload.rankings : []);
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [fleetId, token]);
+
+  useEffect(() => {
+    const timer = setTimeout(fetchRankings, 0);
+    return () => clearTimeout(timer);
+  }, [fetchRankings]);
 
   if (loading) return <ActivityIndicator size="large" color={COLORS.primary} />;
 
@@ -606,28 +574,25 @@ export const LiveFleetMapPanel = ({ token, fleetId }) => {
   const [vehicles, setVehicles] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchLiveMap();
-    const interval = setInterval(fetchLiveMap, 10000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchLiveMap = async () => {
+  const fetchLiveMap = useCallback(async () => {
     try {
-      const res = await fetch(`/api/v1/fleet/live-map/${fleetId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        setVehicles(data.vehicles);
-      }
+      const payload = await apiRequest(`/v1/fleet/live-map/${fleetId}`, { token });
+      setVehicles(Array.isArray(payload?.vehicles) ? payload.vehicles : []);
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [fleetId, token]);
+
+  useEffect(() => {
+    const initialTimer = setTimeout(fetchLiveMap, 0);
+    const interval = setInterval(fetchLiveMap, 10000);
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(interval);
+    };
+  }, [fetchLiveMap]);
 
   if (loading) return <ActivityIndicator size="large" color={COLORS.primary} />;
 
@@ -690,30 +655,77 @@ export const IncentiveManagementPanel = ({ token, fleetId }) => {
   const [program, setProgram] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [incentiveForm, setIncentiveForm] = useState(() => {
+    const start = new Date();
+    const end = new Date(start);
+    end.setDate(end.getDate() + 7);
+    return {
+      driverId: '',
+      incentiveType: 'weekly_bonus',
+      amount: '',
+      condition: '',
+      startDate: start.toISOString().slice(0, 10),
+      endDate: end.toISOString().slice(0, 10),
+    };
+  });
 
-  useEffect(() => {
-    fetchIncentives();
-  }, []);
-
-  const fetchIncentives = async () => {
+  const fetchIncentives = useCallback(async () => {
     try {
-      const [inRes, progRes] = await Promise.all([
-        fetch(`/api/v1/fleet/incentives/${fleetId}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        fetch(`/api/v1/fleet/incentives/program/${fleetId}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
+      const [incentivesPayload, programPayload] = await Promise.all([
+        apiRequest(`/v1/fleet/incentives/${fleetId}`, { token }),
+        apiRequest(`/v1/fleet/incentives/program/${fleetId}`, { token }),
       ]);
 
-      if (inRes.ok && progRes.ok) {
-        setIncentives((await inRes.json()).incentives);
-        setProgram((await progRes.json()).program);
-      }
+      setIncentives(Array.isArray(incentivesPayload?.incentives) ? incentivesPayload.incentives : []);
+      setProgram(programPayload?.program || null);
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  }, [fleetId, token]);
+
+  useEffect(() => {
+    const timer = setTimeout(fetchIncentives, 0);
+    return () => clearTimeout(timer);
+  }, [fetchIncentives]);
+
+  const updateIncentiveForm = (field, value) => {
+    setIncentiveForm((previous) => ({ ...previous, [field]: value }));
+  };
+
+  const handleCreateIncentive = async () => {
+    const amount = parseFloat(incentiveForm.amount);
+    if (!incentiveForm.driverId.trim() || !amount || !incentiveForm.condition.trim()) {
+      Alert.alert('Error', 'Enter driver, amount, and condition');
+      return;
+    }
+
+    try {
+      await apiRequest('/v1/fleet/incentives/create', {
+        method: 'POST',
+        token,
+        query: {
+          fleet_id: fleetId,
+          driver_id: incentiveForm.driverId.trim(),
+          incentive_type: incentiveForm.incentiveType.trim() || 'weekly_bonus',
+          amount,
+          condition: incentiveForm.condition.trim(),
+          start_date: incentiveForm.startDate,
+          end_date: incentiveForm.endDate,
+        },
+      });
+      Alert.alert('Success', 'Incentive created');
+      setShowCreate(false);
+      setIncentiveForm((previous) => ({
+        ...previous,
+        driverId: '',
+        amount: '',
+        condition: '',
+      }));
+      fetchIncentives();
+    } catch (err) {
+      Alert.alert('Error', err.message);
     }
   };
 
@@ -771,6 +783,55 @@ export const IncentiveManagementPanel = ({ token, fleetId }) => {
           </View>
         )}
       />
+
+      <Modal visible={showCreate} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Create Incentive</Text>
+            <TextInput
+              style={styles.withdrawInput}
+              placeholder="Driver ID"
+              autoCapitalize="none"
+              value={incentiveForm.driverId}
+              onChangeText={(value) => updateIncentiveForm('driverId', value)}
+            />
+            <TextInput
+              style={styles.withdrawInput}
+              placeholder="Type"
+              autoCapitalize="none"
+              value={incentiveForm.incentiveType}
+              onChangeText={(value) => updateIncentiveForm('incentiveType', value)}
+            />
+            <TextInput
+              style={styles.withdrawInput}
+              placeholder="Amount"
+              keyboardType="numeric"
+              value={incentiveForm.amount}
+              onChangeText={(value) => updateIncentiveForm('amount', value)}
+            />
+            <TextInput
+              style={styles.withdrawInput}
+              placeholder="Condition"
+              value={incentiveForm.condition}
+              onChangeText={(value) => updateIncentiveForm('condition', value)}
+            />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => setShowCreate(false)}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.confirmButton]}
+                onPress={handleCreateIncentive}
+              >
+                <Text style={styles.confirmButtonText}>Create</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 };
@@ -814,7 +875,7 @@ const ActionButton = ({ label, icon, onPress, color }) => (
 
 const MapStat = ({ label, value, color }) => (
   <View style={styles.mapStat}>
-    <Text style={styles.mapStatValue} style={{ color }}>{value}</Text>
+    <Text style={[styles.mapStatValue, { color }]}>{value}</Text>
     <Text style={styles.mapStatLabel}>{label}</Text>
   </View>
 );

@@ -11,6 +11,8 @@ import {
 } from 'react-native';
 
 import { apiRequest } from '../lib/api';
+import { adminAPI } from '../services/apiClient';
+import { getSocket } from '../services/socketClient';
 import { COLORS, SHADOWS } from '../theme';
 import AutoBuddyBrand from '../components/AutoBuddyBrand';
 import AdminAnalyticsPanel from '../components/AdminAnalyticsPanel';
@@ -25,7 +27,7 @@ import AdminRateLimitConfig from '../components/AdminRateLimitConfig';
 import AdminDocumentRequirements from '../components/AdminDocumentRequirements';
 import AdminFareConfiguration from '../components/AdminFareConfiguration';
 import AdminFareProposals from '../components/AdminFareProposals';
-import VehicleTypeManagementPanel from '../components/VehicleTypeManagementPanel';
+import AdminVehicleManagementScreen from './AdminVehicleManagementScreen';
 
 const SUBSCRIPTION_PERIOD_OPTIONS = ['monthly', 'quarterly', 'annually', 'per_trip'];
 const RIDE_PRODUCT_KEYS = [
@@ -341,6 +343,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
     total_users: 0,
     total_drivers: 0,
     total_passengers: 0,
+    total_operators: 0,
     active_bookings: 0,
     total_revenue: 0,
   });
@@ -360,6 +363,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
   const [registrationFees, setRegistrationFees] = useState({
     passenger_registration_fee: '0',
     driver_registration_fee: '0',
+    operator_registration_fee: '0',
     scheme_start_at: '',
     scheme_end_at: '',
     enable_qr: false,
@@ -375,6 +379,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
   const [subscriptionConfig, setSubscriptionConfig] = useState({
     passenger: emptyRoleSubscriptionConfig(),
     driver: emptyRoleSubscriptionConfig(),
+    operator: emptyRoleSubscriptionConfig(),
   });
   const [pendingSubscriptionActivations, setPendingSubscriptionActivations] = useState([]);
   const [pendingSubscriptionPayments, setPendingSubscriptionPayments] = useState([]);
@@ -389,9 +394,11 @@ export default function AdminDashboard({ token, user, onLogout }) {
   const [showAdminMenus, setShowAdminMenus] = useState(false);
   const [driverUsers, setDriverUsers] = useState([]);
   const [passengerUsers, setPassengerUsers] = useState([]);
+  const [operatorUsers, setOperatorUsers] = useState([]);
   const [liveCounts, setLiveCounts] = useState({
     drivers_live: 0,
     passengers_live: 0,
+    operators_total: 0,
     total_live: 0,
   });
   const [launchVisitReport, setLaunchVisitReport] = useState(defaultLaunchVisitReportState());
@@ -475,29 +482,33 @@ export default function AdminDashboard({ token, user, onLogout }) {
   };
 
   const refreshAdminData = async () => {
-    const dashboard = await runAction(() => apiRequest('/admin/dashboard', { token }));
-    const pending = await apiRequest('/admin/kyc/pending', { token }).catch(() => []);
-    const pendingPassengerKyc = await apiRequest('/admin/passengers/kyc/pending', { token }).catch(() => []);
-    const pricingSettings = await apiRequest('/pricing/rules', { token }).catch(() => null);
-    const feeSettings = await apiRequest('/admin/registration-fees/config', { token }).catch(() => null);
-    const pendingRegistrations = await apiRequest('/admin/registration-payments/pending', { token }).catch(() => []);
-    const pendingWalletTopupRows = await apiRequest('/admin/wallet/topups/pending', { token }).catch(() => []);
-    const subscriptionSettings = await apiRequest('/subscriptions/config', { token }).catch(() => null);
-    const pendingSubscriptions = await apiRequest('/admin/subscriptions/pending', { token }).catch(() => []);
-    const pendingSubscriptionPaymentRows = await apiRequest('/admin/subscriptions/payments/pending', { token }).catch(() => []);
-    const pendingPhoneChanges = await apiRequest('/admin/phone-changes/pending', { token }).catch(() => []);
-    const pendingAccountDeletions = await apiRequest('/admin/account-deletions/pending', { token }).catch(() => []);
-    const pendingDriverFare = await apiRequest('/admin/driver-fare-calculator/pending', { token }).catch(() => []);
-    const approvedDriverFare = await apiRequest('/admin/driver-fare-calculator/approved', { token }).catch(() => []);
-    const activeTrips = await apiRequest('/admin/bookings/ongoing', { token }).catch(() => []);
-    const usersLiveStatus = await apiRequest('/admin/users/live-status', { token }).catch(() => null);
-    const launchVisits = await apiRequest('/admin/launch-visits/report', {
-      token,
-      query: { days: 30, limit: 120 },
-    }).catch(() => null);
-    const spinWinSettings = await apiRequest('/admin/spin-win/config', { token }).catch(() => null);
-    const spinWinWinnerRows = await apiRequest('/admin/spin-win/winners', { token, query: { limit: 50 } }).catch(() => []);
-    const rideProductsDistrictSettings = await apiRequest('/admin/ride-products/district-config', { token }).catch(() => null);
+    const dashboard = await runAction(() => adminAPI.getDashboard());
+    const pending = await adminAPI.getKycPending().catch(() => []);
+    const pendingPassengerKyc = await adminAPI.getPassengerKycPending().catch(() => []);
+    const pricingSettings = await adminAPI.getPricingRules().catch(() => null);
+    const feeSettings = await adminAPI.getRegistrationFeeConfig().catch(() => null);
+    const pendingRegistrations = await adminAPI.getPendingRegistrations().catch(() => []);
+    const pendingWalletTopupRows = await adminAPI.getPendingWalletTopups().catch(() => []);
+    const subscriptionSettings = await adminAPI.getSubscriptionConfig().catch(() => null);
+    const pendingSubscriptions = await adminAPI.getPendingSubscriptions().catch(() => []);
+    const pendingSubscriptionPaymentRows = await adminAPI.getPendingSubscriptionPayments().catch(() => []);
+    const pendingPhoneChanges = await adminAPI.getPendingPhoneChanges().catch(() => []);
+    const pendingAccountDeletions = await adminAPI.getPendingAccountDeletions().catch(() => []);
+    const pendingDriverFare = await adminAPI.getPendingDriverFareRequests().catch(() => []);
+    const approvedDriverFare = await adminAPI.getApprovedDriverFareConfigs().catch(() => []);
+    const activeTrips = await adminAPI.getOngoingTrips().catch(() => []);
+    const usersLiveStatus = await adminAPI.getUsersLiveStatus().catch(() => null);
+    const launchVisits = await adminAPI.getLaunchVisitReport({ days: 30, limit: 120 }).catch(() => null);
+    const spinWinSettings = await adminAPI.getSpinWinConfig().catch(() => null);
+    const spinWinWinnerRows = await adminAPI.getSpinWinWinners({ limit: 50 }).catch(() => []);
+    const rideProductsDistrictSettings = await adminAPI.getRideProductsDistrictConfig().catch(() => null);
+    
+    // Emit real-time Socket.IO event for metrics updates
+    const socket = getSocket();
+    socket.emit('admin_dashboard_refreshed', {
+      timestamp: new Date().toISOString(),
+      data_loaded: !!dashboard
+    });
 
     if (dashboard) {
       setStats(dashboard);
@@ -522,6 +533,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
       setRegistrationFees({
         passenger_registration_fee: String(feeSettings.passenger_registration_fee ?? 0),
         driver_registration_fee: String(feeSettings.driver_registration_fee ?? 0),
+        operator_registration_fee: String(feeSettings.operator_registration_fee ?? 0),
         scheme_start_at: normalizeDateTimeText(feeSettings.scheme_start_at),
         scheme_end_at: normalizeDateTimeText(feeSettings.scheme_end_at),
         enable_qr: Boolean(feeSettings.enable_qr),
@@ -537,6 +549,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
       setSubscriptionConfig({
         passenger: normalizeRoleSubscriptionConfig(subscriptionSettings.passenger || {}),
         driver: normalizeRoleSubscriptionConfig(subscriptionSettings.driver || {}),
+        operator: normalizeRoleSubscriptionConfig(subscriptionSettings.operator || {}),
       });
     }
     setPendingSubscriptionActivations(normalizeListResponse(pendingSubscriptions, ['subscriptions', 'pending_subscriptions']));
@@ -548,9 +561,11 @@ export default function AdminDashboard({ token, user, onLogout }) {
     setOngoingTrips(normalizeListResponse(activeTrips, ['bookings', 'trips']));
     setDriverUsers(normalizeListResponse(usersLiveStatus?.drivers));
     setPassengerUsers(normalizeListResponse(usersLiveStatus?.passengers));
+    setOperatorUsers(normalizeListResponse(usersLiveStatus?.operators));
     setLiveCounts({
       drivers_live: Number(usersLiveStatus?.live_counts?.drivers_live || 0),
       passengers_live: Number(usersLiveStatus?.live_counts?.passengers_live || 0),
+      operators_total: Number(usersLiveStatus?.live_counts?.operators_total || 0),
       total_live: Number(usersLiveStatus?.live_counts?.total_live || 0),
     });
     if (launchVisits) {
@@ -652,6 +667,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
     const allUsers = [
       ...(driverUsers || []).map((u) => ({ ...u, role: 'driver' })),
       ...(passengerUsers || []).map((u) => ({ ...u, role: 'passenger' })),
+      ...(operatorUsers || []).map((u) => ({ ...u, role: 'operator' })),
     ];
 
     const search = usersSearchTerm.toLowerCase();
@@ -672,7 +688,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
       return true;
     });
     return filtered;
-  }, [driverUsers, passengerUsers, usersSearchTerm, usersFilterRole]);
+  }, [driverUsers, operatorUsers, passengerUsers, usersSearchTerm, usersFilterRole]);
 
   const filteredUsers = useMemo(() => {
     const filtered = filterAndPaginateUsers();
@@ -1103,77 +1119,47 @@ export default function AdminDashboard({ token, user, onLogout }) {
       }
       return trimmed.includes('T') ? trimmed : trimmed.replace(' ', 'T');
     };
+    const serializeRoleConfig = (roleConfig) => ({
+      monthly: {
+        amount: parseAmount(roleConfig.monthly.amount),
+        active: Boolean(roleConfig.monthly.active),
+        scheme_start_at: normalizeDatePayload(roleConfig.monthly.scheme_start_at),
+        scheme_end_at: normalizeDatePayload(roleConfig.monthly.scheme_end_at),
+      },
+      quarterly: {
+        amount: parseAmount(roleConfig.quarterly.amount),
+        active: Boolean(roleConfig.quarterly.active),
+        scheme_start_at: normalizeDatePayload(roleConfig.quarterly.scheme_start_at),
+        scheme_end_at: normalizeDatePayload(roleConfig.quarterly.scheme_end_at),
+      },
+      annually: {
+        amount: parseAmount(roleConfig.annually.amount),
+        active: Boolean(roleConfig.annually.active),
+        scheme_start_at: normalizeDatePayload(roleConfig.annually.scheme_start_at),
+        scheme_end_at: normalizeDatePayload(roleConfig.annually.scheme_end_at),
+      },
+      per_trip: {
+        amount: parseAmount(roleConfig.per_trip.amount),
+        active: Boolean(roleConfig.per_trip.active),
+        ride_threshold: parseThreshold(roleConfig.per_trip.ride_threshold),
+        scheme_start_at: normalizeDatePayload(roleConfig.per_trip.scheme_start_at),
+        scheme_end_at: normalizeDatePayload(roleConfig.per_trip.scheme_end_at),
+      },
+    });
     const payload = {
-      passenger: {
-        monthly: {
-          amount: parseAmount(subscriptionConfig.passenger.monthly.amount),
-          active: Boolean(subscriptionConfig.passenger.monthly.active),
-          scheme_start_at: normalizeDatePayload(subscriptionConfig.passenger.monthly.scheme_start_at),
-          scheme_end_at: normalizeDatePayload(subscriptionConfig.passenger.monthly.scheme_end_at),
-        },
-        quarterly: {
-          amount: parseAmount(subscriptionConfig.passenger.quarterly.amount),
-          active: Boolean(subscriptionConfig.passenger.quarterly.active),
-          scheme_start_at: normalizeDatePayload(subscriptionConfig.passenger.quarterly.scheme_start_at),
-          scheme_end_at: normalizeDatePayload(subscriptionConfig.passenger.quarterly.scheme_end_at),
-        },
-        annually: {
-          amount: parseAmount(subscriptionConfig.passenger.annually.amount),
-          active: Boolean(subscriptionConfig.passenger.annually.active),
-          scheme_start_at: normalizeDatePayload(subscriptionConfig.passenger.annually.scheme_start_at),
-          scheme_end_at: normalizeDatePayload(subscriptionConfig.passenger.annually.scheme_end_at),
-        },
-        per_trip: {
-          amount: parseAmount(subscriptionConfig.passenger.per_trip.amount),
-          active: Boolean(subscriptionConfig.passenger.per_trip.active),
-          ride_threshold: parseThreshold(subscriptionConfig.passenger.per_trip.ride_threshold),
-          scheme_start_at: normalizeDatePayload(subscriptionConfig.passenger.per_trip.scheme_start_at),
-          scheme_end_at: normalizeDatePayload(subscriptionConfig.passenger.per_trip.scheme_end_at),
-        },
-      },
-      driver: {
-        monthly: {
-          amount: parseAmount(subscriptionConfig.driver.monthly.amount),
-          active: Boolean(subscriptionConfig.driver.monthly.active),
-          scheme_start_at: normalizeDatePayload(subscriptionConfig.driver.monthly.scheme_start_at),
-          scheme_end_at: normalizeDatePayload(subscriptionConfig.driver.monthly.scheme_end_at),
-        },
-        quarterly: {
-          amount: parseAmount(subscriptionConfig.driver.quarterly.amount),
-          active: Boolean(subscriptionConfig.driver.quarterly.active),
-          scheme_start_at: normalizeDatePayload(subscriptionConfig.driver.quarterly.scheme_start_at),
-          scheme_end_at: normalizeDatePayload(subscriptionConfig.driver.quarterly.scheme_end_at),
-        },
-        annually: {
-          amount: parseAmount(subscriptionConfig.driver.annually.amount),
-          active: Boolean(subscriptionConfig.driver.annually.active),
-          scheme_start_at: normalizeDatePayload(subscriptionConfig.driver.annually.scheme_start_at),
-          scheme_end_at: normalizeDatePayload(subscriptionConfig.driver.annually.scheme_end_at),
-        },
-        per_trip: {
-          amount: parseAmount(subscriptionConfig.driver.per_trip.amount),
-          active: Boolean(subscriptionConfig.driver.per_trip.active),
-          ride_threshold: parseThreshold(subscriptionConfig.driver.per_trip.ride_threshold),
-          scheme_start_at: normalizeDatePayload(subscriptionConfig.driver.per_trip.scheme_start_at),
-          scheme_end_at: normalizeDatePayload(subscriptionConfig.driver.per_trip.scheme_end_at),
-        },
-      },
+      passenger: serializeRoleConfig(subscriptionConfig.passenger),
+      driver: serializeRoleConfig(subscriptionConfig.driver),
+      operator: serializeRoleConfig(subscriptionConfig.operator),
     };
+    const roleSubscriptionPayloads = Object.values(payload);
 
-    const invalidAmount = [
-      payload.passenger.monthly.amount,
-      payload.passenger.quarterly.amount,
-      payload.passenger.annually.amount,
-      payload.passenger.per_trip.amount,
-      payload.driver.monthly.amount,
-      payload.driver.quarterly.amount,
-      payload.driver.annually.amount,
-      payload.driver.per_trip.amount,
-    ].some((amount) => Number.isNaN(amount) || amount < 0);
+    const invalidAmount = roleSubscriptionPayloads
+      .flatMap((roleConfig) => SUBSCRIPTION_PERIOD_OPTIONS.map((plan) => roleConfig[plan].amount))
+      .some((amount) => Number.isNaN(amount) || amount < 0);
 
-    const invalidThreshold = [payload.passenger.per_trip.ride_threshold, payload.driver.per_trip.ride_threshold].some(
-      (threshold) => Number.isNaN(threshold) || threshold < 1,
-    );
+    const invalidThreshold = roleSubscriptionPayloads
+      .map((roleConfig) => roleConfig.per_trip.ride_threshold)
+      .some((threshold) => Number.isNaN(threshold) || threshold < 1);
 
     if (invalidAmount) {
       setError('Subscription amounts must be non-negative numbers.');
@@ -1184,16 +1170,9 @@ export default function AdminDashboard({ token, user, onLogout }) {
       return;
     }
 
-    const plansToValidate = [
-      payload.passenger.monthly,
-      payload.passenger.quarterly,
-      payload.passenger.annually,
-      payload.passenger.per_trip,
-      payload.driver.monthly,
-      payload.driver.quarterly,
-      payload.driver.annually,
-      payload.driver.per_trip,
-    ];
+    const plansToValidate = roleSubscriptionPayloads.flatMap((roleConfig) =>
+      SUBSCRIPTION_PERIOD_OPTIONS.map((plan) => roleConfig[plan]),
+    );
     for (const plan of plansToValidate) {
       const amount = Number(plan.amount || 0);
       if (amount > 0 && (!plan.scheme_start_at || !plan.scheme_end_at)) {
@@ -1223,6 +1202,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
       setSubscriptionConfig({
         passenger: normalizeRoleSubscriptionConfig(saved.passenger || {}),
         driver: normalizeRoleSubscriptionConfig(saved.driver || {}),
+        operator: normalizeRoleSubscriptionConfig(saved.operator || {}),
       });
     }
   };
@@ -1270,6 +1250,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
   const saveRegistrationFees = async () => {
     const passenger = Number(registrationFees.passenger_registration_fee || 0);
     const driver = Number(registrationFees.driver_registration_fee || 0);
+    const operator = Number(registrationFees.operator_registration_fee || 0);
     const normalizeDatePayload = (value) => {
       const trimmed = String(value || '').trim();
       if (!trimmed) {
@@ -1279,11 +1260,18 @@ export default function AdminDashboard({ token, user, onLogout }) {
     };
     const schemeStartAt = normalizeDatePayload(registrationFees.scheme_start_at);
     const schemeEndAt = normalizeDatePayload(registrationFees.scheme_end_at);
-    if (Number.isNaN(passenger) || passenger < 0 || Number.isNaN(driver) || driver < 0) {
+    if (
+      Number.isNaN(passenger) ||
+      passenger < 0 ||
+      Number.isNaN(driver) ||
+      driver < 0 ||
+      Number.isNaN(operator) ||
+      operator < 0
+    ) {
       setError('Registration fees must be valid non-negative numbers.');
       return;
     }
-    if ((passenger > 0 || driver > 0) && (!schemeStartAt || !schemeEndAt)) {
+    if ((passenger > 0 || driver > 0 || operator > 0) && (!schemeStartAt || !schemeEndAt)) {
       setError('Registration scheme start and end date are required when fee is greater than zero.');
       return;
     }
@@ -1303,6 +1291,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
           body: {
             passenger_registration_fee: passenger,
             driver_registration_fee: driver,
+            operator_registration_fee: operator,
             scheme_start_at: schemeStartAt,
             scheme_end_at: schemeEndAt,
             enable_qr: registrationFees.enable_qr,
@@ -1318,6 +1307,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
       setRegistrationFees({
         passenger_registration_fee: String(result.passenger_registration_fee ?? 0),
         driver_registration_fee: String(result.driver_registration_fee ?? 0),
+        operator_registration_fee: String(result.operator_registration_fee ?? 0),
         scheme_start_at: normalizeDateTimeText(result.scheme_start_at),
         scheme_end_at: normalizeDateTimeText(result.scheme_end_at),
         enable_qr: Boolean(result.enable_qr),
@@ -1392,7 +1382,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
         .map((item) => item.trim())
         .filter(Boolean);
 
-    const allowedRoles = ['passenger', 'driver'];
+    const allowedRoles = ['passenger', 'driver', 'operator'];
     const selectedRoles = Array.isArray(spinWinConfig.eligible_roles)
       ? spinWinConfig.eligible_roles.filter((role) => allowedRoles.includes(String(role).toLowerCase()))
       : [];
@@ -1792,6 +1782,10 @@ export default function AdminDashboard({ token, user, onLogout }) {
               <Text style={styles.statLabel}>Passengers</Text>
               <Text style={styles.statValue}>{stats.total_passengers}</Text>
             </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statLabel}>Operators</Text>
+              <Text style={styles.statValue}>{stats.total_operators || 0}</Text>
+            </View>
             <View style={[styles.statCard, styles.fullWidthCard]}>
               <Text style={styles.statLabel}>Total Revenue</Text>
               <Text style={styles.statValue}>INR {stats.total_revenue}</Text>
@@ -1889,7 +1883,9 @@ export default function AdminDashboard({ token, user, onLogout }) {
         </View>
 
         <View style={[styles.section, activeAdminMenu !== 'users' && styles.hiddenSection]}>
-          <Text style={styles.sectionTitle}>Drivers & Passengers ({driverUsers.length + passengerUsers.length})</Text>
+          <Text style={styles.sectionTitle}>
+            Users ({driverUsers.length + passengerUsers.length + operatorUsers.length})
+          </Text>
           <View style={styles.statsGrid}>
             <View style={styles.statCard}>
               <Text style={styles.statLabel}>Drivers Live</Text>
@@ -1898,6 +1894,10 @@ export default function AdminDashboard({ token, user, onLogout }) {
             <View style={styles.statCard}>
               <Text style={styles.statLabel}>Passengers Live</Text>
               <Text style={styles.statValue}>{liveCounts.passengers_live}</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statLabel}>Operators</Text>
+              <Text style={styles.statValue}>{liveCounts.operators_total}</Text>
             </View>
             <View style={[styles.statCard, styles.fullWidthCard]}>
               <Text style={styles.statLabel}>Total Live Users</Text>
@@ -1913,6 +1913,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
               { label: 'All Users', value: 'all' },
               { label: 'Drivers Only', value: 'driver' },
               { label: 'Passengers Only', value: 'passenger' },
+              { label: 'Operators Only', value: 'operator' },
             ]}
             selectedFilter={usersFilterRole}
             onFilterChange={setUsersFilterRole}
@@ -1921,7 +1922,9 @@ export default function AdminDashboard({ token, user, onLogout }) {
           {filteredUsers.length === 0 ? (
             <View style={styles.emptyCard}>
               <Text style={styles.emptyText}>
-                {driverUsers.length + passengerUsers.length === 0 ? 'No users found.' : 'No users match your search.'}
+                {driverUsers.length + passengerUsers.length + operatorUsers.length === 0
+                  ? 'No users found.'
+                  : 'No users match your search.'}
               </Text>
             </View>
           ) : (
@@ -1932,7 +1935,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                     <View>
                       <Text style={styles.driverName}>{user.name || 'Unknown User'}</Text>
                       <Text style={styles.kycDate}>
-                        {user.role === 'driver' ? '🚗 Driver' : '👤 Passenger'}
+                        {user.role === 'driver' ? 'Driver' : user.role === 'operator' ? 'Operator' : 'Passenger'}
                       </Text>
                     </View>
                     <Text style={[styles.liveBadge, user.is_live ? styles.liveBadgeOn : styles.liveBadgeOff]}>
@@ -1965,7 +1968,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
               <PaginationControls
                 currentPage={usersPage}
                 pageSize={usersPageSize}
-                totalItems={driverUsers.length + passengerUsers.length}
+                totalItems={driverUsers.length + passengerUsers.length + operatorUsers.length}
                 onPageChange={setUsersPage}
                 onPageSizeChange={setUsersPageSize}
                 disabled={loading}
@@ -2096,7 +2099,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
 
             <Text style={styles.inputLabel}>Eligible Roles</Text>
             <View style={styles.optionRow}>
-              {['passenger', 'driver'].map((role) => {
+              {['passenger', 'driver', 'operator'].map((role) => {
                 const enabled = spinWinConfig.eligible_roles.includes(role);
                 return (
                   <TouchableOpacity
@@ -2111,7 +2114,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                       );
                     }}>
                     <Text style={[styles.optionChipText, enabled && styles.optionChipTextActive]}>
-                      {role === 'passenger' ? 'Passengers' : 'Drivers'}
+                      {role === 'passenger' ? 'Passengers' : role === 'driver' ? 'Drivers' : 'Operators'}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -2268,9 +2271,11 @@ export default function AdminDashboard({ token, user, onLogout }) {
 
         <View style={[styles.section, activeAdminMenu !== 'subscriptions' && styles.hiddenSection]}>
           <Text style={styles.sectionTitle}>Subscription Plans</Text>
-          {['passenger', 'driver'].map((roleKey) => (
+          {['passenger', 'driver', 'operator'].map((roleKey) => (
             <View key={roleKey} style={styles.kycCard}>
-              <Text style={styles.driverName}>{roleKey === 'driver' ? 'Driver Plans' : 'Passenger Plans'}</Text>
+              <Text style={styles.driverName}>
+                {roleKey === 'driver' ? 'Driver Plans' : roleKey === 'operator' ? 'Operator Plans' : 'Passenger Plans'}
+              </Text>
               {SUBSCRIPTION_PERIOD_OPTIONS.map((plan) => (
                 <View key={`${roleKey}-${plan}`} style={styles.subscriptionPlanCard}>
                   <Text style={styles.inputLabel}>{plan.replace('_', ' ').toUpperCase()}</Text>
@@ -2881,6 +2886,17 @@ export default function AdminDashboard({ token, user, onLogout }) {
               placeholder="0"
               placeholderTextColor="#9AA7A0"
             />
+            <Text style={styles.inputLabel}>Operator Registration Fee (Rs)</Text>
+            <VoiceTextInput
+              style={styles.input}
+              value={registrationFees.operator_registration_fee}
+              onChangeText={(value) =>
+                setRegistrationFees((prev) => ({ ...prev, operator_registration_fee: value }))
+              }
+              keyboardType="decimal-pad"
+              placeholder="0"
+              placeholderTextColor="#9AA7A0"
+            />
             <Text style={styles.inputLabel}>Scheme Start (YYYY-MM-DD HH:mm)</Text>
             <VoiceTextInput
               style={styles.input}
@@ -3238,9 +3254,9 @@ export default function AdminDashboard({ token, user, onLogout }) {
         </View>
 
         <View style={[styles.section, activeAdminMenu !== 'vehicle_types' && styles.hiddenSection]}>
-          <VehicleTypeManagementPanel
+          <AdminVehicleManagementScreen
+            embedded
             token={token}
-            loading={false}
           />
         </View>
       </ScrollView>

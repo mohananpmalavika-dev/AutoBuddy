@@ -12,11 +12,14 @@ import {
 } from 'react-native';
 import * as Location from 'expo-location';
 import * as WebBrowser from 'expo-web-browser';
+import * as DocumentPicker from 'expo-document-picker';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import BottomSheet from '@gorhom/bottom-sheet';
 
-import { apiRequest } from '../lib/api';
+import { driverAPI } from '../services/apiClient';
+import { getSocket } from '../services/socketClient';
 import { COLORS, SHADOWS } from '../theme';
+import { apiRequest } from '../lib/api';
 import { offlineQueueManager } from '../lib/offlineQueueManager';
 import { retryWithBackoff } from '../lib/retryUtils';
 import KeralaSafetyCard from '../components/KeralaSafetyCard';
@@ -60,6 +63,14 @@ import { TaxReportWidget } from '../components/TaxReportWidget';
 import { FavoritePassengersPanel } from '../components/FavoritePassengersPanel';
 import { ShiftScheduleCalendar } from '../components/ShiftScheduleCalendar';
 import { BadgesAchievementsWidget } from '../components/BadgesAchievementsWidget';
+import DriverTierBenefitsPanel from '../components/DriverTierBenefitsPanel';
+import DocumentExpiryAlertsPanel from '../components/DocumentExpiryAlertsPanel';
+import DriverSuspensionAppealPanel from '../components/DriverSuspensionAppealPanel';
+import DriverReferralPanel from '../components/DriverReferralPanel';
+import DemandHeatmapIntegration from '../components/DemandHeatmapIntegration';
+import TrafficAlerts from '../components/TrafficAlerts';
+import DriverPhotoVerificationPanel from '../components/DriverPhotoVerificationPanel';
+import PassengerSafetyRatingsPanel from '../components/PassengerSafetyRatingsPanel';
 import { useNotifications } from '../contexts/NotificationContext';
 import { usePreferences } from '../contexts/PreferencesContext';
 import { DRIVER_QUICK_ACTIONS } from '../constants/driverQuickActions';
@@ -85,6 +96,7 @@ import {
   getRideStatusMode,
   runDriverQuickAction,
 } from '../lib/driverDashboardFlow';
+import { appendPickerAssetToFormData } from '../lib/uploadFormData';
 import {
   extractDriverReadinessFromError,
   formatDriverReadinessMessage,
@@ -395,19 +407,56 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
 
   const handleReceiptUpload = useCallback(async () => {
     try {
-      // Placeholder for receipt upload implementation
-      // In real implementation, this would:
-      // 1. Open file picker
-      // 2. Compress image
-      // 3. Upload to backend
-      // 4. Return receipt URL
-      console.warn('Receipt upload not yet implemented - feature available in next release');
-      return null;
+      if (!activeRideId) {
+        setError('Start or select a ride before attaching a receipt.');
+        return null;
+      }
+
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['image/*', 'application/pdf'],
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled || !result.assets?.length) {
+        return null;
+      }
+
+      const asset = result.assets[0];
+      if (asset.size && asset.size > 8 * 1024 * 1024) {
+        setError('Receipt file must be less than 8MB.');
+        return null;
+      }
+
+      const formData = new FormData();
+      await appendPickerAssetToFormData(
+        formData,
+        'file',
+        asset,
+        asset.name || `ride-${activeRideId}-receipt`,
+        asset.mimeType || 'application/octet-stream',
+      );
+
+      const response = await apiRequest(`/uploads/ride-receipt/${activeRideId}`, {
+        method: 'POST',
+        token,
+        body: formData,
+        isFormData: true,
+      });
+      const uploadData = response?.data || response || {};
+      const fileKey = uploadData.file_key || response?.resource_id;
+      const receiptUrl =
+        uploadData.file_url ||
+        uploadData.download_url ||
+        (fileKey ? `/api/uploads/download/${fileKey}` : null);
+      if (receiptUrl) {
+        setMessage('Receipt attached. Save the expense to keep it with this ride.');
+      }
+      return receiptUrl;
     } catch (err) {
       console.error('Receipt upload error:', err);
+      setError(err.message || 'Receipt upload failed.');
       return null;
     }
-  }, []);
+  }, [activeRideId, token]);
 
   const runAction = useCallback(async (fn, successText) => {
     try {
@@ -531,6 +580,42 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     };
   }, []);
 
+  const activeRideDestination = useMemo(() => {
+    if (!activeRide) {
+      return null;
+    }
+    return getRideNavigationTarget({
+      ride: activeRide,
+      status: activeRideStatus,
+      normalizeLocation,
+    }).destination;
+  }, [activeRide, activeRideStatus, normalizeLocation]);
+
+  const activePassengerId = useMemo(
+    () =>
+      String(
+        activeRide?.passenger_id ||
+          activeRide?.passengerId ||
+          pendingRequests?.[0]?.passenger_id ||
+          pendingRequests?.[0]?.passengerId ||
+          '',
+      ).trim(),
+    [activeRide, pendingRequests],
+  );
+
+  const handleNavigateToHotspot = useCallback(
+    (hotspot) => {
+      const destination = normalizeLocation(hotspot);
+      const mapsUrl = buildGoogleMapsDirectionsUrl({ origin: driverLocation, destination });
+      if (!mapsUrl) {
+        setError('Hotspot location unavailable.');
+        return;
+      }
+      Linking.openURL(mapsUrl).catch(() => setError('Could not open hotspot navigation.'));
+    },
+    [driverLocation, normalizeLocation],
+  );
+
   const readDeviceLocation = useCallback(async () => {
     try {
       const permission = await Location.requestForegroundPermissionsAsync();
@@ -600,11 +685,8 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       }
 
       try {
-        await apiRequest('/drivers/location', {
-          method: 'PUT',
-          token,
-          body: { location: locationToSend },
-        });
+        await driverAPI.updateLocation(locationToSend);
+        const socket = getSocket();
         emitSocketLocationUpdate({
             booking_id: activeRideId || undefined,
             latitude: locationToSend.latitude,
@@ -659,11 +741,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     }
     availabilityRetryInFlightRef.current = true;
     try {
-      const updated = await apiRequest('/drivers/availability', {
-        method: 'PUT',
-        token,
-        body: { is_available: !!pending.desired },
-      });
+      const updated = await driverAPI.updateAvailability({ is_available: !!pending.desired });
       const savedStatus =
         typeof updated?.is_available === 'boolean' ? updated.is_available : !!pending.desired;
       pendingAvailabilitySyncRef.current = null;
@@ -711,7 +789,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
 
   const refreshDriverData = useCallback(async () => {
     const refreshStartedAt = Date.now();
-    const profile = await runAction(() => apiRequest('/drivers/profile', { token }));
+    const profile = await runAction(() => driverAPI.getProfile());
     if (profile) {
       if (typeof profile.is_available === 'boolean') {
         // Avoid overriding an in-flight toggle with stale profile snapshots.
@@ -2436,6 +2514,40 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
             <KeralaSafetyCard safety={keralaSafety} />
           )}
 
+          {activeTab === 'heatmap' && (
+            <DemandHeatmapIntegration
+              currentLocation={driverLocation}
+              onNavigateToHotspot={handleNavigateToHotspot}
+              disabled={!displayIsOnline && !activeRideId}
+            />
+          )}
+
+          {activeTab === 'traffic' && (
+            <TrafficAlerts
+              currentLocation={driverLocation}
+              destinationLocation={activeRideDestination}
+              onRouteChange={(route) => setMessage(`Route selected: ${route.name || 'Recommended route'}`)}
+              disabled={!activeRideDestination}
+            />
+          )}
+
+          {activeTab === 'photoVerification' && (
+            <DriverPhotoVerificationPanel
+              driverId={user?.id}
+              onVerificationComplete={() => refreshDriverMenuBadges()}
+            />
+          )}
+
+          {activeTab === 'passengerSafety' && (
+            <PassengerSafetyRatingsPanel
+              passengerId={activePassengerId}
+              disabled={!activePassengerId}
+              onLoad={(rating) =>
+                setMessage(`Passenger safety score: ${rating.safetyScore || 'available'}`)
+              }
+            />
+          )}
+
           {activeTab === 'trust' && (
             <>
               <DriverKycPanel token={token} onDataChanged={refreshDriverMenuBadges} />
@@ -2604,6 +2716,39 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
               onClose={() => setActiveTab('earnings')}
               token={token}
               driverId={user?.id}
+            />
+          )}
+
+          {activeTab === 'tier' && (
+            <DriverTierBenefitsPanel
+              token={token}
+              onTierUpgrade={() => setMessage('Visit the app store for tier upgrades')}
+            />
+          )}
+
+          {activeTab === 'expiry' && (
+            <DocumentExpiryAlertsPanel
+              token={token}
+              onDocumentExpiring={({ critical, warning }) => {
+                setMessage(`Document alerts: ${critical} critical, ${warning} warnings`);
+              }}
+            />
+          )}
+
+          {activeTab === 'appeals' && (
+            <DriverSuspensionAppealPanel
+              token={token}
+              onAppealSubmitted={() => {
+                setMessage('Appeal submitted successfully. You will receive a response within 48 hours.');
+              }}
+            />
+          )}
+
+          {activeTab === 'referral' && (
+            <DriverReferralPanel
+              token={token}
+              driverId={user?.id}
+              onReferralShare={(code) => setMessage(`Referral code ${code} shared successfully!`)}
             />
           )}
         </ScrollView>

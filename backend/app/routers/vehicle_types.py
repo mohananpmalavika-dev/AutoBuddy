@@ -145,7 +145,7 @@ async def init_default_vehicle_types(db: AsyncIOMotorDatabase):
             logger.info(f"Created default vehicle type: {vehicle_type['vehicle_type_id']}")
 
 
-@router.get("/", dependencies=[Depends(require_roles(["admin"]))])
+@router.get("/", dependencies=[Depends(require_roles("admin"))])
 async def list_vehicle_types(
     db: AsyncIOMotorDatabase = Depends(get_db),
     active_only: bool = False
@@ -194,7 +194,7 @@ async def get_public_vehicle_types(db: AsyncIOMotorDatabase = Depends(get_db)):
     ]
 
 
-@router.post("/", dependencies=[Depends(require_roles(["admin"]))])
+@router.post("/", dependencies=[Depends(require_roles("admin"))])
 async def create_vehicle_type(
     vehicle_type: VehicleTypeCreate,
     db: AsyncIOMotorDatabase = Depends(get_db),
@@ -228,7 +228,7 @@ async def create_vehicle_type(
     )
 
 
-@router.get("/{vehicle_type_id}", dependencies=[Depends(require_roles(["admin"]))])
+@router.get("/{vehicle_type_id}", dependencies=[Depends(require_roles("admin"))])
 async def get_vehicle_type(
     vehicle_type_id: str,
     db: AsyncIOMotorDatabase = Depends(get_db)
@@ -264,7 +264,7 @@ async def get_vehicle_type(
     )
 
 
-@router.put("/{vehicle_type_id}", dependencies=[Depends(require_roles(["admin"]))])
+@router.put("/{vehicle_type_id}", dependencies=[Depends(require_roles("admin"))])
 async def update_vehicle_type(
     vehicle_type_id: str,
     update_data: VehicleTypeUpdate,
@@ -318,7 +318,7 @@ async def update_vehicle_type(
     )
 
 
-@router.delete("/{vehicle_type_id}", dependencies=[Depends(require_roles(["admin"]))])
+@router.delete("/{vehicle_type_id}", dependencies=[Depends(require_roles("admin"))])
 async def delete_vehicle_type(
     vehicle_type_id: str,
     db: AsyncIOMotorDatabase = Depends(get_db),
@@ -359,7 +359,7 @@ async def delete_vehicle_type(
     return {"message": "Vehicle type deleted successfully", "vehicle_type_id": vehicle_type_id}
 
 
-@router.post("/{vehicle_type_id}/activate", dependencies=[Depends(require_roles(["admin"]))])
+@router.post("/{vehicle_type_id}/activate", dependencies=[Depends(require_roles("admin"))])
 async def activate_vehicle_type(
     vehicle_type_id: str,
     db: AsyncIOMotorDatabase = Depends(get_db),

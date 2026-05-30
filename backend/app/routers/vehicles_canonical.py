@@ -3,29 +3,21 @@ Canonical Vehicles API Router - Single unified API for all vehicle operations
 Replaces: vehicle_types.py, vehicle_types_extended.py, etc.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime
-from bson import ObjectId
 import logging
 
 from app.db.deps import get_db
 from app.utils.rbac import require_roles, get_current_user_secure
 from app.models.canonical_vehicle_model import (
-    CanonicalVehicleType,
     CANONICAL_VEHICLE_TYPES,
-    get_vehicle_by_id,
-    get_vehicle_multiplier,
-    get_vehicle_capacity,
-    supports_ride_type,
-    get_goods_carrying_vehicles,
-    get_passenger_vehicles,
+    CANONICAL_VEHICLES_COLLECTION,
+    LEGACY_CANONICAL_VEHICLES_COLLECTION,
 )
 from app.models.ride_type_compatibility import (
-    get_compatible_vehicles,
-    is_vehicle_compatible_with_ride_type,
     get_ride_type_multiplier,
     RIDE_TYPE_COMPATIBILITY,
     FARE_CONFIGURATIONS,
@@ -33,6 +25,106 @@ from app.models.ride_type_compatibility import (
 
 router = APIRouter(prefix="/api/vehicles", tags=["canonical_vehicles"])
 logger = logging.getLogger(__name__)
+
+
+def _vehicle_collection(db: AsyncIOMotorDatabase):
+    return db[CANONICAL_VEHICLES_COLLECTION]
+
+
+def _to_plain_dict(value: Any) -> Any:
+    if value is None:
+        return None
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json")
+    if hasattr(value, "dict"):
+        return value.dict()
+    if isinstance(value, dict):
+        return {k: _to_plain_dict(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_to_plain_dict(item) for item in value]
+    return value
+
+
+def _vehicle_fare_config(vehicle_type_id: str, vehicle: Optional[dict] = None) -> Dict[str, Any]:
+    stored_config = (vehicle or {}).get("fare_config")
+    if isinstance(stored_config, dict) and stored_config:
+        return _to_plain_dict(stored_config)
+
+    return _to_plain_dict(
+        FARE_CONFIGURATIONS.get(vehicle_type_id)
+        or FARE_CONFIGURATIONS.get("taxi")
+        or {}
+    )
+
+
+def _coverage_tokens(
+    region: Optional[str] = None,
+    district: Optional[str] = None,
+    pincode: Optional[str] = None,
+) -> List[str]:
+    tokens: List[str] = []
+    for value in (region, district, pincode):
+        normalized = str(value or "").strip()
+        if normalized:
+            tokens.extend([normalized, normalized.lower()])
+    return list(dict.fromkeys(tokens))
+
+
+def _availability_query(
+    active_only: bool = True,
+    region: Optional[str] = None,
+    district: Optional[str] = None,
+    pincode: Optional[str] = None,
+) -> Dict[str, Any]:
+    query: Dict[str, Any] = {"active": True} if active_only else {}
+    tokens = _coverage_tokens(region=region, district=district, pincode=pincode)
+    if tokens:
+        query["$or"] = [
+            {"regions": {"$exists": False}},
+            {"regions": {"$size": 0}},
+            {"regions": "all"},
+            {"regions": {"$in": tokens}},
+        ]
+    return query
+
+
+def _serialize_vehicle(vehicle: dict) -> dict:
+    created_at = vehicle.get("created_at") or datetime.utcnow()
+    updated_at = vehicle.get("updated_at") or datetime.utcnow()
+    vehicle_type_id = vehicle.get("vehicle_type_id")
+
+    return {
+        **{k: v for k, v in vehicle.items() if k != "_id"},
+        "vehicle_type_id": vehicle_type_id,
+        "name": vehicle.get("name") or str(vehicle_type_id or "Vehicle").title(),
+        "name_ml": vehicle.get("name_ml"),
+        "translations": vehicle.get("translations", {}),
+        "icon": vehicle.get("icon") or "car",
+        "description": vehicle.get("description") or "Vehicle service",
+        "capacity": vehicle.get("capacity", 1),
+        "capacity_unit": vehicle.get("capacity_unit", "passengers"),
+        "base_multiplier": vehicle.get("base_multiplier", 1.0),
+        "allowed_ride_types": vehicle.get("allowed_ride_types", []),
+        "goods_supported": vehicle.get("goods_supported", False),
+        "passenger_supported": vehicle.get("passenger_supported", True),
+        "accessibility_support": vehicle.get("accessibility_support", False),
+        "subtypes": vehicle.get("subtypes", []),
+        "regions": vehicle.get("regions", ["all"]),
+        "fare_config": _vehicle_fare_config(str(vehicle_type_id or ""), vehicle),
+        "active": vehicle.get("active", True),
+        "created_at": created_at.isoformat() if isinstance(created_at, datetime) else str(created_at),
+        "updated_at": updated_at.isoformat() if isinstance(updated_at, datetime) else str(updated_at),
+    }
+
+
+def _seed_vehicle_doc(vehicle_data: dict) -> dict:
+    now = datetime.utcnow()
+    doc = dict(vehicle_data)
+    doc["_id"] = doc["vehicle_type_id"]
+    doc.setdefault("active", True)
+    doc.setdefault("created_at", now)
+    doc.setdefault("updated_at", now)
+    return doc
 
 
 # ============================================================================
@@ -43,6 +135,7 @@ class VehicleTypeCreate(BaseModel):
     vehicle_type_id: str
     name: str
     name_ml: Optional[str] = None
+    translations: Dict[str, Dict[str, str]] = Field(default_factory=dict)
     icon: str
     description: str
     capacity: int
@@ -54,11 +147,13 @@ class VehicleTypeCreate(BaseModel):
     accessibility_support: bool = False
     subtypes: List[dict] = []
     regions: List[str] = []
+    fare_config: Optional[Dict[str, Any]] = None
 
 
 class VehicleTypeUpdate(BaseModel):
     name: Optional[str] = None
     name_ml: Optional[str] = None
+    translations: Optional[Dict[str, Dict[str, str]]] = None
     icon: Optional[str] = None
     description: Optional[str] = None
     capacity: Optional[int] = None
@@ -70,12 +165,19 @@ class VehicleTypeUpdate(BaseModel):
     accessibility_support: Optional[bool] = None
     active: Optional[bool] = None
     regions: Optional[List[str]] = None
+    subtypes: Optional[List[dict]] = None
+    fare_config: Optional[Dict[str, Any]] = None
+
+
+class FareConfigUpdate(BaseModel):
+    fare_config: Dict[str, Any]
 
 
 class VehicleTypeResponse(BaseModel):
     vehicle_type_id: str
     name: str
     name_ml: Optional[str]
+    translations: Dict[str, Dict[str, str]] = Field(default_factory=dict)
     icon: str
     description: str
     capacity: int
@@ -87,6 +189,7 @@ class VehicleTypeResponse(BaseModel):
     accessibility_support: bool
     subtypes: List[dict]
     regions: List[str]
+    fare_config: Dict[str, Any] = Field(default_factory=dict)
     active: bool
     created_at: str
     updated_at: str
@@ -102,24 +205,47 @@ class VehicleTypeResponse(BaseModel):
 async def init_canonical_vehicles(db: AsyncIOMotorDatabase) -> None:
     """Initialize canonical vehicles in database on startup"""
     try:
-        # Check if already initialized
-        count = await db.vehicles.count_documents({"active": {"$in": [True, False]}})
-        if count > 0:
-            logger.info(f"✓ Vehicles collection already has {count} types")
-            return
-        
-        # Insert canonical vehicle types
+        vehicles_collection = _vehicle_collection(db)
+        existing_count = await vehicles_collection.count_documents({"vehicle_type_id": {"$exists": True}})
+
+        if existing_count == 0:
+            legacy_collection = db[LEGACY_CANONICAL_VEHICLES_COLLECTION]
+            legacy_docs = await legacy_collection.find({
+                "vehicle_type_id": {"$exists": True},
+                "base_multiplier": {"$exists": True},
+            }).to_list(None)
+
+            for legacy_doc in legacy_docs:
+                migrated_doc = {k: v for k, v in legacy_doc.items() if k != "_id"}
+                migrated_doc = _seed_vehicle_doc(migrated_doc)
+                await vehicles_collection.update_one(
+                    {"vehicle_type_id": migrated_doc["vehicle_type_id"]},
+                    {"$setOnInsert": migrated_doc},
+                    upsert=True,
+                )
+
+            if legacy_docs:
+                logger.info(
+                    f"Migrated {len(legacy_docs)} canonical vehicle type docs to "
+                    f"{CANONICAL_VEHICLES_COLLECTION}"
+                )
+
+        # Ensure every default canonical type exists without overwriting admin edits.
         for vehicle_data in CANONICAL_VEHICLE_TYPES:
-            vehicle_data["_id"] = vehicle_data["vehicle_type_id"]
-            await db.vehicles.insert_one(vehicle_data)
-        
-        # Create indexes
-        await db.vehicles.create_index("_id", unique=True)
-        await db.vehicles.create_index("vehicle_type_id", unique=True)
-        await db.vehicles.create_index([("allowed_ride_types", 1), ("active", 1)])
-        await db.vehicles.create_index([("goods_supported", 1), ("active", 1)])
-        
-        logger.info(f"✓ Initialized {len(CANONICAL_VEHICLE_TYPES)} canonical vehicle types")
+            seed_doc = _seed_vehicle_doc(vehicle_data)
+            await vehicles_collection.update_one(
+                {"vehicle_type_id": seed_doc["vehicle_type_id"]},
+                {"$setOnInsert": seed_doc},
+                upsert=True,
+            )
+
+        await vehicles_collection.create_index("_id", unique=True)
+        await vehicles_collection.create_index("vehicle_type_id", unique=True)
+        await vehicles_collection.create_index([("allowed_ride_types", 1), ("active", 1)])
+        await vehicles_collection.create_index([("goods_supported", 1), ("active", 1)])
+
+        total_count = await vehicles_collection.count_documents({"vehicle_type_id": {"$exists": True}})
+        logger.info(f"Canonical vehicle catalog ready: {total_count} types")
     except Exception as e:
         logger.error(f"Error initializing vehicles: {str(e)}")
         raise
@@ -132,22 +258,22 @@ async def init_canonical_vehicles(db: AsyncIOMotorDatabase) -> None:
 @router.get("/public/all", response_model=List[VehicleTypeResponse])
 async def get_all_vehicles(
     active_only: bool = Query(True),
+    region: Optional[str] = Query(None),
+    district: Optional[str] = Query(None),
+    pincode: Optional[str] = Query(None),
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
     """Get all vehicle types (public endpoint)"""
     try:
-        query = {"active": True} if active_only else {}
-        vehicles = await db.vehicles.find(query).to_list(None)
+        query = _availability_query(
+            active_only=active_only,
+            region=region,
+            district=district,
+            pincode=pincode,
+        )
+        vehicles = await _vehicle_collection(db).find(query).to_list(None)
         
-        return [
-            {
-                **{k: v for k, v in v.items() if k != "_id"},
-                "vehicle_type_id": v.get("vehicle_type_id"),
-                "created_at": v.get("created_at", datetime.utcnow()).isoformat(),
-                "updated_at": v.get("updated_at", datetime.utcnow()).isoformat(),
-            }
-            for v in vehicles
-        ]
+        return [_serialize_vehicle(v) for v in vehicles]
     except Exception as e:
         logger.error(f"Error fetching vehicles: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -160,16 +286,11 @@ async def get_vehicle(
 ):
     """Get specific vehicle type"""
     try:
-        vehicle = await db.vehicles.find_one({"vehicle_type_id": vehicle_type_id})
+        vehicle = await _vehicle_collection(db).find_one({"vehicle_type_id": vehicle_type_id})
         if not vehicle:
             raise HTTPException(status_code=404, detail="Vehicle type not found")
         
-        return {
-            **{k: v for k, v in vehicle.items() if k != "_id"},
-            "vehicle_type_id": vehicle.get("vehicle_type_id"),
-            "created_at": vehicle.get("created_at", datetime.utcnow()).isoformat(),
-            "updated_at": vehicle.get("updated_at", datetime.utcnow()).isoformat(),
-        }
+        return _serialize_vehicle(vehicle)
     except HTTPException:
         raise
     except Exception as e:
@@ -180,24 +301,23 @@ async def get_vehicle(
 @router.get("/public/by-ride-type/{ride_type}", response_model=List[VehicleTypeResponse])
 async def get_vehicles_by_ride_type(
     ride_type: str,
+    region: Optional[str] = Query(None),
+    district: Optional[str] = Query(None),
+    pincode: Optional[str] = Query(None),
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
     """Get vehicles supporting specific ride type"""
     try:
-        vehicles = await db.vehicles.find({
-            "allowed_ride_types": ride_type,
-            "active": True
-        }).to_list(None)
+        query = _availability_query(
+            active_only=True,
+            region=region,
+            district=district,
+            pincode=pincode,
+        )
+        query["allowed_ride_types"] = ride_type
+        vehicles = await _vehicle_collection(db).find(query).to_list(None)
         
-        return [
-            {
-                **{k: v for k, v in v.items() if k != "_id"},
-                "vehicle_type_id": v.get("vehicle_type_id"),
-                "created_at": v.get("created_at", datetime.utcnow()).isoformat(),
-                "updated_at": v.get("updated_at", datetime.utcnow()).isoformat(),
-            }
-            for v in vehicles
-        ]
+        return [_serialize_vehicle(v) for v in vehicles]
     except Exception as e:
         logger.error(f"Error fetching vehicles by ride type: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -209,20 +329,12 @@ async def get_goods_vehicles(
 ):
     """Get vehicles that support goods delivery"""
     try:
-        vehicles = await db.vehicles.find({
+        vehicles = await _vehicle_collection(db).find({
             "goods_supported": True,
             "active": True
         }).to_list(None)
         
-        return [
-            {
-                **{k: v for k, v in v.items() if k != "_id"},
-                "vehicle_type_id": v.get("vehicle_type_id"),
-                "created_at": v.get("created_at", datetime.utcnow()).isoformat(),
-                "updated_at": v.get("updated_at", datetime.utcnow()).isoformat(),
-            }
-            for v in vehicles
-        ]
+        return [_serialize_vehicle(v) for v in vehicles]
     except Exception as e:
         logger.error(f"Error fetching goods vehicles: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -231,13 +343,21 @@ async def get_goods_vehicles(
 @router.get("/public/multiplier/{vehicle_type_id}", response_model=dict)
 async def get_multiplier(
     vehicle_type_id: str,
-    subtype_id: Optional[str] = None
+    subtype_id: Optional[str] = None,
+    db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     """Get fare multiplier for vehicle (supports subtype)"""
     try:
-        multiplier = get_vehicle_multiplier(vehicle_type_id, subtype_id)
-        if multiplier == 1.0 and not get_vehicle_by_id(vehicle_type_id):
+        vehicle = await _vehicle_collection(db).find_one({"vehicle_type_id": vehicle_type_id})
+        if not vehicle:
             raise HTTPException(status_code=404, detail="Vehicle type not found")
+
+        multiplier = vehicle.get("base_multiplier", 1.0)
+        if subtype_id:
+            for subtype in vehicle.get("subtypes", []):
+                if subtype.get("id") == subtype_id:
+                    multiplier = subtype.get("multiplier", multiplier)
+                    break
         
         return {
             "vehicle_type_id": vehicle_type_id,
@@ -254,16 +374,22 @@ async def get_multiplier(
 @router.get("/public/capacity/{vehicle_type_id}", response_model=dict)
 async def get_capacity(
     vehicle_type_id: str,
-    subtype_id: Optional[str] = None
+    subtype_id: Optional[str] = None,
+    db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     """Get capacity for vehicle (supports subtype)"""
     try:
-        capacity = get_vehicle_capacity(vehicle_type_id, subtype_id)
-        if capacity == 1 and not get_vehicle_by_id(vehicle_type_id):
+        vehicle = await _vehicle_collection(db).find_one({"vehicle_type_id": vehicle_type_id})
+        if not vehicle:
             raise HTTPException(status_code=404, detail="Vehicle type not found")
         
-        vehicle = get_vehicle_by_id(vehicle_type_id)
-        capacity_unit = "passengers" if not vehicle else vehicle.get("capacity_unit", "passengers")
+        capacity = vehicle.get("capacity", 1)
+        if subtype_id:
+            for subtype in vehicle.get("subtypes", []):
+                if subtype.get("id") == subtype_id and subtype.get("capacity"):
+                    capacity = subtype.get("capacity")
+                    break
+        capacity_unit = vehicle.get("capacity_unit", "passengers")
         
         return {
             "vehicle_type_id": vehicle_type_id,
@@ -283,13 +409,27 @@ async def get_capacity(
 # ============================================================================
 
 @router.get("/public/compatibility/by-ride-type", response_model=dict)
-async def get_ride_type_vehicles(ride_type: str = Query(..., description="Ride type: instant|scheduled|rental|airport|corporate|tourism|goods")):
+async def get_ride_type_vehicles(
+    ride_type: str = Query(..., description="Ride type: instant|scheduled|rental|airport|corporate|tourism|goods"),
+    region: Optional[str] = Query(None),
+    district: Optional[str] = Query(None),
+    pincode: Optional[str] = Query(None),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
     """Get all compatible vehicles for a ride type"""
     try:
         if ride_type not in RIDE_TYPE_COMPATIBILITY:
             raise HTTPException(status_code=400, detail=f"Unknown ride type: {ride_type}")
         
-        compatible_vehicles = get_compatible_vehicles(ride_type)
+        query = _availability_query(
+            active_only=True,
+            region=region,
+            district=district,
+            pincode=pincode,
+        )
+        query["allowed_ride_types"] = ride_type
+        vehicle_docs = await _vehicle_collection(db).find(query).to_list(None)
+        compatible_vehicles = [v.get("vehicle_type_id") for v in vehicle_docs if v.get("vehicle_type_id")]
         compatibility_info = RIDE_TYPE_COMPATIBILITY[ride_type]
         
         return {
@@ -310,11 +450,16 @@ async def get_ride_type_vehicles(ride_type: str = Query(..., description="Ride t
 @router.get("/public/compatibility/check", response_model=dict)
 async def check_vehicle_compatibility(
     vehicle_type_id: str = Query(...),
-    ride_type: str = Query(...)
+    ride_type: str = Query(...),
+    db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     """Check if vehicle type supports specific ride type"""
     try:
-        is_compatible = is_vehicle_compatible_with_ride_type(vehicle_type_id, ride_type)
+        vehicle = await _vehicle_collection(db).find_one({"vehicle_type_id": vehicle_type_id})
+        if not vehicle:
+            raise HTTPException(status_code=404, detail="Vehicle type not found")
+
+        is_compatible = ride_type in vehicle.get("allowed_ride_types", [])
         
         if not is_compatible:
             return {
@@ -331,7 +476,7 @@ async def check_vehicle_compatibility(
             "ride_type": ride_type,
             "compatible": True,
             "ride_type_multiplier": multiplier,
-            "special_fields": RIDE_TYPE_COMPATIBILITY[ride_type].get("special_fields", [])
+            "special_fields": RIDE_TYPE_COMPATIBILITY.get(ride_type, {}).get("special_fields", [])
         }
     except Exception as e:
         logger.error(f"Error checking compatibility: {str(e)}")
@@ -341,14 +486,16 @@ async def check_vehicle_compatibility(
 @router.get("/public/fare-config/{vehicle_type_id}", response_model=dict)
 async def get_fare_config(
     vehicle_type_id: str,
-    ride_type: Optional[str] = None
+    ride_type: Optional[str] = None,
+    db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     """Get fare configuration for vehicle (optionally filtered by ride type)"""
     try:
-        if vehicle_type_id not in FARE_CONFIGURATIONS:
+        vehicle = await _vehicle_collection(db).find_one({"vehicle_type_id": vehicle_type_id})
+        if not vehicle and vehicle_type_id not in FARE_CONFIGURATIONS:
             raise HTTPException(status_code=404, detail=f"No fare config for vehicle {vehicle_type_id}")
-        
-        vehicle_config = FARE_CONFIGURATIONS[vehicle_type_id]
+
+        vehicle_config = _vehicle_fare_config(vehicle_type_id, vehicle)
         
         if ride_type:
             if ride_type not in vehicle_config:
@@ -361,12 +508,12 @@ async def get_fare_config(
             return {
                 "vehicle_type_id": vehicle_type_id,
                 "ride_type": ride_type,
-                "fare_config": ride_config
+                "fare_config": _to_plain_dict(ride_config)
             }
         
         return {
             "vehicle_type_id": vehicle_type_id,
-            "fare_config": vehicle_config
+            "fare_config": _to_plain_dict(vehicle_config)
         }
     except HTTPException:
         raise
@@ -379,7 +526,7 @@ async def get_fare_config(
 # ADMIN ENDPOINTS
 # ============================================================================
 
-@router.post("/admin/create", response_model=VehicleTypeResponse, dependencies=[Depends(require_roles(["admin"]))])
+@router.post("/admin/create", response_model=VehicleTypeResponse, dependencies=[Depends(require_roles("admin"))])
 async def create_vehicle(
     payload: VehicleTypeCreate,
     db: AsyncIOMotorDatabase = Depends(get_db),
@@ -388,7 +535,7 @@ async def create_vehicle(
     """Create new vehicle type (admin only)"""
     try:
         # Check if already exists
-        existing = await db.vehicles.find_one({"vehicle_type_id": payload.vehicle_type_id})
+        existing = await _vehicle_collection(db).find_one({"vehicle_type_id": payload.vehicle_type_id})
         if existing:
             raise HTTPException(status_code=400, detail="Vehicle type already exists")
         
@@ -398,10 +545,10 @@ async def create_vehicle(
         vehicle_data["created_at"] = datetime.utcnow()
         vehicle_data["updated_at"] = datetime.utcnow()
         
-        await db.vehicles.insert_one(vehicle_data)
+        await _vehicle_collection(db).insert_one(vehicle_data)
         
         logger.info(f"Created vehicle type: {payload.vehicle_type_id}")
-        return vehicle_data
+        return _serialize_vehicle(vehicle_data)
     except HTTPException:
         raise
     except Exception as e:
@@ -409,7 +556,7 @@ async def create_vehicle(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.put("/admin/{vehicle_type_id}", response_model=VehicleTypeResponse, dependencies=[Depends(require_roles(["admin"]))])
+@router.put("/admin/{vehicle_type_id}", response_model=VehicleTypeResponse, dependencies=[Depends(require_roles("admin"))])
 async def update_vehicle(
     vehicle_type_id: str,
     payload: VehicleTypeUpdate,
@@ -418,27 +565,22 @@ async def update_vehicle(
 ):
     """Update vehicle type (admin only)"""
     try:
-        vehicle = await db.vehicles.find_one({"vehicle_type_id": vehicle_type_id})
+        vehicle = await _vehicle_collection(db).find_one({"vehicle_type_id": vehicle_type_id})
         if not vehicle:
             raise HTTPException(status_code=404, detail="Vehicle type not found")
         
         update_data = {k: v for k, v in payload.dict(exclude_unset=True).items() if v is not None}
         update_data["updated_at"] = datetime.utcnow()
         
-        await db.vehicles.update_one(
+        await _vehicle_collection(db).update_one(
             {"vehicle_type_id": vehicle_type_id},
             {"$set": update_data}
         )
         
-        updated = await db.vehicles.find_one({"vehicle_type_id": vehicle_type_id})
+        updated = await _vehicle_collection(db).find_one({"vehicle_type_id": vehicle_type_id})
         logger.info(f"Updated vehicle type: {vehicle_type_id}")
         
-        return {
-            **{k: v for k, v in updated.items() if k != "_id"},
-            "vehicle_type_id": updated.get("vehicle_type_id"),
-            "created_at": updated.get("created_at", datetime.utcnow()).isoformat(),
-            "updated_at": updated.get("updated_at", datetime.utcnow()).isoformat(),
-        }
+        return _serialize_vehicle(updated)
     except HTTPException:
         raise
     except Exception as e:
@@ -446,7 +588,38 @@ async def update_vehicle(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/admin/{vehicle_type_id}", dependencies=[Depends(require_roles(["admin"]))])
+@router.put("/admin/{vehicle_type_id}/fare-config", response_model=dict, dependencies=[Depends(require_roles("admin"))])
+async def update_vehicle_fare_config(
+    vehicle_type_id: str,
+    payload: FareConfigUpdate,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    current_user = Depends(get_current_user_secure),
+):
+    """Persist fare configuration for a canonical vehicle type."""
+    try:
+        vehicle = await _vehicle_collection(db).find_one({"vehicle_type_id": vehicle_type_id})
+        if not vehicle:
+            raise HTTPException(status_code=404, detail="Vehicle type not found")
+
+        fare_config = _to_plain_dict(payload.fare_config)
+        await _vehicle_collection(db).update_one(
+            {"vehicle_type_id": vehicle_type_id},
+            {"$set": {"fare_config": fare_config, "updated_at": datetime.utcnow()}},
+        )
+
+        return {
+            "status": "success",
+            "vehicle_type_id": vehicle_type_id,
+            "fare_config": fare_config,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating fare config: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/admin/{vehicle_type_id}", dependencies=[Depends(require_roles("admin"))])
 async def delete_vehicle(
     vehicle_type_id: str,
     db: AsyncIOMotorDatabase = Depends(get_db),
@@ -454,12 +627,12 @@ async def delete_vehicle(
 ):
     """Delete/disable vehicle type (admin only)"""
     try:
-        vehicle = await db.vehicles.find_one({"vehicle_type_id": vehicle_type_id})
+        vehicle = await _vehicle_collection(db).find_one({"vehicle_type_id": vehicle_type_id})
         if not vehicle:
             raise HTTPException(status_code=404, detail="Vehicle type not found")
         
         # Soft delete - mark as inactive
-        await db.vehicles.update_one(
+        await _vehicle_collection(db).update_one(
             {"vehicle_type_id": vehicle_type_id},
             {"$set": {"active": False, "updated_at": datetime.utcnow()}}
         )

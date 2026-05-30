@@ -9,6 +9,12 @@ from datetime import datetime
 from enum import Enum
 
 
+# Canonical vehicle type documents live in their own collection. Driver-owned
+# vehicle registrations are operational records and must not share this schema.
+CANONICAL_VEHICLES_COLLECTION = "canonical_vehicle_types"
+LEGACY_CANONICAL_VEHICLES_COLLECTION = "vehicles"
+
+
 class VehicleSubtype(BaseModel):
     """Vehicle subtype variation (e.g., Sedan vs Hatchback for Taxi)"""
     id: str
@@ -26,6 +32,10 @@ class CanonicalVehicleType(BaseModel):
     vehicle_type_id: str = Field(..., description="Unique identifier: auto|taxi|xl|traveller|bus|minitruck|truck")
     name: str = Field(..., description="Display name")
     name_ml: Optional[str] = None  # Malayalam name for regional support
+    translations: Dict[str, Dict[str, str]] = Field(
+        default_factory=dict,
+        description="Localized display strings by language code",
+    )
     icon: str = Field(..., description="Emoji or icon representation")
     description: str = Field(..., description="User-friendly description")
     
@@ -35,6 +45,7 @@ class CanonicalVehicleType(BaseModel):
     
     # Pricing & Multipliers
     base_multiplier: float = Field(..., ge=0.5, le=5.0, description="Fare multiplier vs taxi")
+    fare_config: Optional[Dict] = Field(default=None, description="DB-backed fare config override")
     
     # Ride Type Support
     allowed_ride_types: List[str] = Field(

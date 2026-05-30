@@ -15,7 +15,9 @@ from app.db.deps import get_db
 from app.services.file_upload import file_upload_service
 from app.utils.rbac import require_roles
 
-router = APIRouter(prefix="/api/vehicles", tags=["vehicles"])
+DRIVER_VEHICLE_RECORDS_COLLECTION = "driver_vehicle_records"
+
+router = APIRouter(prefix="/api/driver-vehicle-records", tags=["driver_vehicle_records"])
 logger = logging.getLogger(__name__)
 
 
@@ -99,7 +101,7 @@ async def create_vehicle(
         driver_id = _current_user_id(current_driver)
 
         # Check if driver already has a vehicle (limit to 1 active vehicle)
-        existing = await db.vehicles.find_one({
+        existing = await db[DRIVER_VEHICLE_RECORDS_COLLECTION].find_one({
             "driver_id": driver_id,
             "is_active": True
         })
@@ -131,7 +133,7 @@ async def create_vehicle(
             "updated_at": now
         }
         
-        result = await db.vehicles.insert_one(vehicle_doc)
+        result = await db[DRIVER_VEHICLE_RECORDS_COLLECTION].insert_one(vehicle_doc)
         vehicle_doc["_id"] = result.inserted_id
         
         logger.info(f"Vehicle created: {result.inserted_id} for driver {current_driver['id']}")
@@ -155,7 +157,7 @@ async def list_driver_vehicles(
 ):
     """Get all vehicles for the current driver"""
     try:
-        vehicles = await db.vehicles.find({
+        vehicles = await db[DRIVER_VEHICLE_RECORDS_COLLECTION].find({
             "driver_id": _current_user_id(current_driver)
         }).to_list(None)
         
@@ -177,7 +179,7 @@ async def get_vehicle(
 ):
     """Get a specific vehicle"""
     try:
-        vehicle = await db.vehicles.find_one({
+        vehicle = await db[DRIVER_VEHICLE_RECORDS_COLLECTION].find_one({
             "_id": ObjectId(vehicle_id),
             "driver_id": _current_user_id(current_driver)
         })
@@ -209,7 +211,7 @@ async def update_vehicle(
 ):
     """Update vehicle information"""
     try:
-        vehicle = await db.vehicles.find_one({
+        vehicle = await db[DRIVER_VEHICLE_RECORDS_COLLECTION].find_one({
             "_id": ObjectId(vehicle_id),
             "driver_id": _current_user_id(current_driver)
         })
@@ -237,7 +239,7 @@ async def update_vehicle(
         
         update_data["updated_at"] = datetime.now(timezone.utc)
         
-        updated_vehicle = await db.vehicles.find_one_and_update(
+        updated_vehicle = await db[DRIVER_VEHICLE_RECORDS_COLLECTION].find_one_and_update(
             {"_id": ObjectId(vehicle_id)},
             {"$set": update_data},
             return_document=True
@@ -276,7 +278,7 @@ async def delete_vehicle(
                 detail="Cannot delete vehicle with active rides"
             )
         
-        result = await db.vehicles.delete_one({
+        result = await db[DRIVER_VEHICLE_RECORDS_COLLECTION].delete_one({
             "_id": ObjectId(vehicle_id),
             "driver_id": _current_user_id(current_driver)
         })
@@ -321,7 +323,7 @@ async def upload_vehicle_document(
                 detail=f"Invalid document type. Must be one of: {', '.join(valid_types)}"
             )
 
-        vehicle = await db.vehicles.find_one({
+        vehicle = await db[DRIVER_VEHICLE_RECORDS_COLLECTION].find_one({
             "_id": vehicle_object_id,
             "driver_id": driver_id
         })
@@ -370,7 +372,7 @@ async def upload_vehicle_document(
         }
         
         # Update vehicle with document
-        updated_vehicle = await db.vehicles.find_one_and_update(
+        updated_vehicle = await db[DRIVER_VEHICLE_RECORDS_COLLECTION].find_one_and_update(
             {
                 "_id": vehicle_object_id,
                 "driver_id": driver_id
@@ -410,7 +412,7 @@ async def verify_vehicle(
     """Admin: Verify a vehicle"""
     try:
         # Check documents completeness
-        vehicle = await db.vehicles.find_one({"_id": ObjectId(vehicle_id)})
+        vehicle = await db[DRIVER_VEHICLE_RECORDS_COLLECTION].find_one({"_id": ObjectId(vehicle_id)})
         
         if not vehicle:
             raise HTTPException(
@@ -429,7 +431,7 @@ async def verify_vehicle(
             )
         
         # Verify vehicle
-        updated_vehicle = await db.vehicles.find_one_and_update(
+        updated_vehicle = await db[DRIVER_VEHICLE_RECORDS_COLLECTION].find_one_and_update(
             {"_id": ObjectId(vehicle_id)},
             {
                 "$set": {
@@ -462,7 +464,7 @@ async def check_vehicle_expiry(
 ):
     """Check expiry status of vehicle documents"""
     try:
-        vehicle = await db.vehicles.find_one({
+        vehicle = await db[DRIVER_VEHICLE_RECORDS_COLLECTION].find_one({
             "_id": ObjectId(vehicle_id),
             "driver_id": _current_user_id(current_driver)
         })

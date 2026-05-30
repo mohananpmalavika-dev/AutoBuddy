@@ -23,8 +23,46 @@ import { apiRequest } from '../lib/api';
  * Then tap "Continue" to proceed to BookingDetailsScreen
  */
 
+function getVehicleId(vehicle) {
+  return vehicle?.id || vehicle?.vehicle_type_id;
+}
+
+function normalizeVehicleSubtype(subtype) {
+  if (!subtype) {
+    return null;
+  }
+  if (typeof subtype === 'string') {
+    return { id: subtype, name: subtype };
+  }
+  return {
+    ...subtype,
+    id: subtype.id || subtype.vehicle_subtype_id || subtype.name,
+    name: subtype.name || subtype.label || subtype.id || 'Variant',
+  };
+}
+
+function normalizeVehicleSubtypes(vehicle) {
+  return (vehicle?.subtypes || [])
+    .map(normalizeVehicleSubtype)
+    .filter(Boolean);
+}
+
+function getVehicleDescription(vehicle) {
+  if (vehicle?.description) {
+    return vehicle.description;
+  }
+  if (vehicle?.capacity_unit === 'kg') {
+    return `Up to ${vehicle.capacity}${vehicle.capacity_unit}`;
+  }
+  return `${vehicle?.capacity || 1} ${vehicle?.capacity_unit || 'passengers'}`;
+}
+
 const ServiceSelectionScreen = ({ navigation, route }) => {
+  const pickupRegion = route?.params?.pickup_region;
+  const pickupDistrict = route?.params?.pickup_district;
+  const pickupPincode = route?.params?.pickup_pincode;
   const [selectedVehicleType, setSelectedVehicleType] = useState(null);
+  const [selectedVehicleSubtype, setSelectedVehicleSubtype] = useState(null);
   const [selectedRideType, setSelectedRideType] = useState(null);
   const [vehicleTypes, setVehicleTypes] = useState([]);
   const [filteredVehicles, setFilteredVehicles] = useState([]);
@@ -148,10 +186,17 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
   const fetchCompatibleVehicles = useCallback(async (rideTypeId) => {
     try {
       // Fetch compatibility info from backend
-      const response = await apiRequest({
-        endpoint: `/api/vehicles/public/compatibility/by-ride-type?ride_type=${rideTypeId}`,
-        method: 'GET',
-      });
+      const response = await apiRequest(
+        `/api/vehicles/public/compatibility/by-ride-type?ride_type=${encodeURIComponent(rideTypeId)}`,
+        {
+          method: 'GET',
+          query: {
+            region: pickupRegion,
+            district: pickupDistrict,
+            pincode: pickupPincode,
+          },
+        },
+      );
 
       if (response.success === false) {
         // Fall back to all vehicles if API fails
@@ -165,7 +210,7 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
       
       // Filter vehicles to show only compatible ones
       const filtered = vehicleTypes.filter(v => 
-        compatibleVehicleIds.includes(v.id || v.vehicle_type_id)
+        compatibleVehicleIds.includes(getVehicleId(v))
       );
       
       setFilteredVehicles(filtered.length > 0 ? filtered : vehicleTypes);
@@ -175,21 +220,24 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
       setFilteredVehicles(vehicleTypes);
       setCompatibilityInfo(null);
     }
-  }, [vehicleTypes]);
+  }, [pickupDistrict, pickupPincode, pickupRegion, vehicleTypes]);
 
   const loadServiceData = useCallback(async () => {
     try {
       setLoading(true);
       
       // Fetch available vehicle types from CANONICAL vehicles API
-      const vehiclesResponse = await apiRequest({
-        endpoint: '/api/vehicles/public/all',  // ← Updated to canonical endpoint
+      const vehiclesResponse = await apiRequest('/api/vehicles/public/all', {
         method: 'GET',
+        query: {
+          region: pickupRegion,
+          district: pickupDistrict,
+          pincode: pickupPincode,
+        },
       });
 
       // Fetch available ride types from backend
-      const rideTypesResponse = await apiRequest({
-        endpoint: '/api/ride-types/public/all',
+      const rideTypesResponse = await apiRequest('/api/ride-types/public/all', {
         method: 'GET',
       });
 
@@ -203,7 +251,7 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
     } finally {
       setLoading(false);
     }
-  }, [RIDE_TYPES, VEHICLE_TYPES]);
+  }, [RIDE_TYPES, VEHICLE_TYPES, pickupDistrict, pickupPincode, pickupRegion]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -223,6 +271,14 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
     return undefined;
   }, [fetchCompatibleVehicles, selectedRideType]);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const subtypes = normalizeVehicleSubtypes(selectedVehicleType);
+      setSelectedVehicleSubtype(subtypes[0] || null);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [selectedVehicleType]);
+
   const handleContinue = () => {
     if (!selectedVehicleType) {
       Alert.alert('Please select a vehicle type');
@@ -233,18 +289,27 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
       return;
     }
 
+    const vehicleCapacity =
+      selectedVehicleSubtype?.capacity || selectedVehicleType.capacity || 1;
+
     // Navigate to BookingDetailsScreen with comprehensive service data
     navigation.navigate('BookingDetails', {
       service: {
-        vehicle_type_id: selectedVehicleType.id || selectedVehicleType.vehicle_type_id,
+        vehicle_type_id: getVehicleId(selectedVehicleType),
+        vehicle_subtype_id: selectedVehicleSubtype?.id || null,
+        vehicle_subtype_name: selectedVehicleSubtype?.name || null,
+        vehicle_subtype_capacity: selectedVehicleSubtype?.capacity || null,
         vehicle_name: selectedVehicleType.name,
         vehicle_icon: selectedVehicleType.icon,
-        vehicle_capacity: selectedVehicleType.capacity || 4,
+        vehicle_capacity: vehicleCapacity,
         capacity_unit: selectedVehicleType.capacity_unit || 'passengers',
         ride_type: selectedRideType.id,
         ride_type_name: selectedRideType.name,
         ride_type_icon: selectedRideType.icon,
         special_fields: compatibilityInfo?.special_fields || [],
+        pickup_region: pickupRegion || null,
+        pickup_district: pickupDistrict || null,
+        pickup_pincode: pickupPincode || null,
       }
     });
   };
@@ -293,10 +358,10 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
           <View style={styles.gridContainer}>
             {(selectedRideType ? filteredVehicles : vehicleTypes).map((vehicle) => (
               <TouchableOpacity
-                key={vehicle.id || vehicle.vehicle_type_id}
+                key={getVehicleId(vehicle)}
                 style={[
                   styles.vehicleCard,
-                  (selectedVehicleType?.id === vehicle.id || selectedVehicleType?.vehicle_type_id === vehicle.vehicle_type_id) && styles.vehicleCardSelected,
+                  getVehicleId(selectedVehicleType) === getVehicleId(vehicle) && styles.vehicleCardSelected,
                 ]}
                 onPress={() => setSelectedVehicleType(vehicle)}
               >
@@ -311,12 +376,10 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
 
                 <Text style={styles.vehicleName}>{vehicle.name}</Text>
                 <Text style={styles.vehicleDescription}>
-                  {vehicle.description || vehicle.capacity_unit === 'kg' 
-                    ? `Up to ${vehicle.capacity}${vehicle.capacity_unit}`
-                    : `${vehicle.capacity} ${vehicle.capacity_unit}`}
+                  {getVehicleDescription(vehicle)}
                 </Text>
 
-                {(selectedVehicleType?.id === vehicle.id || selectedVehicleType?.vehicle_type_id === vehicle.vehicle_type_id) && (
+                {getVehicleId(selectedVehicleType) === getVehicleId(vehicle) && (
                   <View style={styles.checkmark}>
                     <Text style={styles.checkmarkText}>✓</Text>
                   </View>
@@ -326,16 +389,27 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
           </View>
 
           {/* Subtypes for selected vehicle */}
-          {selectedVehicleType && selectedVehicleType.subtypes && (
+          {selectedVehicleType && normalizeVehicleSubtypes(selectedVehicleType).length > 0 && (
             <View style={styles.subtypesContainer}>
               <Text style={styles.subtypeTitle}>Vehicle Variants:</Text>
               <View style={styles.subtypesGrid}>
-                {selectedVehicleType.subtypes.map((subtype) => (
+                {normalizeVehicleSubtypes(selectedVehicleType).map((subtype) => (
                   <TouchableOpacity
-                    key={subtype}
-                    style={styles.subtypeChip}
+                    key={subtype.id}
+                    style={[
+                      styles.subtypeChip,
+                      selectedVehicleSubtype?.id === subtype.id && styles.subtypeChipSelected,
+                    ]}
+                    onPress={() => setSelectedVehicleSubtype(subtype)}
                   >
-                    <Text style={styles.subtypeText}>{subtype}</Text>
+                    <Text
+                      style={[
+                        styles.subtypeText,
+                        selectedVehicleSubtype?.id === subtype.id && styles.subtypeTextSelected,
+                      ]}
+                    >
+                      {subtype.name}
+                    </Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -393,6 +467,7 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
                 <Text style={styles.summaryLabel}>Vehicle:</Text>
                 <Text style={styles.summaryValue}>
                   {selectedVehicleType.icon} {selectedVehicleType.name}
+                  {selectedVehicleSubtype?.name ? ` / ${selectedVehicleSubtype.name}` : ''}
                 </Text>
               </View>
               <View style={styles.summaryItem}>
@@ -625,10 +700,19 @@ const styles = StyleSheet.create({
     borderColor: COLORS.secondary,
   },
 
+  subtypeChipSelected: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+
   subtypeText: {
     ...TYPOGRAPHY.caption,
     color: COLORS.secondary,
     fontWeight: '500',
+  },
+
+  subtypeTextSelected: {
+    color: '#fff',
   },
 
   summaryCard: {

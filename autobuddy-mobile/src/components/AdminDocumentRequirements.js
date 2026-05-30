@@ -21,6 +21,10 @@ const AdminDocumentRequirements = ({ isActive = true, onClose }) => {
   const [activeTab, setActiveTab] = useState('requirements');
   const [editingReq, setEditingReq] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState(null);
+  const [userStatusQuery, setUserStatusQuery] = useState('');
+  const [userStatus, setUserStatus] = useState(null);
+  const [userStatusLoading, setUserStatusLoading] = useState(false);
+  const [userStatusError, setUserStatusError] = useState('');
   const [formData, setFormData] = useState({
     document_type: '',
     display_name: '',
@@ -167,6 +171,25 @@ const AdminDocumentRequirements = ({ isActive = true, onClose }) => {
       onCancel: () => setConfirmDialog(null),
     });
   };
+
+  const handleFetchUserStatus = useCallback(async () => {
+    const userId = userStatusQuery.trim();
+    if (!userId) {
+      setUserStatusError('Enter a user ID.');
+      return;
+    }
+    try {
+      setUserStatusLoading(true);
+      setUserStatusError('');
+      const response = await apiRequest(`/admin/documents/user-status/${encodeURIComponent(userId)}`);
+      setUserStatus(response);
+    } catch (error) {
+      setUserStatus(null);
+      setUserStatusError(error.message || 'Failed to load user document status.');
+    } finally {
+      setUserStatusLoading(false);
+    }
+  }, [userStatusQuery]);
 
   const documentTypeLabel = DOCUMENT_TYPES.find(d => d.value === formData.document_type)?.label || 'Select document type';
 
@@ -412,13 +435,72 @@ const AdminDocumentRequirements = ({ isActive = true, onClose }) => {
         )}
 
         {activeTab === 'user-status' && (
-          <View>
+          <View style={styles.statusPanel}>
             <Text style={styles.sectionTitle}>Check User Document Status</Text>
             <Text style={styles.sectionDesc}>Search for a user ID to view their document upload status</Text>
-            {/* This would typically have a user search and status display */}
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyStateText}>User status view coming soon</Text>
+            <View style={styles.statusSearchRow}>
+              <TextInput
+                style={[styles.input, styles.statusSearchInput]}
+                value={userStatusQuery}
+                onChangeText={setUserStatusQuery}
+                placeholder="User ID"
+                autoCapitalize="none"
+              />
+              <TouchableOpacity
+                style={[styles.statusSearchBtn, userStatusLoading && styles.statusSearchBtnDisabled]}
+                onPress={handleFetchUserStatus}
+                disabled={userStatusLoading}
+              >
+                <Text style={styles.statusSearchBtnText}>
+                  {userStatusLoading ? 'Checking...' : 'Check'}
+                </Text>
+              </TouchableOpacity>
             </View>
+            {!!userStatusError && <Text style={styles.errorText}>{userStatusError}</Text>}
+            {userStatus ? (
+              <View style={styles.statusCard}>
+                <View style={styles.statusHeaderRow}>
+                  <Text style={styles.statusTitle}>{userStatus.user_id}</Text>
+                  <Text style={[
+                    styles.statusBadge,
+                    userStatus.can_use_services ? styles.statusBadgeOk : styles.statusBadgeBlocked,
+                  ]}>
+                    {String(userStatus.status || 'unknown').replace(/_/g, ' ')}
+                  </Text>
+                </View>
+                <View style={styles.statusStatsRow}>
+                  <Text style={styles.statusStatText}>
+                    Uploaded {userStatus.documents_uploaded || 0}/{userStatus.documents_required || 0}
+                  </Text>
+                  <Text style={styles.statusStatText}>
+                    Grace {userStatus.days_remaining || 0} days
+                  </Text>
+                </View>
+                <Text style={styles.statusServiceText}>
+                  Service access: {userStatus.can_use_services ? 'Allowed' : 'Blocked'}
+                </Text>
+                {(userStatus.requirements || []).map((req) => (
+                  <View key={req.document_type} style={styles.requirementStatusRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.requirementStatusTitle}>{req.display_name}</Text>
+                      <Text style={styles.requirementStatusMeta}>
+                        {req.is_mandatory ? 'Mandatory' : 'Optional'} - {req.verified ? 'Verified' : req.uploaded ? 'Uploaded' : 'Missing'}
+                      </Text>
+                    </View>
+                    <Text style={[
+                      styles.requirementStatusPill,
+                      req.uploaded ? styles.requirementStatusPillOk : styles.requirementStatusPillMissing,
+                    ]}>
+                      {req.uploaded ? 'Done' : 'Missing'}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyStateText}>Enter a user ID to check document compliance</Text>
+              </View>
+            )}
           </View>
         )}
       </ScrollView>
@@ -710,6 +792,120 @@ const styles = StyleSheet.create({
   emptyStateText: {
     fontSize: 14,
     color: COLORS.textSecondary,
+  },
+  statusPanel: {
+    gap: 12,
+  },
+  statusSearchRow: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+  },
+  statusSearchInput: {
+    flex: 1,
+  },
+  statusSearchBtn: {
+    minWidth: 92,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: COLORS.primary,
+    alignItems: 'center',
+  },
+  statusSearchBtnDisabled: {
+    opacity: 0.7,
+  },
+  statusSearchBtnText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  errorText: {
+    color: COLORS.danger,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  statusCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 8,
+    padding: 14,
+    ...SHADOWS.small,
+  },
+  statusHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 12,
+  },
+  statusTitle: {
+    flex: 1,
+    color: COLORS.text,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  statusBadge: {
+    borderRadius: 6,
+    overflow: 'hidden',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'capitalize',
+  },
+  statusBadgeOk: {
+    backgroundColor: '#2E7D32',
+  },
+  statusBadgeBlocked: {
+    backgroundColor: COLORS.danger,
+  },
+  statusStatsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  statusStatText: {
+    color: COLORS.textSecondary,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  statusServiceText: {
+    color: COLORS.text,
+    fontSize: 13,
+    marginBottom: 12,
+  },
+  requirementStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+  },
+  requirementStatusTitle: {
+    color: COLORS.text,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  requirementStatusMeta: {
+    color: COLORS.textSecondary,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  requirementStatusPill: {
+    borderRadius: 6,
+    overflow: 'hidden',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  requirementStatusPillOk: {
+    backgroundColor: '#2E7D32',
+  },
+  requirementStatusPillMissing: {
+    backgroundColor: COLORS.danger,
   },
   sectionTitle: {
     fontSize: 16,

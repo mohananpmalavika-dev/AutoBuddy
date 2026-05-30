@@ -7,8 +7,9 @@ from fastapi.security import HTTPBearer
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pydantic import BaseModel, Field
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional, Literal
+from typing import Any, Dict, List, Optional, Literal
 from bson import ObjectId
+import calendar
 import logging
 
 from app.db.deps import get_db
@@ -67,12 +68,31 @@ class ScheduledRideResponse(BaseModel):
     is_recurring: bool
     recurring_pattern: Optional[str]
     recurring_end_date: Optional[datetime]
+    recurring_days: Optional[List[int]] = None
+    recurring_template_id: Optional[str] = None
+    recurring_rule: Optional[Dict[str, Any]] = None
     ride_id: Optional[str]  # Actual ride created from schedule
     created_at: datetime
     updated_at: datetime
 
     class Config:
         from_attributes = True
+
+
+class RecurringScheduledRideTemplateResponse(BaseModel):
+    id: str
+    passenger_id: str
+    pickup_location: Location
+    dropoff_location: Location
+    trip_type: str
+    preferred_payment: str
+    recurring_pattern: str
+    recurring_days: Optional[List[int]] = None
+    recurring_end_date: datetime
+    next_scheduled_time: Optional[datetime] = None
+    active: bool
+    created_at: datetime
+    updated_at: datetime
 
 
 # Endpoints
@@ -92,20 +112,49 @@ async def create_scheduled_ride(
                 detail="Scheduled time must be in the future"
             )
         
-        # Validate recurring options
+        recurring_pattern = ride.recurring_pattern
+        recurring_end_date = ride.recurring_end_date
+        recurring_days = ride.recurring_days
+        recurring_template_id = None
         if ride.is_recurring:
-            if not ride.recurring_pattern:
+            recurring_pattern = recurring_pattern or "weekly"
+            recurring_end_date = recurring_end_date or (ride.scheduled_time + timedelta(weeks=12))
+            if recurring_pattern == "weekly":
+                recurring_days = recurring_days or [ride.scheduled_time.weekday()]
+            if recurring_end_date <= ride.scheduled_time:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="recurring_pattern is required when is_recurring=true"
-                )
-            if ride.recurring_pattern == "weekly" and not ride.recurring_days:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="recurring_days is required for weekly recurring rides"
+                    detail="recurring_end_date must be after scheduled_time"
                 )
         
         passenger_id = _current_user_id(current_passenger)
+        recurring_rule = None
+        if ride.is_recurring:
+            recurring_template_id = str(ObjectId())
+            recurring_rule = {
+                "pattern": recurring_pattern,
+                "days": recurring_days or [],
+                "starts_at": ride.scheduled_time,
+                "ends_at": recurring_end_date,
+                "timezone": "UTC",
+            }
+            await db.recurring_scheduled_ride_templates.insert_one({
+                "_id": ObjectId(recurring_template_id),
+                "passenger_id": passenger_id,
+                "pickup_location": ride.pickup_location.model_dump(),
+                "dropoff_location": ride.dropoff_location.model_dump(),
+                "trip_type": ride.trip_type,
+                "estimated_fare": ride.estimated_fare,
+                "preferred_payment": ride.preferred_payment,
+                "notes": ride.notes,
+                "recurring_pattern": recurring_pattern,
+                "recurring_days": recurring_days,
+                "recurring_end_date": recurring_end_date,
+                "next_scheduled_time": ride.scheduled_time,
+                "active": True,
+                "created_at": now,
+                "updated_at": now,
+            })
 
         # Create scheduled ride document
         scheduled_ride = {
@@ -119,9 +168,11 @@ async def create_scheduled_ride(
             "status": "pending",
             "notes": ride.notes,
             "is_recurring": ride.is_recurring,
-            "recurring_pattern": ride.recurring_pattern,
-            "recurring_end_date": ride.recurring_end_date,
-            "recurring_days": ride.recurring_days,
+            "recurring_pattern": recurring_pattern,
+            "recurring_end_date": recurring_end_date,
+            "recurring_days": recurring_days,
+            "recurring_template_id": recurring_template_id,
+            "recurring_rule": recurring_rule,
             "ride_id": None,
             "created_at": now,
             "updated_at": now
@@ -177,6 +228,51 @@ async def list_scheduled_rides(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve scheduled rides"
         )
+
+
+@router.get("/recurring-templates", response_model=List[RecurringScheduledRideTemplateResponse])
+async def list_recurring_templates(
+    current_passenger: dict = Depends(require_roles("passenger")),
+    active_only: bool = Query(True),
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    """List recurring scheduled ride templates/rules for the current passenger"""
+    query = {"passenger_id": _current_user_id(current_passenger)}
+    if active_only:
+        query["active"] = True
+    templates = await db.recurring_scheduled_ride_templates.find(query)\
+        .sort("updated_at", -1)\
+        .to_list(100)
+    return [_format_template(template) for template in templates]
+
+
+@router.delete("/recurring-templates/{template_id}")
+async def deactivate_recurring_template(
+    template_id: str,
+    current_passenger: dict = Depends(require_roles("passenger")),
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    """Deactivate a recurring template and cancel future pending occurrences"""
+    if not ObjectId.is_valid(template_id):
+        raise HTTPException(status_code=400, detail="Invalid recurring template ID")
+    passenger_id = _current_user_id(current_passenger)
+    now = datetime.now(timezone.utc)
+    result = await db.recurring_scheduled_ride_templates.update_one(
+        {"_id": ObjectId(template_id), "passenger_id": passenger_id},
+        {"$set": {"active": False, "updated_at": now}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Recurring template not found")
+    await db.scheduled_rides.update_many(
+        {
+            "passenger_id": passenger_id,
+            "recurring_template_id": template_id,
+            "status": {"$in": ["pending", "confirmed"]},
+            "scheduled_time": {"$gte": now},
+        },
+        {"$set": {"status": "cancelled", "updated_at": now}},
+    )
+    return {"status": "deactivated", "template_id": template_id}
 
 
 @router.get("/{ride_id}", response_model=ScheduledRideResponse)
@@ -369,10 +465,52 @@ def _format_ride(ride: dict) -> ScheduledRideResponse:
         is_recurring=ride.get("is_recurring", False),
         recurring_pattern=ride.get("recurring_pattern"),
         recurring_end_date=ride.get("recurring_end_date"),
+        recurring_days=ride.get("recurring_days"),
+        recurring_template_id=ride.get("recurring_template_id"),
+        recurring_rule=ride.get("recurring_rule"),
         ride_id=ride.get("ride_id"),
         created_at=ride.get("created_at"),
         updated_at=ride.get("updated_at")
     )
+
+
+def _format_template(template: dict) -> RecurringScheduledRideTemplateResponse:
+    return RecurringScheduledRideTemplateResponse(
+        id=str(template.get("_id", "")),
+        passenger_id=str(template.get("passenger_id", "")),
+        pickup_location=Location(**template.get("pickup_location", {})),
+        dropoff_location=Location(**template.get("dropoff_location", {})),
+        trip_type=template.get("trip_type", "ride"),
+        preferred_payment=template.get("preferred_payment", "wallet"),
+        recurring_pattern=template.get("recurring_pattern", "weekly"),
+        recurring_days=template.get("recurring_days"),
+        recurring_end_date=template.get("recurring_end_date"),
+        next_scheduled_time=template.get("next_scheduled_time"),
+        active=bool(template.get("active", True)),
+        created_at=template.get("created_at"),
+        updated_at=template.get("updated_at"),
+    )
+
+
+def _advance_recurring_time(current: datetime, scheduled_ride: dict) -> datetime:
+    pattern = scheduled_ride.get("recurring_pattern")
+    if pattern == "daily":
+        return current + timedelta(days=1)
+    if pattern == "weekly":
+        days = sorted(int(day) for day in (scheduled_ride.get("recurring_days") or [current.weekday()]))
+        next_time = current + timedelta(days=1)
+        while next_time.weekday() not in days:
+            next_time += timedelta(days=1)
+        return next_time
+    if pattern == "monthly":
+        next_month = current.month + 1
+        next_year = current.year
+        if next_month > 12:
+            next_month = 1
+            next_year += 1
+        last_day = calendar.monthrange(next_year, next_month)[1]
+        return current.replace(year=next_year, month=next_month, day=min(current.day, last_day))
+    return current + timedelta(weeks=1)
 
 
 async def _schedule_recurring_rides(scheduled_ride: dict, db: AsyncIOMotorDatabase):
@@ -388,18 +526,7 @@ async def _schedule_recurring_rides(scheduled_ride: dict, db: AsyncIOMotorDataba
     recurring_rides = []
     
     while current <= end_date:
-        if pattern == "daily":
-            current = current + timedelta(days=1)
-        elif pattern == "weekly":
-            days = scheduled_ride.get("recurring_days", [])
-            current = current + timedelta(days=1)
-            while current.weekday() not in days:
-                current = current + timedelta(days=1)
-        elif pattern == "monthly":
-            if current.month == 12:
-                current = current.replace(year=current.year + 1, month=1)
-            else:
-                current = current.replace(month=current.month + 1)
+        current = _advance_recurring_time(current, scheduled_ride)
         
         if current <= end_date:
             recurring_ride = {
@@ -415,7 +542,10 @@ async def _schedule_recurring_rides(scheduled_ride: dict, db: AsyncIOMotorDataba
                 "is_recurring": True,
                 "recurring_pattern": pattern,
                 "recurring_end_date": end_date,
-                "parent_id": ObjectId(scheduled_ride["_id"]),
+                "recurring_days": scheduled_ride.get("recurring_days"),
+                "recurring_template_id": scheduled_ride.get("recurring_template_id"),
+                "recurring_rule": scheduled_ride.get("recurring_rule"),
+                "parent_id": scheduled_ride["_id"] if isinstance(scheduled_ride.get("_id"), ObjectId) else ObjectId(scheduled_ride["_id"]),
                 "ride_id": None,
                 "created_at": datetime.now(timezone.utc),
                 "updated_at": datetime.now(timezone.utc)

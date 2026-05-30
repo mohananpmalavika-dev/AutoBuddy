@@ -1,6 +1,6 @@
 """
 MIGRATION SCRIPT: Consolidate Vehicle Data to Canonical Model
-Purpose: Migrate existing vehicle data from multiple sources to unified canonical_vehicles collection
+Purpose: Migrate existing vehicle data from multiple sources to unified canonical_vehicle_types collection
 
 This script:
 1. Maps old vehicle types to new canonical IDs
@@ -20,6 +20,9 @@ from pymongo import errors
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+CANONICAL_VEHICLES_COLLECTION = "canonical_vehicle_types"
+LEGACY_CANONICAL_VEHICLES_COLLECTION = "vehicles"
 
 # ============================================================================
 # MAPPING: Old → Canonical Vehicle Types
@@ -140,16 +143,17 @@ async def migrate_driver_vehicles(db: AsyncIOMotorDatabase) -> int:
 
 
 async def validate_canonical_vehicles(db: AsyncIOMotorDatabase) -> bool:
-    """Validate canonical vehicles collection"""
+    """Validate canonical vehicle types collection"""
     try:
         expected_types = ["auto", "taxi", "xl", "traveller", "bus", "minitruck", "truck"]
         
-        count = await db.vehicles.count_documents({})
-        logger.info(f"Canonical vehicles collection has {count} documents")
+        collection = db[CANONICAL_VEHICLES_COLLECTION]
+        count = await collection.count_documents({})
+        logger.info(f"{CANONICAL_VEHICLES_COLLECTION} has {count} documents")
         
         missing = []
         for vtype in expected_types:
-            doc = await db.vehicles.find_one({"vehicle_type_id": vtype})
+            doc = await collection.find_one({"vehicle_type_id": vtype})
             if not doc:
                 missing.append(vtype)
         
@@ -174,7 +178,7 @@ async def print_migration_summary(db: AsyncIOMotorDatabase):
         # Count documents in key collections
         vehicle_types_count = await db.vehicle_types.count_documents({})
         vehicle_types_ext_count = await db.vehicle_types_extended.count_documents({})
-        canonical_count = await db.vehicles.count_documents({})
+        canonical_count = await db[CANONICAL_VEHICLES_COLLECTION].count_documents({})
         fleet_vehicles_count = await db.fleet_vehicles.count_documents({})
         drivers_with_vehicle = await db.users.count_documents({"role": "driver", "vehicle_type": {"$exists": True}})
         
@@ -183,14 +187,17 @@ async def print_migration_summary(db: AsyncIOMotorDatabase):
         print(f"  • vehicle_types_extended: {vehicle_types_ext_count} documents")
         
         print(f"\nCanonical system:")
-        print(f"  • vehicles (canonical):   {canonical_count} documents")
+        print(f"  • {CANONICAL_VEHICLES_COLLECTION}: {canonical_count} documents")
         
         print(f"\nMigrated data:")
         print(f"  • fleet_vehicles:        {fleet_vehicles_count} documents")
         print(f"  • drivers with vehicles: {drivers_with_vehicle} documents")
         
         # Sample canonical vehicles
-        sample = await db.vehicles.find({}, {"vehicle_type_id": 1, "name": 1, "base_multiplier": 1}).to_list(None)
+        sample = await db[CANONICAL_VEHICLES_COLLECTION].find(
+            {},
+            {"vehicle_type_id": 1, "name": 1, "base_multiplier": 1}
+        ).to_list(None)
         print(f"\nCanonical vehicle types:")
         for v in sample:
             print(f"  • {v.get('vehicle_type_id')}: {v.get('name')} ({v.get('base_multiplier')}x)")
@@ -220,7 +227,7 @@ async def run_migration():
         await backup_collection(db, "users")
         
         # Step 2: Validate canonical vehicles exist
-        logger.info("\nStep 2: Validating canonical vehicles collection...")
+        logger.info(f"\nStep 2: Validating {CANONICAL_VEHICLES_COLLECTION} collection...")
         valid = await validate_canonical_vehicles(db)
         if not valid:
             logger.warning("Canonical vehicles validation found issues, but continuing...")

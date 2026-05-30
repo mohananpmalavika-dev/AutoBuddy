@@ -25,6 +25,7 @@ from app.schemas.auth import (
     UserResponse,
 )
 from app.services.audit_service import write_audit_log
+from app.services.email_delivery import send_otp_email_message
 from app.services import driver_trust_service, revenue_service
 from app.state.runtime_state import RuntimeStateStore
 from app.utils.security import (
@@ -44,7 +45,7 @@ except Exception:  # pragma: no cover
     google_id_token = None
 
 logger = logging.getLogger("autobuddy.auth_service")
-VALID_USER_ROLES = {"passenger", "driver", "admin"}
+VALID_USER_ROLES = {"passenger", "driver", "operator", "admin"}
 
 
 async def _audit_auth_event(
@@ -114,6 +115,34 @@ async def _store_refresh_token(
     )
 
 
+def build_default_operator_profile(user_id: str, user: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    source = user or {}
+    return {
+        "operator_id": user_id,
+        "company_name": f"{str(source.get('name') or 'AutoBuddy').strip()} Fleet",
+        "contact_name": str(source.get("name") or "").strip(),
+        "contact_email": str(source.get("email") or "").strip().lower(),
+        "contact_phone": str(source.get("phone") or "").strip(),
+        "service_regions": ["all"],
+        "verification_status": "pending",
+        "active": True,
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow(),
+    }
+
+
+async def ensure_operator_profile(
+    db: AsyncIOMotorDatabase,
+    user_id: str,
+    user: Optional[Dict[str, Any]] = None,
+) -> None:
+    await db.operator_profiles.update_one(
+        {"operator_id": user_id},
+        {"$setOnInsert": build_default_operator_profile(user_id, user)},
+        upsert=True,
+    )
+
+
 async def _revoke_refresh_token(db: AsyncIOMotorDatabase, refresh_token: str) -> None:
     await db.refresh_tokens.update_one(
         {"token_hash": _hash_refresh_token(refresh_token)},
@@ -121,12 +150,20 @@ async def _revoke_refresh_token(db: AsyncIOMotorDatabase, refresh_token: str) ->
     )
 
 
+def _role_value(raw_role: Any) -> str:
+    raw_value = getattr(raw_role, "value", raw_role)
+    normalized = str(raw_value or "passenger").strip().lower()
+    if "." in normalized:
+        normalized = normalized.split(".")[-1]
+    return normalized
+
+
 def _build_user_response(user: Dict[str, Any]) -> UserResponse:
     user_id = str(user.get("id") or "").strip()
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid account data. Please contact support.")
 
-    role = str(user.get("role") or "passenger").strip().lower()
+    role = _role_value(user.get("role"))
     if role not in VALID_USER_ROLES:
         logger.warning("Unexpected user role '%s' for user_id=%s; defaulting to passenger", role, user_id)
         role = "passenger"
@@ -157,7 +194,7 @@ def _build_user_response(user: Dict[str, Any]) -> UserResponse:
 
 
 def _normalize_user_role(raw_role: Any) -> str:
-    role = str(raw_role or "passenger").strip().lower()
+    role = _role_value(raw_role)
     return role if role in VALID_USER_ROLES else "passenger"
 
 
@@ -176,7 +213,7 @@ def _auth_response_for_user(
 ) -> AuthResponse:
     user_id = _normalize_user_id(user.get("id"))
 
-    role = str(user.get("role") or "passenger").strip().lower()
+    role = _role_value(user.get("role"))
     if role not in VALID_USER_ROLES:
         role = "passenger"
     token = create_access_token(user_id, role, settings)
@@ -215,8 +252,9 @@ async def register(
         raise HTTPException(status_code=400, detail="Email OTP is required for registration")
     await _consume_email_otp(runtime_state, normalized_email, user_data.email_otp)
 
+    role_value = _normalize_user_role(user_data.role)
     registration_fee_settings = await legacy.get_registration_fee_settings()
-    required_registration_fee = legacy.get_registration_fee_for_role(registration_fee_settings, user_data.role)
+    required_registration_fee = legacy.get_registration_fee_for_role(registration_fee_settings, role_value)
     legacy.validate_registration_payment_details(
         settings=registration_fee_settings,
         required_fee=required_registration_fee,
@@ -239,7 +277,7 @@ async def register(
         "email": normalized_email,
         "name": user_data.name,
         "phone": normalized_phone,
-        "role": user_data.role,
+        "role": role_value,
         "gender": user_data.gender.value if isinstance(user_data.gender, Gender) else str(user_data.gender),
         "password_hash": hash_password(user_data.password),
         "created_at": datetime.utcnow(),
@@ -252,9 +290,11 @@ async def register(
     }
     await db.users.insert_one(user_dict)
 
-    if str(user_data.role) == "driver":
+    if role_value == "driver":
         driver_profile = legacy.build_default_driver_profile(user_id)
         await db.drivers.update_one({"user_id": user_id}, {"$setOnInsert": driver_profile}, upsert=True)
+    elif role_value == "operator":
+        await ensure_operator_profile(db, user_id, user_dict)
 
     try:
         referral = await revenue_service.create_referral_if_missing(db, user_dict)
@@ -267,10 +307,11 @@ async def register(
     except Exception:
         await db.users.delete_one({"id": user_id})
         await db.drivers.delete_one({"user_id": user_id})
+        await db.operator_profiles.delete_one({"operator_id": user_id})
         await db.referrals.delete_one({"user_id": user_id})
         raise
 
-    refresh_token = create_refresh_token(user_dict["id"], str(user_dict["role"]), str(uuid.uuid4()), settings)
+    refresh_token = create_refresh_token(user_dict["id"], role_value, str(uuid.uuid4()), settings)
     await _store_refresh_token(
         db=db,
         user_id=user_dict["id"],
@@ -322,9 +363,7 @@ async def login(
 
 
 def _normalize_role_for_response(raw_role: Any) -> str:
-    normalized = str(raw_role or "").strip().lower()
-    if "." in normalized:
-        normalized = normalized.split(".")[-1]
+    normalized = _role_value(raw_role)
     return normalized if normalized in VALID_USER_ROLES else "passenger"
 
 
@@ -458,7 +497,9 @@ async def login_rescue_path(
             redis_client=None,
             driver_user_id=user_id,
         )
-    if normalized_role != str(user.get("role") or "").strip().lower():
+    elif normalized_role == "operator":
+        await ensure_operator_profile(db, user_id, user)
+    if normalized_role != _role_value(user.get("role")):
         try:
             await db.users.update_one({"_id": user.get("_id")}, {"$set": {"role": normalized_role}})
         except Exception:
@@ -572,7 +613,9 @@ async def _login_primary(
             redis_client=None,
             driver_user_id=user_id,
         )
-    if normalized_role != str(user.get("role") or "").strip().lower():
+    elif normalized_role == "operator":
+        await ensure_operator_profile(db, user_id, user)
+    if normalized_role != _role_value(user.get("role")):
         try:
             await db.users.update_one({"id": user_id}, {"$set": {"role": normalized_role}})
             user["role"] = normalized_role
@@ -657,6 +700,8 @@ async def _login_compatibility_fallback(
             redis_client=None,
             driver_user_id=user_id,
         )
+    elif role == "operator":
+        await ensure_operator_profile(db, user_id, user)
     try:
         await runtime_state.clear_login_attempts(client_ip)
     except Exception:
@@ -728,8 +773,9 @@ async def google_login(
         if not payload.gender:
             raise HTTPException(status_code=400, detail="Gender is required for Google registration")
 
+        role_value = _normalize_user_role(payload.role)
         registration_fee_settings = await legacy.get_registration_fee_settings()
-        required_registration_fee = legacy.get_registration_fee_for_role(registration_fee_settings, payload.role)
+        required_registration_fee = legacy.get_registration_fee_for_role(registration_fee_settings, role_value)
         legacy.validate_registration_payment_details(
             settings=registration_fee_settings,
             required_fee=required_registration_fee,
@@ -742,11 +788,13 @@ async def google_login(
         user = await legacy.create_user_for_social_or_otp(
             name=str(payload.name or profile_name or "").strip(),
             phone=phone,
-            role=payload.role,
+            role=role_value,
             gender=payload.gender,
             email=profile_email,
         )
         created_new_user = True
+        if role_value == "operator":
+            await ensure_operator_profile(db, str(user.get("id") or ""), user)
 
         if required_registration_fee > 0:
             await db.users.update_one(
@@ -776,6 +824,7 @@ async def google_login(
         if created_new_user:
             await db.users.delete_one({"id": str(user.get("id") or "")})
             await db.drivers.delete_one({"user_id": str(user.get("id") or "")})
+            await db.operator_profiles.delete_one({"operator_id": str(user.get("id") or "")})
             await db.referrals.delete_one({"user_id": str(user.get("id") or "")})
         raise
 
@@ -783,6 +832,8 @@ async def google_login(
         raise HTTPException(status_code=403, detail="Registration payment verification is in progress")
 
     user_id = _normalize_user_id(user.get("id"))
+    if _normalize_user_role(user.get("role")) == "operator":
+        await ensure_operator_profile(db, user_id, user)
     refresh_token = create_refresh_token(user_id, _normalize_user_role(user.get("role")), str(uuid.uuid4()), settings)
     await _store_refresh_token(
         db=db,
@@ -827,8 +878,16 @@ async def send_email_otp(
     email = normalize_email(payload.email)
     otp_code = f"{random.randint(100000, 999999)}"
     await runtime_state.store_email_otp(email, otp_code)
+    try:
+        delivered = await send_otp_email_message(
+            recipient_email=email,
+            otp_code=otp_code,
+            production=settings.is_production_env,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return OtpSendResponse(
-        message="Email OTP sent successfully",
+        message="Email OTP sent successfully" if delivered else "Email OTP generated for development",
         expires_in_seconds=max(60, settings.otp_expiry_minutes * 60),
         otp_demo=otp_code if settings.environment != "production" else None,
     )
@@ -851,7 +910,7 @@ async def verify_otp(
         user = await legacy.create_user_for_social_or_otp(
             name=payload.name or "OTP User",
             phone=phone,
-            role=payload.role,
+            role=_normalize_user_role(payload.role),
             email=generated_email,
         )
     referral = await revenue_service.create_referral_if_missing(db, user)

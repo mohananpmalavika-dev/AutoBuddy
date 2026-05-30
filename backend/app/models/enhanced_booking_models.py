@@ -3,8 +3,8 @@ ENHANCED BOOKING PAYLOAD MODELS - All Vehicle Types
 Extends basic booking to support vehicle-specific fields, ride types, and fare breakdown
 """
 
-from pydantic import BaseModel, Field, validator
-from typing import List, Optional, Dict
+from pydantic import BaseModel, Field, model_validator, validator
+from typing import Any, List, Optional, Dict
 from datetime import datetime
 from enum import Enum
 
@@ -30,7 +30,7 @@ class GoodsDetails(BaseModel):
 
 class AirportDetails(BaseModel):
     """Airport transfer specific details"""
-    airport_code: str = Field(..., min_length=3, max_length=10, description="IATA code")
+    airport_code: Optional[str] = Field(default=None, min_length=3, max_length=10, description="IATA code")
     terminal: Optional[str] = Field(default=None, description="Terminal number")
     flight_number: Optional[str] = Field(default=None, description="Flight number")
     flight_datetime: Optional[datetime] = Field(default=None, description="Flight time")
@@ -39,7 +39,7 @@ class AirportDetails(BaseModel):
 class RentalDetails(BaseModel):
     """Rental service specific details"""
     rental_hours: float = Field(..., ge=1, le=168, description="Rental duration in hours")
-    rental_start_datetime: datetime = Field(..., description="Start time of rental")
+    rental_start_datetime: Optional[datetime] = Field(default=None, description="Start time of rental")
     with_driver: bool = Field(default=True, description="Include driver service")
     max_km_allowance: Optional[float] = Field(default=None, description="Max km allowed in rental")
 
@@ -59,6 +59,9 @@ class EnhancedBookingRequest(BaseModel):
     pickup_location: str = Field(..., description="Pickup address")
     pickup_latitude: float = Field(..., description="Pickup latitude")
     pickup_longitude: float = Field(..., description="Pickup longitude")
+    pickup_region: Optional[str] = Field(default=None, description="Optional pickup state/region token")
+    pickup_district: Optional[str] = Field(default=None, description="Optional pickup district token")
+    pickup_pincode: Optional[str] = Field(default=None, description="Optional pickup pincode token")
     dropoff_location: str = Field(..., description="Dropoff address")
     dropoff_latitude: float = Field(..., description="Dropoff latitude")
     dropoff_longitude: float = Field(..., description="Dropoff longitude")
@@ -87,12 +90,71 @@ class EnhancedBookingRequest(BaseModel):
     # Accessibility & Preferences
     wheelchair_accessible: bool = Field(default=False, description="Need wheelchair accessible vehicle")
     ac_required: bool = Field(default=True, description="Air conditioning required")
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_flat_ride_details(cls, values: Any) -> Any:
+        if not isinstance(values, dict):
+            return values
+
+        ride_type_raw = values.get("ride_type")
+        ride_type = ride_type_raw.value if isinstance(ride_type_raw, RideType) else ride_type_raw
+        scheduled_datetime = values.get("scheduled_datetime")
+
+        if ride_type == RideType.GOODS.value and not values.get("goods_details"):
+            if any(key in values for key in ("goods_weight_kg", "goods_type", "loading_help_required", "special_handling")):
+                values["goods_details"] = {
+                    "goods_weight_kg": values.get("goods_weight_kg"),
+                    "goods_type": values.get("goods_type") or "package",
+                    "loading_help_required": values.get("loading_help_required", False),
+                    "special_handling": values.get("special_handling"),
+                }
+
+        if ride_type == RideType.AIRPORT.value and not values.get("airport_details"):
+            if any(key in values for key in ("airport_code", "airport_terminal", "terminal", "flight_number", "flight_datetime")):
+                values["airport_details"] = {
+                    "airport_code": values.get("airport_code"),
+                    "terminal": values.get("airport_terminal") or values.get("terminal"),
+                    "flight_number": values.get("flight_number"),
+                    "flight_datetime": values.get("flight_datetime"),
+                }
+
+        if ride_type == RideType.RENTAL.value and not values.get("rental_details"):
+            if "rental_hours" in values:
+                values["rental_details"] = {
+                    "rental_hours": values.get("rental_hours"),
+                    "rental_start_datetime": values.get("rental_start_datetime") or scheduled_datetime,
+                    "with_driver": values.get("with_driver", True),
+                    "max_km_allowance": values.get("max_km_allowance"),
+                }
+
+        if ride_type == RideType.TOURISM.value and not values.get("tourism_details"):
+            if any(key in values for key in ("tour_hours", "tour_itinerary", "return_location")):
+                values["tourism_details"] = {
+                    "tour_hours": values.get("tour_hours"),
+                    "tour_itinerary": values.get("tour_itinerary"),
+                    "return_location": values.get("return_location"),
+                }
+
+        return values
     
     @validator('passenger_count')
     def validate_passenger_count(cls, v):
         if v is None:
             return 1
         return v
+
+    @model_validator(mode="after")
+    def validate_required_ride_details(self):
+        if self.ride_type == RideType.GOODS and self.goods_details is None:
+            raise ValueError("goods_details is required for goods bookings")
+        if self.ride_type == RideType.AIRPORT and self.airport_details is None:
+            raise ValueError("airport_details is required for airport bookings")
+        if self.ride_type == RideType.RENTAL and self.rental_details is None:
+            raise ValueError("rental_details is required for rental bookings")
+        if self.ride_type == RideType.TOURISM and self.tourism_details is None:
+            raise ValueError("tourism_details is required for tourism bookings")
+        return self
 
 
 class FareBreakdown(BaseModel):
@@ -204,6 +266,9 @@ class BookingFareEstimateRequest(BaseModel):
     
     pickup_latitude: float
     pickup_longitude: float
+    pickup_region: Optional[str] = None
+    pickup_district: Optional[str] = None
+    pickup_pincode: Optional[str] = None
     dropoff_latitude: float
     dropoff_longitude: float
     

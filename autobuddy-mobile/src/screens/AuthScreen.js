@@ -23,7 +23,7 @@ import WebCommandBar from '../components/WebCommandBar';
 import VoiceTextInput from '../components/VoiceTextInput';
 
 const LAUNCH_BANNER_SOURCE = require('../../assets/images/autobuddy-login-hero.jpg');
-const ROLE_OPTIONS = ['passenger', 'driver'];
+const ROLE_OPTIONS = ['passenger', 'driver', 'operator'];
 const GENDER_OPTIONS = ['male', 'female', 'other'];
 const AUTH_METHODS = [
   { key: 'password', label: 'Password' },
@@ -111,6 +111,7 @@ export default function AuthScreen({ onAuthenticated }) {
   const [registrationFees, setRegistrationFees] = useState({
     passenger_registration_fee: 0,
     driver_registration_fee: 0,
+    operator_registration_fee: 0,
     enable_qr: false,
     enable_razorpay: false,
     registration_qr_code_url: '',
@@ -163,10 +164,19 @@ export default function AuthScreen({ onAuthenticated }) {
     if (!role) {
       return 0;
     }
-    return role === 'driver'
-      ? Number(registrationFees.driver_registration_fee || 0)
-      : Number(registrationFees.passenger_registration_fee || 0);
-  }, [registrationFees.driver_registration_fee, registrationFees.passenger_registration_fee, role]);
+    if (role === 'driver') {
+      return Number(registrationFees.driver_registration_fee || 0);
+    }
+    if (role === 'operator') {
+      return Number(registrationFees.operator_registration_fee || 0);
+    }
+    return Number(registrationFees.passenger_registration_fee || 0);
+  }, [
+    registrationFees.driver_registration_fee,
+    registrationFees.operator_registration_fee,
+    registrationFees.passenger_registration_fee,
+    role,
+  ]);
   const registrationPaymentConfig = useMemo(
     () => normalizeAdminPaymentOptions(registrationFees),
     [registrationFees],
@@ -186,6 +196,7 @@ export default function AuthScreen({ onAuthenticated }) {
           setRegistrationFees({
             passenger_registration_fee: Number(data.passenger_registration_fee || 0),
             driver_registration_fee: Number(data.driver_registration_fee || 0),
+            operator_registration_fee: Number(data.operator_registration_fee || 0),
             enable_qr: Boolean(data.enable_qr),
             enable_razorpay: Boolean(data.enable_razorpay),
             registration_qr_code_url: String(data.registration_qr_code_url || ''),

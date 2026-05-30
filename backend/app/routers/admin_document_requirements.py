@@ -174,7 +174,10 @@ async def get_user_document_status(
     """Get user document completion status"""
     try:
         # Get user role
-        user = await db.users.find_one({"_id": ObjectId(user_id)})
+        user_query = {"$or": [{"id": user_id}, {"user_id": user_id}]}
+        if ObjectId.is_valid(user_id):
+            user_query["$or"].append({"_id": ObjectId(user_id)})
+        user = await db.users.find_one(user_query)
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         
@@ -234,8 +237,8 @@ async def get_user_document_status(
                 for req in requirements
             ]
         }
-    except ObjectId.invalid:
-        raise HTTPException(status_code=400, detail="Invalid user ID")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error fetching user status: {str(e)}")
         raise HTTPException(status_code=500, detail="Error fetching user document status")
@@ -354,8 +357,6 @@ async def update_document_requirement(
             raise HTTPException(status_code=404, detail="Document requirement not found")
         
         return {"message": "Document requirement updated successfully"}
-    except ObjectId.invalid:
-        raise HTTPException(status_code=400, detail="Invalid requirement ID")
     except HTTPException:
         raise
     except Exception as e:
@@ -396,8 +397,6 @@ async def verify_document_upload(
             "message": "Document verification updated successfully",
             "verified": verification.verified
         }
-    except ObjectId.invalid:
-        raise HTTPException(status_code=400, detail="Invalid upload ID")
     except HTTPException:
         raise
     except Exception as e:
@@ -433,8 +432,6 @@ async def delete_document_requirement(
             raise HTTPException(status_code=404, detail="Document requirement not found")
         
         return {"message": "Document requirement deleted successfully"}
-    except ObjectId.invalid:
-        raise HTTPException(status_code=400, detail="Invalid requirement ID")
     except HTTPException:
         raise
     except Exception as e:

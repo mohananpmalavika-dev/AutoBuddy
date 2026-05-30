@@ -23,6 +23,58 @@ from app.models.enhanced_booking_models import FareBreakdown, RideType
 logger = logging.getLogger(__name__)
 
 
+def _to_plain_config(value):
+    if value is None:
+        return None
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json")
+    if hasattr(value, "dict"):
+        return value.dict()
+    if isinstance(value, dict):
+        return {k: _to_plain_config(v) for k, v in value.items()}
+    return value
+
+
+def _config_value(config, key: str, default=None):
+    if config is None:
+        return default
+    if isinstance(config, dict):
+        return config.get(key, default)
+    return getattr(config, key, default)
+
+
+def _as_float(value, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _as_int(value, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _merged_fare_config(vehicle_type_id: str, fare_config_override: Optional[Dict] = None) -> Dict:
+    default_config = _to_plain_config(
+        FARE_CONFIGURATIONS.get(vehicle_type_id)
+        or FARE_CONFIGURATIONS.get("taxi")
+        or {}
+    )
+    if not fare_config_override:
+        return default_config
+
+    merged = dict(default_config)
+    for key, value in _to_plain_config(fare_config_override).items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = {**merged[key], **value}
+        else:
+            merged[key] = value
+    return merged
+
+
 def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """
     Calculate the great circle distance between two points 
@@ -111,83 +163,96 @@ def calculate_base_fare(
     time_minutes: float,
     goods_weight_kg: Optional[float] = None,
     rental_hours: Optional[float] = None,
+    fare_config_override: Optional[Dict] = None,
 ) -> Tuple[float, Dict]:
     """
     Calculate base fare before taxes and surge
     Returns (fare_amount, detailed_breakdown)
     """
+    ride_type_key = ride_type.value if hasattr(ride_type, "value") else str(ride_type)
     
-    fare_config = FARE_CONFIGURATIONS.get(vehicle_type_id)
+    fare_config = _merged_fare_config(vehicle_type_id, fare_config_override)
     if not fare_config:
         logger.warning(f"No fare config for vehicle {vehicle_type_id}, using taxi config")
-        fare_config = FARE_CONFIGURATIONS.get("taxi", {})
+        fare_config = _merged_fare_config("taxi")
     
     breakdown = {}
     total = 0.0
     
     # Get ride-type specific config
-    ride_config = fare_config.get(ride_type, {})
+    ride_config = fare_config.get(ride_type_key, {})
     
     # Handle different fare types
-    fare_type = RIDE_TYPE_COMPATIBILITY.get(ride_type, {}).get("fare_type", "distance_based")
+    fare_type = RIDE_TYPE_COMPATIBILITY.get(ride_type_key, {}).get("fare_type", "distance_based")
     
     if fare_type == "distance_based":
         # Standard distance + time based pricing
-        base_config = fare_config.get("base", FareConfig())
+        base_config = fare_config.get("base") or _to_plain_config(FareConfig())
         
         # Base fare
-        breakdown["base_fare"] = base_config.base_fare
-        total += base_config.base_fare
+        base_fare = _as_float(_config_value(base_config, "base_fare", 50.0), 50.0)
+        per_km_rate = _as_float(_config_value(base_config, "per_km_rate", 10.0), 10.0)
+        per_minute_rate = _as_float(_config_value(base_config, "per_minute_rate", 2.0), 2.0)
+        breakdown["base_fare"] = base_fare
+        total += base_fare
         
         # Distance charge
-        distance_charge = distance_km * base_config.per_km_rate
+        distance_charge = distance_km * per_km_rate
         breakdown["distance_km"] = distance_km
         breakdown["distance_charge"] = distance_charge
         total += distance_charge
         
         # Time charge (as waiting time charge)
-        time_charge = (time_minutes - 5) * base_config.per_minute_rate  # First 5 min free
+        time_charge = (time_minutes - 5) * per_minute_rate  # First 5 min free
         time_charge = max(0, time_charge)
         breakdown["time_minutes"] = time_minutes
         breakdown["time_charge"] = time_charge
         total += time_charge
         
         # Apply minimum fare
-        if ride_config and isinstance(ride_config, dict) and ride_config.get("multiplier"):
+        ride_multiplier = _config_value(ride_config, "multiplier")
+        if ride_multiplier:
             # Ride-type specific pricing - apply multiplier
-            ride_multiplier = ride_config.get("multiplier", 1.0)
+            ride_multiplier = _as_float(ride_multiplier, 1.0)
             total = total * ride_multiplier
             breakdown["ride_type_multiplier"] = ride_multiplier
     
     elif fare_type == "weight_based":
         # Goods delivery pricing
-        goods_config = fare_config.get("base", GoodsCargoFareConfig())
+        goods_config = fare_config.get("base") or _to_plain_config(GoodsCargoFareConfig())
+        base_fare = _as_float(_config_value(goods_config, "base_fare", 100.0), 100.0)
+        per_kg_rate = _as_float(_config_value(goods_config, "per_kg_rate", 5.0), 5.0)
+        per_km_rate = _as_float(_config_value(goods_config, "per_km_rate", 15.0), 15.0)
         
-        breakdown["base_fare"] = goods_config.base_fare
-        total = goods_config.base_fare
+        breakdown["base_fare"] = base_fare
+        total = base_fare
         
         # Weight-based charge
         if goods_weight_kg:
-            weight_charge = goods_weight_kg * goods_config.per_kg_rate
+            weight_charge = goods_weight_kg * per_kg_rate
             breakdown["goods_weight_kg"] = goods_weight_kg
             breakdown["goods_charge"] = weight_charge
             total += weight_charge
         
         # Distance charge
-        distance_charge = distance_km * goods_config.per_km_rate
+        distance_charge = distance_km * per_km_rate
         breakdown["distance_km"] = distance_km
         breakdown["distance_charge"] = distance_charge
         total += distance_charge
         
         # Loading assistance
         if ride_config and isinstance(ride_config, dict) and ride_config.get("loading_help_required"):
-            loading_charge = goods_config.loading_help_charge
+            loading_charge = _as_float(_config_value(goods_config, "loading_help_charge", 50.0), 50.0)
             breakdown["loading_help_charge"] = loading_charge
             total += loading_charge
     
     elif fare_type == "hourly":
         # Rental/Tourism hourly pricing
-        rental_config = fare_config.get("base", RentalFareConfig())
+        rental_config = ride_config
+        if _config_value(rental_config, "hourly_rate") is None:
+            rental_config = fare_config.get("base")
+        if _config_value(rental_config, "hourly_rate") is None:
+            rental_config = _to_plain_config(RentalFareConfig())
         
         if rental_hours:
             # Use provided rental hours
@@ -195,9 +260,10 @@ def calculate_base_fare(
         else:
             # Calculate from distance
             avg_speed = 40  # km/h
-            hours = max(rental_config.minimum_hours, distance_km / avg_speed)
+            minimum_hours = _as_int(_config_value(rental_config, "minimum_hours", 4), 4)
+            hours = max(minimum_hours, distance_km / avg_speed)
         
-        hourly_rate = rental_config.hourly_rate
+        hourly_rate = _as_float(_config_value(rental_config, "hourly_rate", 500.0), 500.0)
         breakdown["hours"] = hours
         breakdown["hourly_rate"] = hourly_rate
         
@@ -207,16 +273,19 @@ def calculate_base_fare(
         total = hourly_charge
         
         # Extra km charge if applicable
-        free_km = hours * rental_config.km_limit_per_hour
+        km_limit_per_hour = _as_float(_config_value(rental_config, "km_limit_per_hour", 50.0), 50.0)
+        extra_km_rate = _as_float(_config_value(rental_config, "extra_km_rate", 10.0), 10.0)
+        free_km = hours * km_limit_per_hour
         if distance_km > free_km:
-            extra_km_charge = (distance_km - free_km) * rental_config.extra_km_rate
+            extra_km_charge = (distance_km - free_km) * extra_km_rate
             breakdown["extra_km_charge"] = extra_km_charge
             total += extra_km_charge
     
     # Apply minimum fare
     base_config = fare_config.get("base")
-    if base_config and hasattr(base_config, 'minimum_fare'):
-        min_fare = base_config.minimum_fare
+    min_fare = _config_value(base_config, "minimum_fare")
+    if min_fare is not None:
+        min_fare = _as_float(min_fare, 0.0)
         if total < min_fare:
             breakdown["minimum_fare_applied"] = True
             total = min_fare
@@ -239,6 +308,8 @@ def calculate_complete_fare(
     available_drivers: int = 1,
     promo_discount: float = 0.0,
     tax_percentage: float = 5.0,
+    vehicle_multiplier_override: Optional[float] = None,
+    fare_config_override: Optional[Dict] = None,
 ) -> Dict:
     """
     COMPLETE FARE CALCULATION
@@ -246,30 +317,36 @@ def calculate_complete_fare(
     """
     
     try:
+        ride_type_key = ride_type.value if hasattr(ride_type, "value") else str(ride_type)
         # Calculate distance
         distance_km = haversine_distance(pickup_lat, pickup_lon, dropoff_lat, dropoff_lon)
         distance_km = max(1.0, distance_km)  # Minimum 1 km
         
         # Estimate time
-        time_minutes = estimate_time_minutes(distance_km, ride_type)
+        time_minutes = estimate_time_minutes(distance_km, ride_type_key)
         
         # Get vehicle info
         vehicle_info = get_vehicle_by_id(vehicle_type_id)
-        if not vehicle_info:
+        if not vehicle_info and vehicle_multiplier_override is None:
             raise ValueError(f"Vehicle type {vehicle_type_id} not found")
         
         # Get multipliers
-        vehicle_multiplier = get_vehicle_multiplier(vehicle_type_id, vehicle_subtype_id)
-        ride_type_multiplier = get_ride_type_multiplier(ride_type)
+        vehicle_multiplier = (
+            vehicle_multiplier_override
+            if vehicle_multiplier_override is not None
+            else get_vehicle_multiplier(vehicle_type_id, vehicle_subtype_id)
+        )
+        ride_type_multiplier = get_ride_type_multiplier(ride_type_key)
         
         # Calculate base fare
         base_fare, base_breakdown = calculate_base_fare(
             vehicle_type_id,
-            ride_type,
+            ride_type_key,
             distance_km,
             time_minutes,
             goods_weight_kg,
-            rental_hours
+            rental_hours,
+            fare_config_override=fare_config_override,
         )
         
         # Apply vehicle multiplier (on top of ride-type specific pricing)
@@ -313,9 +390,11 @@ def calculate_complete_fare(
             "success": True,
             "distance_km": round(distance_km, 2),
             "estimated_time_minutes": int(time_minutes),
+            "base_fare": round(base_fare, 2),
             "vehicle_multiplier": vehicle_multiplier,
             "ride_type_multiplier": ride_type_multiplier,
             "surge_multiplier": round(surge_multiplier, 2),
+            "total_fare": total_fare,
             "estimated_fare": total_fare,
             "fare_breakdown": fare_breakdown,
             "valid_until": (datetime.utcnow() + timedelta(seconds=300)).isoformat()
@@ -326,5 +405,7 @@ def calculate_complete_fare(
         return {
             "success": False,
             "error": str(e),
+            "base_fare": 0.0,
+            "total_fare": 0.0,
             "estimated_fare": 0.0
         }

@@ -104,6 +104,7 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
     license_plate: formData.license_plate,
     registration_number: formData.registration_number || null,
     seating_capacity: Number(formData.seating_capacity),
+    vehicle_type: formData.vehicle_type_id,
     vehicle_type_id: formData.vehicle_type_id,
     vehicle_subtype_id: formData.vehicle_subtype_id || null,
   });

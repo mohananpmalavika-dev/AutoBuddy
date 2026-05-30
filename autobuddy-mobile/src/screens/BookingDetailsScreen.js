@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   ScrollView,
@@ -9,11 +9,10 @@ import {
   TextInput,
   Alert,
   ActivityIndicator,
-  Modal,
 } from 'react-native';
-import { SymbolView } from 'expo-symbols';
 import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme';
-import { apiRequest } from '../lib/api';
+import { bookingAPI, userAPI } from '../services/apiClient';
+import { getSocket } from '../services/socketClient';
 import {
   getPlaceLocation,
   searchPlaces,
@@ -40,18 +39,22 @@ const BookingDetailsScreen = ({ navigation, route }) => {
   const service = route.params?.service || {};
   const {
     vehicle_type_id,
+    vehicle_subtype_id,
+    vehicle_subtype_name,
+    vehicle_subtype_capacity,
     vehicle_name,
     vehicle_icon,
     vehicle_capacity,
     capacity_unit,
     ride_type,
     ride_type_name,
-    special_fields = [],
   } = service;
 
   // Fallback to old params for compatibility
   const vehicleType = { id: vehicle_type_id, name: vehicle_name, icon: vehicle_icon };
   const rideType = { id: ride_type, name: ride_type_name };
+  const selectedCapacity = Number(vehicle_subtype_capacity || vehicle_capacity || 0);
+  const selectedCapacityUnit = capacity_unit || 'passengers';
 
   const [pickupLocation, setPickupLocation] = useState('');
   const [dropoffLocation, setDropoffLocation] = useState('');
@@ -75,25 +78,11 @@ const BookingDetailsScreen = ({ navigation, route }) => {
   const [estimatedDistance, setEstimatedDistance] = useState(null);
   const [estimatedDuration, setEstimatedDuration] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [searching, setSearching] = useState(false);
   const [showSchedulePicker, setShowSchedulePicker] = useState(false);
   const [savedPlaces, setSavedPlaces] = useState([]);
 
   const pickupInputRef = useRef(null);
   const dropoffInputRef = useRef(null);
-
-  useEffect(() => {
-    // Get current location for pickup
-    getCurrentLocation();
-    fetchSavedPlaces();
-  }, []);
-
-  useEffect(() => {
-    // Calculate fare when locations change
-    if (pickupCoords && dropoffCoords) {
-      calculateFare();
-    }
-  }, [pickupCoords, dropoffCoords, vehicleType, passengerCount, goodsWeight]);
 
   const getCurrentLocation = async () => {
     try {
@@ -123,11 +112,8 @@ const BookingDetailsScreen = ({ navigation, route }) => {
 
   const fetchSavedPlaces = async () => {
     try {
-      const response = await apiRequest({
-        endpoint: '/api/passenger/places',
-        method: 'GET',
-      });
-      setSavedPlaces(response.data || []);
+      const places = await userAPI.getSavedPlaces();
+      setSavedPlaces(places || []);
     } catch (error) {
       console.error('Error fetching saved places:', error);
     }
@@ -145,7 +131,6 @@ const BookingDetailsScreen = ({ navigation, route }) => {
     }
 
     try {
-      setSearching(true);
       const results = await searchPlaces(text);
 
       // Show results as dropdown (simplified - in real app use dropdown component)
@@ -163,12 +148,10 @@ const BookingDetailsScreen = ({ navigation, route }) => {
       }
     } catch (error) {
       console.error('Error searching places:', error);
-    } finally {
-      setSearching(false);
     }
   };
 
-  const calculateFare = async () => {
+  const calculateFare = useCallback(async () => {
     try {
       setLoading(true);
 
@@ -180,8 +163,12 @@ const BookingDetailsScreen = ({ navigation, route }) => {
         dropoff_longitude: dropoffCoords.longitude,
         ride_type: ride_type,
         vehicle_type_id: vehicle_type_id,
+        vehicle_subtype_id: vehicle_subtype_id || null,
         passenger_count: passengerCount,
         scheduled_datetime: ride_type === 'scheduled' ? rideDate.toISOString() : null,
+        pickup_region: service.pickup_region || null,
+        pickup_district: service.pickup_district || null,
+        pickup_pincode: service.pickup_pincode || null,
       };
 
       // Add ride-type specific fields if present
@@ -191,27 +178,77 @@ const BookingDetailsScreen = ({ navigation, route }) => {
         fareRequest.rental_hours = ride_type === 'rental' ? rentalHours : tourHours;
       }
 
-      const response = await apiRequest({
-        endpoint: '/api/bookings/estimate-fare',
-        method: 'POST',
-        body: fareRequest,
-      });
+      const fareData = await bookingAPI.estimateFare(fareRequest);
 
-      if (response.estimated_fare) {
-        setEstimatedFare(response.estimated_fare);
-        setEstimatedDistance(response.distance_km);
-        setEstimatedDuration(response.estimated_time_minutes);
+      if (fareData?.estimated_fare != null) {
+        setEstimatedFare(fareData.estimated_fare);
+        setEstimatedDistance(fareData.distance_km);
+        setEstimatedDuration(fareData.estimated_time_minutes);
       }
     } catch (error) {
       console.error('Error calculating fare:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [
+    dropoffCoords,
+    goodsWeight,
+    passengerCount,
+    pickupCoords,
+    rentalHours,
+    rideDate,
+    ride_type,
+    service.pickup_district,
+    service.pickup_pincode,
+    service.pickup_region,
+    tourHours,
+    vehicle_subtype_id,
+    vehicle_type_id,
+  ]);
+
+  useEffect(() => {
+    // Get current location for pickup
+    const timer = setTimeout(() => {
+      getCurrentLocation();
+      fetchSavedPlaces();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    // Calculate fare when locations change
+    if (pickupCoords && dropoffCoords) {
+      const timer = setTimeout(() => {
+        calculateFare();
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+    return undefined;
+  }, [
+    calculateFare,
+    dropoffCoords,
+    pickupCoords,
+  ]);
 
   const handleBookRide = async () => {
     if (!pickupCoords || !dropoffCoords) {
       Alert.alert('Please enter both pickup and dropoff locations');
+      return;
+    }
+    if (ride_type === 'goods' && goodsWeight <= 0) {
+      Alert.alert('Enter Goods Weight', 'Please enter the goods weight before booking.');
+      return;
+    }
+    if (ride_type === 'goods' && selectedCapacityUnit === 'kg' && selectedCapacity > 0 && goodsWeight > selectedCapacity) {
+      Alert.alert('Capacity Exceeded', `Selected vehicle can carry up to ${selectedCapacity} kg.`);
+      return;
+    }
+    if (ride_type !== 'goods' && selectedCapacityUnit !== 'kg' && selectedCapacity > 0 && passengerCount > selectedCapacity) {
+      Alert.alert('Capacity Exceeded', `Selected vehicle seats up to ${selectedCapacity} passengers.`);
+      return;
+    }
+    if (ride_type === 'airport' && (!airportTerminal.trim() || !flightNumber.trim())) {
+      Alert.alert('Flight Details Required', 'Please enter terminal and flight number for airport rides.');
       return;
     }
 
@@ -227,37 +264,53 @@ const BookingDetailsScreen = ({ navigation, route }) => {
         dropoff_longitude: dropoffCoords.longitude,
         dropoff_location: dropoffLocation,
         vehicle_type_id: vehicle_type_id,
+        vehicle_subtype_id: vehicle_subtype_id || null,
         ride_type: ride_type,
         passenger_count: passengerCount,
         scheduled_datetime: ride_type === 'scheduled' ? rideDate.toISOString() : null,
         promo_code: promoCode || null,
+        pickup_region: service.pickup_region || null,
+        pickup_district: service.pickup_district || null,
+        pickup_pincode: service.pickup_pincode || null,
       };
 
       // Add ride-type specific fields
       if (ride_type === 'goods') {
-        bookingData.goods_weight_kg = goodsWeight;
-        bookingData.goods_type = goodsType;
-        bookingData.loading_help_required = loadingHelpRequired;
+        bookingData.goods_details = {
+          goods_weight_kg: goodsWeight,
+          goods_type: goodsType.trim() || 'package',
+          loading_help_required: loadingHelpRequired,
+        };
       } else if (ride_type === 'airport') {
-        bookingData.airport_terminal = airportTerminal;
-        bookingData.flight_number = flightNumber;
+        bookingData.airport_details = {
+          terminal: airportTerminal.trim(),
+          flight_number: flightNumber.trim(),
+        };
       } else if (ride_type === 'rental') {
-        bookingData.rental_hours = rentalHours;
+        bookingData.rental_details = {
+          rental_hours: rentalHours,
+          rental_start_datetime: rideDate.toISOString(),
+          with_driver: true,
+        };
       } else if (ride_type === 'tourism') {
-        bookingData.tour_hours = tourHours;
-        bookingData.tour_itinerary = tourItinerary;
+        bookingData.tourism_details = {
+          tour_hours: tourHours,
+          tour_itinerary: tourItinerary.trim() || null,
+          return_location: dropoffLocation || null,
+        };
       }
 
-      const response = await apiRequest({
-        endpoint: '/api/bookings/create',
-        method: 'POST',
-        body: bookingData,
-      });
+      const bookingResponse = await bookingAPI.createBooking(bookingData);
+      const bookingId = bookingResponse?.booking_id || bookingResponse?.id;
 
-      if (response.booking_id || response.data?.booking_id) {
+      if (bookingId) {
+        // Emit real-time Socket.IO event for live updates
+        const socket = getSocket();
+        socket.emit('booking_created', { booking_id: bookingId });
+        
         // Navigate to ride details
         navigation.navigate('RideDetails', {
-          bookingId: response.booking_id || response.data.booking_id,
+          bookingId,
         });
       }
     } catch (error) {
@@ -292,6 +345,9 @@ const BookingDetailsScreen = ({ navigation, route }) => {
             <View style={styles.serviceBadgeText}>
               <Text style={styles.serviceBadgeName}>{vehicleType.name}</Text>
               <Text style={styles.serviceBadgeType}>{rideType.name}</Text>
+              {!!vehicle_subtype_name && (
+                <Text style={styles.serviceBadgeMeta}>{vehicle_subtype_name}</Text>
+              )}
             </View>
           </View>
         </View>
@@ -742,6 +798,12 @@ const styles = StyleSheet.create({
   serviceBadgeType: {
     ...TYPOGRAPHY.caption,
     color: COLORS.textSecondary,
+  },
+
+  serviceBadgeMeta: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.primary,
+    fontWeight: '600',
   },
 
   section: {

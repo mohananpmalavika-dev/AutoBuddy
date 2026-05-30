@@ -15,7 +15,7 @@ import { loadSession as loadPersistentSession, saveSession as savePersistentSess
 import { initializeBackgroundNotifications } from '../lib/backgroundNotificationService';
 import { disconnectSocket } from '../lib/socketManager';
 import '../services/driverBackgroundTracking';
-import { AdminDashboard, AuthScreen, DriverDashboard, PassengerMap } from '../screens';
+import { AdminDashboard, AuthScreen, DriverDashboard, OperatorDashboard, PassengerMap } from '../screens';
 import { COLORS } from '../theme';
 
 type BeforeInstallPromptEvent = Event & {
@@ -244,7 +244,7 @@ export default function HomeScreen() {
   useEffect(() => {
     let unmounted = false;
     async function evaluateSubscriptionGate() {
-      if (!session || !['driver', 'passenger'].includes(session.user.role)) {
+      if (!session || !['driver', 'operator', 'passenger'].includes(session.user.role)) {
         setShowPlanGate(false);
         setGateRole(null);
         setPlanOptions([]);
@@ -486,6 +486,13 @@ export default function HomeScreen() {
           onLogout={handleLogout}
         />
       ),
+      operator: (
+        <OperatorDashboard
+          token={session.token}
+          user={session.user}
+          onLogout={handleLogout}
+        />
+      ),
       admin: <AdminDashboard token={session.token} user={session.user} onLogout={handleLogout} />,
     };
   }, [handleLogout, session]);
@@ -513,12 +520,12 @@ export default function HomeScreen() {
     );
   }
 
-  if (showPlanGate && (session.user.role === 'driver' || session.user.role === 'passenger')) {
+  if (showPlanGate && ['driver', 'operator', 'passenger'].includes(session.user.role)) {
     return (
       <View style={styles.loader}>
         <AutoBuddyBrand subtitle="Choose Subscription Plan" />
         <SubscriptionGate
-          role={gateRole === 'driver' ? 'driver' : 'passenger'}
+          role={gateRole || 'passenger'}
           planOptions={planOptions}
           errorMessage={planSelectionError}
           isSubmitting={planSubmitting}

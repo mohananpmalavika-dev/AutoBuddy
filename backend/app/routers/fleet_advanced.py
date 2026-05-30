@@ -19,8 +19,50 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 import asyncio
 import random
+from motor.motor_asyncio import AsyncIOMotorDatabase
+
+from app.db.deps import get_db
 
 router = APIRouter(prefix="/api/v1/fleet", tags=["fleet-advanced"])
+
+
+def _fleet_scope_query(fleet_id: str) -> Dict[str, Any]:
+    return {
+        "$or": [
+            {"fleet_id": fleet_id},
+            {"fleet_owner_id": fleet_id},
+            {"operator_id": fleet_id},
+            {"owner_id": fleet_id},
+        ]
+    }
+
+
+def _and_query(*queries: Dict[str, Any]) -> Dict[str, Any]:
+    active = [query for query in queries if query]
+    if not active:
+        return {}
+    if len(active) == 1:
+        return active[0]
+    return {"$and": active}
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value if value is not None else default)
+    except (TypeError, ValueError):
+        return default
+
+
+def _string_id(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value)
+
+
+def _safe_percent(numerator: float, denominator: float) -> float:
+    if denominator <= 0:
+        return 0.0
+    return round((float(numerator) / float(denominator)) * 100.0, 1)
 
 
 # ============================================================================
@@ -28,37 +70,163 @@ router = APIRouter(prefix="/api/v1/fleet", tags=["fleet-advanced"])
 # ============================================================================
 
 @router.get("/dashboard/kpis/{fleet_id}")
-async def get_fleet_kpis(fleet_id: str, request: Request):
+async def get_fleet_kpis(
+    fleet_id: str,
+    request: Request,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
     """Get real-time fleet KPI metrics"""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        # Verify fleet owner
-        
-        # Calculate metrics (mock for now)
+        scope = _fleet_scope_query(fleet_id)
+        operator_vehicle_count = await db.operator_fleet_vehicles.count_documents(scope)
+        vehicle_collection = db.operator_fleet_vehicles if operator_vehicle_count else db.vehicles
+        total_vehicles = operator_vehicle_count or await db.vehicles.count_documents(scope)
+        active_vehicles = await vehicle_collection.count_documents(
+            _and_query(scope, {"status": {"$in": ["active", "available", "online", "approved"]}})
+        )
+        inactive_vehicles = max(0, int(total_vehicles) - int(active_vehicles))
+
+        driver_scope = scope
+        driver_rows = await db.drivers.find(driver_scope, {"_id": 0, "user_id": 1, "id": 1, "rating": 1, "is_available": 1, "is_online": 1}).to_list(5000)
+        driver_ids = {
+            str(row.get("user_id") or row.get("id") or "").strip()
+            for row in driver_rows
+            if str(row.get("user_id") or row.get("id") or "").strip()
+        }
+        assignment_rows = await db.fleet_driver_assignments.find(scope, {"_id": 0, "driver_id": 1}).to_list(5000)
+        driver_ids.update(
+            str(row.get("driver_id") or "").strip()
+            for row in assignment_rows
+            if str(row.get("driver_id") or "").strip()
+        )
+        total_drivers = len(driver_ids)
+        active_drivers = sum(
+            1
+            for row in driver_rows
+            if bool(row.get("is_available")) or bool(row.get("is_online"))
+        )
+        if active_drivers == 0 and total_drivers:
+            active_drivers = await db.driver_attendance_records.count_documents(
+                _and_query(
+                    scope,
+                    {
+                        "status": {"$in": ["present", "online", "available"]},
+                        "date": {"$gte": datetime.utcnow() - timedelta(days=1)},
+                    },
+                )
+            )
+        offline_drivers = max(0, total_drivers - int(active_drivers))
+
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        booking_scope = scope
+        if driver_ids:
+            booking_scope = {
+                "$or": [
+                    {"driver_id": {"$in": list(driver_ids)}},
+                    *_fleet_scope_query(fleet_id)["$or"],
+                ]
+            }
+        bookings_today = await db.bookings.find(
+            _and_query(booking_scope, {"created_at": {"$gte": today_start}}),
+            {
+                "_id": 0,
+                "status": 1,
+                "estimated_fare": 1,
+                "final_fare": 1,
+                "fare": 1,
+                "fare_before_discount": 1,
+            },
+        ).to_list(5000)
+        total_rides_today = len(bookings_today)
+        completed_today = sum(1 for row in bookings_today if str(row.get("status") or "").lower().split(".")[-1] == "completed")
+        cancelled_today = sum(1 for row in bookings_today if str(row.get("status") or "").lower().split(".")[-1] == "cancelled")
+        accepted_today = sum(
+            1
+            for row in bookings_today
+            if str(row.get("status") or "").lower().split(".")[-1]
+            in {"accepted", "driver_arrived", "in_progress", "completed"}
+        )
+        total_earnings_today = round(
+            sum(
+                _safe_float(
+                    row.get("final_fare")
+                    if row.get("final_fare") is not None
+                    else row.get("estimated_fare")
+                    if row.get("estimated_fare") is not None
+                    else row.get("fare")
+                    if row.get("fare") is not None
+                    else row.get("fare_before_discount")
+                )
+                for row in bookings_today
+            ),
+            2,
+        )
+        month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        month_bookings = await db.bookings.find(
+            _and_query(booking_scope, {"created_at": {"$gte": month_start}}),
+            {"_id": 0, "estimated_fare": 1, "final_fare": 1, "fare": 1, "fare_before_discount": 1},
+        ).to_list(10000)
+        total_earnings_month = round(
+            sum(
+                _safe_float(
+                    row.get("final_fare")
+                    if row.get("final_fare") is not None
+                    else row.get("estimated_fare")
+                    if row.get("estimated_fare") is not None
+                    else row.get("fare")
+                    if row.get("fare") is not None
+                    else row.get("fare_before_discount")
+                )
+                for row in month_bookings
+            ),
+            2,
+        )
+        rating_values = [_safe_float(row.get("rating")) for row in driver_rows if _safe_float(row.get("rating")) > 0]
+        avg_driver_rating = round(sum(rating_values) / len(rating_values), 2) if rating_values else 0.0
+        vehicle_utilization = _safe_percent(active_vehicles, total_vehicles)
+        driver_availability = _safe_percent(active_drivers, total_drivers)
+        avg_acceptance_rate = _safe_percent(accepted_today, total_rides_today)
+        avg_completion_rate = _safe_percent(completed_today, total_rides_today)
+        avg_cancellation_rate = _safe_percent(cancelled_today, total_rides_today)
+        health_score = round(
+            (vehicle_utilization * 0.30)
+            + (driver_availability * 0.30)
+            + (avg_completion_rate * 0.20)
+            + ((avg_driver_rating / 5.0) * 100.0 * 0.20),
+            1,
+        )
+        red_flags = []
+        if inactive_vehicles:
+            red_flags.append(f"{inactive_vehicles} vehicles inactive")
+        if offline_drivers:
+            red_flags.append(f"{offline_drivers} drivers offline")
+        if avg_cancellation_rate > 8:
+            red_flags.append(f"Cancellation rate is {avg_cancellation_rate}% today")
+        if avg_driver_rating and avg_driver_rating < 4.2:
+            red_flags.append(f"Average driver rating is {avg_driver_rating}")
+
         kpis = {
             "fleet_id": fleet_id,
-            "total_vehicles": 50,
-            "active_vehicles": 45,
-            "inactive_vehicles": 5,
-            "vehicle_utilization": 90.0,
-            "vehicle_health_score": 92.5,
-            "total_drivers": 60,
-            "active_drivers": 48,
-            "offline_drivers": 12,
-            "driver_availability": 80.0,
-            "avg_driver_rating": 4.7,
-            "total_rides_today": 320,
-            "total_earnings_today": 45600.0,
-            "avg_acceptance_rate": 94.5,
-            "avg_completion_rate": 96.2,
-            "avg_cancellation_rate": 2.3,
-            "health_status": "good",
-            "health_score": 88.5,
-            "red_flags": [
-                "3 vehicles due for maintenance",
-                "2 drivers below 4.2 rating",
-                "Insurance expiring for 5 vehicles in 7 days"
-            ],
+            "total_vehicles": int(total_vehicles),
+            "active_vehicles": int(active_vehicles),
+            "inactive_vehicles": inactive_vehicles,
+            "vehicle_utilization": vehicle_utilization,
+            "vehicle_health_score": vehicle_utilization,
+            "total_drivers": int(total_drivers),
+            "active_drivers": int(active_drivers),
+            "offline_drivers": int(offline_drivers),
+            "driver_availability": driver_availability,
+            "avg_driver_rating": avg_driver_rating,
+            "total_rides_today": total_rides_today,
+            "total_earnings_today": total_earnings_today,
+            "total_earnings_month": total_earnings_month,
+            "monthly_revenue": total_earnings_month,
+            "avg_acceptance_rate": avg_acceptance_rate,
+            "avg_completion_rate": avg_completion_rate,
+            "avg_cancellation_rate": avg_cancellation_rate,
+            "health_status": "good" if health_score >= 80 else "watch" if health_score >= 60 else "critical",
+            "health_score": health_score,
+            "red_flags": red_flags,
             "updated_at": datetime.utcnow().isoformat()
         }
         
@@ -220,12 +388,169 @@ async def get_driver_payouts(fleet_id: str, period: str = "current", request: Re
 # 3. DRIVER ASSIGNMENT SYSTEM
 # ============================================================================
 
+@router.get("/driver-assignment/resources/{fleet_id}")
+async def get_driver_assignment_resources(
+    fleet_id: str,
+    request: Request,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    """Return real fleet drivers, vehicles, and current assignment state."""
+    try:
+        scope = _fleet_scope_query(fleet_id)
+        active_assignments = await db.fleet_driver_assignments.find(
+            _and_query(scope, {"status_code": "active"}),
+            {"_id": 0},
+        ).to_list(5000)
+        assignment_by_driver = {
+            _string_id(item.get("driver_id")): item
+            for item in active_assignments
+            if item.get("driver_id")
+        }
+        assignment_by_vehicle = {
+            _string_id(item.get("vehicle_id")): item
+            for item in active_assignments
+            if item.get("vehicle_id")
+        }
+
+        driver_rows = await db.drivers.find(
+            scope,
+            {
+                "_id": 1,
+                "user_id": 1,
+                "id": 1,
+                "name": 1,
+                "full_name": 1,
+                "display_name": 1,
+                "phone": 1,
+                "rating": 1,
+                "is_available": 1,
+                "is_online": 1,
+                "status": 1,
+            },
+        ).to_list(5000)
+        driver_ids = [
+            _string_id(row.get("user_id") or row.get("id") or row.get("_id"))
+            for row in driver_rows
+            if row.get("user_id") or row.get("id") or row.get("_id")
+        ]
+        users_by_id = {
+            _string_id(user.get("id")): user
+            for user in await db.users.find(
+                {"id": {"$in": driver_ids}},
+                {"_id": 0, "id": 1, "name": 1, "full_name": 1, "phone": 1},
+            ).to_list(len(driver_ids) or 1)
+        }
+
+        drivers = []
+        for row in driver_rows:
+            driver_id = _string_id(row.get("user_id") or row.get("id") or row.get("_id"))
+            assignment = assignment_by_driver.get(driver_id) or {}
+            user = users_by_id.get(driver_id) or {}
+            current_vehicle = _string_id(assignment.get("vehicle_id"))
+            is_available = bool(row.get("is_available")) or bool(row.get("is_online"))
+            drivers.append(
+                {
+                    "id": driver_id,
+                    "name": (
+                        row.get("name")
+                        or row.get("full_name")
+                        or row.get("display_name")
+                        or user.get("name")
+                        or user.get("full_name")
+                        or f"Driver {driver_id}"
+                    ),
+                    "phone": row.get("phone") or user.get("phone"),
+                    "status": "assigned" if current_vehicle else "available" if is_available else str(row.get("status") or "offline"),
+                    "currentVehicle": current_vehicle or None,
+                    "rating": round(_safe_float(row.get("rating"), 0.0), 1),
+                }
+            )
+
+        operator_vehicle_count = await db.operator_fleet_vehicles.count_documents(scope)
+        vehicle_collection = db.operator_fleet_vehicles if operator_vehicle_count else db.vehicles
+        vehicle_rows = await vehicle_collection.find(
+            scope,
+            {
+                "_id": 1,
+                "vehicle_id": 1,
+                "id": 1,
+                "vehicleId": 1,
+                "plate": 1,
+                "license_plate": 1,
+                "registration_number": 1,
+                "vehicle_number": 1,
+                "model": 1,
+                "model_name": 1,
+                "vehicle_model": 1,
+                "type": 1,
+                "status": 1,
+            },
+        ).to_list(5000)
+        vehicles = []
+        for row in vehicle_rows:
+            vehicle_id = _string_id(
+                row.get("vehicle_id")
+                or row.get("id")
+                or row.get("vehicleId")
+                or row.get("_id")
+            )
+            assignment = assignment_by_vehicle.get(vehicle_id) or {}
+            driver_id = _string_id(assignment.get("driver_id"))
+            plate = row.get("plate") or row.get("license_plate") or row.get("registration_number") or row.get("vehicle_number") or vehicle_id
+            model = row.get("model") or row.get("model_name") or row.get("vehicle_model") or row.get("type") or "Vehicle"
+            vehicles.append(
+                {
+                    "id": vehicle_id,
+                    "plate": plate,
+                    "model": model,
+                    "status": "assigned" if driver_id else str(row.get("status") or "unassigned"),
+                    "driver": driver_id or None,
+                }
+            )
+
+        return {
+            "status": "success",
+            "fleet_id": fleet_id,
+            "drivers": drivers,
+            "vehicles": vehicles,
+            "assignments": active_assignments,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/driver-assignment/assign")
 async def assign_driver_to_vehicle(fleet_id: str, driver_id: str, vehicle_id: str, 
-                                   shift: str, request: Request):
+                                   shift: str, request: Request,
+                                   db: AsyncIOMotorDatabase = Depends(get_db)):
     """Assign driver to vehicle"""
     try:
         assignment_id = f"ASSIGN_{fleet_id}_{driver_id}_{int(datetime.utcnow().timestamp())}"
+        now = datetime.utcnow()
+        scope = _fleet_scope_query(fleet_id)
+        await db.fleet_driver_assignments.update_many(
+            _and_query(
+                scope,
+                {
+                    "status_code": "active",
+                    "$or": [{"driver_id": driver_id}, {"vehicle_id": vehicle_id}],
+                },
+            ),
+            {"$set": {"status_code": "inactive", "ended_at": now, "updated_at": now}},
+        )
+        await db.fleet_driver_assignments.insert_one(
+            {
+                "assignment_id": assignment_id,
+                "fleet_id": fleet_id,
+                "driver_id": driver_id,
+                "vehicle_id": vehicle_id,
+                "shift": shift,
+                "assignment_date": now,
+                "status_code": "active",
+                "created_at": now,
+                "updated_at": now,
+            }
+        )
         
         return {
             "status": "success",

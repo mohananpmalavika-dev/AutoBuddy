@@ -24,12 +24,11 @@ import { apiRequest } from '../lib/api';
  * - View/Edit fare configurations
  * - Enable/Disable vehicles by region
  */
-export default function AdminVehicleManagementScreen({ navigation, route }) {
-  const { token } = route.params || {};
+export default function AdminVehicleManagementScreen({ navigation, route, token: tokenProp, embedded = false }) {
+  const token = tokenProp || route?.params?.token || route?.params?.authToken || '';
 
   const [vehicles, setVehicles] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   
@@ -52,6 +51,7 @@ export default function AdminVehicleManagementScreen({ navigation, route }) {
     per_km_rate: 12,
     per_minute_rate: 2,
     minimum_fare: 50,
+    ride_multiplier: 1,
   });
 
   // Fetch all vehicles
@@ -65,16 +65,18 @@ export default function AdminVehicleManagementScreen({ navigation, route }) {
       console.error('Error fetching vehicles:', err);
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   }, [token]);
 
   useEffect(() => {
-    fetchVehicles();
+    const timer = setTimeout(() => {
+      fetchVehicles();
+    }, 0);
+    return () => clearTimeout(timer);
   }, [fetchVehicles]);
 
   const handleRefresh = () => {
-    setRefreshing(true);
+    setLoading(true);
     fetchVehicles();
   };
 
@@ -89,9 +91,41 @@ export default function AdminVehicleManagementScreen({ navigation, route }) {
     setShowDetailsModal(true);
   };
 
-  const openFareModal = (vehicle) => {
+  const syncFareForm = (fareConfig, rideType = 'instant') => {
+    const baseConfig = fareConfig?.base || {};
+    const rideConfig = fareConfig?.[rideType] || {};
+    const toNumber = (value, fallback) => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : fallback;
+    };
+
+    setFareForm((current) => ({
+      ...current,
+      ride_type: rideType,
+      base_fare: toNumber(baseConfig.base_fare, current.base_fare),
+      per_km_rate: toNumber(baseConfig.per_km_rate, current.per_km_rate),
+      per_minute_rate: toNumber(baseConfig.per_minute_rate, current.per_minute_rate),
+      minimum_fare: toNumber(baseConfig.minimum_fare, current.minimum_fare),
+      ride_multiplier: toNumber(rideConfig?.multiplier, current.ride_multiplier || 1),
+    }));
+  };
+
+  const openFareModal = async (vehicle) => {
     setSelectedVehicle(vehicle);
     setShowFareModal(true);
+    syncFareForm(vehicle.fare_config, fareForm.ride_type);
+
+    try {
+      const response = await apiRequest(`/api/vehicles/public/fare-config/${vehicle.vehicle_type_id}`, {
+        method: 'GET',
+        token,
+      });
+      const fareConfig = response?.fare_config || response?.data?.fare_config || vehicle.fare_config || {};
+      setSelectedVehicle({ ...vehicle, fare_config: fareConfig });
+      syncFareForm(fareConfig, fareForm.ride_type);
+    } catch (err) {
+      setError(err.message || 'Failed to load fare configuration');
+    }
   };
 
   const openCompatibilityModal = (vehicle) => {
@@ -122,6 +156,69 @@ export default function AdminVehicleManagementScreen({ navigation, route }) {
       await fetchVehicles();
     } catch (err) {
       setError(err.message || 'Failed to update vehicle');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveFareConfig = async () => {
+    if (!selectedVehicle) return;
+
+    const existingFareConfig = selectedVehicle.fare_config || {};
+    const rideTypeConfig = existingFareConfig[fareForm.ride_type] || {};
+    const payload = {
+      fare_config: {
+        ...existingFareConfig,
+        base: {
+          ...(existingFareConfig.base || {}),
+          base_fare: Number(fareForm.base_fare) || 0,
+          per_km_rate: Number(fareForm.per_km_rate) || 0,
+          per_minute_rate: Number(fareForm.per_minute_rate) || 0,
+          minimum_fare: Number(fareForm.minimum_fare) || 0,
+        },
+        [fareForm.ride_type]: {
+          ...(typeof rideTypeConfig === 'object' && rideTypeConfig ? rideTypeConfig : {}),
+          multiplier: Number(fareForm.ride_multiplier) || 1,
+        },
+      },
+    };
+
+    try {
+      setLoading(true);
+      await apiRequest(`/api/vehicles/admin/${selectedVehicle.vehicle_type_id}/fare-config`, {
+        method: 'PUT',
+        token,
+        body: payload,
+      });
+
+      setMessage('Fare configuration saved');
+      setShowFareModal(false);
+      await fetchVehicles();
+    } catch (err) {
+      setError(err.message || 'Failed to save fare configuration');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveCompatibility = async () => {
+    if (!selectedVehicle) return;
+
+    try {
+      setLoading(true);
+      await apiRequest(`/api/vehicles/admin/${selectedVehicle.vehicle_type_id}`, {
+        method: 'PUT',
+        token,
+        body: {
+          allowed_ride_types: selectedVehicle.allowed_ride_types || [],
+        },
+      });
+
+      setMessage('Compatibility settings saved');
+      setShowCompatibilityModal(false);
+      await fetchVehicles();
+    } catch (err) {
+      setError(err.message || 'Failed to save compatibility settings');
     } finally {
       setLoading(false);
     }
@@ -176,7 +273,7 @@ export default function AdminVehicleManagementScreen({ navigation, route }) {
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={() => navigation?.goBack?.()} disabled={embedded}>
           <Text style={styles.backButton}>← Back</Text>
         </TouchableOpacity>
         <Text style={styles.title}>Vehicle Management</Text>
@@ -378,7 +475,7 @@ export default function AdminVehicleManagementScreen({ navigation, route }) {
                         styles.rideTypeButton,
                         fareForm.ride_type === type && styles.rideTypeButtonActive,
                       ]}
-                      onPress={() => setFareForm({ ...fareForm, ride_type: type })}
+                      onPress={() => syncFareForm(selectedVehicle.fare_config, type)}
                       disabled={loading}
                     >
                       <Text
@@ -437,12 +534,20 @@ export default function AdminVehicleManagementScreen({ navigation, route }) {
                   editable={!loading}
                 />
 
+                <Text style={styles.fieldLabel}>Ride Multiplier</Text>
+                <TextInput
+                  style={styles.input}
+                  value={fareForm.ride_multiplier.toString()}
+                  onChangeText={(text) =>
+                    setFareForm({ ...fareForm, ride_multiplier: parseFloat(text) || 1 })
+                  }
+                  keyboardType="decimal-pad"
+                  editable={!loading}
+                />
+
                 <TouchableOpacity
                   style={[styles.button, loading && styles.buttonDisabled]}
-                  onPress={() => {
-                    setMessage('Fare configuration saved!');
-                    setShowFareModal(false);
-                  }}
+                  onPress={handleSaveFareConfig}
                   disabled={loading}
                 >
                   <Text style={styles.buttonText}>Save Fare Config</Text>
@@ -521,10 +626,7 @@ export default function AdminVehicleManagementScreen({ navigation, route }) {
 
                 <TouchableOpacity
                   style={[styles.button, loading && styles.buttonDisabled]}
-                  onPress={() => {
-                    setMessage('Compatibility settings saved!');
-                    setShowCompatibilityModal(false);
-                  }}
+                  onPress={handleSaveCompatibility}
                   disabled={loading}
                 >
                   <Text style={styles.buttonText}>Save Compatibility</Text>

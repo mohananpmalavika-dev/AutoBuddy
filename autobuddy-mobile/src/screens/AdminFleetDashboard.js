@@ -17,10 +17,10 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   FlatList,
-  Dimensions,
   RefreshControl,
 } from 'react-native';
-import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme';
+import { COLORS, SHADOWS } from '../theme';
+import { apiRequest } from '../lib/api';
 
 // Import all fleet feature components
 import {
@@ -30,12 +30,10 @@ import {
   PerformanceRankingsPanel,
   LiveFleetMapPanel,
   IncentiveManagementPanel,
-} from './FleetAdvancedFeatures';
-
-const { width } = Dimensions.get('window');
+} from '../components/FleetAdvancedFeatures';
 
 const AdminFleetDashboard = ({ route, navigation }) => {
-  const { adminToken, adminId } = route.params || {};
+  const { adminToken } = route.params || {};
   
   const [activeTab, setActiveTab] = useState('overview');
   const [loading, setLoading] = useState(false);
@@ -78,72 +76,69 @@ const AdminFleetDashboard = ({ route, navigation }) => {
     },
   };
 
-  // Load fleet list on mount
-  useEffect(() => {
-    loadFleets();
-  }, []);
-
   const loadFleets = useCallback(async () => {
     try {
       setLoading(true);
-      // Mock fleet data - replace with actual API call
-      const mockFleets = [
-        {
-          fleet_id: 'FLEET_001',
-          fleet_name: 'Chennai Premium Fleet',
-          owner_name: 'Rajesh Kumar',
-          total_vehicles: 50,
-          active_vehicles: 45,
-          total_drivers: 60,
-          active_drivers: 48,
-          health_score: 92.5,
-          status: 'active',
-          monthly_revenue: 2450000,
-        },
-        {
-          fleet_id: 'FLEET_002',
-          fleet_name: 'Bangalore Elite Fleet',
-          owner_name: 'Priya Sharma',
-          total_vehicles: 35,
-          active_vehicles: 30,
-          total_drivers: 42,
-          active_drivers: 38,
-          health_score: 88.3,
-          status: 'active',
-          monthly_revenue: 1890000,
-        },
-        {
-          fleet_id: 'FLEET_003',
-          fleet_name: 'Mumbai Metropolitan Fleet',
-          owner_name: 'Amit Patel',
-          total_vehicles: 75,
-          active_vehicles: 65,
-          total_drivers: 90,
-          active_drivers: 72,
-          health_score: 85.6,
-          status: 'active',
-          monthly_revenue: 3450000,
-        },
-      ];
-      
-      setFleets(mockFleets);
-      if (mockFleets.length > 0) {
-        setSelectedFleet(mockFleets[0]);
+      const operatorsResponse = await apiRequest('/admin/operators', { token: adminToken });
+      const operators = Array.isArray(operatorsResponse?.operators) ? operatorsResponse.operators : [];
+
+      const fleetRows = await Promise.all(
+        operators
+          .map((operator) => ({
+            ...operator,
+            fleet_id: String(operator.operator_id || operator.id || '').trim(),
+          }))
+          .filter((operator) => operator.fleet_id)
+          .map(async (operator) => {
+            let kpis = {};
+            try {
+              const kpiResponse = await apiRequest(`/v1/fleet/dashboard/kpis/${operator.fleet_id}`, {
+                token: adminToken,
+              });
+              kpis = kpiResponse?.data || kpiResponse?.kpis || {};
+            } catch (kpiError) {
+              console.warn('Fleet KPI unavailable:', operator.fleet_id, kpiError?.message);
+            }
+
+            return {
+              fleet_id: operator.fleet_id,
+              fleet_name: operator.company_name || `${operator.contact_name || 'Operator'} Fleet`,
+              owner_name: operator.contact_name || operator.owner_name || operator.contact_email || 'Unassigned',
+              total_vehicles: Number(kpis.total_vehicles || operator.total_vehicles || 0),
+              active_vehicles: Number(kpis.active_vehicles || operator.active_vehicles || 0),
+              total_drivers: Number(kpis.total_drivers || operator.total_drivers || 0),
+              active_drivers: Number(kpis.active_drivers || operator.active_drivers || 0),
+              health_score: Number(kpis.health_score || 0),
+              status: operator.active === false ? 'inactive' : (operator.verification_status || 'active'),
+              monthly_revenue: Number(kpis.total_earnings_month || kpis.monthly_revenue || 0),
+            };
+          }),
+      );
+
+      setFleets(fleetRows);
+      if (fleetRows.length > 0) {
+        setSelectedFleet((previous) =>
+          fleetRows.find((fleet) => fleet.fleet_id === previous?.fleet_id) || fleetRows[0]
+        );
+      } else {
+        setSelectedFleet(null);
       }
       
       // Load aggregated stats
-      const totalVehicles = mockFleets.reduce((sum, f) => sum + f.total_vehicles, 0);
-      const totalDrivers = mockFleets.reduce((sum, f) => sum + f.total_drivers, 0);
-      const totalRevenue = mockFleets.reduce((sum, f) => sum + f.monthly_revenue, 0);
+      const totalVehicles = fleetRows.reduce((sum, f) => sum + f.total_vehicles, 0);
+      const totalDrivers = fleetRows.reduce((sum, f) => sum + f.total_drivers, 0);
+      const totalRevenue = fleetRows.reduce((sum, f) => sum + f.monthly_revenue, 0);
       
       setStats({
-        total_fleets: mockFleets.length,
+        total_fleets: fleetRows.length,
         total_vehicles: totalVehicles,
-        active_vehicles: mockFleets.reduce((sum, f) => sum + f.active_vehicles, 0),
+        active_vehicles: fleetRows.reduce((sum, f) => sum + f.active_vehicles, 0),
         total_drivers: totalDrivers,
-        active_drivers: mockFleets.reduce((sum, f) => sum + f.active_drivers, 0),
+        active_drivers: fleetRows.reduce((sum, f) => sum + f.active_drivers, 0),
         total_revenue: totalRevenue,
-        avg_health_score: (mockFleets.reduce((sum, f) => sum + f.health_score, 0) / mockFleets.length).toFixed(1),
+        avg_health_score: fleetRows.length
+          ? (fleetRows.reduce((sum, f) => sum + f.health_score, 0) / fleetRows.length).toFixed(1)
+          : '0.0',
       });
     } catch (err) {
       console.error('Failed to load fleets:', err);
@@ -151,7 +146,15 @@ const AdminFleetDashboard = ({ route, navigation }) => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [adminToken]);
+
+  // Load fleet list on mount
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      loadFleets();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [loadFleets]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
