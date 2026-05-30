@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from app.db.client import get_db
@@ -96,7 +97,7 @@ async def get_analytics_dashboard(
 ):
     """Get comprehensive analytics dashboard"""
     try:
-        start_date = datetime.utcnow() - timedelta(days=days)
+        start_date = get_ist_now() - timedelta(days=days)
         
         # Rides
         rides_pipeline = [
@@ -180,7 +181,7 @@ async def generate_report(
             "date_range": report_config.date_range,
             "data": data,
             "generated_by": admin_user.get("user_id"),
-            "created_at": datetime.utcnow(),
+            "created_at": get_ist_now(),
         }
         
         result = await db.reports.insert_one(report_doc)

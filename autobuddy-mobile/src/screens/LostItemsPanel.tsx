@@ -17,6 +17,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { lostItemsAPI } from '@/services/apiClient';
 import { getSocket } from '@/services/socketClient';
+import { formatToIST } from '../utils/time';
 
 type LostItem = {
   _id: string;
@@ -242,7 +243,7 @@ const LostItemsPanel: React.FC<{ userId: string; userType: 'passenger' | 'driver
 
       <View style={styles.itemMeta}>
         <Text style={styles.itemDate}>
-          {new Date(item.created_at).toLocaleDateString()}
+          {formatToIST(item.created_at, { dateStyle: 'short' })}
         </Text>
         {item.booking_id && <Text style={styles.bookingBadge}>Booking linked</Text>}
       </View>
@@ -443,8 +444,8 @@ const LostItemsPanel: React.FC<{ userId: string; userType: 'passenger' | 'driver
                 <View style={styles.detailRow}>
                   <Text style={styles.detailLabel}>Reported</Text>
                   <Text style={styles.detailValue}>
-                    {new Date(selectedItem.created_at).toLocaleString()}
-                  </Text>
+                      {formatToIST(selectedItem.created_at, { dateStyle: 'medium', timeStyle: 'short' })}
+                    </Text>
                 </View>
 
                 {selectedItem.booking_id && (

@@ -21,6 +21,7 @@ import {
 } from 'react-native';
 import { COLORS, SHADOWS } from '../theme';
 import { apiRequest } from '../lib/api';
+import { formatToIST } from '../utils/time';
 
 // Import all fleet feature components
 import {
@@ -388,7 +389,7 @@ const AdminFleetDashboard = ({ route, navigation }) => {
 
       {/* FOOTER */}
       <View style={styles.footer}>
-        <Text style={styles.footerText}>Last updated: {new Date().toLocaleTimeString()}</Text>
+        <Text style={styles.footerText}>Last updated: {formatToIST(undefined, { timeStyle: 'short' })}</Text>
       </View>
     </ScrollView>
   );

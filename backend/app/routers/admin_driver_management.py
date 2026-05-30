@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from app.db.client import get_db
@@ -252,7 +253,7 @@ async def update_driver_status(
         # Update driver
         result = await db.users.update_one(
             {"_id": obj_id, "role": "driver"},
-            {"$set": {"driver_status": update.status, "updated_at": datetime.utcnow()}}
+            {"$set": {"driver_status": update.status, "updated_at": get_ist_now()}}
         )
         
         if result.matched_count == 0:
@@ -264,14 +265,14 @@ async def update_driver_status(
             "action": update.status,
             "reason": update.reason,
             "admin_id": admin_user.get("user_id"),
-            "created_at": datetime.utcnow(),
+            "created_at": get_ist_now(),
         })
         
         return {
             "status": "success",
             "driver_id": driver_id,
             "new_status": update.status,
-            "changed_at": datetime.utcnow(),
+            "changed_at": get_ist_now(),
         }
     except HTTPException:
         raise
@@ -294,7 +295,7 @@ async def ban_driver(
         
         ban_until = None
         if ban_info.ban_type == "temporary" and ban_info.duration_days:
-            ban_until = datetime.utcnow() + timedelta(days=ban_info.duration_days)
+            ban_until = get_ist_now() + timedelta(days=ban_info.duration_days)
         
         # Update driver
         await db.users.update_one(
@@ -306,7 +307,7 @@ async def ban_driver(
                     "ban_type": ban_info.ban_type,
                     "ban_until": ban_until,
                     "appeal_allowed": ban_info.appeal_allowed,
-                    "updated_at": datetime.utcnow(),
+                    "updated_at": get_ist_now(),
                 }
             }
         )
@@ -319,7 +320,7 @@ async def ban_driver(
             "reason": ban_info.reason,
             "ban_until": ban_until,
             "admin_id": admin_user.get("user_id"),
-            "created_at": datetime.utcnow(),
+            "created_at": get_ist_now(),
         })
         
         return {
@@ -355,7 +356,7 @@ async def update_driver_tier(
             {
                 "$set": {
                     "driver_tier": tier_update.new_tier,
-                    "tier_updated_at": datetime.utcnow(),
+                    "tier_updated_at": get_ist_now(),
                 }
             }
         )
@@ -366,7 +367,7 @@ async def update_driver_tier(
             "new_tier": tier_update.new_tier,
             "reason": tier_update.reason,
             "admin_id": admin_user.get("user_id"),
-            "created_at": datetime.utcnow(),
+            "created_at": get_ist_now(),
         })
         
         return {
@@ -410,7 +411,7 @@ async def bulk_driver_action(
                 
                 await db.users.update_one(
                     {"_id": obj_id, "role": "driver"},
-                    {"$set": {"driver_status": new_status, "updated_at": datetime.utcnow()}}
+                    {"$set": {"driver_status": new_status, "updated_at": get_ist_now()}}
                 )
                 
                 await db.driver_actions.insert_one({
@@ -418,7 +419,7 @@ async def bulk_driver_action(
                     "action": bulk_action.action,
                     "reason": bulk_action.reason,
                     "admin_id": admin_user.get("user_id"),
-                    "created_at": datetime.utcnow(),
+                    "created_at": get_ist_now(),
                 })
                 
                 results["success"].append(driver_id)
@@ -451,7 +452,7 @@ async def adjust_driver_earnings(
             {"driver_id": driver_id},
             {
                 "$inc": {"total_earnings": adjustment.amount if adjustment.adjustment_type == "bonus" else -adjustment.amount},
-                "$set": {"last_adjustment": datetime.utcnow()}
+                "$set": {"last_adjustment": get_ist_now()}
             },
             upsert=True
         )
@@ -464,7 +465,7 @@ async def adjust_driver_earnings(
             "reason": adjustment.reason,
             "reference_id": adjustment.reference_id,
             "admin_id": admin_user.get("user_id"),
-            "created_at": datetime.utcnow(),
+            "created_at": get_ist_now(),
         })
         
         return {

@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from app.db.client import get_db
@@ -59,7 +60,7 @@ async def get_trips(
 ):
     """List active/recent trips with advanced filtering"""
     try:
-        start_time = datetime.utcnow() - timedelta(hours=hours)
+        start_time = get_ist_now() - timedelta(hours=hours)
         
         filters = {"created_at": {"$gte": start_time}}
         if status:
@@ -242,7 +243,7 @@ async def perform_bulk_trip_action(
                 
                 # Handle different actions
                 update_data = {
-                    "updated_at": datetime.utcnow(),
+                    "updated_at": get_ist_now(),
                     "admin_id": admin_user.get("user_id"),
                 }
                 
@@ -250,7 +251,7 @@ async def perform_bulk_trip_action(
                     update_data["status"] = "cancelled"
                     update_data["cancellation_reason"] = action_config.reason
                     update_data["cancelled_by"] = "admin"
-                    update_data["cancelled_at"] = datetime.utcnow()
+                    update_data["cancelled_at"] = get_ist_now()
                 
                 elif action_config.action == "reassign":
                     if not action_config.new_driver_id:
@@ -262,7 +263,7 @@ async def perform_bulk_trip_action(
                     update_data["driver_id"] = action_config.new_driver_id
                     update_data["reassigned_from"] = trip.get("driver_id")
                     update_data["reassignment_reason"] = action_config.reason
-                    update_data["reassigned_at"] = datetime.utcnow()
+                    update_data["reassigned_at"] = get_ist_now()
                 
                 elif action_config.action == "delay":
                     if not action_config.delay_minutes:
@@ -279,7 +280,7 @@ async def perform_bulk_trip_action(
                 elif action_config.action == "pause":
                     update_data["status"] = "paused"
                     update_data["pause_reason"] = action_config.reason
-                    update_data["paused_at"] = datetime.utcnow()
+                    update_data["paused_at"] = get_ist_now()
                 
                 elif action_config.action == "resume":
                     if trip.get("status") != "paused":
@@ -289,7 +290,7 @@ async def perform_bulk_trip_action(
                         })
                         continue
                     update_data["status"] = "accepted"
-                    update_data["resumed_at"] = datetime.utcnow()
+                    update_data["resumed_at"] = get_ist_now()
                 
                 # Execute update
                 await db.bookings.update_one(
@@ -303,7 +304,7 @@ async def perform_bulk_trip_action(
                     "trip_id": trip_id,
                     "admin_id": admin_user.get("user_id"),
                     "reason": action_config.reason,
-                    "created_at": datetime.utcnow(),
+                    "created_at": get_ist_now(),
                 })
                 
                 results["success"].append(trip_id)
@@ -356,9 +357,9 @@ async def reassign_trip(
                     "reassigned_from": reassignment.current_driver_id,
                     "reassignment_reason": reassignment.reason,
                     "reassignment_type": reassignment.reason,
-                    "reassigned_at": datetime.utcnow(),
+                    "reassigned_at": get_ist_now(),
                     "reassigned_by": admin_user.get("user_id"),
-                    "updated_at": datetime.utcnow(),
+                    "updated_at": get_ist_now(),
                 }
             }
         )
@@ -371,7 +372,7 @@ async def reassign_trip(
             "to_driver_id": reassignment.new_driver_id,
             "reason": reassignment.reason,
             "admin_id": admin_user.get("user_id"),
-            "created_at": datetime.utcnow(),
+            "created_at": get_ist_now(),
         })
         
         # Notify drivers
@@ -380,7 +381,7 @@ async def reassign_trip(
             "type": "trip_reassigned_from",
             "trip_id": reassignment.trip_id,
             "reason": reassignment.reason,
-            "created_at": datetime.utcnow(),
+            "created_at": get_ist_now(),
         })
         
         await db.notifications.insert_one({
@@ -388,7 +389,7 @@ async def reassign_trip(
             "type": "trip_reassigned_to",
             "trip_id": reassignment.trip_id,
             "previous_driver": reassignment.current_driver_id,
-            "created_at": datetime.utcnow(),
+            "created_at": get_ist_now(),
         })
         
         return {
@@ -428,7 +429,7 @@ async def trigger_emergency_contact(
             "reason": emergency.reason,
             "message": emergency.message,
             "initiated_by": admin_user.get("user_id"),
-            "initiated_at": datetime.utcnow(),
+            "initiated_at": get_ist_now(),
             "status": "initiated",
             "contacts_notified": [],
         }
@@ -461,7 +462,7 @@ async def trigger_emergency_contact(
                 "description": emergency.reason,
                 "initiated_by": admin_user.get("user_id"),
                 "emergency_message": emergency.message,
-                "created_at": datetime.utcnow(),
+                "created_at": get_ist_now(),
                 "status": "active",
             })
         
@@ -476,7 +477,7 @@ async def trigger_emergency_contact(
             "action_taken": emergency.action,
             "reason": emergency.reason,
             "admin_id": admin_user.get("user_id"),
-            "created_at": datetime.utcnow(),
+            "created_at": get_ist_now(),
         })
         
         return {
@@ -507,7 +508,7 @@ async def update_trip_status(
         
         update_data = {
             "status": status_update.status,
-            "updated_at": datetime.utcnow(),
+            "updated_at": get_ist_now(),
             "admin_id": admin_user.get("user_id"),
         }
         
@@ -531,7 +532,7 @@ async def update_trip_status(
             "new_status": status_update.status,
             "reason": status_update.reason,
             "admin_id": admin_user.get("user_id"),
-            "created_at": datetime.utcnow(),
+            "created_at": get_ist_now(),
         })
         
         return {

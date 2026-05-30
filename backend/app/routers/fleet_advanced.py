@@ -16,6 +16,7 @@ Endpoints for:
 
 from fastapi import APIRouter, HTTPException, Request, BackgroundTasks, Depends
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from typing import List, Dict, Any, Optional
 import asyncio
 import random
@@ -111,13 +112,13 @@ async def get_fleet_kpis(
                     scope,
                     {
                         "status": {"$in": ["present", "online", "available"]},
-                        "date": {"$gte": datetime.utcnow() - timedelta(days=1)},
+                        "date": {"$gte": get_ist_now() - timedelta(days=1)},
                     },
                 )
             )
         offline_drivers = max(0, total_drivers - int(active_drivers))
 
-        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        today_start = get_ist_now().replace(hour=0, minute=0, second=0, microsecond=0)
         booking_scope = scope
         if driver_ids:
             booking_scope = {
@@ -161,7 +162,7 @@ async def get_fleet_kpis(
             ),
             2,
         )
-        month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        month_start = get_ist_now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         month_bookings = await db.bookings.find(
             _and_query(booking_scope, {"created_at": {"$gte": month_start}}),
             {"_id": 0, "estimated_fare": 1, "final_fare": 1, "fare": 1, "fare_before_discount": 1},
@@ -227,7 +228,7 @@ async def get_fleet_kpis(
             "health_status": "good" if health_score >= 80 else "watch" if health_score >= 60 else "critical",
             "health_score": health_score,
             "red_flags": red_flags,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
         
         return {
@@ -245,7 +246,7 @@ async def get_fleet_health_history(fleet_id: str, days: int = 30, request: Reque
         # Generate mock historical data
         history = []
         for i in range(days, 0, -1):
-            date = datetime.utcnow() - timedelta(days=i)
+            date = get_ist_now() - timedelta(days=i)
             score = 85.0 + random.uniform(-5, 5)  # Fluctuate around 85
             history.append({
                 "date": date.isoformat(),
@@ -281,9 +282,9 @@ async def get_fleet_wallet(fleet_id: str, request: Request):
             "total_driver_payouts": 1890000.0,
             "total_withdrawals": 890000.0,
             "settlement_frequency": "weekly",
-            "last_settlement_date": (datetime.utcnow() - timedelta(days=7)).isoformat(),
-            "next_settlement_date": (datetime.utcnow() + timedelta(days=7)).isoformat(),
-            "updated_at": datetime.utcnow().isoformat()
+            "last_settlement_date": (get_ist_now() - timedelta(days=7)).isoformat(),
+            "next_settlement_date": (get_ist_now() + timedelta(days=7)).isoformat(),
+            "updated_at": get_ist_now().isoformat()
         }
         
         return {
@@ -312,9 +313,9 @@ async def get_fleet_settlements(fleet_id: str, month: Optional[str] = None, requ
                 "other_deductions": 500.0 * (i + 1),
                 "driver_payouts_total": 25000.0 * (i + 1),
                 "drivers_paid": 48,
-                "settlement_period_start": (datetime.utcnow() - timedelta(days=7*(4-i))).isoformat(),
-                "settlement_period_end": (datetime.utcnow() - timedelta(days=7*(3-i))).isoformat(),
-                "settlement_date": (datetime.utcnow() - timedelta(days=7*(3-i))).isoformat(),
+                "settlement_period_start": (get_ist_now() - timedelta(days=7*(4-i))).isoformat(),
+                "settlement_period_end": (get_ist_now() - timedelta(days=7*(3-i))).isoformat(),
+                "settlement_date": (get_ist_now() - timedelta(days=7*(3-i))).isoformat(),
                 "status": "completed"
             }
             for i in range(4)
@@ -333,7 +334,7 @@ async def get_fleet_settlements(fleet_id: str, month: Optional[str] = None, requ
 async def request_withdrawal(fleet_id: str, amount: float, method: str, request: Request):
     """Request withdrawal from fleet wallet"""
     try:
-        withdrawal_id = f"WITHDRAW_{fleet_id}_{int(datetime.utcnow().timestamp())}"
+        withdrawal_id = f"WITHDRAW_{fleet_id}_{int(get_ist_now().timestamp())}"
         
         return {
             "status": "success",
@@ -342,7 +343,7 @@ async def request_withdrawal(fleet_id: str, amount: float, method: str, request:
             "amount": amount,
             "method": method,
             "status_code": "pending",
-            "requested_at": datetime.utcnow().isoformat(),
+            "requested_at": get_ist_now().isoformat(),
             "message": f"Withdrawal request of ₹{amount} submitted. Will be processed within 24-48 hours."
         }
     except Exception as e:
@@ -359,8 +360,8 @@ async def get_driver_payouts(fleet_id: str, period: str = "current", request: Re
                 "fleet_id": fleet_id,
                 "driver_id": f"DRIVER_{i:03d}",
                 "driver_name": f"Driver {i}",
-                "period_start": (datetime.utcnow() - timedelta(days=7)).isoformat(),
-                "period_end": datetime.utcnow().isoformat(),
+                "period_start": (get_ist_now() - timedelta(days=7)).isoformat(),
+                "period_end": get_ist_now().isoformat(),
                 "total_earnings": 15000.0 + random.uniform(0, 10000),
                 "platform_commission": 1500.0 + random.uniform(0, 500),
                 "net_amount": 13500.0 + random.uniform(0, 9500),
@@ -369,7 +370,7 @@ async def get_driver_payouts(fleet_id: str, period: str = "current", request: Re
                 "other_charges": 0,
                 "final_payout": 13000.0 + random.uniform(0, 9000),
                 "payment_status": "completed" if random.random() > 0.3 else "pending",
-                "paid_at": datetime.utcnow().isoformat() if random.random() > 0.3 else None
+                "paid_at": get_ist_now().isoformat() if random.random() > 0.3 else None
             }
             for i in range(1, 49)
         ]
@@ -525,8 +526,8 @@ async def assign_driver_to_vehicle(fleet_id: str, driver_id: str, vehicle_id: st
                                    db: AsyncIOMotorDatabase = Depends(get_db)):
     """Assign driver to vehicle"""
     try:
-        assignment_id = f"ASSIGN_{fleet_id}_{driver_id}_{int(datetime.utcnow().timestamp())}"
-        now = datetime.utcnow()
+        assignment_id = f"ASSIGN_{fleet_id}_{driver_id}_{int(get_ist_now().timestamp())}"
+        now = get_ist_now()
         scope = _fleet_scope_query(fleet_id)
         await db.fleet_driver_assignments.update_many(
             _and_query(
@@ -559,7 +560,7 @@ async def assign_driver_to_vehicle(fleet_id: str, driver_id: str, vehicle_id: st
             "driver_id": driver_id,
             "vehicle_id": vehicle_id,
             "shift": shift,
-            "assignment_date": datetime.utcnow().isoformat(),
+            "assignment_date": get_ist_now().isoformat(),
             "status_code": "active",
             "message": f"Driver {driver_id} assigned to vehicle {vehicle_id} for {shift} shift"
         }
@@ -572,7 +573,7 @@ async def reassign_driver(fleet_id: str, driver_id: str, new_vehicle_id: str,
                          reason: str, request: Request):
     """Reassign driver to different vehicle"""
     try:
-        request_id = f"REASSIGN_{fleet_id}_{driver_id}_{int(datetime.utcnow().timestamp())}"
+        request_id = f"REASSIGN_{fleet_id}_{driver_id}_{int(get_ist_now().timestamp())}"
         
         return {
             "status": "success",
@@ -594,7 +595,7 @@ async def create_temporary_replacement(fleet_id: str, original_driver_id: str,
                                       request: Request):
     """Create temporary driver replacement"""
     try:
-        replacement_id = f"REPLACE_{fleet_id}_{int(datetime.utcnow().timestamp())}"
+        replacement_id = f"REPLACE_{fleet_id}_{int(get_ist_now().timestamp())}"
         
         return {
             "status": "success",
@@ -623,7 +624,7 @@ async def get_assignment_history(fleet_id: str, driver_id: Optional[str] = None,
                 "driver_id": driver_id or f"DRIVER_{i:03d}",
                 "from_fleet_id": fleet_id,
                 "to_fleet_id": fleet_id,
-                "transfer_date": (datetime.utcnow() - timedelta(days=30-i*5)).isoformat(),
+                "transfer_date": (get_ist_now() - timedelta(days=30-i*5)).isoformat(),
                 "transfer_reason": ["reassignment", "performance", "request"][i % 3],
                 "previous_vehicle_id": f"VEHICLE_{i:03d}",
                 "new_vehicle_id": f"VEHICLE_{i+1:03d}",
@@ -656,7 +657,7 @@ async def get_fleet_attendance(fleet_id: str, date: Optional[str] = None, reques
                 "fleet_id": fleet_id,
                 "driver_id": f"DRIVER_{i:03d}",
                 "driver_name": f"Driver {i}",
-                "date": date or datetime.utcnow().strftime("%Y-%m-%d"),
+                "date": date or get_ist_now().strftime("%Y-%m-%d"),
                 "scheduled_hours": 12.0,
                 "online_hours": 11.0 + random.uniform(0, 1),
                 "active_hours": 8.5 + random.uniform(0, 2),
@@ -674,7 +675,7 @@ async def get_fleet_attendance(fleet_id: str, date: Optional[str] = None, reques
         return {
             "status": "success",
             "fleet_id": fleet_id,
-            "date": date or datetime.utcnow().strftime("%Y-%m-%d"),
+            "date": date or get_ist_now().strftime("%Y-%m-%d"),
             "records": records
         }
     except Exception as e:
@@ -721,7 +722,7 @@ async def get_driver_monthly_performance(fleet_id: str, driver_id: str,
             "performance_id": f"PERF_{fleet_id}_{driver_id}",
             "fleet_id": fleet_id,
             "driver_id": driver_id,
-            "month_year": month or datetime.utcnow().strftime("%Y-%m"),
+            "month_year": month or get_ist_now().strftime("%Y-%m"),
             "days_worked": 25,
             "total_hours": 250.0,
             "total_rides": 400,
@@ -755,7 +756,7 @@ async def create_driver_incentive(fleet_id: str, driver_id: str, incentive_type:
                                  end_date: str, request: Request):
     """Create incentive for driver"""
     try:
-        incentive_id = f"INCENTIVE_{fleet_id}_{driver_id}_{int(datetime.utcnow().timestamp())}"
+        incentive_id = f"INCENTIVE_{fleet_id}_{driver_id}_{int(get_ist_now().timestamp())}"
         
         return {
             "status": "success",
@@ -811,8 +812,8 @@ async def get_incentive_program(fleet_id: str, request: Request = None):
             "allocated_so_far": 245000.0,
             "remaining_budget": 255000.0,
             "active": True,
-            "start_date": (datetime.utcnow() - timedelta(days=30)).isoformat(),
-            "end_date": (datetime.utcnow() + timedelta(days=60)).isoformat(),
+            "start_date": (get_ist_now() - timedelta(days=30)).isoformat(),
+            "end_date": (get_ist_now() + timedelta(days=60)).isoformat(),
             "total_incentives_disbursed": 245000.0,
             "drivers_benefited": 38
         }
@@ -829,7 +830,7 @@ async def get_incentive_program(fleet_id: str, request: Request = None):
 async def get_weekly_targets(fleet_id: str, request: Request = None):
     """Get weekly incentive targets"""
     try:
-        week_start = datetime.utcnow() - timedelta(days=datetime.utcnow().weekday())
+        week_start = get_ist_now() - timedelta(days=get_ist_now().weekday())
         
         targets = {
             "target_id": f"TARGET_{fleet_id}",
@@ -899,7 +900,7 @@ async def get_live_fleet_map(fleet_id: str, request: Request = None):
                 "offline_vehicles": sum(1 for v in vehicles if v["status"] == "offline"),
                 "active_rides": sum(1 for v in vehicles if v["is_on_ride"])
             },
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -938,7 +939,7 @@ async def get_demand_heatmap(fleet_id: str, zone: Optional[str] = None, request:
                 "Deploy 3 vehicles to Airport Road - High demand",
                 "Shift 2 vehicles from suburbs to city center"
             ],
-            "generated_at": datetime.utcnow().isoformat()
+            "generated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -961,7 +962,7 @@ async def get_zone_demand(fleet_id: str, zone_name: str, request: Request = None
             "hourly_demand": {
                 str(i): 20 + i*8 + random.uniform(-10, 10) for i in range(24)
             },
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
         
         return {
@@ -982,14 +983,14 @@ async def get_revenue_forecast(fleet_id: str, days: int = 7, request: Request = 
     try:
         forecasts = []
         for i in range(days):
-            date = datetime.utcnow() + timedelta(days=i)
+            date = get_ist_now() + timedelta(days=i)
             predicted_rides = 300 + int(random.uniform(-50, 100))
             predicted_revenue = predicted_rides * 150  # avg ₹150 per ride
             
             forecasts.append({
                 "forecast_id": f"FORECAST_{fleet_id}_{date.strftime('%Y-%m-%d')}",
                 "fleet_id": fleet_id,
-                "forecast_date": datetime.utcnow().isoformat(),
+                "forecast_date": get_ist_now().isoformat(),
                 "forecast_for_date": date.isoformat(),
                 "predicted_rides": predicted_rides,
                 "predicted_revenue": predicted_revenue,
@@ -1098,7 +1099,7 @@ async def get_ai_recommendations(fleet_id: str, request: Request = None):
 async def bulk_approve_drivers(fleet_id: str, driver_ids: List[str], request: Request):
     """Bulk approve multiple drivers"""
     try:
-        batch_id = f"BATCH_{fleet_id}_{int(datetime.utcnow().timestamp())}"
+        batch_id = f"BATCH_{fleet_id}_{int(get_ist_now().timestamp())}"
         
         return {
             "status": "success",
@@ -1118,7 +1119,7 @@ async def bulk_upload_documents(fleet_id: str, entity_type: str, document_type: 
                                file_count: int, request: Request, background_tasks: BackgroundTasks):
     """Bulk upload documents for drivers/vehicles"""
     try:
-        upload_id = f"UPLOAD_{fleet_id}_{int(datetime.utcnow().timestamp())}"
+        upload_id = f"UPLOAD_{fleet_id}_{int(get_ist_now().timestamp())}"
         
         # Simulate async processing
         background_tasks.add_task(process_bulk_upload, upload_id, file_count)
@@ -1173,7 +1174,7 @@ async def get_compliance_report(fleet_id: str, request: Request = None):
                 "3 insurance policies expiring within 7 days",
                 "2 pollution certificates expiring within 15 days"
             ],
-            "generated_at": datetime.utcnow().isoformat()
+            "generated_at": get_ist_now().isoformat()
         }
         
         return {
@@ -1197,7 +1198,7 @@ async def get_maintenance_alerts(fleet_id: str, request: Request = None):
                 "fleet_id": fleet_id,
                 "vehicle_id": f"VEHICLE_{i:03d}",
                 "document_type": "insurance",
-                "expiry_date": (datetime.utcnow() + timedelta(days=5-i*2)).isoformat(),
+                "expiry_date": (get_ist_now() + timedelta(days=5-i*2)).isoformat(),
                 "days_until_expiry": 5 - i*2,
                 "alert_severity": ["critical", "high", "high"][i],
                 "status": "active"
@@ -1210,7 +1211,7 @@ async def get_maintenance_alerts(fleet_id: str, request: Request = None):
                 "fleet_id": fleet_id,
                 "vehicle_id": f"VEHICLE_{10+i:03d}",
                 "document_type": "pollution_certificate",
-                "expiry_date": (datetime.utcnow() + timedelta(days=20-i*5)).isoformat(),
+                "expiry_date": (get_ist_now() + timedelta(days=20-i*5)).isoformat(),
                 "days_until_expiry": 20 - i*5,
                 "alert_severity": "medium",
                 "status": "active"

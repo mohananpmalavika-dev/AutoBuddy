@@ -6,6 +6,7 @@ Features: Individual driver fare configuration management
 from fastapi import APIRouter, HTTPException, Depends, status, Query
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from bson import ObjectId
@@ -79,7 +80,7 @@ async def set_driver_fare_override(
             "surge_multiplier": fare.surge_multiplier,
             "effective_from": fare.effective_from,
             "effective_to": fare.effective_to,
-            "updated_at": datetime.utcnow(),
+            "updated_at": get_ist_now(),
         }
         
         if existing:
@@ -94,7 +95,7 @@ async def set_driver_fare_override(
                 "data": override_doc
             }
         else:
-            override_doc["created_at"] = datetime.utcnow()
+            override_doc["created_at"] = get_ist_now()
             result = await db.driver_fare_override.insert_one(override_doc)
             return {
                 "message": "Driver fare override created",

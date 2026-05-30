@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { driverAPI } from '@/services/apiClient';
+import { formatToIST } from '../utils/time';
 import { getSocket } from '@/services/socketClient';
 
 type LocationPoint = {
@@ -175,7 +176,11 @@ const DriverAvailabilityToggle: React.FC<{ driverId: string }> = ({ driverId }) 
 
   const getLastUpdatedString = () => {
     if (!lastUpdated) {return 'Never';}
-    return new Date(lastUpdated).toLocaleString();
+    try {
+      return formatToIST(lastUpdated, { dateStyle: 'short', timeStyle: 'short' });
+    } catch {
+      return String(lastUpdated);
+    }
   };
 
   if (loading) {

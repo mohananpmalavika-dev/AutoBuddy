@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 from typing import Any, Dict, Optional
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -31,7 +32,7 @@ async def write_audit_log(
                 "method": str(method or "").strip().upper(),
                 "path": str(path or "").strip(),
                 "metadata": metadata or {},
-                "created_at": datetime.utcnow(),
+                "created_at": get_ist_now(),
             }
         )
     except Exception:

@@ -14,6 +14,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { apiRequest } from '../lib/api';
 import { appendPickerAssetToFormData } from '../lib/uploadFormData';
 import { COLORS, SHADOWS } from '../theme';
+import { formatToIST } from '../utils/time';
 
 const EMPTY_PROFILE = {
   name: '',
@@ -51,7 +52,11 @@ function formatDate(value) {
   if (!value) return 'Not available';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleString();
+  try {
+    return formatToIST(value);
+  } catch {
+    return new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata' }).format(date);
+  }
 }
 
 function maskAccountNumber(value, fallback = '') {

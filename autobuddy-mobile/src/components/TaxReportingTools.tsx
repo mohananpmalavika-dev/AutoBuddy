@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
+import { formatToIST } from '../utils/time';
 
 type TaxSummary = {
   year: string;
@@ -696,7 +697,7 @@ export default function TaxReportingTools({
                     </Text>
                   </View>
                   <Text style={styles.documentDate}>
-                    {new Date(item.generated).toLocaleDateString('en-IN')}
+                    {formatToIST(item.generated, { dateStyle: 'short' })}
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -783,9 +784,7 @@ export default function TaxReportingTools({
                     <View style={styles.infoRow}>
                       <Text style={styles.infoLabel}>Generated:</Text>
                       <Text style={styles.infoValue}>
-                        {new Date(
-                          selectedDocument.generated
-                        ).toLocaleDateString('en-IN')}
+                        {formatToIST(selectedDocument.generated, { dateStyle: 'short' })}
                       </Text>
                     </View>
                     <View style={styles.infoRow}>

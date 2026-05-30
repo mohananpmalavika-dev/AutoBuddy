@@ -5,6 +5,7 @@ Driver Availability Management - Toggle online/offline status
 from fastapi import APIRouter, HTTPException, Request, Depends
 from bson import ObjectId
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 from typing import Optional
 import logging
 
@@ -124,18 +125,18 @@ async def set_driver_availability(driver_id: str, request: Request):
         # Update driver availability status
         update_data = {
             'is_available': is_available,
-            'availability_updated_at': datetime.utcnow(),
+            'availability_updated_at': get_ist_now(),
         }
         
         if latitude is not None and longitude is not None:
             update_data['current_latitude'] = latitude
             update_data['current_longitude'] = longitude
-            update_data['last_location_update'] = datetime.utcnow()
+            update_data['last_location_update'] = get_ist_now()
         
         if is_available:
-            update_data['availability_started_at'] = datetime.utcnow()
+            update_data['availability_started_at'] = get_ist_now()
         else:
-            update_data['availability_ended_at'] = datetime.utcnow()
+            update_data['availability_ended_at'] = get_ist_now()
         
         updated_driver = await db.drivers.find_one_and_update(
             {'_id': ObjectId(driver_id)},
@@ -154,7 +155,7 @@ async def set_driver_availability(driver_id: str, request: Request):
         io.emit('driver_availability_changed', {
             'driver_id': driver_id,
             'is_available': is_available,
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': get_ist_now().isoformat(),
             'location': {
                 'latitude': latitude,
                 'longitude': longitude
@@ -295,11 +296,11 @@ async def start_driver_shift(driver_id: str, request: Request):
         
         shift_data = {
             'is_available': True,
-            'shift_start_time': datetime.utcnow(),
+            'shift_start_time': get_ist_now(),
             'shift_active': True,
             'current_latitude': latitude,
             'current_longitude': longitude,
-            'last_location_update': datetime.utcnow()
+            'last_location_update': get_ist_now()
         }
         
         updated_driver = await db.drivers.find_one_and_update(
@@ -341,7 +342,7 @@ async def end_driver_shift(driver_id: str, request: Request):
         # Calculate shift duration
         driver = await db.drivers.find_one({'_id': ObjectId(driver_id)})
         shift_start = driver.get('shift_start_time')
-        shift_end = datetime.utcnow()
+        shift_end = get_ist_now()
         shift_duration_minutes = 0
         
         if shift_start:

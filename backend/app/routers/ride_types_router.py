@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import JSONResponse
 from typing import List, Optional
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.models.ride_types_model import RideTypeResponse, DEFAULT_RIDE_TYPES, RideTypeEnum
 from app.db.database import get_db
@@ -133,8 +134,8 @@ async def create_ride_type(
         ride_type_data.setdefault("requires_passenger_count", True)
         ride_type_data.setdefault("active", True)
         ride_type_data.setdefault("regions", ["all"])
-        ride_type_data["created_at"] = datetime.utcnow()
-        ride_type_data["updated_at"] = datetime.utcnow()
+        ride_type_data["created_at"] = get_ist_now()
+        ride_type_data["updated_at"] = get_ist_now()
         
         # Use id as _id
         ride_type_data["_id"] = ride_type_data.pop("id")
@@ -166,7 +167,7 @@ async def update_ride_type(
     try:
         collection = db["ride_types"]
         
-        update_data["updated_at"] = datetime.utcnow()
+        update_data["updated_at"] = get_ist_now()
         
         result = await collection.update_one(
             {"_id": ride_type_id},
@@ -201,7 +202,7 @@ async def delete_ride_type(
             {
                 "$set": {
                     "active": False,
-                    "updated_at": datetime.utcnow()
+                    "updated_at": get_ist_now()
                 }
             }
         )

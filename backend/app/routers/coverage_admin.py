@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.db.database import get_db
 from app.utils.rbac import require_roles
@@ -98,8 +99,8 @@ async def create_coverage_area(
             "ride_types": coverage.ride_types,
             "active": coverage.active,
             "base_fare_multiplier": coverage.base_fare_multiplier,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow()
+            "created_at": get_ist_now(),
+            "updated_at": get_ist_now()
         }
         
         result = await collection.insert_one(coverage_doc)
@@ -124,7 +125,7 @@ async def update_coverage_area(
     try:
         collection = db["coverage_areas"]
         
-        update_data["updated_at"] = datetime.utcnow()
+        update_data["updated_at"] = get_ist_now()
         
         result = await collection.update_one(
             {"_id": coverage_id},
@@ -159,7 +160,7 @@ async def delete_coverage_area(
             {
                 "$set": {
                     "active": False,
-                    "updated_at": datetime.utcnow()
+                    "updated_at": get_ist_now()
                 }
             }
         )
@@ -197,8 +198,8 @@ async def bulk_import_coverage_areas(
                 "ride_types": coverage.ride_types,
                 "active": coverage.active,
                 "base_fare_multiplier": coverage.base_fare_multiplier,
-                "created_at": datetime.utcnow(),
-                "updated_at": datetime.utcnow()
+                "created_at": get_ist_now(),
+                "updated_at": get_ist_now()
             })
         
         if coverage_docs:

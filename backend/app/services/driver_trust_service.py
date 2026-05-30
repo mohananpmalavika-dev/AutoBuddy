@@ -1,6 +1,7 @@
 import re
 import uuid
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import HTTPException
@@ -17,7 +18,7 @@ REPEAT_COMPLAINT_THRESHOLDS = {
 
 
 def _utc_now() -> datetime:
-    return datetime.utcnow()
+    return get_ist_now()
 
 
 def _normalize_category(value: str) -> str:

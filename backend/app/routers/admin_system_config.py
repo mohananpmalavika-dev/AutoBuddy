@@ -6,6 +6,7 @@ Features: Feature flags, templates, system settings, configuration management
 from fastapi import APIRouter, HTTPException, Depends, Query
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from app.db.client import get_db
@@ -257,7 +258,7 @@ async def update_rate_limit(
                     "description": update.description,
                     "enabled": update.enabled,
                     "updated_by": admin_user.get("user_id"),
-                    "updated_at": datetime.utcnow(),
+                    "updated_at": get_ist_now(),
                 }
             },
             upsert=True
@@ -298,7 +299,7 @@ async def add_endpoint_rate_limit(
             "description": config.description,
             "enabled": config.enabled,
             "created_by": admin_user.get("user_id"),
-            "created_at": datetime.utcnow(),
+            "created_at": get_ist_now(),
         })
         clear_rate_limit_config_cache()
         
@@ -343,7 +344,7 @@ async def update_endpoint_rate_limit(
                     "description": config.description,
                     "enabled": config.enabled,
                     "updated_by": admin_user.get("user_id"),
-                    "updated_at": datetime.utcnow(),
+                    "updated_at": get_ist_now(),
                 }
             }
         )
@@ -411,7 +412,7 @@ async def update_feature_flag(
                     "applicable_to": update.applicable_to,
                     "description": update.description,
                     "updated_by": admin_user.get("user_id"),
-                    "updated_at": datetime.utcnow(),
+                    "updated_at": get_ist_now(),
                 }
             },
             upsert=True
@@ -439,7 +440,7 @@ async def update_system_setting(
                     "setting_type": update.setting_type,
                     "description": update.description,
                     "updated_by": admin_user.get("user_id"),
-                    "updated_at": datetime.utcnow(),
+                    "updated_at": get_ist_now(),
                 }
             },
             upsert=True
@@ -466,7 +467,7 @@ async def create_email_template(
             "body": template.body,
             "template_type": template.template_type,
             "created_by": admin_user.get("user_id"),
-            "created_at": datetime.utcnow(),
+            "created_at": get_ist_now(),
         })
         
         return {"status": "success", "template": template.template_name}
@@ -491,7 +492,7 @@ async def update_email_template(
                     "body": template.body,
                     "template_type": template.template_type,
                     "updated_by": admin_user.get("user_id"),
-                    "updated_at": datetime.utcnow(),
+                    "updated_at": get_ist_now(),
                 }
             }
         )

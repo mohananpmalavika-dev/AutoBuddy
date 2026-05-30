@@ -4,6 +4,7 @@ import logging
 import random
 import uuid
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from typing import Any, Dict, Optional
 
 from fastapi import HTTPException
@@ -100,7 +101,7 @@ async def _store_refresh_token(
     request_ip: str,
     user_agent: str,
 ) -> None:
-    now = datetime.utcnow()
+    now = get_ist_now()
     await db.refresh_tokens.insert_one(
         {
             "id": str(uuid.uuid4()),
@@ -126,8 +127,8 @@ def build_default_operator_profile(user_id: str, user: Optional[Dict[str, Any]] 
         "service_regions": ["all"],
         "verification_status": "pending",
         "active": True,
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow(),
+        "created_at": get_ist_now(),
+        "updated_at": get_ist_now(),
     }
 
 
@@ -146,7 +147,7 @@ async def ensure_operator_profile(
 async def _revoke_refresh_token(db: AsyncIOMotorDatabase, refresh_token: str) -> None:
     await db.refresh_tokens.update_one(
         {"token_hash": _hash_refresh_token(refresh_token)},
-        {"$set": {"revoked": True, "revoked_at": datetime.utcnow()}},
+        {"$set": {"revoked": True, "revoked_at": get_ist_now()}},
     )
 
 
@@ -170,7 +171,7 @@ def _build_user_response(user: Dict[str, Any]) -> UserResponse:
 
     created_at = user.get("created_at")
     if not isinstance(created_at, datetime):
-        created_at = datetime.utcnow()
+        created_at = get_ist_now()
 
     try:
         return UserResponse.model_validate(
@@ -280,7 +281,7 @@ async def register(
         "role": role_value,
         "gender": user_data.gender.value if isinstance(user_data.gender, Gender) else str(user_data.gender),
         "password_hash": hash_password(user_data.password),
-        "created_at": datetime.utcnow(),
+        "created_at": get_ist_now(),
         "registration_fee_amount": float(required_registration_fee),
         "registration_payment_required": required_registration_fee > 0,
         "registration_payment_status": "submitted" if required_registration_fee > 0 else "not_required",
@@ -393,12 +394,12 @@ def _to_auth_response_from_any(payload: Any) -> AuthResponse:
             "role": getattr(source_user, "role", "passenger"),
             "gender": getattr(source_user, "gender", None),
             "referral_code": getattr(source_user, "referral_code", None),
-            "created_at": getattr(source_user, "created_at", datetime.utcnow()),
+            "created_at": getattr(source_user, "created_at", get_ist_now()),
         }
 
     created_at = source_user.get("created_at")
     if not isinstance(created_at, datetime):
-        created_at = datetime.utcnow()
+        created_at = get_ist_now()
 
     user_response = UserResponse(
         id=str(source_user.get("id") or ""),
@@ -976,7 +977,7 @@ async def refresh_access_token(
         if user_id:
             await db.refresh_tokens.update_many(
                 {"user_id": user_id, "revoked": False},
-                {"$set": {"revoked": True, "revoked_at": datetime.utcnow(), "revoke_reason": "refresh_token_reuse"}},
+                {"$set": {"revoked": True, "revoked_at": get_ist_now(), "revoke_reason": "refresh_token_reuse"}},
             )
         await _audit_auth_event(
             db=db,
@@ -988,7 +989,7 @@ async def refresh_access_token(
             path="/api/auth/refresh",
         )
         raise HTTPException(status_code=401, detail="Refresh token reuse detected. Please login again.")
-    if stored.get("expires_at") and stored["expires_at"] < datetime.utcnow():
+    if stored.get("expires_at") and stored["expires_at"] < get_ist_now():
         await _audit_auth_event(
             db=db,
             action="REFRESH_FAILED",
@@ -1035,7 +1036,7 @@ async def refresh_access_token(
         {
             "$set": {
                 "revoked": True,
-                "revoked_at": datetime.utcnow(),
+                "revoked_at": get_ist_now(),
                 "revoke_reason": "rotated",
             }
         },

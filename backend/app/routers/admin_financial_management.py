@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 from app.db.client import get_db
@@ -38,7 +39,7 @@ async def get_revenue_dashboard(
     """Get comprehensive revenue dashboard"""
     try:
         # Calculate date range
-        now = datetime.utcnow()
+        now = get_ist_now()
         if period == "daily":
             start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
         elif period == "weekly":
@@ -164,7 +165,7 @@ async def process_payouts(
                     "method": payout_info.payment_method,
                     "payout_date": datetime.fromisoformat(payout_info.payout_date),
                     "status": "completed",
-                    "created_at": datetime.utcnow(),
+                    "created_at": get_ist_now(),
                 })
                 
                 # Update earnings
@@ -172,7 +173,7 @@ async def process_payouts(
                     {"driver_id": driver_id},
                     {
                         "$inc": {"total_paid": payout_amount, "pending_amount": -payout_amount},
-                        "$set": {"last_settlement": datetime.utcnow()}
+                        "$set": {"last_settlement": get_ist_now()}
                     }
                 )
             
@@ -225,7 +226,7 @@ async def generate_reconciliation(
             "total_revenue": data.get("total_revenue", 0),
             "total_payouts": 0,
             "discrepancies": 0,
-            "created_at": datetime.utcnow(),
+            "created_at": get_ist_now(),
         })
         
         return {

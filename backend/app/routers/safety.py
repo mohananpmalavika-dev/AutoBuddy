@@ -1,4 +1,5 @@
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -180,7 +181,7 @@ async def resolve_sos(
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     await safety_service.resolve_sos_event(db=db, user_id=current_user["id"], sos_id=sos_id)
-    return {"message": "SOS resolved", "resolved_at": datetime.utcnow().isoformat() + "Z"}
+    return {"message": "SOS resolved", "resolved_at": get_ist_now().isoformat() + "Z"}
 
 
 @router.post("/safety/family-location")

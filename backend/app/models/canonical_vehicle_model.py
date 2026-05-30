@@ -6,6 +6,7 @@ This replaces scattered vehicle definitions across the system
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 from enum import Enum
 
 
@@ -66,8 +67,8 @@ class CanonicalVehicleType(BaseModel):
     
     # Status & Metadata
     active: bool = Field(default=True)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
+    updated_at: datetime = Field(default_factory=get_ist_now)
     
     class Config:
         from_attributes = True
@@ -95,8 +96,8 @@ CANONICAL_VEHICLE_TYPES = [
         ],
         "regions": ["all"],
         "active": True,
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+        "created_at": get_ist_now(),
+        "updated_at": get_ist_now()
     },
     {
         "vehicle_type_id": "taxi",
@@ -117,8 +118,8 @@ CANONICAL_VEHICLE_TYPES = [
         ],
         "regions": ["all"],
         "active": True,
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+        "created_at": get_ist_now(),
+        "updated_at": get_ist_now()
     },
     {
         "vehicle_type_id": "xl",
@@ -139,8 +140,8 @@ CANONICAL_VEHICLE_TYPES = [
         ],
         "regions": ["all"],
         "active": True,
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+        "created_at": get_ist_now(),
+        "updated_at": get_ist_now()
     },
     {
         "vehicle_type_id": "traveller",
@@ -161,8 +162,8 @@ CANONICAL_VEHICLE_TYPES = [
         ],
         "regions": ["all"],
         "active": True,
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+        "created_at": get_ist_now(),
+        "updated_at": get_ist_now()
     },
     {
         "vehicle_type_id": "bus",
@@ -183,8 +184,8 @@ CANONICAL_VEHICLE_TYPES = [
         ],
         "regions": ["all"],
         "active": True,
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+        "created_at": get_ist_now(),
+        "updated_at": get_ist_now()
     },
     {
         "vehicle_type_id": "minitruck",
@@ -205,8 +206,8 @@ CANONICAL_VEHICLE_TYPES = [
         ],
         "regions": ["all"],
         "active": True,
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+        "created_at": get_ist_now(),
+        "updated_at": get_ist_now()
     },
     {
         "vehicle_type_id": "truck",
@@ -228,8 +229,8 @@ CANONICAL_VEHICLE_TYPES = [
         ],
         "regions": ["all"],
         "active": True,
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+        "created_at": get_ist_now(),
+        "updated_at": get_ist_now()
     }
 ]
 

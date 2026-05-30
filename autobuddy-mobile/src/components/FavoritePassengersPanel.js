@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Modal, TextInput, Alert } from 'react-native';
 import { useFavoritePassengers } from '../hooks/useFavoritePassengers';
 import { theme } from '../theme';
+import { formatToIST } from '../utils/time';
 
 export function FavoritePassengersPanel({ isVisible, onClose, token, driverId }) {
   const { favorites, loadFavorites, addFavorite, removeFavorite } = useFavoritePassengers({ token, driverId });
@@ -89,7 +90,7 @@ export function FavoritePassengersPanel({ isVisible, onClose, token, driverId })
                   </View>
                   <View style={styles.stat}>
                     <Text style={styles.statLabel}>Since</Text>
-                    <Text style={styles.statValue}>{new Date(passenger.favorite_since).toLocaleDateString()}</Text>
+                      <Text style={styles.statValue}>{formatToIST(passenger.favorite_since, { dateStyle: 'short' })}</Text>
                   </View>
                 </View>
 

@@ -14,6 +14,7 @@ import { apiRequest } from '../lib/api';
 import { appendPickerAssetToFormData } from '../lib/uploadFormData';
 import { COLORS, SHADOWS } from '../theme';
 import VoiceTextInput from './VoiceTextInput';
+import { formatToIST } from '../utils/time';
 
 const CATEGORIES = [
   { value: 'all', label: 'All' },
@@ -85,7 +86,11 @@ function formatDate(value) {
   if (!value) return 'Not available';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleString();
+  try {
+    return formatToIST(value);
+  } catch {
+    return new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata' }).format(date);
+  }
 }
 
 function getStatusColor(status) {

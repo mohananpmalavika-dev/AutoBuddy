@@ -14,6 +14,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { apiRequest } from '../lib/api';
 import { appendPickerAssetToFormData } from '../lib/uploadFormData';
 import { COLORS, SHADOWS } from '../theme';
+import { formatToIST } from '../utils/time';
 
 const DOCUMENT_TYPES = [
   { key: 'driver_license', label: 'Driver License', requiresExpiry: true },
@@ -114,9 +115,11 @@ function buildLocalReminders(documents) {
 
 function formatDate(value) {
   if (!value) return 'Not set';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleDateString();
+  try {
+    return formatToIST(value, { dateStyle: 'short' });
+  } catch {
+    return String(value);
+  }
 }
 
 function formatFileSize(size) {

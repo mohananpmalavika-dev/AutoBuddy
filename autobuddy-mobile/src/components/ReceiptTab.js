@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
+import { formatToIST } from '../utils/time';
 
 function formatMoney(value) {
   const amount = Number(value || 0);
@@ -16,7 +17,11 @@ function formatDate(value) {
   if (Number.isNaN(date.getTime())) {
     return 'Date unavailable';
   }
-  return date.toLocaleString();
+  try {
+    return formatToIST(value);
+  } catch {
+    return new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata' }).format(date);
+  }
 }
 
 export default function ReceiptTab({ bookingId, token }) {

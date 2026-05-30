@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Modal, TextInput, Alert } from 'react-native';
 import { useVehicleMaintenance } from '../hooks/useVehicleMaintenance';
 import { theme } from '../theme';
+import { formatToIST } from '../utils/time';
 
 const MaintenanceAlertPanel = ({ token, vehicleId, isVisible, onClose }) => {
   const { 
@@ -102,7 +103,7 @@ const MaintenanceAlertPanel = ({ token, vehicleId, isVisible, onClose }) => {
                   <View style={styles.alertLeft}>
                     <Text style={styles.alertLabel}>{doc.document_type}</Text>
                     <Text style={styles.alertDate}>
-                      Expires: {new Date(doc.expiry_date).toLocaleDateString()}
+                      Expires: {formatToIST(doc.expiry_date, { dateStyle: 'short' })}
                     </Text>
                   </View>
                   <Text style={styles.alertStatus}>⚠</Text>
@@ -120,10 +121,10 @@ const MaintenanceAlertPanel = ({ token, vehicleId, isVisible, onClose }) => {
                   <View style={styles.itemLeft}>
                     <Text style={styles.itemType}>{MAINTENANCE_TYPES[record.maintenance_type] || record.maintenance_type}</Text>
                     <Text style={styles.itemDate}>
-                      Serviced: {new Date(record.service_date).toLocaleDateString()}
+                      Serviced: {formatToIST(record.service_date, { dateStyle: 'short' })}
                     </Text>
                     <Text style={styles.itemDue}>
-                      Next due: {new Date(record.next_due_date).toLocaleDateString()}
+                      Next due: {formatToIST(record.next_due_date, { dateStyle: 'short' })}
                     </Text>
                   </View>
                   {record.cost && <Text style={styles.itemCost}>₹{record.cost}</Text>}

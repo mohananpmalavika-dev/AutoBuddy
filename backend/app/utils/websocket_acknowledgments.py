@@ -8,6 +8,7 @@ import time
 from typing import Optional, Callable, Dict, List, Any
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 import uuid
 
 from app.utils.logging_config import StructuredLogger
@@ -23,7 +24,7 @@ class WebSocketEvent:
     data: Dict[str, Any]
     recipient_id: str
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=get_ist_now)
     priority: int = field(default=0)  # 0=normal, 1=high, 2=critical
     
     # Acknowledgment tracking
@@ -49,7 +50,7 @@ class WebSocketEvent:
     def is_expired(self, ttl_seconds: int = 300) -> bool:
         """Check if event has expired (default 5 minutes)"""
         expiration_time = self.timestamp + timedelta(seconds=ttl_seconds)
-        return datetime.utcnow() > expiration_time
+        return get_ist_now() > expiration_time
 
 
 class AcknowledgmentTracker:
@@ -89,7 +90,7 @@ class AcknowledgmentTracker:
         
         event = self.pending_events[event_id]
         event.acknowledged = True
-        event.ack_timestamp = datetime.utcnow()
+        event.ack_timestamp = get_ist_now()
         
         self.acknowledged_events.append(event_id)
         

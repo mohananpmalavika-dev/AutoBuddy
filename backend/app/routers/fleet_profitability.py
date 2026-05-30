@@ -5,6 +5,7 @@ FastAPI endpoints for fleet financial analysis, vehicle profitability, and ROI t
 
 from fastapi import APIRouter, HTTPException, Request
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 import random
 import logging
 
@@ -38,13 +39,13 @@ async def get_fleet_portfolio(fleet_id: str, request: Request):
             "total_rides_today": random.randint(20000, 30000),
             "premium_tier_vehicles": random.randint(40, 80),
             "loss_making_vehicles": random.randint(1, 10),
-            "updated_at": datetime.utcnow().isoformat() + "Z"
+            "updated_at": get_ist_now().isoformat() + "Z"
         }
         
         return {
             "status": "success",
             "data": portfolio,
-            "updated_at": datetime.utcnow().isoformat() + "Z"
+            "updated_at": get_ist_now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Error getting portfolio: {str(e)}")
@@ -93,7 +94,7 @@ async def get_profitability_dashboard(fleet_id: str, request: Request):
         return {
             "status": "success",
             "data": dashboard,
-            "updated_at": datetime.utcnow().isoformat() + "Z"
+            "updated_at": get_ist_now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Error getting dashboard: {str(e)}")
@@ -138,7 +139,7 @@ async def list_vehicles_profitability(fleet_id: str, request: Request, limit: in
                 "limit": limit,
                 "offset": offset
             },
-            "updated_at": datetime.utcnow().isoformat() + "Z"
+            "updated_at": get_ist_now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Error listing vehicles: {str(e)}")
@@ -175,7 +176,7 @@ async def get_vehicle_profitability(fleet_id: str, vehicle_id: str, request: Req
         return {
             "status": "success",
             "data": vehicle,
-            "updated_at": datetime.utcnow().isoformat() + "Z"
+            "updated_at": get_ist_now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Error getting vehicle: {str(e)}")
@@ -208,7 +209,7 @@ async def get_top_performers(fleet_id: str, request: Request, limit: int = 10):
                 "fleet_id": fleet_id,
                 "top_performers": performers
             },
-            "updated_at": datetime.utcnow().isoformat() + "Z"
+            "updated_at": get_ist_now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Error getting top performers: {str(e)}")
@@ -248,7 +249,7 @@ async def get_vehicles_needing_attention(fleet_id: str, request: Request):
                 "vehicles_needing_attention": vehicles,
                 "total_count": len(vehicles)
             },
-            "updated_at": datetime.utcnow().isoformat() + "Z"
+            "updated_at": get_ist_now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Error getting attention vehicles: {str(e)}")
@@ -282,7 +283,7 @@ async def get_cost_breakdown(fleet_id: str, request: Request, vehicle_id: str = 
         return {
             "status": "success",
             "data": breakdown,
-            "updated_at": datetime.utcnow().isoformat() + "Z"
+            "updated_at": get_ist_now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Error getting cost breakdown: {str(e)}")
@@ -316,7 +317,7 @@ async def get_revenue_analysis(fleet_id: str, request: Request):
         return {
             "status": "success",
             "data": analysis,
-            "updated_at": datetime.utcnow().isoformat() + "Z"
+            "updated_at": get_ist_now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Error getting revenue analysis: {str(e)}")
@@ -352,7 +353,7 @@ async def get_vehicle_roi(fleet_id: str, vehicle_id: str, request: Request):
         return {
             "status": "success",
             "data": roi,
-            "updated_at": datetime.utcnow().isoformat() + "Z"
+            "updated_at": get_ist_now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Error getting ROI: {str(e)}")
@@ -382,7 +383,7 @@ async def get_fleet_roi_summary(fleet_id: str, request: Request):
         return {
             "status": "success",
             "data": summary,
-            "updated_at": datetime.utcnow().isoformat() + "Z"
+            "updated_at": get_ist_now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Error getting ROI summary: {str(e)}")
@@ -428,7 +429,7 @@ async def get_optimization_tips(fleet_id: str, request: Request):
                 "optimization_tips": tips,
                 "total_potential_profit_increase": round(random.uniform(500000, 1500000), 2)
             },
-            "updated_at": datetime.utcnow().isoformat() + "Z"
+            "updated_at": get_ist_now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Error getting tips: {str(e)}")
@@ -464,7 +465,7 @@ async def get_vehicle_recommendations(fleet_id: str, vehicle_id: str, request: R
                 "vehicle_id": vehicle_id,
                 "recommendations": recommendations
             },
-            "updated_at": datetime.utcnow().isoformat() + "Z"
+            "updated_at": get_ist_now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Error getting recommendations: {str(e)}")
@@ -503,7 +504,7 @@ async def get_driver_performance(fleet_id: str, request: Request):
                 "top_drivers": drivers,
                 "average_fleet_rating": round(random.uniform(4.4, 4.7), 1)
             },
-            "updated_at": datetime.utcnow().isoformat() + "Z"
+            "updated_at": get_ist_now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Error getting driver performance: {str(e)}")
@@ -540,7 +541,7 @@ async def get_maintenance_alerts(fleet_id: str, request: Request):
                 "maintenance_alerts": alerts,
                 "total_estimated_cost": round(random.uniform(10000, 30000), 2)
             },
-            "updated_at": datetime.utcnow().isoformat() + "Z"
+            "updated_at": get_ist_now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Error getting maintenance alerts: {str(e)}")
@@ -578,7 +579,7 @@ async def get_profitability_trends(fleet_id: str, request: Request, period: str 
                 "trends": trends,
                 "period": period
             },
-            "updated_at": datetime.utcnow().isoformat() + "Z"
+            "updated_at": get_ist_now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Error getting trends: {str(e)}")

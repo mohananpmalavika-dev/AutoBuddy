@@ -13,6 +13,7 @@ import {
   Animated,
 } from 'react-native';
 import { COLORS, SHADOWS } from '../theme';
+import { formatToIST } from '../utils/time';
 import VoiceTextInput from './VoiceTextInput';
 
 /**
@@ -71,7 +72,7 @@ export default function ExpenseTrackerAdvanced({
   const expenseTrends = useMemo(() => {
     const trends = {};
     expenses.forEach(exp => {
-      const date = new Date(exp.created_at || new Date()).toLocaleDateString();
+      const date = formatToIST(exp.created_at || new Date(), { dateStyle: 'short' });
       if (!trends[date]) trends[date] = 0;
       trends[date] += Number(exp.amount || 0);
     });

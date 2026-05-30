@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { COLORS, SHADOWS, SPACING } from '../theme';
 import { apiRequest } from '../lib/api';
+import { formatToIST } from '../utils/time';
 
 const RIDE_TYPES = ['standard', 'premium', 'economy'];
 
@@ -89,7 +90,7 @@ function ProposalCard({ proposal, onWithdraw }) {
             {proposal.ride_type.charAt(0).toUpperCase() + proposal.ride_type.slice(1)}
           </Text>
           <Text style={styles.proposalCardDate}>
-            {new Date(proposal.created_at).toLocaleDateString()}
+            {formatToIST(proposal.created_at, { dateStyle: 'short' })}
           </Text>
         </View>
         <ProposalStatusBadge status={proposal.status} />
@@ -130,7 +131,7 @@ function ProposalCard({ proposal, onWithdraw }) {
             {proposal.status === 'approved' && proposal.reviewed_at && (
               <View style={styles.approvalInfoBox}>
                 <Text style={styles.approvalInfoLabel}>
-                  Approved on {new Date(proposal.reviewed_at).toLocaleDateString()}
+                  Approved on {formatToIST(proposal.reviewed_at, { dateStyle: 'short' })}
                 </Text>
               </View>
             )}

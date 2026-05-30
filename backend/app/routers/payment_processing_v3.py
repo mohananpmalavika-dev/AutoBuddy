@@ -6,6 +6,7 @@ Handles Stripe/RazorPay integration, transactions, refunds, and invoicing
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from typing import List, Optional
 from pydantic import BaseModel, EmailStr
 import uuid
@@ -146,8 +147,8 @@ async def initialize_payment(request: InitializePaymentRequest, db: Session = De
         "amount_rupees": amount_rupees,
         "payment_method": request.payment_method,
         "status": "INITIALIZED",
-        "created_at": datetime.utcnow(),
-        "expires_at": datetime.utcnow() + timedelta(minutes=15)
+        "created_at": get_ist_now(),
+        "expires_at": get_ist_now() + timedelta(minutes=15)
     }
     
     return {
@@ -177,11 +178,11 @@ async def process_payment(request: ProcessPaymentRequest, db: Session = Depends(
     
     session = payment_sessions[request.payment_session_id]
     
-    if datetime.utcnow() > session["expires_at"]:
+    if get_ist_now() > session["expires_at"]:
         raise HTTPException(status_code=400, detail="Payment session expired")
     
     payment_id = str(uuid.uuid4())
-    transaction_ref = f"TXN_{int(datetime.utcnow().timestamp())}"
+    transaction_ref = f"TXN_{int(get_ist_now().timestamp())}"
     
     transactions[payment_id] = {
         "ride_id": session["ride_id"],
@@ -189,7 +190,7 @@ async def process_payment(request: ProcessPaymentRequest, db: Session = Depends(
         "amount_rupees": session["amount_rupees"],
         "status": "SUCCESS",
         "transaction_ref": transaction_ref,
-        "created_at": datetime.utcnow(),
+        "created_at": get_ist_now(),
         "payment_method": session["payment_method"]
     }
     
@@ -202,7 +203,7 @@ async def process_payment(request: ProcessPaymentRequest, db: Session = Depends(
         amount_rupees=session["amount_rupees"],
         status="SUCCESS",
         transaction_ref=transaction_ref,
-        timestamp=datetime.utcnow(),
+        timestamp=get_ist_now(),
         receipt_url=f"https://receipts.autobuddy.com/{payment_id}.pdf"
     )
 
@@ -254,7 +255,7 @@ async def save_payment_method(user_id: str, method: PaymentMethod, db: Session =
         "reference_token": method.reference_token,
         "last_4_digits": method.last_4_digits,
         "is_default": method.is_default,
-        "created_at": datetime.utcnow()
+        "created_at": get_ist_now()
     }
     
     # If marked as default, unset other defaults
@@ -313,8 +314,8 @@ async def process_refund(ride_id: str, request: RefundRequest, db: Session = Dep
         "amount_rupees": amount_rupees,
         "reason": request.reason,
         "status": "PROCESSING",
-        "created_at": datetime.utcnow(),
-        "estimated_completion": datetime.utcnow() + timedelta(hours=4)
+        "created_at": get_ist_now(),
+        "estimated_completion": get_ist_now() + timedelta(hours=4)
     }
     
     return RefundResponse(
@@ -323,7 +324,7 @@ async def process_refund(ride_id: str, request: RefundRequest, db: Session = Dep
         amount_rupees=amount_rupees,
         status="PROCESSING",
         reason=request.reason,
-        estimated_completion=datetime.utcnow() + timedelta(hours=4)
+        estimated_completion=get_ist_now() + timedelta(hours=4)
     )
 
 @router.get("/receipt/{payment_id}")
@@ -409,7 +410,7 @@ async def topup_wallet(user_id: str, amount_rupees: float, db: Session = Depends
         "amount_added_rupees": amount_rupees,
         "new_balance_rupees": 500.0 + amount_rupees,
         "status": "success",
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": get_ist_now().isoformat()
     }
 
 @router.get("/wallet/{user_id}")
@@ -425,7 +426,7 @@ async def get_wallet_balance(user_id: str, db: Session = Depends(get_db)):
         "user_id": user_id,
         "balance_rupees": 500.0,
         "currency": "INR",
-        "last_updated": datetime.utcnow().isoformat()
+        "last_updated": get_ist_now().isoformat()
     }
 
 @router.post("/subscription/activate")
@@ -459,7 +460,7 @@ async def activate_subscription_payment(
         "plan_type": plan_type,
         "amount_rupees": plan_prices.get(plan_type, 0),
         "auto_renewal": True,
-        "renewal_date": (datetime.utcnow() + timedelta(days=30)).isoformat(),
+        "renewal_date": (get_ist_now() + timedelta(days=30)).isoformat(),
         "status": "active",
         "first_payment_id": str(uuid.uuid4())
     }
@@ -481,7 +482,7 @@ async def email_receipt(payment_id: str, email: EmailStr, db: Session = Depends(
         "status": "email_sent",
         "payment_id": payment_id,
         "email": email,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": get_ist_now().isoformat()
     }
 
 @router.get("/refunds/{user_id}")
@@ -517,5 +518,5 @@ async def payment_health():
     return {
         "status": "healthy",
         "providers": ["STRIPE", "RAZORPAY"],
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": get_ist_now().isoformat()
     }

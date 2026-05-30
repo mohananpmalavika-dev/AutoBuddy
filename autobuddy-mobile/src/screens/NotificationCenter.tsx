@@ -86,9 +86,9 @@ export const NotificationCenter = ({ navigation }: NotificationCenterProps) => {
         <Text style={styles.notificationBody} numberOfLines={2}>
           {item.body}
         </Text>
-        <Text style={styles.notificationTime}>
-          {item.timestamp ? new Date(item.timestamp).toLocaleDateString() : ''}
-        </Text>
+          <Text style={styles.notificationTime}>
+            {item.timestamp ? formatToIST(item.timestamp, { dateStyle: 'short' }) : ''}
+          </Text>
       </View>
 
       <TouchableOpacity

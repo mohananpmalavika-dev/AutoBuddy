@@ -1,5 +1,6 @@
 import React, {useCallback, useEffect, useState} from 'react';
 import {View, Text, FlatList, StyleSheet, Button} from 'react-native';
+import { formatToIST } from '../utils/time';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const LOG_KEY = 'autobuddy_bg_emit_logs_v1';
@@ -46,7 +47,7 @@ export default function BackgroundLogsScreen({ navigation }: BackgroundLogsScree
 
   const renderItem = ({item}: { item: BackgroundLogEntry }) => (
     <View style={styles.item}>
-      <Text style={styles.ts}>{item.ts ? new Date(item.ts).toLocaleString() : ''}</Text>
+      <Text style={styles.ts}>{item.ts ? formatToIST(item.ts, { dateStyle: 'short', timeStyle: 'short' }) : ''}</Text>
       <Text style={styles.line}>{item.type} {item.rideId ? `ride:${item.rideId}` : ''}</Text>
       <Text style={styles.json}>{JSON.stringify(item)}</Text>
     </View>

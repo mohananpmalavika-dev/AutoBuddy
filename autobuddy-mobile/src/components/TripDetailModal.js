@@ -13,6 +13,7 @@ import { COLORS, SHADOWS } from '../theme';
 import FareBreakdown from './FareBreakdown';
 import AddStopModal from './AddStopModal';
 import EditDestinationModal from './EditDestinationModal';
+import { formatToIST } from '../utils/time';
 
 /**
  * TripDetailModal - Complete trip details view with receipt and post-ride actions
@@ -85,15 +86,7 @@ export default function TripDetailModal({
 
   const formatDate = (dateStr) => {
     if (!dateStr) return '';
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('en-IN', {
-      weekday: 'short',
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    return formatToIST(dateStr, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
   const formatLocation = (location) => {

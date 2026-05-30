@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { COLORS, SHADOWS } from '../theme';
+import { formatToIST } from '../utils/time';
 import { driverSafetyAPI } from '../services/apiClient';
 
 type VerificationStatus = 'VERIFIED' | 'PENDING' | 'FAILED';
@@ -161,7 +162,7 @@ export default function DriverPhotoVerificationPanel({
             <Text style={styles.verifiedEmoji}>✅</Text>
             <Text style={styles.verifiedText}>Your identity has been verified</Text>
             <Text style={styles.verifiedSubtext}>
-              Verification Date: {new Date().toLocaleDateString()}
+              Verification Date: {formatToIST(new Date(), { dateStyle: 'short' })}
             </Text>
             {livenessScore && (
               <Text style={styles.scoreText}>Liveness Score: {livenessScore.toFixed(1)}%</Text>

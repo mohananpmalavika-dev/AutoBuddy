@@ -379,7 +379,7 @@ const NotificationPanel = ({ socket = null, isConnected = false } = {}) => {
         <Text style={styles.notificationTitle}>{notification.title}</Text>
         <Text style={styles.notificationMessage}>{notification.message}</Text>
         <Text style={styles.notificationTime}>
-          {new Date(notification.timestamp).toLocaleTimeString()}
+          {formatToIST(notification.timestamp, { dateStyle: 'short', timeStyle: 'short' })}
         </Text>
       </View>
 

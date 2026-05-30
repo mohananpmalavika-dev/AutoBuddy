@@ -6,6 +6,7 @@ import {
   View,
 } from 'react-native';
 import { COLORS, SHADOWS } from '../theme';
+import { formatToIST } from '../utils/time';
 
 const EMPTY_UPCOMING = {
   scheduled_requests: [],
@@ -25,13 +26,11 @@ function formatDateTime(value) {
   if (Number.isNaN(date.getTime())) {
     return 'Time not set';
   }
-  return date.toLocaleString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+  try {
+    return formatToIST(value, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  } catch {
+    return new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(date);
+  }
 }
 
 function formatMoney(value) {

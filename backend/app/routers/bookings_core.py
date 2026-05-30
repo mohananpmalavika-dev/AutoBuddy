@@ -6,6 +6,7 @@ Extracted from monolithic server.py for better maintainability.
 from fastapi import APIRouter, HTTPException, Request
 from bson import ObjectId
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from typing import Optional
 import logging
 import os
@@ -56,8 +57,8 @@ async def accept_ride(booking_id: str, request: Request):
                 '$set': {
                     'status': 'accepted',
                     'accepted_driver_id': ObjectId(driver_id),
-                    'accepted_at': datetime.utcnow(),
-                    'acceptance_deadline': datetime.utcnow() + timedelta(minutes=30)
+                    'accepted_at': get_ist_now(),
+                    'acceptance_deadline': get_ist_now() + timedelta(minutes=30)
                 }
             },
             return_document=True
@@ -93,7 +94,7 @@ async def accept_ride(booking_id: str, request: Request):
                 'driver_id': {'$ne': ObjectId(driver_id)},
                 'status': 'pending'
             },
-            {'$set': {'status': 'expired', 'expired_at': datetime.utcnow()}}
+            {'$set': {'status': 'expired', 'expired_at': get_ist_now()}}
         )
         
         logger.info(f"Driver {driver_id} accepted booking {booking_id}")
@@ -144,7 +145,7 @@ async def decline_ride(booking_id: str, request: Request):
                 '$set': {
                     'status': 'pending',
                     'previous_accepted_driver_id': ObjectId(driver_id),
-                    'declined_at': datetime.utcnow()
+                    'declined_at': get_ist_now()
                 },
                 '$unset': {'accepted_driver_id': 1, 'accepted_at': 1}
             }
@@ -155,7 +156,7 @@ async def decline_ride(booking_id: str, request: Request):
             {'_id': ObjectId(driver_id)},
             {
                 '$inc': {'decline_count': 1},
-                '$set': {'last_decline_at': datetime.utcnow()}
+                '$set': {'last_decline_at': get_ist_now()}
             }
         )
         
@@ -201,7 +202,7 @@ async def start_ride(booking_id: str, request: Request):
             {
                 '$set': {
                     'status': 'in_progress',
-                    'started_at': datetime.utcnow(),
+                    'started_at': get_ist_now(),
                     'trip_start_location': booking.get('pickup_location'),
                     'trip_start_odometer': booking.get('vehicle_odometer', 0)
                 }
@@ -260,7 +261,7 @@ async def complete_ride(booking_id: str, request: Request):
                 vehicle_type_multiplier = float(vehicle_type.get('base_multiplier', 1.0))
         
         # Recalculate fare based on actual distance/time
-        ride_duration = (datetime.utcnow() - booking['started_at']).total_seconds() / 60
+        ride_duration = (get_ist_now() - booking['started_at']).total_seconds() / 60
         fare = calculate_final_fare(
             ride_type=booking.get('ride_type', 'standard'),
             distance=actual_distance,
@@ -276,7 +277,7 @@ async def complete_ride(booking_id: str, request: Request):
             {
                 '$set': {
                     'status': 'completed',
-                    'completed_at': datetime.utcnow(),
+                    'completed_at': get_ist_now(),
                     'actual_distance': actual_distance,
                     'actual_duration': ride_duration,
                     'final_fare': fare['total'],
@@ -305,7 +306,7 @@ async def complete_ride(booking_id: str, request: Request):
             'amount': fare['total'],
             'currency': 'INR',
             'status': 'pending',
-            'created_at': datetime.utcnow(),
+            'created_at': get_ist_now(),
             'method': booking.get('payment_method', 'wallet')
         }
         payment_result = await db.payments.insert_one(payment)
@@ -384,8 +385,8 @@ async def reassign_to_drivers(booking_id: str):
                 'driver_id': driver_id,
                 'status': 'pending',
                 'eta_minutes': 5,
-                'created_at': datetime.utcnow(),
-                'expires_at': datetime.utcnow() + timedelta(seconds=30)
+                'created_at': get_ist_now(),
+                'expires_at': get_ist_now() + timedelta(seconds=30)
             }
             await db.ride_offers.insert_one(offer)
             
@@ -496,7 +497,7 @@ async def notify_user(user_id: str, message: str, type: str, booking_id: str = N
             'message': message,
             'type': type,
             'booking_id': ObjectId(booking_id) if booking_id else None,
-            'created_at': datetime.utcnow(),
+            'created_at': get_ist_now(),
             'read': False
         }
         await db.notifications.insert_one(notification)

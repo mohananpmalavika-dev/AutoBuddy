@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from app.db.client import get_db
@@ -169,7 +170,7 @@ async def get_agent_performance(
 ):
     """Get support agent performance metrics"""
     try:
-        start_date = datetime.utcnow() - timedelta(days=days)
+        start_date = get_ist_now() - timedelta(days=days)
         
         pipeline = [
             {"$match": {"created_at": {"$gte": start_date}}},
@@ -217,7 +218,7 @@ async def assign_ticket(
             {
                 "$set": {
                     "assigned_to": assignment.assigned_to,
-                    "updated_at": datetime.utcnow(),
+                    "updated_at": get_ist_now(),
                 }
             }
         )
@@ -245,7 +246,7 @@ async def resolve_ticket(
                     "status": "resolved",
                     "resolution_notes": resolution.resolution_notes,
                     "satisfaction_rating": resolution.satisfaction_rating,
-                    "resolved_at": datetime.utcnow(),
+                    "resolved_at": get_ist_now(),
                     "resolved_by": admin_user.get("user_id"),
                 }
             }
@@ -274,7 +275,7 @@ async def create_ticket(
             "user_id": ticket.user_id,
             "status": "open",
             "created_by": admin_user.get("user_id"),
-            "created_at": datetime.utcnow(),
+            "created_at": get_ist_now(),
         })
         
         return {"status": "success", "title": ticket.title}
@@ -296,7 +297,7 @@ async def configure_sla(
                 "$set": {
                     "response_time_hours": sla_config.response_time_hours,
                     "resolution_time_hours": sla_config.resolution_time_hours,
-                    "updated_at": datetime.utcnow(),
+                    "updated_at": get_ist_now(),
                 }
             },
             upsert=True

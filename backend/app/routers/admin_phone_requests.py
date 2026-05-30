@@ -2,6 +2,7 @@
 Admin Phone Change Requests - Enhanced with OTP resend and bulk operations
 """
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel
@@ -43,7 +44,7 @@ async def send_otp_for_phone_change(
     otp = f"{random.randint(100000, 999999)}"
     
     # Store OTP with expiry (10 minutes)
-    otp_expiry = datetime.utcnow() + timedelta(minutes=10)
+    otp_expiry = get_ist_now() + timedelta(minutes=10)
     
     await requests_collection.update_one(
         {"_id": phone_request_id},
@@ -52,7 +53,7 @@ async def send_otp_for_phone_change(
                 "verification_otp": otp,
                 "otp_expiry": otp_expiry,
                 "otp_attempts": 0,
-                "last_otp_sent": datetime.utcnow()
+                "last_otp_sent": get_ist_now()
             }
         }
     )
@@ -62,7 +63,7 @@ async def send_otp_for_phone_change(
     
     return {
         "phone_request_id": phone_request_id,
-        "otp_sent_at": datetime.utcnow().isoformat(),
+        "otp_sent_at": get_ist_now().isoformat(),
         "message": "OTP sent to user's phone"
     }
 
@@ -80,11 +81,11 @@ async def verify_phone_otp(
         raise HTTPException(status_code=404, detail="Request not found")
     
     stored_otp = request_doc.get("verification_otp")
-    otp_expiry = request_doc.get("otp_expiry", datetime.utcnow())
+    otp_expiry = request_doc.get("otp_expiry", get_ist_now())
     otp_attempts = request_doc.get("otp_attempts", 0)
     
     # Check OTP expiry
-    if datetime.utcnow() > otp_expiry:
+    if get_ist_now() > otp_expiry:
         raise HTTPException(status_code=400, detail="OTP expired")
     
     # Check attempt limit
@@ -105,7 +106,7 @@ async def verify_phone_otp(
         {
             "$set": {
                 "otp_verified": True,
-                "otp_verified_at": datetime.utcnow()
+                "otp_verified_at": get_ist_now()
             }
         }
     )
@@ -153,10 +154,10 @@ async def list_phone_requests(
             "new_phone": doc.get("new_phone"),
             "old_phone": doc.get("old_phone"),
             "status": doc.get("status", "pending"),
-            "created_at": doc.get("created_at", datetime.utcnow()).isoformat(),
-            "requested_at": doc.get("requested_at", datetime.utcnow()).isoformat(),
+            "created_at": doc.get("created_at", get_ist_now()).isoformat(),
+            "requested_at": doc.get("requested_at", get_ist_now()).isoformat(),
             "otp_verified": doc.get("otp_verified", False),
-            "expires_at": (doc.get("created_at", datetime.utcnow()) + timedelta(days=7)).isoformat(),
+            "expires_at": (doc.get("created_at", get_ist_now()) + timedelta(days=7)).isoformat(),
         })
     
     return {
@@ -195,7 +196,7 @@ async def approve_or_reject_phone_request(
                     "phone_history": {
                         "old_phone": request_doc.get("old_phone"),
                         "new_phone": request_doc.get("new_phone"),
-                        "changed_at": datetime.utcnow(),
+                        "changed_at": get_ist_now(),
                         "approved_by": admin_id
                     }
                 }
@@ -210,7 +211,7 @@ async def approve_or_reject_phone_request(
                 "status": approval.status,
                 "admin_notes": approval.admin_notes,
                 "approved_by": admin_id,
-                "approved_at": datetime.utcnow()
+                "approved_at": get_ist_now()
             }
         }
     )
@@ -218,7 +219,7 @@ async def approve_or_reject_phone_request(
     return {
         "request_id": request_id,
         "status": approval.status,
-        "approved_at": datetime.utcnow().isoformat()
+        "approved_at": get_ist_now().isoformat()
     }
 
 
@@ -254,7 +255,7 @@ async def bulk_approve_phone_requests(
                             "phone_history": {
                                 "old_phone": request_doc.get("old_phone"),
                                 "new_phone": request_doc.get("new_phone"),
-                                "changed_at": datetime.utcnow(),
+                                "changed_at": get_ist_now(),
                                 "approved_by": admin_id
                             }
                         }
@@ -269,7 +270,7 @@ async def bulk_approve_phone_requests(
                         "status": bulk_approval.status,
                         "admin_notes": bulk_approval.reason,
                         "approved_by": admin_id,
-                        "approved_at": datetime.utcnow()
+                        "approved_at": get_ist_now()
                     }
                 }
             )
@@ -295,7 +296,7 @@ async def get_expiring_requests(
     _ = admin_user
     
     requests_collection = db["phone_change_requests"]
-    cutoff_date = datetime.utcnow() - timedelta(days=days)
+    cutoff_date = get_ist_now() - timedelta(days=days)
     
     pipeline = [
         {
@@ -311,12 +312,12 @@ async def get_expiring_requests(
     
     expiring = []
     async for doc in requests_collection.aggregate(pipeline):
-        age_days = (datetime.utcnow() - doc.get("created_at", datetime.utcnow())).days
+        age_days = (get_ist_now() - doc.get("created_at", get_ist_now())).days
         expiring.append({
             "_id": str(doc.get("_id")),
             "user_id": doc.get("user_id"),
             "request_age_days": age_days,
-            "created_at": doc.get("created_at", datetime.utcnow()).isoformat()
+            "created_at": doc.get("created_at", get_ist_now()).isoformat()
         })
     
     return {
@@ -336,7 +337,7 @@ async def auto_reject_expired_request(
     _ = admin_user
     
     requests_collection = db["phone_change_requests"]
-    expiry_date = datetime.utcnow() - timedelta(days=30)
+    expiry_date = get_ist_now() - timedelta(days=30)
     
     request_doc = await requests_collection.find_one(
         {
@@ -359,7 +360,7 @@ async def auto_reject_expired_request(
                 "status": "rejected",
                 "auto_rejected": True,
                 "rejection_reason": "Request expired after 30 days",
-                "rejected_at": datetime.utcnow()
+                "rejected_at": get_ist_now()
             }
         }
     )

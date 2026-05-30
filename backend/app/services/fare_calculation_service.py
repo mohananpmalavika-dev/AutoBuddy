@@ -8,6 +8,7 @@ from typing import Optional, Dict, Tuple
 from math import radians, cos, sin, asin, sqrt
 import logging
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 
 from app.models.ride_type_compatibility import (
     FARE_CONFIGURATIONS,
@@ -397,7 +398,7 @@ def calculate_complete_fare(
             "total_fare": total_fare,
             "estimated_fare": total_fare,
             "fare_breakdown": fare_breakdown,
-            "valid_until": (datetime.utcnow() + timedelta(seconds=300)).isoformat()
+            "valid_until": (get_ist_now() + timedelta(seconds=300)).isoformat()
         }
     
     except Exception as e:

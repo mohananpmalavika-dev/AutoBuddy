@@ -6,6 +6,7 @@ Features: Document upload, status checking, grace period tracking
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from bson import ObjectId
@@ -161,12 +162,12 @@ async def get_passenger_document_status(
             passenger_data = await db.passengers.find_one({"user_id": passenger_id})
             if not passenger_data:
                 passenger_data = await db.users.find_one({"id": passenger_id})
-        created_at = passenger_data.get("created_at", datetime.utcnow()) if passenger_data else datetime.utcnow()
+        created_at = passenger_data.get("created_at", get_ist_now()) if passenger_data else get_ist_now()
         
         # Use the longest grace period from mandatory documents
         max_grace_days = max([req.get("grace_period_days", 7) for req in mandatory_docs], default=7) if mandatory_docs else 0
         grace_expires = created_at + timedelta(days=max_grace_days)
-        days_remaining = (grace_expires - datetime.utcnow()).days
+        days_remaining = (grace_expires - get_ist_now()).days
         
         # Determine status
         if total_mandatory == 0:
@@ -275,7 +276,7 @@ async def upload_document(
         # Upload file
         file_url = await file_upload_service.upload_file(
             file_content,
-            f"documents/{passenger_id}/{document_type}_{datetime.utcnow().timestamp()}.pdf",
+            f"documents/{passenger_id}/{document_type}_{get_ist_now().timestamp()}.pdf",
             file.content_type
         )
         
@@ -292,7 +293,7 @@ async def upload_document(
                 {
                     "$set": {
                         "file_url": file_url,
-                        "uploaded_at": datetime.utcnow(),
+                        "uploaded_at": get_ist_now(),
                         "verified": False,
                         "rejection_reason": None,
                     }
@@ -305,12 +306,12 @@ async def upload_document(
                 "user_id": passenger_id,
                 "document_type": document_type,
                 "file_url": file_url,
-                "uploaded_at": datetime.utcnow(),
+                "uploaded_at": get_ist_now(),
                 "verified": False,
                 "verified_at": None,
                 "verified_by": None,
                 "rejection_reason": None,
-                "created_at": datetime.utcnow(),
+                "created_at": get_ist_now(),
             }
             result = await db.document_uploads.insert_one(doc)
             upload_id = str(result.inserted_id)
@@ -399,12 +400,12 @@ async def check_can_book_ride(
                 user_query["$or"].append({"_id": ObjectId(passenger_id)})
             passenger_data = await db.users.find_one(user_query)
         
-        created_at = passenger_data.get("created_at", datetime.utcnow()) if passenger_data else datetime.utcnow()
+        created_at = passenger_data.get("created_at", get_ist_now()) if passenger_data else get_ist_now()
         max_grace_days = max([req.get("grace_period_days", 7) for req in mandatory_docs], default=7)
         grace_expires = created_at + timedelta(days=max_grace_days)
         
-        if datetime.utcnow() <= grace_expires:
-            days_remaining = (grace_expires - datetime.utcnow()).days
+        if get_ist_now() <= grace_expires:
+            days_remaining = (grace_expires - get_ist_now()).days
             return {
                 "can_book_ride": True,
                 "reason": f"Grace period active ({days_remaining} days remaining)"

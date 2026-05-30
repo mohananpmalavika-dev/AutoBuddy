@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional, Dict, Any
 from app.db.client import get_db
@@ -272,7 +273,7 @@ async def update_passenger_status(
         
         result = await db.users.update_one(
             {"_id": obj_id, "role": "passenger"},
-            {"$set": {"passenger_status": update.status, "updated_at": datetime.utcnow()}}
+            {"$set": {"passenger_status": update.status, "updated_at": get_ist_now()}}
         )
         
         if result.matched_count == 0:
@@ -284,7 +285,7 @@ async def update_passenger_status(
             "action": update.status,
             "reason": update.reason,
             "admin_id": admin_user.get("user_id"),
-            "created_at": datetime.utcnow(),
+            "created_at": get_ist_now(),
         })
         
         return {
@@ -324,7 +325,7 @@ async def resolve_complaint(
                 "$set": {
                     "status": resolution.resolution,
                     "resolution_notes": resolution.notes,
-                    "resolved_at": datetime.utcnow(),
+                    "resolved_at": get_ist_now(),
                     "resolved_by": admin_user.get("user_id"),
                     "refund_amount": resolution.refund_amount,
                 }
@@ -340,7 +341,7 @@ async def resolve_complaint(
                 "amount": resolution.refund_amount,
                 "reason": resolution.notes,
                 "status": "approved",
-                "created_at": datetime.utcnow(),
+                "created_at": get_ist_now(),
             })
             
             # Update passenger wallet
@@ -384,7 +385,7 @@ async def investigate_complaint(
                     "findings": investigation.findings,
                     "severity": investigation.severity_level,
                     "investigating_admin": admin_user.get("user_id"),
-                    "investigation_started": datetime.utcnow(),
+                    "investigation_started": get_ist_now(),
                 }
             }
         )
@@ -416,7 +417,7 @@ async def process_refund(
             "reason": refund.reason,
             "status": "approved",
             "processed_by": admin_user.get("user_id"),
-            "created_at": datetime.utcnow(),
+            "created_at": get_ist_now(),
         })
         
         # Credit wallet
@@ -474,7 +475,7 @@ async def bulk_passenger_action(
                     "action": bulk_action.action,
                     "reason": bulk_action.reason,
                     "admin_id": admin_user.get("user_id"),
-                    "created_at": datetime.utcnow(),
+                    "created_at": get_ist_now(),
                 })
                 
                 results["success"].append(passenger_id)

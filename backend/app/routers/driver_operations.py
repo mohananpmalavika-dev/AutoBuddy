@@ -6,6 +6,7 @@ Phase 1 implementation for AutoBuddy.
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 from bson import ObjectId
 import logging
 import json
@@ -72,10 +73,10 @@ async def toggle_availability(req: AvailabilityToggleRequest, request: Request):
             {
                 '$set': {
                     'is_available': req.available,
-                    'availability_updated_at': datetime.utcnow(),
+                    'availability_updated_at': get_ist_now(),
                     'last_status_change': {
                         'status': 'available' if req.available else 'unavailable',
-                        'timestamp': datetime.utcnow()
+                        'timestamp': get_ist_now()
                     }
                 }
             },
@@ -88,7 +89,7 @@ async def toggle_availability(req: AvailabilityToggleRequest, request: Request):
             'driver_name': driver.get('name'),
             'is_available': req.available,
             'current_location': driver.get('current_location'),
-            'updated_at': datetime.utcnow().isoformat()
+            'updated_at': get_ist_now().isoformat()
         }, room='admin_dashboard')
         
         # Log availability change
@@ -104,7 +105,7 @@ async def toggle_availability(req: AvailabilityToggleRequest, request: Request):
             'message': f'Driver is now {status_text}',
             'driver_id': str(driver_id),
             'is_available': req.available,
-            'updated_at': datetime.utcnow().isoformat()
+            'updated_at': get_ist_now().isoformat()
         }
         
     except HTTPException:
@@ -166,7 +167,7 @@ async def update_driver_location(request: Request):
                         'type': 'Point',
                         'coordinates': [longitude, latitude]
                     },
-                    'location_updated_at': datetime.utcnow()
+                    'location_updated_at': get_ist_now()
                 }
             }
         )
@@ -185,7 +186,7 @@ async def update_driver_location(request: Request):
                 'driver_id': str(driver_id),
                 'latitude': latitude,
                 'longitude': longitude,
-                'updated_at': datetime.utcnow().isoformat()
+                'updated_at': get_ist_now().isoformat()
             }, room=f'passenger_{passenger_id}')
         
         return {
@@ -223,7 +224,7 @@ async def get_nearby_requests(request: Request):
         nearby_rides = await db.ride_offers.find({
             'driver_id': ObjectId(driver_id),
             'status': 'pending',
-            'expires_at': {'$gt': datetime.utcnow()}
+            'expires_at': {'$gt': get_ist_now()}
         }).to_list(None)
         
         requests = []
@@ -238,7 +239,7 @@ async def get_nearby_requests(request: Request):
                     'estimated_fare': booking.get('estimated_fare'),
                     'ride_type': booking.get('ride_type'),
                     'expires_in_seconds': int(
-                        (ride_offer['expires_at'] - datetime.utcnow()).total_seconds()
+                        (ride_offer['expires_at'] - get_ist_now()).total_seconds()
                     )
                 })
         
@@ -273,7 +274,7 @@ async def accept_request(booking_id: str, request: Request):
             raise HTTPException(status_code=403, detail="No offer for this ride")
         
         # Check if offer has expired
-        if ride_offer.get('expires_at') < datetime.utcnow():
+        if ride_offer.get('expires_at') < get_ist_now():
             raise HTTPException(status_code=400, detail="Offer has expired")
         
         # Update booking status
@@ -283,7 +284,7 @@ async def accept_request(booking_id: str, request: Request):
                 '$set': {
                     'status': 'accepted',
                     'accepted_driver_id': ObjectId(driver_id),
-                    'accepted_at': datetime.utcnow(),
+                    'accepted_at': get_ist_now(),
                     'driver_name': driver.get('name'),
                     'driver_phone': driver.get('phone'),
                     'driver_rating': driver.get('rating', 0)
@@ -295,7 +296,7 @@ async def accept_request(booking_id: str, request: Request):
         # Update ride offer
         await db.ride_offers.find_one_and_update(
             {'_id': ride_offer['_id']},
-            {'$set': {'status': 'accepted', 'accepted_at': datetime.utcnow()}}
+            {'$set': {'status': 'accepted', 'accepted_at': get_ist_now()}}
         )
         
         # Cancel other offers for this booking
@@ -305,7 +306,7 @@ async def accept_request(booking_id: str, request: Request):
                 'driver_id': {'$ne': ObjectId(driver_id)},
                 'status': 'pending'
             },
-            {'$set': {'status': 'canceled', 'canceled_at': datetime.utcnow()}}
+            {'$set': {'status': 'canceled', 'canceled_at': get_ist_now()}}
         )
         
         # Notify passenger
@@ -317,7 +318,7 @@ async def accept_request(booking_id: str, request: Request):
             'driver_rating': driver.get('rating', 0),
             'driver_location': driver.get('current_location'),
             'eta_minutes': updated.get('estimated_time', 5),
-            'accepted_at': datetime.utcnow().isoformat()
+            'accepted_at': get_ist_now().isoformat()
         }, room=f'passenger_{passenger_id}')
         
         # Log acceptance
@@ -357,7 +358,7 @@ async def decline_request(booking_id: str, request: Request):
         # Update ride offer status
         await db.ride_offers.find_one_and_update(
             {'_id': ride_offer['_id']},
-            {'$set': {'status': 'declined', 'declined_at': datetime.utcnow()}}
+            {'$set': {'status': 'declined', 'declined_at': get_ist_now()}}
         )
         
         # Log decline

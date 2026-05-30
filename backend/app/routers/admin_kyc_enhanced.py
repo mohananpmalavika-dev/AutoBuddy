@@ -2,6 +2,7 @@
 Admin KYC - Enhanced with OCR integration and expiration tracking
 """
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel
@@ -52,8 +53,8 @@ async def extract_document_with_ocr(
         document_type=document_type,
         document_number="MOCK_DOC_123",
         document_holder_name="User Name",
-        expiry_date=datetime.utcnow() + timedelta(days=365),
-        issue_date=datetime.utcnow() - timedelta(days=30),
+        expiry_date=get_ist_now() + timedelta(days=365),
+        issue_date=get_ist_now() - timedelta(days=30),
         confidence_score=0.95
     )
     
@@ -74,7 +75,7 @@ async def verify_document_authenticity(
     return {
         "is_authentic": True,
         "verification_status": "verified",
-        "verified_at": datetime.utcnow().isoformat(),
+        "verified_at": get_ist_now().isoformat(),
         "document_holder_matches": True
     }
 
@@ -83,7 +84,7 @@ async def check_document_expiry(
     expiry_date: datetime,
 ) -> Dict[str, Any]:
     """Check if document has expired"""
-    now = datetime.utcnow()
+    now = get_ist_now()
     is_expired = now > expiry_date
     days_to_expiry = (expiry_date - now).days
     
@@ -117,7 +118,7 @@ async def get_pending_kyc_submissions(
             "user_name": doc.get("user_name"),
             "user_phone": doc.get("user_phone"),
             "role": doc.get("role"),
-            "submitted_at": doc.get("created_at", datetime.utcnow()).isoformat(),
+            "submitted_at": doc.get("created_at", get_ist_now()).isoformat(),
             "documents": doc.get("documents", [])
         })
     
@@ -140,16 +141,16 @@ async def get_expiring_kyc_documents(
     _ = admin_user
     
     drivers_collection = db["drivers"]
-    cutoff_date = datetime.utcnow() + timedelta(days=days)
+    cutoff_date = get_ist_now() + timedelta(days=days)
     
     pipeline = [
         {
             "$match": {
                 "kyc_verified": True,
                 "$or": [
-                    {"license_expiry": {"$gte": datetime.utcnow(), "$lte": cutoff_date}},
-                    {"registration_expiry": {"$gte": datetime.utcnow(), "$lte": cutoff_date}},
-                    {"insurance_expiry": {"$gte": datetime.utcnow(), "$lte": cutoff_date}},
+                    {"license_expiry": {"$gte": get_ist_now(), "$lte": cutoff_date}},
+                    {"registration_expiry": {"$gte": get_ist_now(), "$lte": cutoff_date}},
+                    {"insurance_expiry": {"$gte": get_ist_now(), "$lte": cutoff_date}},
                 ]
             }
         },
@@ -165,13 +166,13 @@ async def get_expiring_kyc_documents(
         expiring.append({
             "user_id": doc.get("_id"),
             "user_name": doc.get("name"),
-            "license_expiry": doc.get("license_expiry", datetime.utcnow()).isoformat(),
-            "registration_expiry": doc.get("registration_expiry", datetime.utcnow()).isoformat(),
-            "insurance_expiry": doc.get("insurance_expiry", datetime.utcnow()).isoformat(),
+            "license_expiry": doc.get("license_expiry", get_ist_now()).isoformat(),
+            "registration_expiry": doc.get("registration_expiry", get_ist_now()).isoformat(),
+            "insurance_expiry": doc.get("insurance_expiry", get_ist_now()).isoformat(),
             "days_until_expiry": min(
-                (doc.get("license_expiry", datetime.utcnow()) - datetime.utcnow()).days,
-                (doc.get("registration_expiry", datetime.utcnow()) - datetime.utcnow()).days,
-                (doc.get("insurance_expiry", datetime.utcnow()) - datetime.utcnow()).days
+                (doc.get("license_expiry", get_ist_now()) - get_ist_now()).days,
+                (doc.get("registration_expiry", get_ist_now()) - get_ist_now()).days,
+                (doc.get("insurance_expiry", get_ist_now()) - get_ist_now()).days
             )
         })
     
@@ -241,7 +242,7 @@ async def process_kyc_submission(
         # Update driver with verified documents
         update_data = {
             "kyc_verified": True,
-            "kyc_verified_at": datetime.utcnow(),
+            "kyc_verified_at": get_ist_now(),
             "kyc_verified_by": admin_id,
             "kyc_status": "verified"
         }
@@ -287,7 +288,7 @@ async def process_kyc_submission(
                 "status": status,
                 "admin_notes": approval.admin_notes,
                 "processed_by": admin_id,
-                "processed_at": datetime.utcnow(),
+                "processed_at": get_ist_now(),
                 "ocr_verified": approval.ocr_verified
             }
         }
@@ -298,7 +299,7 @@ async def process_kyc_submission(
         "user_id": user_id,
         "action": approval.action,
         "status": status,
-        "processed_at": datetime.utcnow().isoformat()
+        "processed_at": get_ist_now().isoformat()
     }
 
 
@@ -327,7 +328,7 @@ async def get_ocr_results(
                 doc.get("type")
             )
             
-            expiry_check = await check_document_expiry(ocr_result.expiry_date or datetime.utcnow())
+            expiry_check = await check_document_expiry(ocr_result.expiry_date or get_ist_now())
             
             ocr_results.append({
                 "document_type": ocr_result.document_type,
@@ -345,7 +346,7 @@ async def get_ocr_results(
     return {
         "submission_id": submission_id,
         "ocr_results": ocr_results,
-        "extracted_at": datetime.utcnow().isoformat()
+        "extracted_at": get_ist_now().isoformat()
     }
 
 
@@ -378,7 +379,7 @@ async def bulk_verify_kyc(
                 {
                     "$set": {
                         "kyc_verified": True,
-                        "kyc_verified_at": datetime.utcnow(),
+                        "kyc_verified_at": get_ist_now(),
                         "kyc_verified_by": admin_id,
                         "kyc_status": "verified"
                     }
@@ -391,7 +392,7 @@ async def bulk_verify_kyc(
                     "$set": {
                         "status": "approved",
                         "processed_by": admin_id,
-                        "processed_at": datetime.utcnow()
+                        "processed_at": get_ist_now()
                     }
                 }
             )
@@ -423,7 +424,7 @@ async def get_kyc_expiry_status(
         raise HTTPException(status_code=404, detail="User not found")
     
     expirations = {}
-    now = datetime.utcnow()
+    now = get_ist_now()
     
     for doc_type in ["license", "registration", "insurance"]:
         expiry_field = f"{doc_type}_expiry"
@@ -455,7 +456,7 @@ async def send_kyc_expiry_reminders(
     _ = admin_user
     
     drivers_collection = db["drivers"]
-    cutoff_date = datetime.utcnow() + timedelta(days=days_before)
+    cutoff_date = get_ist_now() + timedelta(days=days_before)
     
     reminders_sent = 0
     
@@ -463,9 +464,9 @@ async def send_kyc_expiry_reminders(
         {
             "$match": {
                 "$or": [
-                    {"license_expiry": {"$gte": datetime.utcnow(), "$lte": cutoff_date}},
-                    {"registration_expiry": {"$gte": datetime.utcnow(), "$lte": cutoff_date}},
-                    {"insurance_expiry": {"$gte": datetime.utcnow(), "$lte": cutoff_date}},
+                    {"license_expiry": {"$gte": get_ist_now(), "$lte": cutoff_date}},
+                    {"registration_expiry": {"$gte": get_ist_now(), "$lte": cutoff_date}},
+                    {"insurance_expiry": {"$gte": get_ist_now(), "$lte": cutoff_date}},
                 ]
             }
         }
@@ -481,7 +482,7 @@ async def send_kyc_expiry_reminders(
                 {
                     "$set": {
                         "kyc_expiry_reminder_sent": True,
-                        "kyc_expiry_reminder_sent_at": datetime.utcnow()
+                        "kyc_expiry_reminder_sent_at": get_ist_now()
                     }
                 }
             )

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from typing import Optional, List
 from decimal import Decimal
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 
 from app import models, schemas
 from app.database import get_db
@@ -133,7 +134,7 @@ async def smart_match_drivers(
             }
         ],
         "total_matches": 2,
-        "matching_completed_at": datetime.utcnow().isoformat()
+        "matching_completed_at": get_ist_now().isoformat()
     }
 
 
@@ -179,7 +180,7 @@ async def assign_driver_to_booking(
         "vehicle_model": "Maruti Swift",
         "driver_location": {"latitude": 28.7040, "longitude": 77.1024},
         "estimated_arrival_minutes": 2,
-        "assigned_at": datetime.utcnow().isoformat()
+        "assigned_at": get_ist_now().isoformat()
     }
 
 
@@ -224,7 +225,7 @@ async def get_booking_status(
         "time_remaining_minutes": 42,
         "actual_fare_so_far": 150.75,
         "estimated_total_fare": 667.20,
-        "last_update_at": datetime.utcnow().isoformat()
+        "last_update_at": get_ist_now().isoformat()
     }
 
 
@@ -278,7 +279,7 @@ async def offer_trip_to_driver(
             "duration_minutes": 45,
             "passenger_name": "John Doe"
         },
-        "offer_expires_at": datetime.utcnow().isoformat(),
+        "offer_expires_at": get_ist_now().isoformat(),
         "timeout_seconds": 20,
         "status": "PENDING_DRIVER_RESPONSE"
     }

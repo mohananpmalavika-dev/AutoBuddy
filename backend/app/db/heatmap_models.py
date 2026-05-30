@@ -5,6 +5,7 @@ Pydantic models for real-time driver location tracking, demand heatmaps, and pre
 
 from pydantic import BaseModel, Field
 from datetime import datetime
+from .models_features import get_ist_now
 from typing import List, Optional, Dict, Any
 from enum import Enum
 
@@ -30,7 +31,7 @@ class DriverLocationUpdate(BaseModel):
     latitude: float = Field(..., ge=-90, le=90, example=12.9352)
     longitude: float = Field(..., ge=-180, le=180, example=77.6245)
     city_id: str = Field(..., example="city_bangalore")
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=get_ist_now)
     available: bool = Field(default=True, example=True)
     ride_status: str = Field(default="idle", example="idle")
     rating: float = Field(ge=0, le=5, default=4.8, example=4.8)
@@ -66,7 +67,7 @@ class HeatmapGridCell(BaseModel):
     waiting_requests: int = Field(ge=0, default=25, example=25)
     cell_status: GridCellStatus = Field(default=GridCellStatus.HIGH_DEMAND)
     surge_multiplier: float = Field(ge=1.0, le=5.0, default=1.2, example=1.2)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=get_ist_now)
 
     model_config = {
         "json_schema_extra": {
@@ -98,7 +99,7 @@ class CityHeatmap(BaseModel):
     average_demand_score: float = Field(ge=0, le=100, default=65.0, example=65.0)
     peak_zone_id: str = Field(default="cell_BLR_005_008", example="cell_BLR_005_008")
     low_supply_zones: int = Field(ge=0, default=3, example=3)
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=get_ist_now)
 
     model_config = {
         "json_schema_extra": {
@@ -129,8 +130,8 @@ class DemandForecast(BaseModel):
     recommended_incentive_multiplier: float = Field(ge=1.0, le=3.0, default=1.3, example=1.3)
     peak_hours: List[str] = Field(default_factory=list, example=["18:00", "19:00", "20:00"])
     low_demand_hours: List[str] = Field(default_factory=list, example=["02:00", "03:00", "04:00"])
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
+    updated_at: datetime = Field(default_factory=get_ist_now)
 
     model_config = {
         "json_schema_extra": {
@@ -164,7 +165,7 @@ class SupplyGapAlert(BaseModel):
     gap_percentage: float = Field(ge=0, le=200, default=90.0, example=90.0)
     recommended_action: str = Field(default="increase_incentive", example="increase_incentive")
     severity: str = Field(default="high", example="high")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
     resolved: bool = Field(default=False)
 
     model_config = {
@@ -201,7 +202,7 @@ class DriverTrendAnalysis(BaseModel):
     cancellation_rate: float = Field(ge=0, le=100, default=5.2, example=5.2)
     demand_volatility: float = Field(ge=0, le=100, default=45.0, example=45.0)
     predictions_for_next_period: Dict[str, Any] = Field(default_factory=dict)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=get_ist_now)
 
     model_config = {
         "json_schema_extra": {
@@ -236,7 +237,7 @@ class IncentiveRecommendation(BaseModel):
     cost_estimate: float = Field(default=1200.0, example=1200.0)
     roi_percentage: float = Field(default=316.67, example=316.67)
     recommendation_reason: str = Field(default="High demand, low supply gap", example="High demand, low supply gap")
-    valid_until: datetime = Field(default_factory=datetime.utcnow)
+    valid_until: datetime = Field(default_factory=get_ist_now)
 
     model_config = {
         "json_schema_extra": {

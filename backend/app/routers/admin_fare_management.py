@@ -6,6 +6,7 @@ Features: Global, district, and locality fare configuration management
 from fastapi import APIRouter, HTTPException, Depends, status, Query
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from bson import ObjectId
@@ -99,7 +100,7 @@ async def set_global_fare(
             "minimum_fare": fare.minimum_fare,
             "surge_multiplier": fare.surge_multiplier,
             "enabled": fare.enabled,
-            "updated_at": datetime.utcnow(),
+            "updated_at": get_ist_now(),
         }
         
         if existing:
@@ -113,7 +114,7 @@ async def set_global_fare(
                 "data": fare_doc
             }
         else:
-            fare_doc["created_at"] = datetime.utcnow()
+            fare_doc["created_at"] = get_ist_now()
             result = await db.fare_configuration.insert_one(fare_doc)
             return {
                 "message": "Global fare created",
@@ -191,7 +192,7 @@ async def set_district_fare(
             "minimum_fare": fare.minimum_fare,
             "surge_multiplier": fare.surge_multiplier,
             "enabled": fare.enabled,
-            "updated_at": datetime.utcnow(),
+            "updated_at": get_ist_now(),
         }
         
         if existing:
@@ -206,7 +207,7 @@ async def set_district_fare(
                 "data": fare_doc
             }
         else:
-            fare_doc["created_at"] = datetime.utcnow()
+            fare_doc["created_at"] = get_ist_now()
             result = await db.fare_configuration.insert_one(fare_doc)
             return {
                 "message": "District fare created",
@@ -296,7 +297,7 @@ async def set_locality_fare(
             "minimum_fare": fare.minimum_fare,
             "surge_multiplier": fare.surge_multiplier,
             "enabled": fare.enabled,
-            "updated_at": datetime.utcnow(),
+            "updated_at": get_ist_now(),
         }
         
         if existing:
@@ -312,7 +313,7 @@ async def set_locality_fare(
                 "data": fare_doc
             }
         else:
-            fare_doc["created_at"] = datetime.utcnow()
+            fare_doc["created_at"] = get_ist_now()
             result = await db.fare_configuration.insert_one(fare_doc)
             return {
                 "message": "Locality fare created",

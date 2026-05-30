@@ -6,6 +6,7 @@ Covers emergency SOS, driver verification, safety ratings, and insurance claims
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from typing import List, Optional
 from pydantic import BaseModel
 import uuid
@@ -135,7 +136,7 @@ async def send_sos_alert(alert: SOSAlert, db: Session = Depends(get_db)):
         "latitude": alert.latitude,
         "longitude": alert.longitude,
         "description": alert.description,
-        "created_at": datetime.utcnow(),
+        "created_at": get_ist_now(),
         "status": "ALERT_SENT",
         "contacts_notified": 0
     }
@@ -147,7 +148,7 @@ async def send_sos_alert(alert: SOSAlert, db: Session = Depends(get_db)):
         emergency_contacts_notified=3,  # Emergency services
         nearest_hospital="Apollo Hospital, 2.3 km away",
         police_station="Central Police Station, 1.8 km away",
-        timestamp=datetime.utcnow()
+        timestamp=get_ist_now()
     )
 
 @router.get("/sos/{sos_id}")
@@ -190,7 +191,7 @@ async def get_driver_verification_details(driver_id: str, db: Session = Depends(
             "driver_id": driver_id,
             "name": verify["name"],
             "license_number": verify["license_number"],
-            "license_status": "VALID" if verify["license_expiry"] > datetime.utcnow() else "EXPIRED",
+            "license_status": "VALID" if verify["license_expiry"] > get_ist_now() else "EXPIRED",
             "license_expiry": verify["license_expiry"].isoformat(),
             "background_check": verify["background_check_status"],
             "vehicle_registration": verify["vehicle_registration"],
@@ -226,14 +227,14 @@ async def submit_driver_verification(verification: DriverVerification, db: Sessi
         "background_check_status": "PENDING",
         "vehicle_registration": verification.vehicle_registration,
         "insurance_valid_until": verification.insurance_valid_until,
-        "submitted_at": datetime.utcnow()
+        "submitted_at": get_ist_now()
     }
     
     return {
         "driver_id": verification.driver_id,
         "status": "verification_submitted",
         "estimated_review_time": "2-3 business days",
-        "submitted_at": datetime.utcnow().isoformat()
+        "submitted_at": get_ist_now().isoformat()
     }
 
 @router.get("/rating/{user_id}")
@@ -255,7 +256,7 @@ async def get_safety_rating(user_id: str, user_type: str = Query("PASSENGER"), d
             "verification_status": rating["verification_status"],
             "badges": rating["badges"],
             "rating_count": 150,
-            "last_updated": datetime.utcnow().isoformat()
+            "last_updated": get_ist_now().isoformat()
         }
     
     # Default new user
@@ -289,7 +290,7 @@ async def report_safety_incident(report: IncidentReport, db: Session = Depends(g
         "description": report.description,
         "severity": report.severity,
         "status": "FILED",
-        "created_at": datetime.utcnow(),
+        "created_at": get_ist_now(),
         "evidence_count": report.evidence_count
     }
     
@@ -298,8 +299,8 @@ async def report_safety_incident(report: IncidentReport, db: Session = Depends(g
         "ride_id": report.ride_id,
         "status": "filed",
         "tracking_number": f"INC_{report_id[:8]}",
-        "estimated_resolution": (datetime.utcnow() + timedelta(days=3)).isoformat(),
-        "timestamp": datetime.utcnow().isoformat()
+        "estimated_resolution": (get_ist_now() + timedelta(days=3)).isoformat(),
+        "timestamp": get_ist_now().isoformat()
     }
 
 @router.get("/incidents/{user_id}")
@@ -347,7 +348,7 @@ async def file_insurance_claim(claim: InsuranceClaim, db: Session = Depends(get_
         "amount_claimed_rupees": claim.amount_claimed_rupees,
         "description": claim.description,
         "status": "FILED",
-        "created_at": datetime.utcnow(),
+        "created_at": get_ist_now(),
         "documents_count": claim.documents_count
     }
     
@@ -364,7 +365,7 @@ async def file_insurance_claim(claim: InsuranceClaim, db: Session = Depends(get_
             "Damage assessment if needed",
             "Final decision and settlement"
         ],
-        "estimated_resolution": (datetime.utcnow() + timedelta(days=7)).isoformat()
+        "estimated_resolution": (get_ist_now() + timedelta(days=7)).isoformat()
     }
 
 @router.get("/insurance/claims/{user_id}")
@@ -413,7 +414,7 @@ async def add_emergency_contact(user_id: str, contact: EmergencyContact, db: Ses
         "phone": contact.phone,
         "relationship": contact.relationship,
         "is_default": contact.is_default,
-        "added_at": datetime.utcnow()
+        "added_at": get_ist_now()
     }
     
     return {
@@ -472,16 +473,16 @@ async def get_verification_documents(user_id: str, db: Session = Depends(get_db)
         {
             "document_type": "LICENSE",
             "document_id": "DL123456789",
-            "expiry_date": (datetime.utcnow() + timedelta(days=300)).isoformat(),
+            "expiry_date": (get_ist_now() + timedelta(days=300)).isoformat(),
             "verification_status": "VERIFIED",
-            "last_verified_at": datetime.utcnow().isoformat()
+            "last_verified_at": get_ist_now().isoformat()
         },
         {
             "document_type": "INSURANCE",
             "document_id": "INS987654321",
-            "expiry_date": (datetime.utcnow() + timedelta(days=200)).isoformat(),
+            "expiry_date": (get_ist_now() + timedelta(days=200)).isoformat(),
             "verification_status": "VERIFIED",
-            "last_verified_at": datetime.utcnow().isoformat()
+            "last_verified_at": get_ist_now().isoformat()
         }
     ]
     
@@ -520,5 +521,5 @@ async def safety_health():
         "status": "healthy",
         "sos_active": len(sos_alerts),
         "pending_claims": len([c for c in insurance_claims.values() if c["status"] == "FILED"]),
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": get_ist_now().isoformat()
     }

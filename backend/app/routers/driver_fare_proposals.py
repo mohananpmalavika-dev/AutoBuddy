@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pydantic import BaseModel, Field
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 from typing import Optional
 from bson import ObjectId
 
@@ -97,7 +98,7 @@ async def submit_fare_proposal(
             "surge_multiplier": proposal.surge_multiplier,
             "reason": proposal.reason,
             "status": "pending",
-            "created_at": datetime.utcnow(),
+            "created_at": get_ist_now(),
             "reviewed_at": None,
             "reviewed_by": None,
             "rejection_reason": None,

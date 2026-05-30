@@ -5,6 +5,7 @@ FastAPI endpoints for real-time heatmaps, demand forecasts, and intelligence
 
 from fastapi import APIRouter, HTTPException, Request
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 import random
 import logging
 
@@ -37,7 +38,7 @@ async def get_live_heatmap(city_id: str, request: Request):
                     "waiting_requests": random.randint(2, 100),
                     "cell_status": random.choice(["high_demand", "medium_demand", "low_demand", "no_demand"]),
                     "surge_multiplier": round(random.uniform(1.0, 2.5), 2),
-                    "updated_at": datetime.utcnow().isoformat() + "Z"
+                    "updated_at": get_ist_now().isoformat() + "Z"
                 }
                 grid_cells.append(cell)
         
@@ -50,13 +51,13 @@ async def get_live_heatmap(city_id: str, request: Request):
             "average_demand_score": round(random.uniform(40, 80), 1),
             "peak_zone_id": f"cell_{city_id}_005_008",
             "low_supply_zones": random.randint(1, 5),
-            "timestamp": datetime.utcnow().isoformat() + "Z"
+            "timestamp": get_ist_now().isoformat() + "Z"
         }
         
         return {
             "status": "success",
             "data": heatmap,
-            "updated_at": datetime.utcnow().isoformat() + "Z"
+            "updated_at": get_ist_now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Error getting heatmap: {str(e)}")
@@ -82,13 +83,13 @@ async def get_zone_details(city_id: str, zone_id: str, request: Request):
             "recent_incident_count": random.randint(0, 5),
             "weather_condition": random.choice(["clear", "cloudy", "rainy", "foggy"]),
             "traffic_density": random.choice(["low", "medium", "high", "very_high"]),
-            "last_updated": datetime.utcnow().isoformat() + "Z"
+            "last_updated": get_ist_now().isoformat() + "Z"
         }
         
         return {
             "status": "success",
             "data": zone,
-            "updated_at": datetime.utcnow().isoformat() + "Z"
+            "updated_at": get_ist_now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Error getting zone details: {str(e)}")
@@ -121,9 +122,9 @@ async def get_demand_hotspots(city_id: str, request: Request, limit: int = 10):
             "data": {
                 "city_id": city_id,
                 "hotspots": hotspots,
-                "generated_at": datetime.utcnow().isoformat() + "Z"
+                "generated_at": get_ist_now().isoformat() + "Z"
             },
-            "updated_at": datetime.utcnow().isoformat() + "Z"
+            "updated_at": get_ist_now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Error getting hotspots: {str(e)}")
@@ -158,7 +159,7 @@ async def get_low_supply_zones(city_id: str, request: Request):
                 "total_supply_gaps": len(cold_zones),
                 "critical_zones": sum(1 for z in cold_zones if z["priority_level"] == "critical")
             },
-            "updated_at": datetime.utcnow().isoformat() + "Z"
+            "updated_at": get_ist_now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Error getting cold zones: {str(e)}")
@@ -198,7 +199,7 @@ async def get_demand_forecast(city_id: str, request: Request, hours: int = 6):
                 "forecasts": forecasts,
                 "forecast_window_hours": hours
             },
-            "updated_at": datetime.utcnow().isoformat() + "Z"
+            "updated_at": get_ist_now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Error getting forecast: {str(e)}")
@@ -231,7 +232,7 @@ async def get_peak_hour_forecast(city_id: str, request: Request):
                 "peak_hours_forecast": peak_hours,
                 "total_peak_periods": len(peak_hours)
             },
-            "updated_at": datetime.utcnow().isoformat() + "Z"
+            "updated_at": get_ist_now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Error getting peak hours: {str(e)}")
@@ -271,7 +272,7 @@ async def get_weather_impact_forecast(city_id: str, request: Request):
                 "weather_impacts": impacts,
                 "most_likely_condition": "light_rain"
             },
-            "updated_at": datetime.utcnow().isoformat() + "Z"
+            "updated_at": get_ist_now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Error getting weather impact: {str(e)}")
@@ -304,7 +305,7 @@ async def get_supply_gap_alerts(city_id: str, request: Request, severity: str = 
                     "gap_percentage": round(random.uniform(60, 95), 1),
                     "recommended_action": random.choice(["increase_incentive", "driver_dispatch", "surge_pricing"]),
                     "severity": sev,
-                    "created_at": datetime.utcnow().isoformat() + "Z",
+                    "created_at": get_ist_now().isoformat() + "Z",
                     "resolved": random.choice([True, False])
                 }
                 alerts.append(alert)
@@ -317,7 +318,7 @@ async def get_supply_gap_alerts(city_id: str, request: Request, severity: str = 
                 "total_alerts": len(alerts),
                 "unresolved_alerts": sum(1 for a in alerts if not a["resolved"])
             },
-            "updated_at": datetime.utcnow().isoformat() + "Z"
+            "updated_at": get_ist_now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Error getting alerts: {str(e)}")
@@ -360,7 +361,7 @@ async def get_incentive_recommendations(city_id: str, request: Request):
                 "total_recommendations": len(recommendations),
                 "avg_roi": round(sum(r["roi_percentage"] for r in recommendations) / len(recommendations), 1)
             },
-            "updated_at": datetime.utcnow().isoformat() + "Z"
+            "updated_at": get_ist_now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Error getting recommendations: {str(e)}")
@@ -399,7 +400,7 @@ async def get_weekly_trends(city_id: str, request: Request):
         return {
             "status": "success",
             "data": trend,
-            "updated_at": datetime.utcnow().isoformat() + "Z"
+            "updated_at": get_ist_now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Error getting trends: {str(e)}")
@@ -429,7 +430,7 @@ async def get_daily_trends(city_id: str, request: Request):
         return {
             "status": "success",
             "data": trend,
-            "updated_at": datetime.utcnow().isoformat() + "Z"
+            "updated_at": get_ist_now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Error getting daily trends: {str(e)}")
@@ -461,7 +462,7 @@ async def get_driver_distribution(city_id: str, request: Request):
                 "total_online": sum(z["drivers_online"] for z in distribution),
                 "most_concentrated_zone": distribution[0]["zone_id"]
             },
-            "updated_at": datetime.utcnow().isoformat() + "Z"
+            "updated_at": get_ist_now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Error getting distribution: {str(e)}")
@@ -503,7 +504,7 @@ async def get_before_after_metrics(city_id: str, request: Request):
         return {
             "status": "success",
             "data": metrics,
-            "updated_at": datetime.utcnow().isoformat() + "Z"
+            "updated_at": get_ist_now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Error getting before-after: {str(e)}")
@@ -550,7 +551,7 @@ async def get_optimization_opportunities(city_id: str, request: Request):
                 "opportunities": opportunities,
                 "total_opportunities": len(opportunities)
             },
-            "updated_at": datetime.utcnow().isoformat() + "Z"
+            "updated_at": get_ist_now().isoformat() + "Z"
         }
     except Exception as e:
         logger.error(f"Error getting opportunities: {str(e)}")

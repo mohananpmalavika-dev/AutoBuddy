@@ -17,6 +17,7 @@ Options:
 import asyncio
 import logging
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 from typing import Dict, List
 import argparse
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
@@ -71,9 +72,9 @@ class VehicleTypeMigrator:
         """Create backup of collections before migration"""
         backup_info = {}
         collections = [
-            ('vehicles', f'vehicles_backup_{datetime.utcnow().isoformat()}'),
-            ('bookings', f'bookings_backup_{datetime.utcnow().isoformat()}'),
-            ('drivers', f'drivers_backup_{datetime.utcnow().isoformat()}'),
+            ('vehicles', f'vehicles_backup_{get_ist_now().isoformat()}'),
+            ('bookings', f'bookings_backup_{get_ist_now().isoformat()}'),
+            ('drivers', f'drivers_backup_{get_ist_now().isoformat()}'),
         ]
         
         for original_name, backup_name in collections:
@@ -118,7 +119,7 @@ class VehicleTypeMigrator:
                                 '$set': {
                                     'vehicle_type_id': new_type,
                                     'migrated_from': old_type,
-                                    'migrated_at': datetime.utcnow()
+                                    'migrated_at': get_ist_now()
                                 },
                                 '$unset': {'vehicle_type': ''}
                             }
@@ -157,7 +158,7 @@ class VehicleTypeMigrator:
                                 '$set': {
                                     'vehicle_type_id': new_type,
                                     'migrated_vehicle_type_from': old_type,
-                                    'migrated_at': datetime.utcnow()
+                                    'migrated_at': get_ist_now()
                                 },
                                 '$unset': {'vehicle_type': ''}
                             }
@@ -197,7 +198,7 @@ class VehicleTypeMigrator:
                 if updates_needed and not self.dry_run:
                     await drivers_collection.update_one(
                         {'_id': driver['_id']},
-                        {'$set': {'vehicles': vehicles, 'migrated_at': datetime.utcnow()}}
+                        {'$set': {'vehicles': vehicles, 'migrated_at': get_ist_now()}}
                     )
                     
         except Exception as e:

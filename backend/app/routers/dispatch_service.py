@@ -6,6 +6,7 @@ Based on proximity, rating, vehicle type, and availability
 from fastapi import APIRouter, HTTPException, Request
 from bson import ObjectId
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from typing import List, Optional, Dict, Any
 import logging
 import math
@@ -93,7 +94,7 @@ def calculate_driver_score(
     # Reduce score if driver has been offline recently
     last_active = driver.get('last_location_update')
     if last_active:
-        time_since_active = (datetime.utcnow() - last_active).total_seconds()
+        time_since_active = (get_ist_now() - last_active).total_seconds()
         if time_since_active > 300:  # Offline for > 5 minutes
             score *= 0.8  # 20% penalty
     
@@ -203,8 +204,8 @@ async def match_drivers_for_booking(booking_id: str, request: Request):
                 'booking_id': ObjectId(booking_id),
                 'driver_id': ObjectId(driver['driver_id']),
                 'status': 'pending',
-                'created_at': datetime.utcnow(),
-                'expires_at': datetime.utcnow() + timedelta(minutes=2),
+                'created_at': get_ist_now(),
+                'expires_at': get_ist_now() + timedelta(minutes=2),
                 'offer_sequence': i + 1,  # First offer gets highest priority
                 'score': driver['score']
             }
@@ -246,7 +247,7 @@ async def match_drivers_for_booking(booking_id: str, request: Request):
             {
                 '$set': {
                     'status': 'offer_sent',
-                    'offers_sent_at': datetime.utcnow(),
+                    'offers_sent_at': get_ist_now(),
                     'total_offers_sent': len(ride_offers)
                 }
             }
@@ -292,7 +293,7 @@ async def auto_assign_driver(booking_id: str, request: Request):
                 '$set': {
                     'status': 'accepted',
                     'driver_id': ObjectId(driver_id),
-                    'assigned_at': datetime.utcnow(),
+                    'assigned_at': get_ist_now(),
                     'auto_assigned': True
                 }
             },

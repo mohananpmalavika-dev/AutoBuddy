@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 
 import AutoBuddyBrand from '../components/AutoBuddyBrand';
+import { formatToIST } from '../utils/time';
 import {
   FleetDashboardAdvanced,
   FleetWalletPanel,
@@ -100,7 +101,7 @@ function formatDateTime(value) {
   if (Number.isNaN(date.getTime())) {
     return String(value);
   }
-  return date.toLocaleString();
+  return formatToIST(value, { dateStyle: 'medium', timeStyle: 'short' });
 }
 
 function normalizeProfileForm(profile) {

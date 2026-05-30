@@ -1,6 +1,7 @@
 import React from 'react';
 import { TouchableOpacity, View, Text, StyleSheet } from 'react-native';
 import { SHADOWS } from '../theme';
+import { formatToIST } from '../utils/time';
 
 /**
  * RideHistoryCard - Reusable card for ride history entries
@@ -19,10 +20,9 @@ function RideHistoryCard({ booking, onPress, isLoading }) {
   }[booking.status] || '#757575';
 
   const formatDate = (dateStr) => {
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' }) +
-      ' ' +
-      date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+    const datePart = formatToIST(dateStr, { month: 'short', day: 'numeric' });
+    const timePart = formatToIST(dateStr, { hour: '2-digit', minute: '2-digit' });
+    return `${datePart} ${timePart}`;
   };
 
   const formatLocation = (location) => {

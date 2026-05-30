@@ -2,6 +2,7 @@
 Admin Launch Visitors - Enhanced analytics with geo heatmap and device tracking
 """
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, Query
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -13,7 +14,7 @@ router = APIRouter(prefix="/api/admin/launch-visitors", tags=["admin_launch_visi
 
 
 def _utc_now() -> datetime:
-    return datetime.utcnow()
+    return get_ist_now()
 
 
 async def get_launch_visitors_report(

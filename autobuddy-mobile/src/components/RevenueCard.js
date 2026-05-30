@@ -13,6 +13,7 @@ import {
 } from '../lib/revenueApi';
 import { COLORS, SHADOWS } from '../theme';
 import VoiceTextInput from './VoiceTextInput';
+import { formatToIST } from '../utils/time';
 
 export default function RevenueCard({ token, role }) {
   const recordedAdImpressionsRef = useRef(new Set());
@@ -139,7 +140,7 @@ export default function RevenueCard({ token, role }) {
             <View style={styles.transactionMain}>
               <Text style={styles.transactionReason}>{String(txn.reason || txn.type || 'wallet').replace(/_/g, ' ')}</Text>
               <Text style={styles.transactionDate}>
-                {txn.created_at ? new Date(txn.created_at).toLocaleString() : 'Date unavailable'}
+                {txn.created_at ? formatToIST(txn.created_at) : 'Date unavailable'}
               </Text>
             </View>
             <Text style={[styles.transactionAmount, String(txn.type).toLowerCase() === 'debit' && styles.transactionDebit]}>

@@ -29,6 +29,7 @@ import {
 } from 'react-native';
 import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
+import { formatToIST } from '../utils/time';
 
 // ============================================================================
 // 1. FLEET DASHBOARD ADVANCED
@@ -302,7 +303,7 @@ export const FleetWalletPanel = ({ token, fleetId }) => {
                 <View style={styles.settlementItem}>
                   <View style={styles.settlementInfo}>
                     <Text style={styles.settlementPeriod}>
-                      {new Date(item.settlement_period_start).toLocaleDateString()} - {new Date(item.settlement_period_end).toLocaleDateString()}
+                       {formatToIST(item.settlement_period_start, { dateStyle: 'short' })} - {formatToIST(item.settlement_period_end, { dateStyle: 'short' })}
                     </Text>
                     <Text style={styles.settlementRides}>{item.total_rides} rides</Text>
                   </View>

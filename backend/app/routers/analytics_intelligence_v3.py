@@ -6,6 +6,7 @@ Provides dashboards, analytics, reporting, and ML-based intelligence
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 import uuid
@@ -362,7 +363,7 @@ async def forecast_demand(
     base_multiplier = 1.0
     
     for i in range(min(hours_ahead, 24)):
-        hour = (datetime.utcnow() + timedelta(hours=i)).hour
+        hour = (get_ist_now() + timedelta(hours=i)).hour
         
         # Simulate peak hours (8-10 AM, 5-8 PM)
         if 8 <= hour <= 10 or 17 <= hour <= 20:
@@ -384,7 +385,7 @@ async def forecast_demand(
     
     return {
         "zone_id": zone_id,
-        "forecast_generated_at": datetime.utcnow().isoformat(),
+        "forecast_generated_at": get_ist_now().isoformat(),
         "forecasts": forecasts
     }
 
@@ -413,7 +414,7 @@ async def forecast_price(
 async def forecast_surge(hours_ahead: int = Query(24), db: Session = Depends(get_db)):
     """Forecast surge pricing for next hours"""
     return {
-        "forecast_generated_at": datetime.utcnow().isoformat(),
+        "forecast_generated_at": get_ist_now().isoformat(),
         "hours_ahead": hours_ahead,
         "surge_predictions": [
             {"hour": "08:00", "multiplier": 1.8, "confidence": 0.88},
@@ -503,7 +504,7 @@ async def get_compliance_report(db: Session = Depends(get_db)):
     """Get compliance and safety audit report"""
     return ComplianceReport(
         report_id=str(uuid.uuid4()),
-        report_date=datetime.utcnow(),
+        report_date=get_ist_now(),
         total_rides_audited=450,
         safety_incidents=2,
         driver_violations=3,
@@ -523,7 +524,7 @@ async def export_analytics_data(
         "format": format,
         "date_range": date_range,
         "data_points": 5000,
-        "file_url": f"https://exports.autobuddy.com/analytics_{datetime.utcnow().timestamp()}.{format.lower()}",
+        "file_url": f"https://exports.autobuddy.com/analytics_{get_ist_now().timestamp()}.{format.lower()}",
         "expires_in_hours": 24
     }
 
@@ -533,5 +534,5 @@ async def analytics_health():
     return {
         "status": "healthy",
         "cache_entries": len(analytics_cache),
-        "last_update": datetime.utcnow().isoformat()
+        "last_update": get_ist_now().isoformat()
     }

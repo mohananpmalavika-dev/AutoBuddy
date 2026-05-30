@@ -2,6 +2,7 @@ import json
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
@@ -77,7 +78,7 @@ class RuntimeStateStore:
 
     @staticmethod
     def _now_ts(now: Optional[datetime] = None) -> float:
-        return (now or datetime.utcnow()).timestamp()
+        return (now or get_ist_now()).timestamp()
 
     @staticmethod
     def _safe_float(value: Any, default: float = 0.0) -> float:

@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from app.db.client import get_db
@@ -44,7 +45,7 @@ async def get_audit_logs(
 ):
     """Get audit logs with filtering"""
     try:
-        start_date = datetime.utcnow() - timedelta(days=days)
+        start_date = get_ist_now() - timedelta(days=days)
         
         filters = {"created_at": {"$gte": start_date}}
         if action:
@@ -90,7 +91,7 @@ async def get_admin_activity(
 ):
     """Get specific admin's activity"""
     try:
-        start_date = datetime.utcnow() - timedelta(days=days)
+        start_date = get_ist_now() - timedelta(days=days)
         
         total = await db.audit_logs.count_documents({
             "admin_id": admin_id,
@@ -205,7 +206,7 @@ async def create_audit_log(
             "changes": log_entry.changes,
             "reason": log_entry.reason,
             "admin_id": admin_user.get("user_id"),
-            "created_at": datetime.utcnow(),
+            "created_at": get_ist_now(),
         })
         
         return {"status": "success", "action": log_entry.action}
@@ -228,8 +229,8 @@ async def process_gdpr_request(
             "status": "pending",
             "notes": data_request.notes,
             "processed_by": admin_user.get("user_id"),
-            "deadline": datetime.utcnow() + timedelta(days=30),
-            "created_at": datetime.utcnow(),
+            "deadline": get_ist_now() + timedelta(days=30),
+            "created_at": get_ist_now(),
         })
         
         # Log action
@@ -239,7 +240,7 @@ async def process_gdpr_request(
             "entity_id": data_request.user_id,
             "reason": f"GDPR {data_request.request_type} request",
             "admin_id": admin_user.get("user_id"),
-            "created_at": datetime.utcnow(),
+            "created_at": get_ist_now(),
         })
         
         return {"status": "success", "request_type": data_request.request_type}
@@ -268,7 +269,7 @@ async def process_data_deletion(
             {
                 "$set": {
                     "status": "completed",
-                    "completed_at": datetime.utcnow(),
+                    "completed_at": get_ist_now(),
                     "completed_by": admin_user.get("user_id"),
                 }
             }

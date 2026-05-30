@@ -11,6 +11,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AxiosError, AxiosInstance, AxiosRequestConfig, AxiosResponse, create } from 'axios';
 import { Platform } from 'react-native';
+import { istISOString } from '../utils/time';
 
 // API Base URL - adjust based on environment
 const API_BASE_URL = (
@@ -603,7 +604,7 @@ export const rideAPI = {
     axiosInstance.post(`/api/rides/${bookingId}/update-ride-location`, {
       latitude,
       longitude,
-      timestamp: new Date().toISOString(),
+      timestamp: istISOString(new Date()),
     }),
 
   // Get ride status and tracking

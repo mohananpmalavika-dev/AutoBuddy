@@ -11,6 +11,7 @@ import {
 import { COLORS } from '../theme';
 import { apiRequest } from '../lib/api';
 import { GlassCard, PremiumEmptyState } from './PremiumUI';
+import { formatToIST } from '../utils/time';
 
 export default function DriverReferralPanel({ token, driverId = '', onReferralShare = undefined }) {
   const [loading, setLoading] = useState(false);
@@ -295,7 +296,7 @@ export default function DriverReferralPanel({ token, driverId = '', onReferralSh
                     <View style={styles.referralInfo}>
                       <Text style={styles.referralName}>{ref.name || 'Driver'}</Text>
                       <Text style={styles.referralDate}>
-                        {ref.date ? new Date(ref.date).toLocaleDateString('en-IN') : 'N/A'}
+                        {ref.date ? formatToIST(ref.date, { dateStyle: 'short' }) : 'N/A'}
                       </Text>
                     </View>
                     <View style={[

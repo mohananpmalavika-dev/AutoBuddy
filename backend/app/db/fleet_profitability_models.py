@@ -5,6 +5,7 @@ Pydantic models for fleet performance metrics, profitability analysis, and optim
 
 from pydantic import BaseModel, Field
 from datetime import datetime
+from .models_features import get_ist_now
 from typing import List, Optional, Dict, Any
 from enum import Enum
 
@@ -51,7 +52,7 @@ class VehicleProfileMetrics(BaseModel):
     fuel_efficiency: float = Field(ge=0, default=12.5, example=12.5, description="km/liter")
     maintenance_cost: float = Field(ge=0, default=150.0, example=150.0)
     tier: ProfitabilityTier = Field(default=ProfitabilityTier.HIGH)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=get_ist_now)
 
     model_config = {
         "json_schema_extra": {
@@ -94,7 +95,7 @@ class FleetPortfolioMetrics(BaseModel):
     total_rides_today: int = Field(ge=0, default=22500, example=22500)
     premium_tier_vehicles: int = Field(ge=0, default=50, example=50)
     loss_making_vehicles: int = Field(ge=0, default=5, example=5)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=get_ist_now)
 
     model_config = {
         "json_schema_extra": {
@@ -133,7 +134,7 @@ class CostBreakdown(BaseModel):
     other_costs: float = Field(ge=0, default=50.0, example=50.0)
     total_cost: float = Field(ge=0, default=1250.0, example=1250.0)
     period: str = Field(default="daily", example="daily")
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=get_ist_now)
 
     model_config = {
         "json_schema_extra": {
@@ -167,7 +168,7 @@ class VehicleOptimizationTip(BaseModel):
     estimated_roi_days: int = Field(ge=0, default=7, example=7)
     priority: str = Field(default="high", example="high")
     impact_area: str = Field(default="utilization", example="utilization")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
 
     model_config = {
         "json_schema_extra": {
@@ -276,7 +277,7 @@ class MaintenanceAlert(BaseModel):
     estimated_revenue_loss: float = Field(ge=0, default=1000.0, example=1000.0)
     recommended_action: str = Field(default="schedule_immediately", example="schedule_immediately")
     urgency: str = Field(default="medium", example="medium")
-    due_date: datetime = Field(default_factory=datetime.utcnow)
+    due_date: datetime = Field(default_factory=get_ist_now)
 
     model_config = {
         "json_schema_extra": {

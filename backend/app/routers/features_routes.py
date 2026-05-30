@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 import uuid
 
 from app.db.models_features import (
@@ -523,7 +524,7 @@ def get_available_promo_codes(
     db: Session = Depends(get_db)
 ):
     """Get active promo codes visible to the passenger"""
-    now = datetime.utcnow()
+    now = get_ist_now()
     promos = db.query(PromoCode).filter(
         PromoCode.is_active == True,
         PromoCode.valid_from <= now,
@@ -542,8 +543,8 @@ def validate_promo_code(
     promo = db.query(PromoCode).filter(
         PromoCode.code.ilike(request.code),
         PromoCode.is_active == True,
-        PromoCode.valid_from <= datetime.utcnow(),
-        PromoCode.valid_until >= datetime.utcnow()
+        PromoCode.valid_from <= get_ist_now(),
+        PromoCode.valid_until >= get_ist_now()
     ).first()
     
     if not promo:
@@ -668,7 +669,7 @@ def add_ticket_message(
     )
     
     db.add(ticket_msg)
-    ticket.updated_at = datetime.utcnow()
+    ticket.updated_at = get_ist_now()
     db.commit()
     db.refresh(ticket_msg)
     
@@ -696,7 +697,7 @@ def update_support_ticket_status(
         raise HTTPException(status_code=404, detail="Support ticket not found")
 
     ticket.status = status_update.status
-    ticket.updated_at = datetime.utcnow()
+    ticket.updated_at = get_ist_now()
     if status_update.status in {"resolved", "closed"}:
         ticket.resolved_at = ticket.updated_at
     db.commit()

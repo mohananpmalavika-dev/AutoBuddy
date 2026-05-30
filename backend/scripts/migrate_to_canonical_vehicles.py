@@ -15,6 +15,7 @@ Run: python backend/scripts/migrate_to_canonical_vehicles.py
 import asyncio
 import logging
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from pymongo import errors
 
@@ -65,7 +66,7 @@ VEHICLE_TYPE_MAPPING = {
 
 async def backup_collection(db: AsyncIOMotorDatabase, collection_name: str) -> str:
     """Create backup of collection before migration"""
-    backup_name = f"{collection_name}_backup_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+    backup_name = f"{collection_name}_backup_{get_ist_now().strftime('%Y%m%d_%H%M%S')}"
     
     try:
         # Copy all documents
@@ -99,7 +100,7 @@ async def migrate_fleet_vehicles(db: AsyncIOMotorDatabase) -> int:
                         "$set": {
                             "vehicle_type_id": canonical_type,
                             "vehicle_type": canonical_type,  # Keep for compatibility
-                            "last_migrated": datetime.utcnow()
+                            "last_migrated": get_ist_now()
                         }
                     }
                 )
@@ -129,7 +130,7 @@ async def migrate_driver_vehicles(db: AsyncIOMotorDatabase) -> int:
                         "$set": {
                             "vehicle_type_id": canonical_type,
                             "vehicle_type": canonical_type,  # Keep for compatibility
-                            "last_migrated": datetime.utcnow()
+                            "last_migrated": get_ist_now()
                         }
                     }
                 )

@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
+import { formatToIST } from '../utils/time';
 
 const TERMINAL_STATUSES = new Set([
   'completed',
@@ -52,13 +53,11 @@ function formatDateTime(value) {
   if (Number.isNaN(date.getTime())) {
     return 'Pickup time not set';
   }
-  return date.toLocaleString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+  try {
+    return formatToIST(value, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  } catch {
+    return new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(date);
+  }
 }
 
 function formatMoney(value) {

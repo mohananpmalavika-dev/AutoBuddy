@@ -5,6 +5,7 @@ Consistent response format across all API endpoints
 
 from typing import Any, Dict, Optional, List
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 from enum import Enum
 import json
 
@@ -60,7 +61,7 @@ class StandardResponse:
         response = {
             "status": ResponseStatus.SUCCESS.value,
             "message": message,
-            "timestamp": datetime.utcnow().isoformat() + "Z"
+            "timestamp": get_ist_now().isoformat() + "Z"
         }
         
         if data is not None:
@@ -104,7 +105,7 @@ class StandardResponse:
                 "message": message,
                 "severity": severity.value
             },
-            "timestamp": datetime.utcnow().isoformat() + "Z"
+            "timestamp": get_ist_now().isoformat() + "Z"
         }
         
         if details:
@@ -135,7 +136,7 @@ class StandardResponse:
             "status": ResponseStatus.VALIDATION_ERROR.value,
             "message": message,
             "errors": errors,
-            "timestamp": datetime.utcnow().isoformat() + "Z"
+            "timestamp": get_ist_now().isoformat() + "Z"
         }
     
     @staticmethod

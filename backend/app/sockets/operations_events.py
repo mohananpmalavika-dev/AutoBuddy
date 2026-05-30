@@ -6,6 +6,7 @@ Real-time bidirectional communication for operations monitoring
 import asyncio
 import logging
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 import random
 from typing import Dict, List
 
@@ -46,7 +47,7 @@ def register_operations_socket_events(sio):
                 "operations_user_joined",
                 {
                     "user_id": user_id,
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": get_ist_now().isoformat(),
                     "members_online": random.randint(3, 10)
                 },
                 room=room
@@ -69,7 +70,7 @@ def register_operations_socket_events(sio):
                 "operations_user_left",
                 {
                     "user_id": user_id,
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": get_ist_now().isoformat()
                 },
                 room=room
             )
@@ -95,13 +96,13 @@ def register_operations_socket_events(sio):
             room = f"operations_{city_id}"
             
             incident = {
-                "incident_id": f"inc_{int(datetime.utcnow().timestamp())}",
+                "incident_id": f"inc_{int(get_ist_now().timestamp())}",
                 "incident_type": data.get("incident_type"),
                 "severity": data.get("severity"),
                 "latitude": data.get("latitude"),
                 "longitude": data.get("longitude"),
                 "description": data.get("description"),
-                "reported_at": datetime.utcnow().isoformat(),
+                "reported_at": get_ist_now().isoformat(),
                 "status": "active",
                 "responders": []
             }
@@ -194,7 +195,7 @@ def register_operations_socket_events(sio):
                 {
                     "incident_id": incident_id,
                     "responder_id": responder_id,
-                    "acknowledged_at": datetime.utcnow().isoformat()
+                    "acknowledged_at": get_ist_now().isoformat()
                 },
                 room=room
             )
@@ -229,7 +230,7 @@ def register_operations_socket_events(sio):
                 {
                     "zone_id": zone_id,
                     "surge_multiplier": surge_multiplier,
-                    "activated_at": datetime.utcnow().isoformat(),
+                    "activated_at": get_ist_now().isoformat(),
                     "duration_minutes": data.get("duration_minutes", 30)
                 },
                 room=room
@@ -264,7 +265,7 @@ def register_operations_socket_events(sio):
                     "zone_id": zone_id,
                     "incentive_amount": data.get("incentive_amount"),
                     "message": data.get("message"),
-                    "expires_at": (datetime.utcnow() + timedelta(hours=1)).isoformat()
+                    "expires_at": (get_ist_now() + timedelta(hours=1)).isoformat()
                 },
                 room=room
             )
@@ -301,7 +302,7 @@ def register_operations_socket_events(sio):
                     "latitude": data.get("latitude"),
                     "longitude": data.get("longitude"),
                     "priority": "high",
-                    "dispatched_at": datetime.utcnow().isoformat()
+                    "dispatched_at": get_ist_now().isoformat()
                 },
                 room=room
             )
@@ -312,7 +313,7 @@ def register_operations_socket_events(sio):
                 {
                     "incident_id": incident_id,
                     "team_id": team_id,
-                    "dispatched_at": datetime.utcnow().isoformat()
+                    "dispatched_at": get_ist_now().isoformat()
                 },
                 room=f"operations_{city_id}"
             )
@@ -359,7 +360,7 @@ async def _send_metrics_updates(sio, room: str, city_id: str):
             await asyncio.sleep(5)
             
             metrics = {
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": get_ist_now().isoformat(),
                 "online_drivers": random.randint(200, 600),
                 "active_rides": random.randint(50, 250),
                 "waiting_passengers": random.randint(10, 50),
@@ -382,7 +383,7 @@ async def _send_forecast_updates(sio, room: str, city_id: str):
             await asyncio.sleep(30)
             
             forecast = {
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": get_ist_now().isoformat(),
                 "next_hour_demand": random.randint(40, 95),
                 "next_2hour_demand": random.randint(40, 95),
                 "next_4hour_demand": random.randint(40, 95),
@@ -416,7 +417,7 @@ async def _send_driver_density_updates(sio, room: str, city_id: str):
                 })
             
             density_update = {
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": get_ist_now().isoformat(),
                 "grid_cells": grid_cells,
                 "total_drivers": random.randint(150, 400)
             }

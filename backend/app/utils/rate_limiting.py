@@ -5,6 +5,7 @@ import time
 import logging
 from dataclasses import dataclass
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -350,7 +351,7 @@ async def ensure_rate_limit_defaults(db) -> None:
     await db.rate_limit_configs.create_index("limit_type", unique=True)
     await db.endpoint_rate_limits.create_index("endpoint", unique=True)
 
-    now = datetime.utcnow()
+    now = get_ist_now()
     for limit_type, config in DEFAULT_RATE_LIMIT_CONFIGS.items():
         await db.rate_limit_configs.update_one(
             {"limit_type": limit_type},

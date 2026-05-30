@@ -14,7 +14,8 @@ Features:
 10. Bulk Operations
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
+from .models_features import get_ist_now, timedelta
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 from enum import Enum
@@ -61,8 +62,8 @@ class FleetKPIMetrics(BaseModel):
     health_score: float = 85.0  # 0-100
     red_flags: List[str] = []  # Issues requiring attention
     
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
+    updated_at: datetime = Field(default_factory=get_ist_now)
     
     class Config:
         json_schema_extra = {
@@ -88,7 +89,7 @@ class FleetHealthSnapshot(BaseModel):
     driver_availability: float
     avg_rating: float
     acceptance_rate: float
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=get_ist_now)
 
 
 # ============================================================================
@@ -121,7 +122,7 @@ class FleetWallet(BaseModel):
     last_settlement_date: Optional[datetime] = None
     next_settlement_date: Optional[datetime] = None
     
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=get_ist_now)
 
 
 class FleetSettlement(BaseModel):
@@ -151,7 +152,7 @@ class FleetSettlement(BaseModel):
     settlement_date: datetime
     status: SettlementStatus = SettlementStatus.PENDING
     
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
 
 
 class FleetWithdrawal(BaseModel):
@@ -164,7 +165,7 @@ class FleetWithdrawal(BaseModel):
     bank_account: Optional[Dict[str, Any]] = None
     
     status: str = "pending"  # pending, processing, completed, failed
-    requested_at: datetime = Field(default_factory=datetime.utcnow)
+    requested_at: datetime = Field(default_factory=get_ist_now)
     processed_at: Optional[datetime] = None
     
     reference_number: Optional[str] = None
@@ -196,7 +197,7 @@ class DriverPayout(BaseModel):
     paid_via: Optional[str] = None
     paid_at: Optional[datetime] = None
     
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
 
 
 # ============================================================================
@@ -236,8 +237,8 @@ class FleetDriverAssignment(BaseModel):
     reassigned_to_driver_id: Optional[str] = None
     reassignment_date: Optional[datetime] = None
     
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
+    updated_at: datetime = Field(default_factory=get_ist_now)
 
 
 class DriverReassignmentRequest(BaseModel):
@@ -255,7 +256,7 @@ class DriverReassignmentRequest(BaseModel):
     
     status: str = "pending"  # pending, approved, rejected, completed
     requested_by: str  # admin_id
-    requested_at: datetime = Field(default_factory=datetime.utcnow)
+    requested_at: datetime = Field(default_factory=get_ist_now)
     processed_at: Optional[datetime] = None
     
     notes: Optional[str] = None
@@ -279,7 +280,7 @@ class TemporaryDriverReplacement(BaseModel):
     is_active: bool = True
     rides_completed: int = 0
     
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
 
 
 class DriverTransferRecord(BaseModel):
@@ -301,7 +302,7 @@ class DriverTransferRecord(BaseModel):
     new_vehicle_id: str
     performance_summary: Optional[str] = None
     
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
 
 
 # ============================================================================
@@ -335,7 +336,7 @@ class DriverAttendanceRecord(BaseModel):
     attendance_score: float  # 0-100
     performance_notes: Optional[str] = None
     
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
 
 
 class DriverPerformanceRanking(BaseModel):
@@ -357,7 +358,7 @@ class DriverPerformanceRanking(BaseModel):
     avg_completion_rate: float = 0.0
     avg_cancellation_rate: float = 0.0
     
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=get_ist_now)
 
 
 class DriverMonthlyPerformance(BaseModel):
@@ -391,7 +392,7 @@ class DriverMonthlyPerformance(BaseModel):
     trend: str  # "improving", "stable", "declining"
     trend_percentage: float
     
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
 
 
 # ============================================================================
@@ -435,7 +436,7 @@ class DriverIncentive(BaseModel):
     payment_status: str = "pending"  # pending, approved, paid, rejected
     
     notes: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
 
 
 class FleetIncentiveProgram(BaseModel):
@@ -464,7 +465,7 @@ class FleetIncentiveProgram(BaseModel):
     total_incentives_disbursed: float = 0.0
     drivers_benefited: int = 0
     
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
 
 
 class WeeklyIncentiveTarget(BaseModel):
@@ -491,7 +492,7 @@ class WeeklyIncentiveTarget(BaseModel):
     min_rating_required: float = 4.5
     max_cancellation_rate: float = 5.0  # %
     
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
 
 
 # ============================================================================
@@ -519,7 +520,7 @@ class VehicleLocation(BaseModel):
     bearing: float  # 0-360 degrees
     
     accuracy: float  # GPS accuracy in meters
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=get_ist_now)
 
 
 class FleetLiveMap(BaseModel):
@@ -538,7 +539,7 @@ class FleetLiveMap(BaseModel):
     active_rides: int = 0
     completed_rides_today: int = 0
     
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=get_ist_now)
 
 
 class HeatmapGrid(BaseModel):
@@ -560,7 +561,7 @@ class HeatmapGrid(BaseModel):
     # Recommendations
     recommendations: List[str] = []  # Where to send vehicles
     
-    generated_at: datetime = Field(default_factory=datetime.utcnow)
+    generated_at: datetime = Field(default_factory=get_ist_now)
 
 
 class ZoneDemandHeatmap(BaseModel):
@@ -587,7 +588,7 @@ class ZoneDemandHeatmap(BaseModel):
     # Time-series data
     hourly_demand: Dict[int, float] = {}  # {hour: demand_level}
     
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=get_ist_now)
 
 
 # ============================================================================
@@ -618,7 +619,7 @@ class RevenueForecast(BaseModel):
     # Variance
     variance_percentage: Optional[float] = None
     
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
 
 
 class AIFleetOptimization(BaseModel):
@@ -647,7 +648,7 @@ class AIFleetOptimization(BaseModel):
     # Status
     status: str = "pending"  # pending, approved, implemented, rejected
     
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
     implemented_at: Optional[datetime] = None
 
 
@@ -685,8 +686,8 @@ class FleetUserRole(BaseModel):
     # Custom permissions
     custom_permissions: List[str] = []
     
-    assigned_at: datetime = Field(default_factory=datetime.utcnow)
-    last_modified: datetime = Field(default_factory=datetime.utcnow)
+    assigned_at: datetime = Field(default_factory=get_ist_now)
+    last_modified: datetime = Field(default_factory=get_ist_now)
 
 
 # ============================================================================
@@ -728,7 +729,7 @@ class BulkOperation(BaseModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
 
 
 class BulkDriverApproval(BaseModel):
@@ -748,7 +749,7 @@ class BulkDriverApproval(BaseModel):
     rejected_count: int = 0
     
     status: str = "pending"
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
 
 
 class BulkDocumentUpload(BaseModel):
@@ -772,7 +773,7 @@ class BulkDocumentUpload(BaseModel):
     status: str = "pending"
     completed_at: Optional[datetime] = None
     
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
 
 
 # ============================================================================
@@ -800,7 +801,7 @@ class DocumentExpiryAlert(BaseModel):
     status: str = "active"  # active, renewed, ignored
     renewed_date: Optional[datetime] = None
     
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
 
 
 class FleetComplianceReport(BaseModel):
@@ -831,4 +832,4 @@ class FleetComplianceReport(BaseModel):
     critical_issues: List[str] = []
     warnings: List[str] = []
     
-    generated_at: datetime = Field(default_factory=datetime.utcnow)
+    generated_at: datetime = Field(default_factory=get_ist_now)

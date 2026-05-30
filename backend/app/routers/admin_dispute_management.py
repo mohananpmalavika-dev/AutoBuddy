@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from app.db.client import get_db
@@ -161,7 +162,7 @@ async def assign_dispute(
                 "$set": {
                     "assigned_to": assignment.assigned_to,
                     "priority": assignment.priority,
-                    "assigned_at": datetime.utcnow(),
+                    "assigned_at": get_ist_now(),
                 }
             }
         )
@@ -195,7 +196,7 @@ async def resolve_dispute(
                     "resolution_amount": resolution.amount,
                     "resolution_notes": resolution.notes,
                     "resolved_by": admin_user.get("user_id"),
-                    "resolved_at": datetime.utcnow(),
+                    "resolved_at": get_ist_now(),
                 }
             }
         )
@@ -231,7 +232,7 @@ async def process_appeal(
             "appeal_reason": appeal.appeal_reason,
             "supporting_documents": appeal.supporting_documents or [],
             "status": "pending",
-            "created_at": datetime.utcnow(),
+            "created_at": get_ist_now(),
         })
         
         # Update dispute status

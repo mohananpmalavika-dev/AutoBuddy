@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Modal } from 'react-native';
 import { useGamificationBadges } from '../hooks/useGamificationBadges';
 import { theme } from '../theme';
+import { formatToIST } from '../utils/time';
 
 export function BadgesAchievementsWidget({ isVisible, onClose, token, driverId }) {
   const { earnedBadges, inProgressBadges, leaderboard, loadEarnedBadges, loadBadgeProgress, loadLeaderboard, getTotalBadgeCount, getBadgeCompletionPercentage } = useGamificationBadges({ token, driverId });
@@ -98,7 +99,7 @@ export function BadgesAchievementsWidget({ isVisible, onClose, token, driverId }
                       <Text style={styles.badgeIcon}>{badgeIcons[badge.badge_type] || 'B'}</Text>
                       <Text style={styles.badgeName}>{badge.badge_name}</Text>
                       <Text style={styles.badgeDate}>
-                        {new Date(badge.earned_at).toLocaleDateString()}
+                        {formatToIST(badge.earned_at, { dateStyle: 'short' })}
                       </Text>
                     </TouchableOpacity>
                   ))}
@@ -194,12 +195,8 @@ export function BadgesAchievementsWidget({ isVisible, onClose, token, driverId }
                   <View style={styles.detailStats}>
                     <View style={styles.detailStat}>
                       <Text style={styles.detailStatLabel}>Earned On</Text>
-                      <Text style={styles.detailStatValue}>
-                        {new Date(selectedBadge.earned_at).toLocaleDateString('en-US', {
-                          year: 'numeric',
-                          month: 'long',
-                          day: 'numeric',
-                        })}
+                        <Text style={styles.detailStatValue}>
+                        {formatToIST(selectedBadge.earned_at, { year: 'numeric', month: 'long', day: 'numeric' })}
                       </Text>
                     </View>
                     <View style={styles.detailStat}>

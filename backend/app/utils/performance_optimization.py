@@ -8,6 +8,7 @@ import time
 from typing import Optional, Dict, Any, Callable, List
 from functools import wraps
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 import hashlib
 import json
 
@@ -38,7 +39,7 @@ class QueryCache:
         entry = self.cache[key]
         
         # Check if expired
-        if datetime.utcnow() > entry['expires_at']:
+        if get_ist_now() > entry['expires_at']:
             del self.cache[key]
             return None
         
@@ -58,8 +59,8 @@ class QueryCache:
         
         self.cache[key] = {
             'data': result,
-            'expires_at': datetime.utcnow() + timedelta(seconds=ttl),
-            'created_at': datetime.utcnow(),
+            'expires_at': get_ist_now() + timedelta(seconds=ttl),
+            'created_at': get_ist_now(),
             'hits': 0
         }
         

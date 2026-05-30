@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
+import { formatToIST } from '../utils/time';
 
 type PayoutStatus = 'completed' | 'processing' | 'failed' | string;
 
@@ -265,15 +266,7 @@ export default function InstantPayoutPanel({
           amount: amount,
           method: method.label,
           status: 'processing',
-          date: new Date().toLocaleDateString('en-IN'),
-          time: 'Initiated now',
-          reference: `PAY${Math.floor(Math.random() * 1000000)}`,
-          eta: '2-4 hours',
-        };
-
-      setPayoutHistory([newPayout, ...payoutHistory]);
-      setBalance(balance - amount);
-
+              date: formatToIST(new Date(), { dateStyle: 'short' }),
       setPayoutRequest({ amount: '', method: null });
       setShowPayoutModal(false);
 

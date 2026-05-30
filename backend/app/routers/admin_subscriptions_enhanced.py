@@ -2,6 +2,7 @@
 Admin Subscriptions - Enhanced with benefit config and auto-renewal
 """
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel
@@ -63,7 +64,7 @@ async def update_subscription_benefits(
         {
             "$set": {
                 "benefits": benefits,
-                "updated_at": datetime.utcnow()
+                "updated_at": get_ist_now()
             }
         },
         upsert=True
@@ -83,7 +84,7 @@ async def update_auto_renewal_config(
         {
             "$set": {
                 "auto_renewal_config": auto_renewal,
-                "updated_at": datetime.utcnow()
+                "updated_at": get_ist_now()
             }
         },
         upsert=True
@@ -142,7 +143,7 @@ async def update_tier_benefits(
         "role": role,
         "tier": tier,
         "benefits": benefits_list,
-        "updated_at": datetime.utcnow().isoformat()
+        "updated_at": get_ist_now().isoformat()
     }
 
 
@@ -182,7 +183,7 @@ async def update_auto_renewal(
     return {
         "role": role,
         "auto_renewal_config": config_dict,
-        "updated_at": datetime.utcnow().isoformat()
+        "updated_at": get_ist_now().isoformat()
     }
 
 
@@ -199,7 +200,7 @@ async def process_pending_renewals(
     users_collection = db["users"]
     
     # Find subscriptions due for renewal
-    now = datetime.utcnow()
+    now = get_ist_now()
     renewal_date_cutoff = now - timedelta(days=1)
     
     pipeline = [
@@ -246,7 +247,7 @@ async def process_pending_renewals(
         "processed_renewals": processed,
         "failed_renewals": failed,
         "dry_run": dry_run,
-        "executed_at": datetime.utcnow().isoformat()
+        "executed_at": get_ist_now().isoformat()
     }
 
 
@@ -261,7 +262,7 @@ async def get_pending_renewals(
     _ = admin_user
     
     subscriptions_collection = db["subscriptions"]
-    now = datetime.utcnow()
+    now = get_ist_now()
     
     pipeline = [
         {
@@ -316,7 +317,7 @@ async def send_renewal_reminders(
     subscriptions_collection = db["subscriptions"]
     users_collection = db["users"]
     
-    now = datetime.utcnow()
+    now = get_ist_now()
     reminder_date = now + timedelta(days=days_before)
     reminder_date_end = reminder_date + timedelta(days=1)
     
@@ -358,7 +359,7 @@ async def send_renewal_reminders(
         "reminders_sent": reminders_sent,
         "days_before_renewal": days_before,
         "dry_run": dry_run,
-        "executed_at": datetime.utcnow().isoformat()
+        "executed_at": get_ist_now().isoformat()
     }
 
 
@@ -372,7 +373,7 @@ async def get_expiring_subscriptions(
     _ = admin_user
     
     subscriptions_collection = db["subscriptions"]
-    now = datetime.utcnow()
+    now = get_ist_now()
     expiry_cutoff = now + timedelta(days=days)
     
     pipeline = [

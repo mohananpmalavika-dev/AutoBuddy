@@ -5,6 +5,7 @@ Real-time command center for city operations monitoring
 
 from pydantic import BaseModel, Field
 from datetime import datetime
+from .models_features import get_ist_now
 from typing import List, Optional, Dict, Any
 from enum import Enum
 
@@ -27,7 +28,7 @@ class IncidentSeverity(str, Enum):
 
 class SafetyIncident(BaseModel):
     """Real-time safety incident tracking."""
-    id: str = Field(default_factory=lambda: str(datetime.utcnow().timestamp()))
+    id: str = Field(default_factory=lambda: str(get_ist_now().timestamp()))
     city_id: str
     incident_type: SafetyIncidentType
     severity: IncidentSeverity
@@ -37,7 +38,7 @@ class SafetyIncident(BaseModel):
     driver_id: Optional[str] = None
     passenger_id: Optional[str] = None
     description: str
-    reported_at: datetime = Field(default_factory=datetime.utcnow)
+    reported_at: datetime = Field(default_factory=get_ist_now)
     resolved_at: Optional[datetime] = None
     is_resolved: bool = False
     responder_id: Optional[str] = None
@@ -59,7 +60,7 @@ class SafetyIncident(BaseModel):
 
 class ZoneDemandMetric(BaseModel):
     """Demand metrics by geographic zone."""
-    id: str = Field(default_factory=lambda: str(datetime.utcnow().timestamp()))
+    id: str = Field(default_factory=lambda: str(get_ist_now().timestamp()))
     city_id: str
     zone_id: str
     zone_name: str
@@ -73,7 +74,7 @@ class ZoneDemandMetric(BaseModel):
     surge_multiplier: float = Field(ge=1.0)
     demand_trend: str  # "increasing", "stable", "decreasing"
     peak_hours: List[int] = Field(default_factory=list)  # Hours when peak demand expected
-    last_updated: datetime = Field(default_factory=datetime.utcnow)
+    last_updated: datetime = Field(default_factory=get_ist_now)
     
     class Config:
         json_schema_extra = {
@@ -125,7 +126,7 @@ class ActiveRideSnapshot(BaseModel):
 
 class DemandForecast(BaseModel):
     """AI-powered demand forecasting by hour/day."""
-    id: str = Field(default_factory=lambda: str(datetime.utcnow().timestamp()))
+    id: str = Field(default_factory=lambda: str(get_ist_now().timestamp()))
     city_id: str
     forecast_hour: int  # 0-23
     forecast_date: str  # YYYY-MM-DD
@@ -136,7 +137,7 @@ class DemandForecast(BaseModel):
     predicted_driver_supply: int
     recommended_surge_pricing: float
     recommendations: List[str] = Field(default_factory=list)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
     
     class Config:
         json_schema_extra = {
@@ -152,9 +153,9 @@ class DemandForecast(BaseModel):
 
 class OperationsWarRoomSnapshot(BaseModel):
     """Command center overview snapshot."""
-    id: str = Field(default_factory=lambda: str(datetime.utcnow().timestamp()))
+    id: str = Field(default_factory=lambda: str(get_ist_now().timestamp()))
     city_id: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=get_ist_now)
     
     # City-wide metrics
     total_active_rides: int
@@ -199,7 +200,7 @@ class OperationsWarRoomSnapshot(BaseModel):
 
 class DriverDensityGrid(BaseModel):
     """Geographic grid of driver density."""
-    id: str = Field(default_factory=lambda: str(datetime.utcnow().timestamp()))
+    id: str = Field(default_factory=lambda: str(get_ist_now().timestamp()))
     city_id: str
     grid_id: str  # e.g., "GRID_001_001"
     grid_lat_center: float
@@ -209,7 +210,7 @@ class DriverDensityGrid(BaseModel):
     driver_count_15min: int  # Drivers that will arrive in 15 mins
     average_driver_rating: float
     vehicle_types: Dict[str, int] = Field(default_factory=dict)  # {"auto": 5, "bike": 3}
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=get_ist_now)
     
     class Config:
         json_schema_extra = {
@@ -224,7 +225,7 @@ class DriverDensityGrid(BaseModel):
 
 class IncidentAlert(BaseModel):
     """Real-time alert for operations team."""
-    id: str = Field(default_factory=lambda: str(datetime.utcnow().timestamp()))
+    id: str = Field(default_factory=lambda: str(get_ist_now().timestamp()))
     city_id: str
     alert_type: str  # "incident", "supply_shortage", "demand_surge", "performance"
     severity: str  # "critical", "high", "medium", "low"
@@ -233,7 +234,7 @@ class IncidentAlert(BaseModel):
     action_required: str
     latitude: Optional[float] = None
     longitude: Optional[float] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
     acknowledged_by: Optional[str] = None
     acknowledged_at: Optional[datetime] = None
     resolved: bool = False
@@ -253,9 +254,9 @@ class IncidentAlert(BaseModel):
 
 class LiveCityMetrics(BaseModel):
     """Real-time city-wide metrics."""
-    id: str = Field(default_factory=lambda: str(datetime.utcnow().timestamp()))
+    id: str = Field(default_factory=lambda: str(get_ist_now().timestamp()))
     city_id: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=get_ist_now)
     
     # Supply-demand balance
     online_drivers: int

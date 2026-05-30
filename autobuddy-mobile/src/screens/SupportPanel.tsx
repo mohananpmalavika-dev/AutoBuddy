@@ -16,6 +16,7 @@ import {
 import { supportAPI } from '@/services/apiClient';
 import { SupportContext } from '@/contexts/SupportContext';
 import { getSocket } from '@/services/socketClient';
+import { formatToIST } from '../utils/time';
 
 type SupportMessage = {
   id?: string;
@@ -81,15 +82,8 @@ const MaterialIcons = ({
 const MaterialCommunityIcons = MaterialIcons;
 
 const getTicketId = (ticket: Pick<SupportTicket, '_id' | 'id'>) => ticket._id || ticket.id || '';
-const formatTime = (value?: string | Date) =>
-  value
-    ? new Date(value).toLocaleTimeString([], {
-        hour: '2-digit',
-        minute: '2-digit',
-      })
-    : 'Unknown';
-const formatDateTime = (value?: string | Date) =>
-  value ? new Date(value).toLocaleString() : 'Unknown';
+const formatTime = (value?: string | Date) => (value ? formatToIST(value, { hour: '2-digit', minute: '2-digit' }) : 'Unknown');
+const formatDateTime = (value?: string | Date) => (value ? formatToIST(value, { dateStyle: 'medium', timeStyle: 'short' }) : 'Unknown');
 
 const SupportPanel: React.FC<{ userId: string }> = ({ userId }) => {
   const supportContext = useContext(SupportContext) as SupportContextValue | null;
@@ -314,7 +308,7 @@ const SupportPanel: React.FC<{ userId: string }> = ({ userId }) => {
       </View>
       <Text style={styles.ticketCategory}>{ticket.category}</Text>
       <Text style={styles.ticketDate}>
-        {new Date(ticket.created_at || ticket.createdAt || Date.now()).toLocaleDateString()}
+        {formatToIST(ticket.created_at || ticket.createdAt || Date.now(), { dateStyle: 'short' })}
       </Text>
       <Text style={styles.messageCount}>
         {ticket.messages?.length || 0} messages

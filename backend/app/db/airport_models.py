@@ -5,6 +5,7 @@ Pydantic validation models for airport terminal rides and operations
 
 from pydantic import BaseModel, Field, validator
 from datetime import datetime
+from .models_features import get_ist_now
 from typing import List, Optional, Dict
 from enum import Enum
 
@@ -135,7 +136,7 @@ class AirportRideRequest(BaseModel):
     completed_at: Optional[datetime] = None
     driver_id: Optional[str] = None
     rating: Optional[float] = Field(None, ge=1, le=5)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
     
     class Config:
         json_schema_extra = {
@@ -166,7 +167,7 @@ class ParkingSpot(BaseModel):
     occupancy_duration_minutes: Optional[int] = None
     hourly_rate: float = Field(ge=0)
     daily_rate: float = Field(ge=0)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=get_ist_now)
     
     class Config:
         json_schema_extra = {
@@ -185,7 +186,7 @@ class AirportDemandMetric(BaseModel):
     """Real-time demand metrics for airport rides."""
     metric_id: str = Field(default_factory=lambda: f"metric_{id(object())%10000}")
     terminal_id: str = Field(...)
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=get_ist_now)
     ride_phase: RidePhaseType = Field(...)
     waiting_requests: int = Field(ge=0)  # Passengers waiting for pickup
     available_drivers: int = Field(ge=0)
@@ -219,7 +220,7 @@ class AirportQueue(BaseModel):
     queued_ride_ids: List[str] = Field(default_factory=list)
     queue_length: int = Field(ge=0)
     estimated_wait_time_minutes: int = Field(ge=0)
-    last_updated: datetime = Field(default_factory=datetime.utcnow)
+    last_updated: datetime = Field(default_factory=get_ist_now)
     
     class Config:
         json_schema_extra = {
@@ -240,7 +241,7 @@ class AirportAlert(BaseModel):
     severity: str = Field(...)  # critical, high, medium, low
     message: str = Field(...)
     ride_ids_affected: List[str] = Field(default_factory=list)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
     resolved: bool = Field(default=False)
     resolution_time: Optional[datetime] = None
     
@@ -267,7 +268,7 @@ class AirportServiceMetrics(BaseModel):
     peak_demand_time: str = Field(default="")  # HH:MM format
     peak_demand_score: float = Field(ge=0, le=100)
     driver_efficiency: float = Field(ge=0, le=100)
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=get_ist_now)
     
     class Config:
         json_schema_extra = {

@@ -28,6 +28,7 @@ import AdminDocumentRequirements from '../components/AdminDocumentRequirements';
 import AdminFareConfiguration from '../components/AdminFareConfiguration';
 import AdminFareProposals from '../components/AdminFareProposals';
 import AdminVehicleManagementScreen from './AdminVehicleManagementScreen';
+import { formatToIST } from '../utils/time';
 
 const SUBSCRIPTION_PERIOD_OPTIONS = ['monthly', 'quarterly', 'annually', 'per_trip'];
 const RIDE_PRODUCT_KEYS = [
@@ -1675,11 +1676,11 @@ export default function AdminDashboard({ token, user, onLogout }) {
     if (!value) {
       return '-';
     }
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
+    try {
+      return formatToIST(value, { dateStyle: 'medium', timeStyle: 'short' });
+    } catch {
       return String(value);
     }
-    return date.toLocaleString();
   };
 
   return (

@@ -6,6 +6,7 @@ Provides WebSocket-based live tracking, ETA updates, and location streaming
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from typing import List, Dict, Any
 import json
 import asyncio
@@ -106,7 +107,7 @@ async def start_ride_tracking(session: TrackingSession, db: Session = Depends(ge
         "speed": session.speed,
         "eta_seconds": session.eta_seconds,
         "status": session.status,
-        "start_time": datetime.utcnow(),
+        "start_time": get_ist_now(),
         "locations": [],
         "distance_traveled": 0.0,
     }
@@ -115,7 +116,7 @@ async def start_ride_tracking(session: TrackingSession, db: Session = Depends(ge
         "ride_id": session.ride_id,
         "status": "tracking_active",
         "websocket_url": f"ws://localhost:8000/api/v3/tracking/ws/{session.ride_id}",
-        "timestamp": datetime.utcnow(),
+        "timestamp": get_ist_now(),
         "message": "Tracking session initialized"
     }
 
@@ -154,7 +155,7 @@ async def websocket_endpoint(websocket: WebSocket, ride_id: str):
                 ride["locations"].append({
                     "lat": location_data["latitude"],
                     "lng": location_data["longitude"],
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": get_ist_now().isoformat()
                 })
                 
                 # Broadcast to all connected passengers
@@ -168,7 +169,7 @@ async def websocket_endpoint(websocket: WebSocket, ride_id: str):
                     "driver_name": ride["driver_name"],
                     "vehicle_plate": ride["vehicle_plate"],
                     "eta_seconds": ride["eta_seconds"],
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": get_ist_now().isoformat()
                 }
                 
                 # Send to all connected clients
@@ -210,7 +211,7 @@ async def get_live_location(ride_id: str):
         "eta_seconds": ride["eta_seconds"],
         "status": ride["status"],
         "recent_waypoints": ride["locations"][-5:],  # Last 5 locations
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": get_ist_now().isoformat()
     }
 
 @router.post("/stop-ride/{ride_id}")
@@ -226,7 +227,7 @@ async def stop_ride_tracking(ride_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Ride not found")
     
     ride = active_rides[ride_id]
-    elapsed = (datetime.utcnow() - ride["start_time"]).total_seconds()
+    elapsed = (get_ist_now() - ride["start_time"]).total_seconds()
     
     # Close all WebSocket connections
     if ride_id in active_connections:
@@ -251,7 +252,7 @@ async def stop_ride_tracking(ride_id: str, db: Session = Depends(get_db)):
             "total_locations_tracked": len(tracking_data["locations"]),
             "driver_id": ride["driver_id"]
         },
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": get_ist_now().isoformat()
     }
 
 @router.get("/metrics/{ride_id}")
@@ -267,7 +268,7 @@ async def get_ride_tracking_metrics(ride_id: str):
         raise HTTPException(status_code=404, detail="Ride not tracking")
     
     ride = active_rides[ride_id]
-    elapsed = (datetime.utcnow() - ride["start_time"]).total_seconds()
+    elapsed = (get_ist_now() - ride["start_time"]).total_seconds()
     
     return {
         "ride_id": ride_id,
@@ -304,7 +305,7 @@ async def simulate_location_update(update: RideLocationUpdate, db: Session = Dep
         "status": "location_updated",
         "ride_id": update.ride_id,
         "coordinates": [update.latitude, update.longitude],
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": get_ist_now().isoformat()
     }
 
 @router.get("/route-deviation/{ride_id}")
@@ -324,7 +325,7 @@ async def check_route_deviation(ride_id: str):
         "is_on_route": True,
         "deviations": [],
         "confidence": 0.95,
-        "last_check": datetime.utcnow().isoformat()
+        "last_check": get_ist_now().isoformat()
     }
 
 @router.get("/active-rides")
@@ -349,5 +350,5 @@ async def list_active_rides():
     return {
         "active_rides_count": len(rides_list),
         "rides": rides_list,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": get_ist_now().isoformat()
     }

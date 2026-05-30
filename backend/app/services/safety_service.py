@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
@@ -26,7 +27,7 @@ MALAYALAM_SOS_PHRASES = [
 
 
 def _utc_now() -> datetime:
-    return datetime.utcnow()
+    return get_ist_now()
 
 
 def _normalize_phone(phone: str) -> str:

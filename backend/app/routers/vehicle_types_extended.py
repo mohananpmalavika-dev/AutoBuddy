@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import JSONResponse
 from typing import List, Optional
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.models.vehicle_subtypes_model import VehicleTypeExtended, EXTENDED_VEHICLE_TYPES
 from app.db.database import get_db
@@ -141,8 +142,8 @@ async def create_vehicle_type(
         vehicle_type_data.setdefault("subtypes", [])
         vehicle_type_data.setdefault("active", True)
         vehicle_type_data.setdefault("regions", ["all"])
-        vehicle_type_data["created_at"] = datetime.utcnow()
-        vehicle_type_data["updated_at"] = datetime.utcnow()
+        vehicle_type_data["created_at"] = get_ist_now()
+        vehicle_type_data["updated_at"] = get_ist_now()
         
         # Use id as _id
         vehicle_type_data["_id"] = vehicle_type_data.pop("id")
@@ -174,7 +175,7 @@ async def update_vehicle_type(
     try:
         collection = db["vehicle_types"]
         
-        update_data["updated_at"] = datetime.utcnow()
+        update_data["updated_at"] = get_ist_now()
         
         result = await collection.update_one(
             {"_id": vehicle_type_id},
@@ -213,7 +214,7 @@ async def add_vehicle_subtype(
             {"_id": vehicle_type_id},
             {
                 "$push": {"subtypes": subtype_data},
-                "$set": {"updated_at": datetime.utcnow()}
+                "$set": {"updated_at": get_ist_now()}
             }
         )
         
@@ -245,7 +246,7 @@ async def remove_vehicle_subtype(
             {"_id": vehicle_type_id},
             {
                 "$pull": {"subtypes": {"id": subtype_id}},
-                "$set": {"updated_at": datetime.utcnow()}
+                "$set": {"updated_at": get_ist_now()}
             }
         )
         
@@ -277,7 +278,7 @@ async def delete_vehicle_type(
             {
                 "$set": {
                     "active": False,
-                    "updated_at": datetime.utcnow()
+                    "updated_at": get_ist_now()
                 }
             }
         )

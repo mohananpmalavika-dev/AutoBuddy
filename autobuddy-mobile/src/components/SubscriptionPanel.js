@@ -12,6 +12,7 @@ import {
 import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
 import VoiceTextInput from './VoiceTextInput';
+import { formatToIST } from '../utils/time';
 
 function getPlanDetails(audience = 'passenger') {
   const isDriver = audience === 'driver';
@@ -367,7 +368,7 @@ export default function SubscriptionPanel({ token, audience = 'passenger' }) {
           {currentSubscription.renews_at && (
             <>
               <Text style={styles.statusLabel}>Expires On</Text>
-              <Text style={styles.statusValue}>{new Date(currentSubscription.renews_at).toLocaleDateString()}</Text>
+              <Text style={styles.statusValue}>{formatToIST(currentSubscription.renews_at, { dateStyle: 'short' })}</Text>
             </>
           )}
           {currentSubscription.outstanding_amount > 0 && (
@@ -401,7 +402,7 @@ export default function SubscriptionPanel({ token, audience = 'passenger' }) {
                   {String(due.status || 'due').replace(/_/g, ' ')} - cycle {due.cycle_number || 'N/A'}
                 </Text>
               </View>
-              <Text style={styles.dueDate}>{due.created_at ? new Date(due.created_at).toLocaleDateString() : ''}</Text>
+              <Text style={styles.dueDate}>{due.created_at ? formatToIST(due.created_at, { dateStyle: 'short' }) : ''}</Text>
             </View>
           ))}
         </View>

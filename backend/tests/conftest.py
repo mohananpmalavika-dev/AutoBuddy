@@ -8,6 +8,7 @@ from fastapi import FastAPI, Depends
 from sqlalchemy import create_engine, Column, String
 from sqlalchemy.orm import sessionmaker, Session
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 import uuid
 import sys
 from pathlib import Path
@@ -133,7 +134,7 @@ def sample_passenger(db_session: Session):
         "name": "Test Passenger",
         "phone": "+919876543210",
         "email": "test@example.com",
-        "created_at": datetime.utcnow()
+        "created_at": get_ist_now()
     }
     
     # Insert into database if you have a Passenger model
@@ -153,7 +154,7 @@ def sample_driver(db_session: Session):
         "vehicle_number": "KL-01-AB-1234",
         "rating": 4.8,
         "total_rides": 500,
-        "created_at": datetime.utcnow()
+        "created_at": get_ist_now()
     }
     
     return driver
@@ -174,8 +175,8 @@ def sample_booking(db_session: Session, sample_passenger, sample_driver):
         "dropoff_longitude": -73.9855,
         "status": "completed",
         "fare": 450.0,
-        "created_at": datetime.utcnow() - timedelta(hours=1),
-        "completed_at": datetime.utcnow()
+        "created_at": get_ist_now() - timedelta(hours=1),
+        "completed_at": get_ist_now()
     }
     
     return booking
@@ -191,8 +192,8 @@ def sample_promo_code(db_session: Session):
         "discount_value": 10,
         "min_ride_fare": 200.0,
         "max_discount": 100.0,
-        "valid_from": datetime.utcnow(),
-        "valid_until": datetime.utcnow() + timedelta(days=30),
+        "valid_from": get_ist_now(),
+        "valid_until": get_ist_now() + timedelta(days=30),
         "usage_limit": 100,
         "usage_per_user": 2,
         "is_active": True,

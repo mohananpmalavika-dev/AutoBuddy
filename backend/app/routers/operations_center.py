@@ -5,6 +5,7 @@ Real-time command center for monitoring city operations
 
 from fastapi import APIRouter, HTTPException, Request, Depends
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 import logging
 import random
 from typing import List, Optional
@@ -40,7 +41,7 @@ async def get_live_city_metrics(city_id: str, request: Request):
         # Mock data - replace with actual database queries
         metrics = {
             "city_id": city_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": get_ist_now().isoformat(),
             "online_drivers": random.randint(200, 600),
             "online_passengers": random.randint(100, 300),
             "active_rides": random.randint(50, 250),
@@ -61,7 +62,7 @@ async def get_live_city_metrics(city_id: str, request: Request):
         return {
             "status": "success",
             "data": metrics,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error fetching live metrics: {e}")
@@ -84,7 +85,7 @@ async def get_war_room_snapshot(city_id: str, request: Request):
         
         snapshot = {
             "city_id": city_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": get_ist_now().isoformat(),
             "total_active_rides": random.randint(100, 400),
             "total_available_drivers": random.randint(150, 500),
             "total_waiting_passengers": random.randint(20, 100),
@@ -114,7 +115,7 @@ async def get_war_room_snapshot(city_id: str, request: Request):
         return {
             "status": "success",
             "data": snapshot,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error fetching war room snapshot: {e}")
@@ -149,7 +150,7 @@ async def get_active_incidents(city_id: str, severity: Optional[str] = None, req
                 "latitude": 12.9716 + random.uniform(-0.05, 0.05),
                 "longitude": 77.5946 + random.uniform(-0.05, 0.05),
                 "description": f"Sample incident {i}",
-                "reported_at": (datetime.utcnow() - timedelta(minutes=random.randint(1, 60))).isoformat(),
+                "reported_at": (get_ist_now() - timedelta(minutes=random.randint(1, 60))).isoformat(),
                 "is_resolved": False,
                 "priority": random.randint(1, 5)
             })
@@ -157,7 +158,7 @@ async def get_active_incidents(city_id: str, severity: Optional[str] = None, req
         return {
             "status": "success",
             "data": incidents,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error fetching incidents: {e}")
@@ -182,10 +183,10 @@ async def acknowledge_incident(payload: dict, request: Request):
             "status": "success",
             "data": {
                 "incident_id": payload.get("incident_id"),
-                "acknowledged_at": datetime.utcnow().isoformat(),
+                "acknowledged_at": get_ist_now().isoformat(),
                 "responder_id": payload.get("responder_id")
             },
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error acknowledging incident: {e}")
@@ -210,10 +211,10 @@ async def resolve_incident(payload: dict, request: Request):
             "status": "success",
             "data": {
                 "incident_id": payload.get("incident_id"),
-                "resolved_at": datetime.utcnow().isoformat(),
+                "resolved_at": get_ist_now().isoformat(),
                 "is_resolved": True
             },
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error resolving incident: {e}")
@@ -251,13 +252,13 @@ async def get_zone_demand_metrics(city_id: str, request: Request):
                 "surge_multiplier": round(random.uniform(1.0, 2.5), 2),
                 "demand_trend": random.choice(["increasing", "stable", "decreasing"]),
                 "peak_hours": list(range(random.randint(8, 12), random.randint(13, 18))),
-                "last_updated": datetime.utcnow().isoformat()
+                "last_updated": get_ist_now().isoformat()
             })
         
         return {
             "status": "success",
             "data": zone_data,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error fetching zone demand: {e}")
@@ -290,9 +291,9 @@ async def get_demand_heatmap(city_id: str, request: Request):
             "data": {
                 "city_id": city_id,
                 "grid_cells": grid_cells,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": get_ist_now().isoformat()
             },
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error fetching heatmap: {e}")
@@ -325,7 +326,7 @@ async def get_active_rides(city_id: str, limit: int = 20, request: Request = Non
                 "safety_status": random.choice(["normal", "alert"]),
                 "pickup_eta_minutes": random.randint(1, 10),
                 "estimated_duration_minutes": random.randint(10, 45),
-                "started_at": (datetime.utcnow() - timedelta(minutes=random.randint(1, 30))).isoformat(),
+                "started_at": (get_ist_now() - timedelta(minutes=random.randint(1, 30))).isoformat(),
                 "is_priority_ride": random.choice([True, False])
             })
         
@@ -333,7 +334,7 @@ async def get_active_rides(city_id: str, limit: int = 20, request: Request = Non
             "status": "success",
             "data": rides,
             "total_count": len(rides),
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error fetching active rides: {e}")
@@ -366,14 +367,14 @@ async def monitor_ride(ride_id: str, request: Request):
             "safety_status": "normal",
             "passenger_panic_button_status": "inactive",
             "driver_panic_button_status": "inactive",
-            "started_at": (datetime.utcnow() - timedelta(minutes=random.randint(1, 20))).isoformat(),
-            "estimated_completion_time": (datetime.utcnow() + timedelta(minutes=random.randint(5, 15))).isoformat()
+            "started_at": (get_ist_now() - timedelta(minutes=random.randint(1, 20))).isoformat(),
+            "estimated_completion_time": (get_ist_now() + timedelta(minutes=random.randint(5, 15))).isoformat()
         }
         
         return {
             "status": "success",
             "data": ride_data,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error monitoring ride: {e}")
@@ -395,7 +396,7 @@ async def get_demand_forecast(city_id: str, hours_ahead: int = 24, request: Requ
         token = request.headers.get("Authorization", "").replace("Bearer ", "")
         
         forecasts = []
-        now = datetime.utcnow()
+        now = get_ist_now()
         
         for hour in range(min(hours_ahead, 24)):
             forecast_time = now + timedelta(hours=hour)
@@ -422,7 +423,7 @@ async def get_demand_forecast(city_id: str, hours_ahead: int = 24, request: Requ
                 "forecast_data": forecasts,
                 "generated_at": now.isoformat()
             },
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error generating forecast: {e}")
@@ -458,13 +459,13 @@ async def get_driver_density(city_id: str, request: Request):
                     "bike": random.randint(1, 10),
                     "premium": random.randint(0, 5)
                 },
-                "updated_at": datetime.utcnow().isoformat()
+                "updated_at": get_ist_now().isoformat()
             })
         
         return {
             "status": "success",
             "data": grid_cells,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error fetching driver density: {e}")
@@ -499,7 +500,7 @@ async def get_operational_alerts(city_id: str, severity: Optional[str] = None, r
                 "action_required": "Activate driver incentives immediately",
                 "latitude": 13.1939,
                 "longitude": 77.7064,
-                "created_at": (datetime.utcnow() - timedelta(minutes=5)).isoformat(),
+                "created_at": (get_ist_now() - timedelta(minutes=5)).isoformat(),
                 "resolved": False
             },
             {
@@ -512,7 +513,7 @@ async def get_operational_alerts(city_id: str, severity: Optional[str] = None, r
                 "action_required": "Recommend surge to drivers",
                 "latitude": 12.9729,
                 "longitude": 77.6084,
-                "created_at": (datetime.utcnow() - timedelta(minutes=2)).isoformat(),
+                "created_at": (get_ist_now() - timedelta(minutes=2)).isoformat(),
                 "resolved": False
             },
             {
@@ -525,7 +526,7 @@ async def get_operational_alerts(city_id: str, severity: Optional[str] = None, r
                 "action_required": "Dispatch safety team to coordinates",
                 "latitude": 12.9500,
                 "longitude": 77.6200,
-                "created_at": (datetime.utcnow() - timedelta(minutes=1)).isoformat(),
+                "created_at": (get_ist_now() - timedelta(minutes=1)).isoformat(),
                 "resolved": False
             }
         ]
@@ -537,7 +538,7 @@ async def get_operational_alerts(city_id: str, severity: Optional[str] = None, r
         return {
             "status": "success",
             "data": alerts,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error fetching alerts: {e}")
@@ -556,10 +557,10 @@ async def acknowledge_alert(alert_id: str, payload: dict, request: Request):
             "status": "success",
             "data": {
                 "alert_id": alert_id,
-                "acknowledged_at": datetime.utcnow().isoformat(),
+                "acknowledged_at": get_ist_now().isoformat(),
                 "acknowledged_by": payload.get("user_id")
             },
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error acknowledging alert: {e}")

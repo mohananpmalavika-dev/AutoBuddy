@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { COLORS, SHADOWS } from '../theme';
+import { formatToIST } from '../utils/time';
 
 function formatMoney(value) {
   const amount = Number(value || 0);
@@ -23,13 +24,11 @@ function formatDateTime(value) {
   if (Number.isNaN(date.getTime())) {
     return 'Not available';
   }
-  return date.toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+  try {
+    return formatToIST(value, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+  } catch {
+    return new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }).format(date);
+  }
 }
 
 function formatStatusLabel(value) {

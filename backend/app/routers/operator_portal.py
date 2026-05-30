@@ -7,6 +7,7 @@ vehicles into the driver vehicle collection used by the driver app.
 """
 
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 from typing import Any, Dict, List, Optional
 import uuid
 
@@ -32,7 +33,7 @@ def _user_id(current_user: dict) -> str:
 
 
 def _now() -> datetime:
-    return datetime.utcnow()
+    return get_ist_now()
 
 
 def _strip_mongo_id(document: Optional[Dict[str, Any]]) -> Dict[str, Any]:

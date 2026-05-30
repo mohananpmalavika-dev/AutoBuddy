@@ -14,6 +14,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { apiRequest } from '../lib/api';
 import { appendPickerAssetToFormData } from '../lib/uploadFormData';
 import { COLORS, SHADOWS } from '../theme';
+import { formatToIST } from '../utils/time';
 
 /**
  * PassengerDocumentsPanel - Document uploads and management
@@ -217,11 +218,11 @@ export default function PassengerDocumentsPanel({ token }) {
             <Text style={styles.documentType}>{getDocTypeLabel(item.type)}</Text>
             <Text style={styles.documentFilename}>{item.filename}</Text>
             <Text style={styles.documentDate}>
-              Uploaded: {new Date(item.uploaded_at).toLocaleDateString()}
+              Uploaded: {formatToIST(item.uploaded_at, { dateStyle: 'short' })}
             </Text>
             {item.expiry_date && (
               <Text style={styles.documentDate}>
-                Expires: {new Date(item.expiry_date).toLocaleDateString()}
+                Expires: {formatToIST(item.expiry_date, { dateStyle: 'short' })}
               </Text>
             )}
           </View>

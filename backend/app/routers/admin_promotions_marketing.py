@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from app.db.client import get_db
@@ -57,7 +58,7 @@ async def get_promotions(
         if status:
             filters["status"] = status
         else:
-            filters["valid_until"] = {"$gte": datetime.utcnow()}
+            filters["valid_until"] = {"$gte": get_ist_now()}
         
         total = await db.promotions.count_documents(filters)
         
@@ -107,7 +108,7 @@ async def get_coupons(
                     "max_usage": c.get("max_usage"),
                     "current_usage": c.get("uses", 0),
                     "expiry_date": c.get("expiry_date"),
-                    "status": "valid" if c.get("expiry_date", datetime.utcnow()) > datetime.utcnow() else "expired",
+                    "status": "valid" if c.get("expiry_date", get_ist_now()) > get_ist_now() else "expired",
                 }
                 for c in coupons
             ]
@@ -150,7 +151,7 @@ async def get_referral_stats(
 ):
     """Get referral statistics"""
     try:
-        start_date = datetime.utcnow() - timedelta(days=days)
+        start_date = get_ist_now() - timedelta(days=days)
         
         pipeline = [
             {"$match": {"created_at": {"$gte": start_date}}},
@@ -194,7 +195,7 @@ async def create_promotion(
             "applicable_to": promo.applicable_to,
             "uses": 0,
             "created_by": admin_user.get("user_id"),
-            "created_at": datetime.utcnow(),
+            "created_at": get_ist_now(),
         })
         
         return {"status": "success", "code": promo.code}
@@ -217,7 +218,7 @@ async def create_coupon(
             "uses": 0,
             "expiry_date": datetime.fromisoformat(coupon.expiry_date),
             "created_by": admin_user.get("user_id"),
-            "created_at": datetime.utcnow(),
+            "created_at": get_ist_now(),
         })
         
         return {"status": "success", "code": coupon.code}
@@ -240,7 +241,7 @@ async def create_referral_program(
             "active": program.active,
             "total_referrals": 0,
             "created_by": admin_user.get("user_id"),
-            "created_at": datetime.utcnow(),
+            "created_at": get_ist_now(),
         })
         
         return {"status": "success", "name": program.name}

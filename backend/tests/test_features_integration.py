@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 import json
 
 # This is a template showing test patterns
@@ -262,7 +263,7 @@ class TestScheduledRides:
     
     def test_create_scheduled_ride_route_is_deprecated(self, client: TestClient, auth_headers: dict):
         """Scheduled rides are now created through the real booking flow"""
-        future_time = datetime.utcnow() + timedelta(days=1)
+        future_time = get_ist_now() + timedelta(days=1)
         
         ride_data = {
             "pickup_location": "123 Main St",
@@ -296,7 +297,7 @@ class TestScheduledRides:
 
     def test_update_and_cancel_scheduled_ride_routes_are_deprecated(self, client: TestClient, auth_headers: dict):
         """Stale scheduled ride mutation routes should stay closed"""
-        future_time = datetime.utcnow() + timedelta(days=1)
+        future_time = get_ist_now() + timedelta(days=1)
         payload = {
             "pickup_location": "123 Main St",
             "dropoff_location": "456 Park Ave",
@@ -565,7 +566,7 @@ class TestEndToEndWorkflows:
         assert office_response.status_code == 200
         
         # Step 3: Legacy scheduled ride route should tell clients to use real bookings
-        future_time = datetime.utcnow() + timedelta(days=1)
+        future_time = get_ist_now() + timedelta(days=1)
         
         ride_response = client.post(
             "/api/v1/passengers/scheduled-rides",

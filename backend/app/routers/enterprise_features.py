@@ -9,6 +9,7 @@ API Routes for Enterprise Features:
 from fastapi import APIRouter, HTTPException, Request, Query
 from typing import List, Optional, Dict
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 import logging
 from decimal import Decimal
 
@@ -125,7 +126,7 @@ async def create_airport_booking(request: Request, booking_data: dict):
             'meet_greet_fee': float(meet_greet_fee),
             'total_fare': float(total_fare),
             'status': 'confirmed',
-            'created_at': datetime.utcnow()
+            'created_at': get_ist_now()
         }
         
         result = await db.airport_bookings.insert_one(airport_booking)
@@ -202,10 +203,10 @@ async def create_corporate_account(account_data: dict, request: Request):
             'admin_phone': account_data['admin_phone'],
             'monthly_budget': float(account_data.get('monthly_budget', 50000)),
             'current_month_spent': 0.0,
-            'billing_cycle_start': datetime.utcnow(),
+            'billing_cycle_start': get_ist_now(),
             'payment_method': account_data.get('payment_method', 'invoice'),
             'is_active': True,
-            'created_at': datetime.utcnow()
+            'created_at': get_ist_now()
         }
         
         result = await db.corporate_accounts.insert_one(corporate)
@@ -239,7 +240,7 @@ async def add_employee_to_corporate(corporate_id: str, employee_data: dict, requ
             'monthly_limit': float(employee_data.get('monthly_limit', 10000)),
             'requires_approval': employee_data.get('requires_approval', False),
             'is_active': True,
-            'created_at': datetime.utcnow()
+            'created_at': get_ist_now()
         }
         
         result = await db.employee_ride_accounts.insert_one(employee)
@@ -267,7 +268,7 @@ async def approve_corporate_ride_request(corporate_id: str, request_id: str, req
                 '$set': {
                     'approval_status': 'approved',
                     'approved_by': str(manager_data['_id']),
-                    'updated_at': datetime.utcnow()
+                    'updated_at': get_ist_now()
                 }
             },
             return_document=True
@@ -301,7 +302,7 @@ async def get_corporate_billing_report(
         admin_data = await verify_admin_token(request)
         
         if not billing_month:
-            billing_month = datetime.utcnow().strftime('%Y-%m')
+            billing_month = get_ist_now().strftime('%Y-%m')
         
         report = await db.corporate_billing_reports.find_one({
             'corporate_account_id': corporate_id,
@@ -388,7 +389,7 @@ async def create_multi_stop_booking(booking_data: dict, request: Request):
             'status': 'pending',
             'route_optimized': booking_data.get('optimize_route', False),
             'optimization_algorithm': optimization_algo,
-            'created_at': datetime.utcnow()
+            'created_at': get_ist_now()
         }
         
         result = await db.multi_stop_bookings.insert_one(multi_stop)
@@ -406,7 +407,7 @@ async def create_multi_stop_booking(booking_data: dict, request: Request):
                 'address': stop_data['address'],
                 'passenger_name': stop_data.get('passenger_name'),
                 'status': 'pending',
-                'created_at': datetime.utcnow()
+                'created_at': get_ist_now()
             }
             await db.route_stops.insert_one(route_stop)
         
@@ -423,7 +424,7 @@ async def create_multi_stop_booking(booking_data: dict, request: Request):
                 'original_time_minutes': total_duration,
                 'optimized_time_minutes': calculate_route_duration(stops, optimized_order),
                 'cost_savings': float(calculate_cost_savings(total_distance, calculate_route_distance(stops, optimized_order))),
-                'created_at': datetime.utcnow()
+                'created_at': get_ist_now()
             }
             await db.route_optimizations.insert_one(opt_record)
         
@@ -491,11 +492,11 @@ async def get_live_heatmap(request: Request):
     try:
         # Get latest snapshots from all grid locations
         snapshots = await db.driver_density_snapshots.find(
-            {'snapshot_time': {'$gt': datetime.utcnow() - timedelta(minutes=5)}}
+            {'snapshot_time': {'$gt': get_ist_now() - timedelta(minutes=5)}}
         ).to_list(None)
         
         return {
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': get_ist_now().isoformat(),
             'data_points': [
                 {
                     'latitude': s['grid_latitude'],
@@ -550,7 +551,7 @@ async def get_positioning_recommendations(request: Request):
         
         # Get active recommendations
         recommendations = await db.driver_positioning_recommendations.find(
-            {'valid_until': {'$gt': datetime.utcnow()}}
+            {'valid_until': {'$gt': get_ist_now()}}
         ).sort('priority', -1).limit(5).to_list(None)
         
         return [
@@ -584,7 +585,7 @@ async def update_density_snapshot(grid_data: dict, request: Request):
                 'active_drivers_count': grid_point['drivers_count'],
                 'demand_level': calculate_demand_level(grid_point['drivers_count']),
                 'surge_multiplier': calculate_surge(grid_point['drivers_count']),
-                'snapshot_time': datetime.utcnow()
+                'snapshot_time': get_ist_now()
             })
         
         # Broadcast to admin dashboard
@@ -632,7 +633,7 @@ async def get_flight_info(flight_number: str):
     """Get flight status from external API"""
     return {
         'status': 'on_time',
-        'estimated_arrival': datetime.utcnow() + timedelta(hours=2)
+        'estimated_arrival': get_ist_now() + timedelta(hours=2)
     }
 
 

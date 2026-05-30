@@ -11,6 +11,7 @@ import {
 import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
 import VoiceTextInput from './VoiceTextInput';
+import { formatToIST } from '../utils/time';
 
 function RatingStars({ current, onSelect }) {
   return (
@@ -208,7 +209,7 @@ export default function PassengerRatingsPanel({ token, initialRideId = null, onR
                       style={[styles.rideOption, selectedRideId === ride.id && styles.rideOptionActive]}
                       onPress={() => setSelectedRideId(ride.id)}>
                       <Text style={styles.rideOptionText}>
-                        {ride.driver_name || 'Driver'} - {new Date(ride.created_at).toLocaleDateString()}
+                        {ride.driver_name || 'Driver'} - {formatToIST(ride.created_at, { dateStyle: 'short' })}
                       </Text>
                     </TouchableOpacity>
                   ))}
@@ -301,7 +302,7 @@ export default function PassengerRatingsPanel({ token, initialRideId = null, onR
                 <Text style={styles.editButtonText}>Edit</Text>
               </TouchableOpacity>
 
-              <Text style={styles.ratingDate}>{new Date(rating.created_at).toLocaleDateString()}</Text>
+              <Text style={styles.ratingDate}>{formatToIST(rating.created_at, { dateStyle: 'short' })}</Text>
             </View>
           ))}
         </View>

@@ -5,6 +5,7 @@ Stripe Payment Webhooks - Handle payment events and reconciliation
 from fastapi import APIRouter, HTTPException, Request, status
 from bson import ObjectId
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 import stripe
 import logging
 import hmac
@@ -117,7 +118,7 @@ async def handle_payment_succeeded(payment_intent: Dict[str, Any]):
                     'payment_method': 'stripe',
                     'stripe_payment_intent_id': payment_intent.get('id'),
                     'amount_paid': amount,
-                    'payment_completed_at': datetime.utcnow()
+                    'payment_completed_at': get_ist_now()
                 }
             },
             return_document=True
@@ -141,7 +142,7 @@ async def handle_payment_succeeded(payment_intent: Dict[str, Any]):
             'booking_id': booking_id,
             'amount': amount,
             'status': 'success',
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': get_ist_now().isoformat()
         }, room=f'passenger_{passenger_id}')
         
         logger.info(f"Payment succeeded for booking {booking_id}: ₹{amount}")
@@ -169,7 +170,7 @@ async def handle_payment_failed(payment_intent: Dict[str, Any]):
                     'payment_status': 'failed',
                     'stripe_payment_intent_id': payment_intent.get('id'),
                     'payment_failed_reason': payment_intent.get('last_payment_error', {}).get('message'),
-                    'payment_failed_at': datetime.utcnow()
+                    'payment_failed_at': get_ist_now()
                 }
             }
         )
@@ -179,7 +180,7 @@ async def handle_payment_failed(payment_intent: Dict[str, Any]):
             io.emit('payment_failed', {
                 'booking_id': booking_id,
                 'reason': payment_intent.get('last_payment_error', {}).get('message', 'Payment declined'),
-                'timestamp': datetime.utcnow().isoformat()
+                'timestamp': get_ist_now().isoformat()
             }, room=f'passenger_{passenger_id}')
         
         logger.warning(f"Payment failed for booking {booking_id}: {payment_intent.get('last_payment_error', {}).get('message')}")
@@ -213,7 +214,7 @@ async def handle_charge_refunded(charge: Dict[str, Any]):
                 '$set': {
                     'refund_status': 'refunded',
                     'amount_refunded': amount_refunded,
-                    'refunded_at': datetime.utcnow()
+                    'refunded_at': get_ist_now()
                 }
             }
         )
@@ -231,7 +232,7 @@ async def handle_charge_refunded(charge: Dict[str, Any]):
         io.emit('refund_processed', {
             'booking_id': booking_id,
             'amount': amount_refunded,
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': get_ist_now().isoformat()
         }, room=f'passenger_{passenger_id}')
         
         logger.info(f"Refund processed for booking {booking_id}: ₹{amount_refunded}")
@@ -260,7 +261,7 @@ async def handle_subscription_cancelled(subscription: Dict[str, Any]):
             {
                 '$set': {
                     'subscription_status': 'cancelled',
-                    'subscription_cancelled_at': datetime.utcnow()
+                    'subscription_cancelled_at': get_ist_now()
                 }
             }
         )
@@ -298,7 +299,7 @@ async def create_stripe_payment_intent(request: Request):
             metadata={
                 'booking_id': booking_id,
                 'passenger_id': passenger_id,
-                'booking_date': datetime.utcnow().isoformat()
+                'booking_date': get_ist_now().isoformat()
             },
             description=f"Ride booking #{booking_id}"
         )
@@ -310,7 +311,7 @@ async def create_stripe_payment_intent(request: Request):
                 '$set': {
                     'stripe_payment_intent_id': intent.id,
                     'stripe_client_secret': intent.client_secret,
-                    'payment_initiated_at': datetime.utcnow()
+                    'payment_initiated_at': get_ist_now()
                 }
             }
         )

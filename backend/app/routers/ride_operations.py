@@ -6,6 +6,7 @@ PENDING → ACCEPTED → DRIVER_ARRIVING → ARRIVED → IN_PROGRESS → COMPLET
 from fastapi import APIRouter, HTTPException, Request
 from bson import ObjectId
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from typing import Optional
 import logging
 import math
@@ -90,7 +91,7 @@ async def start_ride(booking_id: str, request: Request):
             {
                 '$set': {
                     'status': 'in_progress',
-                    'ride_started_at': datetime.utcnow(),
+                    'ride_started_at': get_ist_now(),
                     'driver_latitude_at_start': latitude,
                     'driver_longitude_at_start': longitude
                 }
@@ -105,11 +106,11 @@ async def start_ride(booking_id: str, request: Request):
             'coordinates': [{
                 'latitude': latitude,
                 'longitude': longitude,
-                'timestamp': datetime.utcnow(),
+                'timestamp': get_ist_now(),
                 'accuracy': body.get('accuracy')
             }],
             'distance_km': 0,
-            'tracking_started_at': datetime.utcnow()
+            'tracking_started_at': get_ist_now()
         })
         
         # Notify passenger
@@ -122,7 +123,7 @@ async def start_ride(booking_id: str, request: Request):
                 'longitude': longitude,
                 'name': driver_data.get('name')
             },
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': get_ist_now().isoformat()
         }, room=f'passenger_{passenger_id}')
         
         logger.info(f"Ride {booking_id} started by driver {driver_id}")
@@ -173,8 +174,8 @@ async def complete_ride(booking_id: str, request: Request):
         tracking = await db.ride_tracking.find_one({'booking_id': ObjectId(booking_id)})
         
         # Calculate actual distance and duration
-        ride_start = booking.get('ride_started_at', datetime.utcnow())
-        ride_end = datetime.utcnow()
+        ride_start = booking.get('ride_started_at', get_ist_now())
+        ride_end = get_ist_now()
         ride_duration_seconds = (ride_end - ride_start).total_seconds()
         ride_duration_minutes = ride_duration_seconds / 60
         
@@ -253,7 +254,7 @@ async def complete_ride(booking_id: str, request: Request):
             'booking_id': ObjectId(booking_id),
             'passenger_id': booking['passenger_id'],
             'driver_id': ObjectId(driver_id),
-            'created_at': datetime.utcnow(),
+            'created_at': get_ist_now(),
             'pickup_address': booking.get('pickup_address'),
             'dropoff_address': booking.get('dropoff_address'),
             'ride_duration_minutes': round(ride_duration_minutes, 2),
@@ -344,7 +345,7 @@ async def cancel_ride(booking_id: str, request: Request):
             {
                 '$set': {
                     'status': 'cancelled',
-                    'cancelled_at': datetime.utcnow(),
+                    'cancelled_at': get_ist_now(),
                     'cancelled_by': cancelled_by,
                     'cancellation_reason': reason,
                     'cancellation_fee': cancellation_fee
@@ -415,7 +416,7 @@ async def update_ride_location(booking_id: str, request: Request):
             raise HTTPException(status_code=403, detail="Unauthorized")
         
         # Update tracking
-        timestamp = datetime.utcnow()
+        timestamp = get_ist_now()
         await db.ride_tracking.update_one(
             {'booking_id': ObjectId(booking_id)},
             {

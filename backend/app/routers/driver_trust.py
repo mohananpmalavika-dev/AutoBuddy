@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -66,7 +67,7 @@ async def verify_aadhaar(
             "$set": {
                 "aadhaar_masked": result["masked"],
                 "aadhaar_verified": True,
-                "aadhaar_verified_at": datetime.utcnow(),
+                "aadhaar_verified_at": get_ist_now(),
                 "kyc_status": "aadhaar_verified",
             }
         },
@@ -95,7 +96,7 @@ async def verify_selfie(
                 "selfie_face_match_score": None,
                 "selfie_verification_status": "manual_review",
                 "selfie_verified": False,
-                "selfie_verified_at": datetime.utcnow(),
+                "selfie_verified_at": get_ist_now(),
                 "kyc_status": "manual_review",
             }
         },

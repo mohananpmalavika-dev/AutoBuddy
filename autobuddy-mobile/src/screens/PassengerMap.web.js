@@ -46,6 +46,7 @@ import EmergencyContactsPanel from '../components/EmergencyContactsPanel';
 import AccessibilityPanel from '../components/AccessibilityPanel';
 import AccessibilityQuickAccess from '../components/AccessibilityQuickAccess';
 import PassengerScheduledRidesPanel from '../components/PassengerScheduledRidesPanel';
+import { formatToIST } from '../utils/time';
 import PassengerProfilePanel from '../components/PassengerProfilePanel';
 import PassengerKYCPanel from '../components/PassengerKYCPanel';
 import PassengerDocumentUpload from '../components/PassengerDocumentUpload';
@@ -2102,10 +2103,10 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                       {t.dailyLimit}: {Number(spinWinStatus.daily_spin_limit || 0)} | {t.used}: {Number(spinWinStatus.spins_used_today || 0)} | {t.left}: {Number(spinWinStatus.spins_left_today || 0)}
                     </Text>
                     {spinWinStatus.starts_at && (
-                      <Text style={styles.infoText}>{t.campaignStart}: {new Date(spinWinStatus.starts_at).toLocaleString()}</Text>
+                      <Text style={styles.infoText}>{t.campaignStart}: {formatToIST(spinWinStatus.starts_at, { dateStyle: 'medium', timeStyle: 'short' })}</Text>
                     )}
                     {spinWinStatus.ends_at && (
-                      <Text style={styles.infoText}>{t.campaignEnd}: {new Date(spinWinStatus.ends_at).toLocaleString()}</Text>
+                      <Text style={styles.infoText}>{t.campaignEnd}: {formatToIST(spinWinStatus.ends_at, { dateStyle: 'medium', timeStyle: 'short' })}</Text>
                     )}
                     {!spinWinStatus.eligible && (
                       <Text style={styles.validationText}>

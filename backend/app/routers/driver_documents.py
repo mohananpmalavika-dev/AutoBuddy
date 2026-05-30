@@ -5,7 +5,7 @@ Features: Document upload, status checking, grace period tracking
 
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from bson import ObjectId
@@ -15,6 +15,13 @@ from app.services.file_upload import file_upload_service
 import logging
 
 logger = logging.getLogger(__name__)
+
+IST_TZ = timezone(timedelta(hours=5, minutes=30))
+
+
+def get_ist_now():
+    return datetime.now(IST_TZ)
+
 
 router = APIRouter(prefix="/api/driver/documents", tags=["driver-documents"])
 
@@ -34,7 +41,21 @@ async def _find_driver_record(db: AsyncIOMotorDatabase, driver_id: str):
     return await db.users.find_one({"id": driver_id})
 
 
-# ==================== Document Types (shared with admin) ====================
+def _normalize_datetime(value):
+    if isinstance(value, datetime):
+        return value.astimezone(IST_TZ) if value.tzinfo else value.replace(tzinfo=IST_TZ)
+    if isinstance(value, str):
+        try:
+            if value.endswith('Z'):
+                value = value[:-1] + '+00:00'
+            parsed = datetime.fromisoformat(value)
+            return parsed.astimezone(IST_TZ) if parsed.tzinfo else parsed.replace(tzinfo=IST_TZ)
+        except ValueError:
+            pass
+    return None
+
+
+# ==================== Document Types (shared with admin)
 
 DOCUMENT_TYPES = {
     # KYC Documents
@@ -162,12 +183,13 @@ async def get_driver_document_status(
         
         # Get driver's account created date for grace period
         driver_data = await _find_driver_record(db, driver_id)
-        created_at = driver_data.get("created_at", datetime.utcnow()) if driver_data else datetime.utcnow()
+        created_at_raw = driver_data.get("created_at") if driver_data else None
+        created_at = _normalize_datetime(created_at_raw) or get_ist_now()
         
         # Use the longest grace period from mandatory documents
         max_grace_days = max([req.get("grace_period_days", 7) for req in mandatory_docs], default=7) if mandatory_docs else 0
         grace_expires = created_at + timedelta(days=max_grace_days)
-        days_remaining = (grace_expires - datetime.utcnow()).days
+        days_remaining = (grace_expires - get_ist_now()).days
         
         # Determine status
         if total_mandatory == 0:
@@ -276,7 +298,7 @@ async def upload_document(
         # Upload file
         file_url = await file_upload_service.upload_file(
             file_content,
-            f"documents/{driver_id}/{document_type}_{datetime.utcnow().timestamp()}.pdf",
+            f"documents/{driver_id}/{document_type}_{get_ist_now().timestamp()}.pdf",
             file.content_type
         )
         
@@ -293,7 +315,7 @@ async def upload_document(
                 {
                     "$set": {
                         "file_url": file_url,
-                        "uploaded_at": datetime.utcnow(),
+                        "uploaded_at": get_ist_now(),
                         "verified": False,
                         "rejection_reason": None,
                     }
@@ -306,12 +328,12 @@ async def upload_document(
                 "user_id": driver_id,
                 "document_type": document_type,
                 "file_url": file_url,
-                "uploaded_at": datetime.utcnow(),
+                "uploaded_at": get_ist_now(),
                 "verified": False,
                 "verified_at": None,
                 "verified_by": None,
                 "rejection_reason": None,
-                "created_at": datetime.utcnow(),
+                "created_at": get_ist_now(),
             }
             result = await db.document_uploads.insert_one(doc)
             upload_id = str(result.inserted_id)
@@ -375,12 +397,13 @@ async def check_can_take_ride(
         
         # Check grace period
         driver_data = await _find_driver_record(db, driver_id)
-        created_at = driver_data.get("created_at", datetime.utcnow()) if driver_data else datetime.utcnow()
+        created_at_raw = driver_data.get("created_at") if driver_data else None
+        created_at = _normalize_datetime(created_at_raw) or get_ist_now()
         max_grace_days = max([req.get("grace_period_days", 7) for req in mandatory_docs], default=7)
         grace_expires = created_at + timedelta(days=max_grace_days)
         
-        if datetime.utcnow() <= grace_expires:
-            days_remaining = (grace_expires - datetime.utcnow()).days
+        if get_ist_now() <= grace_expires:
+            days_remaining = (grace_expires - get_ist_now()).days
             return {
                 "can_take_ride": True,
                 "reason": f"Grace period active ({days_remaining} days remaining)"

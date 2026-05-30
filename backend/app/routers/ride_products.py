@@ -2,6 +2,7 @@ import asyncio
 import os
 import uuid
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set
 
@@ -240,7 +241,7 @@ def _resolve_validated_promo(
         return {}
 
     with SessionLocal() as session:
-        now = datetime.utcnow()
+        now = get_ist_now()
         promo = (
             session.query(PromoCode)
             .filter(
@@ -301,7 +302,7 @@ def _resolve_validated_promo(
 
 
 def _default_ride_product_config() -> Dict[str, Any]:
-    now = datetime.utcnow()
+    now = get_ist_now()
     return {
         "id": "district_ride_products",
         "default_enabled_products": ALL_RIDE_PRODUCT_KEYS,
@@ -352,8 +353,8 @@ def _normalize_ride_product_config(doc: Optional[Dict[str, Any]]) -> Dict[str, A
         "id": "district_ride_products",
         "default_enabled_products": _normalize_enabled_products(payload.get("default_enabled_products")),
         "district_rules": _normalize_district_rules(payload.get("district_rules")),
-        "updated_at": payload.get("updated_at") if isinstance(payload.get("updated_at"), datetime) else datetime.utcnow(),
-        "created_at": payload.get("created_at") if isinstance(payload.get("created_at"), datetime) else datetime.utcnow(),
+        "updated_at": payload.get("updated_at") if isinstance(payload.get("updated_at"), datetime) else get_ist_now(),
+        "created_at": payload.get("created_at") if isinstance(payload.get("created_at"), datetime) else get_ist_now(),
     }
 
 
@@ -420,7 +421,7 @@ async def _ensure_passenger_booking_compliance(
     if not passenger_id:
         raise HTTPException(status_code=401, detail="Invalid passenger account. Please login again.")
 
-    now = datetime.utcnow()
+    now = get_ist_now()
     if PASSENGER_KYC_REQUIRED_FOR_BOOKING:
         kyc_doc = await db.passenger_kyc.find_one({"user_id": passenger_id}, {"_id": 0})
         kyc_status = _normalize_status_value(
@@ -485,7 +486,7 @@ def _is_scheme_active(plan: Dict[str, Any]) -> bool:
     end_at = _as_utc_naive(plan.get("scheme_end_at"))
     if not start_at or not end_at:
         return False
-    now = datetime.utcnow()
+    now = get_ist_now()
     return start_at <= now <= end_at
 
 
@@ -666,7 +667,7 @@ async def update_admin_ride_product_district_config(
     if _normalize_role(current_user.get("role")) != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    now = datetime.utcnow()
+    now = get_ist_now()
     config_doc = {
         "id": "district_ride_products",
         "default_enabled_products": _normalize_enabled_products([item.value for item in payload.default_enabled_products]),
@@ -724,7 +725,7 @@ async def create_advanced_booking(
     if payload.ride_product == RideProduct.SCHEDULED and not payload.scheduled_for:
         raise HTTPException(status_code=400, detail="Scheduled time is required for scheduled rides")
 
-    if payload.scheduled_for and payload.scheduled_for <= datetime.utcnow():
+    if payload.scheduled_for and payload.scheduled_for <= get_ist_now():
         raise HTTPException(status_code=400, detail="Scheduled time must be in the future")
 
     if payload.ride_product == RideProduct.RENTAL_HOURLY and not payload.rental_hours:
@@ -780,7 +781,7 @@ async def create_advanced_booking(
         promo_discount_amount = float(promo_validation.get("discount_amount") or 0.0)
     estimated_fare = round(max(0.0, raw_estimated_fare - promo_discount_amount), 2)
 
-    now = datetime.utcnow()
+    now = get_ist_now()
     is_scheduled = payload.ride_product == RideProduct.SCHEDULED or payload.scheduled_for is not None
     booking_id = str(uuid.uuid4())
     booking = {

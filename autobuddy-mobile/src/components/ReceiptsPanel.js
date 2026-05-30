@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
+import { formatToIST } from '../utils/time';
 
 /**
  * ReceiptsPanel - Ride receipts and billing history
@@ -64,7 +65,7 @@ export default function ReceiptsPanel({ token }) {
           `AutoBuddy Receipt #${receipt.id}`,
           `Booking: ${receipt.booking_id}`,
           `Ride: ${receipt.from} -> ${receipt.to}`,
-          `Date: ${new Date(receipt.date).toLocaleString()}`,
+          `Date: ${formatToIST(receipt.date, { dateStyle: 'medium', timeStyle: 'short' })}`,
           `Driver: ${receipt.driver_name}`,
           `Distance: ${receipt.distance_km} km`,
           `Total: INR ${receipt.total}`,
@@ -78,7 +79,7 @@ export default function ReceiptsPanel({ token }) {
 
   const shareReceipt = async (receipt) => {
     try {
-      const shareMessage = `Receipt #${receipt.id}\n\nRide: ${receipt.from} -> ${receipt.to}\nDate: ${new Date(receipt.date).toLocaleDateString()}\nFare: INR ${receipt.total}\n\nDriver: ${receipt.driver_name}\nDistance: ${receipt.distance_km} km`;
+      const shareMessage = `Receipt #${receipt.id}\n\nRide: ${receipt.from} -> ${receipt.to}\nDate: ${formatToIST(receipt.date, { dateStyle: 'short' })}\nFare: INR ${receipt.total}\n\nDriver: ${receipt.driver_name}\nDistance: ${receipt.distance_km} km`;
 
       await Share.share({
         message: shareMessage,
@@ -126,7 +127,7 @@ export default function ReceiptsPanel({ token }) {
       <View style={styles.receiptHeader}>
         <View>
           <Text style={styles.receiptId}>{item.id}</Text>
-          <Text style={styles.receiptDate}>{new Date(item.date).toLocaleDateString()} · {new Date(item.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+          <Text style={styles.receiptDate}>{formatToIST(item.date, { dateStyle: 'short' })} · {formatToIST(item.date, { hour: '2-digit', minute: '2-digit' })}</Text>
         </View>
         <View style={[styles.statusBadge, { backgroundColor: getPaymentStatusColor(item.payment_status) + '20' }]}>
           <Text style={[styles.statusText, { color: getPaymentStatusColor(item.payment_status) }]}>

@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field, EmailStr, ConfigDict, field_validator, mo
 from typing import List, Optional, Dict, Any, Literal
 import uuid
 from datetime import datetime, timedelta, timezone
+from app.utils.time_helpers import get_ist_now
 import bcrypt
 import jwt
 from enum import Enum
@@ -3743,7 +3744,7 @@ async def ensure_passenger_booking_compliance(user: Dict[str, Any]) -> None:
     if not passenger_id:
         raise HTTPException(status_code=401, detail="Invalid passenger account. Please login again.")
 
-    now = as_utc_naive(get_ist_now()) or datetime.utcnow()
+    now = as_utc_naive(get_ist_now()) or get_ist_now()
 
     if PASSENGER_KYC_REQUIRED_FOR_BOOKING:
         kyc_doc = await db.passenger_kyc.find_one({"user_id": passenger_id}, {"_id": 0})
@@ -7071,7 +7072,7 @@ async def legacy_driver_ride_requests(current_user: dict = Depends(get_current_u
     nearby_rides = await db.ride_offers.find({
         "driver_id": driver_doc["_id"],
         "status": "pending",
-        "expires_at": {"$gt": datetime.utcnow()},
+        "expires_at": {"$gt": get_ist_now()},
     }).to_list(None)
 
     requests = []
@@ -7088,7 +7089,7 @@ async def legacy_driver_ride_requests(current_user: dict = Depends(get_current_u
             "dropoff_location": booking.get("dropoff_location"),
             "estimated_fare": booking.get("estimated_fare"),
             "ride_type": booking.get("ride_type"),
-            "expires_in_seconds": int((ride_offer.get("expires_at") - datetime.utcnow()).total_seconds()),
+            "expires_in_seconds": int((ride_offer.get("expires_at") - get_ist_now()).total_seconds()),
         })
 
     return {"data": requests}
@@ -7112,7 +7113,7 @@ async def legacy_driver_accept_ride(booking_id: str, current_user: dict = Depend
     if not ride_offer:
         raise HTTPException(status_code=403, detail="No offer for this ride")
 
-    if ride_offer.get("expires_at") and ride_offer.get("expires_at") < datetime.utcnow():
+    if ride_offer.get("expires_at") and ride_offer.get("expires_at") < get_ist_now():
         raise HTTPException(status_code=400, detail="Offer has expired")
 
     updated = await db.bookings.find_one_and_update(
@@ -7121,7 +7122,7 @@ async def legacy_driver_accept_ride(booking_id: str, current_user: dict = Depend
             "$set": {
                 "status": "accepted",
                 "accepted_driver_id": driver_doc["_id"],
-                "accepted_at": datetime.utcnow(),
+                "accepted_at": get_ist_now(),
                 "driver_name": current_user.get("name"),
                 "driver_phone": current_user.get("phone"),
                 "driver_rating": current_user.get("rating", 0),
@@ -7132,7 +7133,7 @@ async def legacy_driver_accept_ride(booking_id: str, current_user: dict = Depend
 
     await db.ride_offers.find_one_and_update(
         {"_id": ride_offer["_id"]},
-        {"$set": {"status": "accepted", "accepted_at": datetime.utcnow()}},
+        {"$set": {"status": "accepted", "accepted_at": get_ist_now()}},
     )
 
     await db.ride_offers.update_many(
@@ -7141,7 +7142,7 @@ async def legacy_driver_accept_ride(booking_id: str, current_user: dict = Depend
             "driver_id": {"$ne": driver_doc["_id"]},
             "status": "pending",
         },
-        {"$set": {"status": "canceled", "canceled_at": datetime.utcnow()}},
+        {"$set": {"status": "canceled", "canceled_at": get_ist_now()}},
     )
 
     passenger_id = str(booking.get("passenger_id", ""))
@@ -7153,7 +7154,7 @@ async def legacy_driver_accept_ride(booking_id: str, current_user: dict = Depend
             "driver_phone": current_user.get("phone"),
             "driver_rating": current_user.get("rating", 0),
             "driver_location": driver_doc.get("current_location"),
-            "accepted_at": datetime.utcnow().isoformat(),
+            "accepted_at": get_ist_now().isoformat(),
         },
         room=f"passenger_{passenger_id}",
     )
@@ -7186,7 +7187,7 @@ async def legacy_driver_location_update(request: Request, current_user: dict = D
                     "type": "Point",
                     "coordinates": [longitude, latitude],
                 },
-                "location_updated_at": datetime.utcnow(),
+                "location_updated_at": get_ist_now(),
             }
         },
     )
@@ -7203,7 +7204,7 @@ async def legacy_driver_location_update(request: Request, current_user: dict = D
                 "driver_id": str(driver_doc["_id"]),
                 "latitude": latitude,
                 "longitude": longitude,
-                "updated_at": datetime.utcnow().isoformat(),
+                "updated_at": get_ist_now().isoformat(),
             },
             room=f"passenger_{passenger_id}",
         )
@@ -9079,7 +9080,7 @@ async def get_driver_upcoming_rides(current_user: dict = Depends(get_current_use
         raise HTTPException(status_code=403, detail="Only drivers can view upcoming rides")
 
     now = get_ist_now()
-    now_utc = as_utc_naive(now) or datetime.utcnow()
+    now_utc = as_utc_naive(now) or get_ist_now()
     lookback = now_utc - timedelta(hours=3)
     active_statuses = [BookingStatus.PENDING, BookingStatus.ACCEPTED, BookingStatus.DRIVER_ARRIVED, BookingStatus.IN_PROGRESS]
 

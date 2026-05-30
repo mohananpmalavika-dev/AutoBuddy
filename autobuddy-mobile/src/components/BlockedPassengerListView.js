@@ -11,6 +11,7 @@ import {
   Alert,
 } from 'react-native';
 import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme';
+import { formatToIST } from '../utils/time';
 
 /**
  * BlockedPassengerListView Component
@@ -149,7 +150,7 @@ export default function BlockedPassengerListView({
                         </Text>
                         {passenger.blockDate && (
                           <Text style={styles.blockDate}>
-                            {new Date(passenger.blockDate).toLocaleDateString()}
+                            {formatToIST(passenger.blockDate, { dateStyle: 'short' })}
                           </Text>
                         )}
                       </View>

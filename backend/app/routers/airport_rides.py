@@ -5,6 +5,7 @@ Real-time airport ride management and flight integration
 
 from fastapi import APIRouter, HTTPException, Request, Query
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 import logging
 import random
 import math
@@ -63,7 +64,7 @@ async def list_airports(city: str = None, request: Request = None):
         return {
             "status": "success",
             "data": airports,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error listing airports: {e}")
@@ -102,7 +103,7 @@ async def get_terminal_details(terminal_id: str, request: Request):
         return {
             "status": "success",
             "data": terminal,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error getting terminal: {e}")
@@ -128,7 +129,7 @@ async def list_flights(terminal_id: str, status: str = None, request: Request = 
         
         for i in range(random.randint(8, 15)):
             flight_status = status if status else random.choice(statuses)
-            departure_time = datetime.utcnow() + timedelta(hours=random.randint(-2, 8))
+            departure_time = get_ist_now() + timedelta(hours=random.randint(-2, 8))
             
             flights.append({
                 "flight_id": f"flight_{terminal_id}_{i}",
@@ -147,7 +148,7 @@ async def list_flights(terminal_id: str, status: str = None, request: Request = 
         return {
             "status": "success",
             "data": flights,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error listing flights: {e}")
@@ -166,8 +167,8 @@ async def get_flight_details(flight_id: str, request: Request):
             "airline": "Air India",
             "departure_city": "Mumbai",
             "arrival_city": "Bangalore",
-            "departure_time": (datetime.utcnow() + timedelta(hours=3)).isoformat(),
-            "arrival_time": (datetime.utcnow() + timedelta(hours=5)).isoformat(),
+            "departure_time": (get_ist_now() + timedelta(hours=3)).isoformat(),
+            "arrival_time": (get_ist_now() + timedelta(hours=5)).isoformat(),
             "flight_status": random.choice(["scheduled", "boarding", "departed"]),
             "gate_number": "B12",
             "terminal_id": "term_BLR",
@@ -179,7 +180,7 @@ async def get_flight_details(flight_id: str, request: Request):
         return {
             "status": "success",
             "data": flight,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error getting flight: {e}")
@@ -223,13 +224,13 @@ async def request_airport_ride(payload: dict, request: Request):
             "luggage_count": payload.get("luggage_count", 0),
             "passengers_count": payload.get("passengers_count", 1),
             "ride_status": "requested",
-            "created_at": datetime.utcnow().isoformat()
+            "created_at": get_ist_now().isoformat()
         }
         
         return {
             "status": "success",
             "data": ride,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error requesting ride: {e}")
@@ -257,13 +258,13 @@ async def list_airport_rides(terminal_id: str, ride_phase: str = None, request: 
                 "dropoff_location": "Terminal" if phase == "pre_flight" else "Home",
                 "estimated_fare": round(random.uniform(250, 800), 2),
                 "ride_status": random.choice(statuses),
-                "created_at": (datetime.utcnow() - timedelta(minutes=random.randint(0, 120))).isoformat()
+                "created_at": (get_ist_now() - timedelta(minutes=random.randint(0, 120))).isoformat()
             })
         
         return {
             "status": "success",
             "data": rides,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error listing rides: {e}")
@@ -292,13 +293,13 @@ async def get_ride_details(ride_id: str, request: Request):
             "ride_status": "requested",
             "luggage_count": 2,
             "passengers_count": 2,
-            "created_at": (datetime.utcnow() - timedelta(minutes=5)).isoformat()
+            "created_at": (get_ist_now() - timedelta(minutes=5)).isoformat()
         }
         
         return {
             "status": "success",
             "data": ride,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error getting ride: {e}")
@@ -321,7 +322,7 @@ async def accept_ride(ride_id: str, payload: dict, request: Request):
                 "eta_minutes": random.randint(5, 20),
                 "ride_status": "accepted"
             },
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error accepting ride: {e}")
@@ -350,13 +351,13 @@ async def get_parking_availability(terminal_id: str, request: Request):
                 {"level": i, "available": random.randint(10, 40), "occupied": random.randint(30, 60)}
                 for i in range(3)
             ],
-            "last_updated": datetime.utcnow().isoformat()
+            "last_updated": get_ist_now().isoformat()
         }
         
         return {
             "status": "success",
             "data": availability,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error getting parking: {e}")
@@ -378,13 +379,13 @@ async def reserve_parking_spot(terminal_id: str, payload: dict, request: Request
             "reserved_by_ride": payload.get("ride_id"),
             "hourly_rate": 50.0,
             "daily_rate": 400.0,
-            "reserved_until": (datetime.utcnow() + timedelta(hours=24)).isoformat()
+            "reserved_until": (get_ist_now() + timedelta(hours=24)).isoformat()
         }
         
         return {
             "status": "success",
             "data": spot,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error reserving parking: {e}")
@@ -429,7 +430,7 @@ async def get_terminal_demand(terminal_id: str, ride_phase: str = None, request:
         return {
             "status": "success",
             "data": demand_data,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error getting demand: {e}")
@@ -451,13 +452,13 @@ async def get_queue_status(terminal_id: str, ride_phase: str = None, request: Re
             "your_position": random.randint(1, 30),
             "estimated_wait_time_minutes": random.randint(5, 30),
             "average_service_time_minutes": round(random.uniform(8, 15), 1),
-            "last_updated": datetime.utcnow().isoformat()
+            "last_updated": get_ist_now().isoformat()
         }
         
         return {
             "status": "success",
             "data": queue,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error getting queue: {e}")
@@ -492,14 +493,14 @@ async def get_terminal_alerts(terminal_id: str, severity: str = None, request: R
                 "alert_type": alert_type,
                 "severity": sev,
                 "message": message,
-                "created_at": (datetime.utcnow() - timedelta(minutes=random.randint(0, 60))).isoformat(),
+                "created_at": (get_ist_now() - timedelta(minutes=random.randint(0, 60))).isoformat(),
                 "resolved": random.choice([False, False, False, True])
             })
         
         return {
             "status": "success",
             "data": alerts,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error getting alerts: {e}")
@@ -528,13 +529,13 @@ async def get_daily_metrics(terminal_id: str, request: Request):
             "peak_demand_time": f"{random.randint(6, 20)}:00",
             "peak_demand_score": round(random.uniform(60, 100), 1),
             "driver_efficiency": round(random.uniform(75, 95), 1),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": get_ist_now().isoformat()
         }
         
         return {
             "status": "success",
             "data": metrics,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error getting metrics: {e}")
@@ -549,7 +550,7 @@ async def get_hourly_metrics(terminal_id: str, hours_back: int = 24, request: Re
         
         metrics = []
         for hour in range(hours_back):
-            time_ago = datetime.utcnow() - timedelta(hours=hour)
+            time_ago = get_ist_now() - timedelta(hours=hour)
             metrics.append({
                 "hour": time_ago.strftime("%H:00"),
                 "total_rides": random.randint(10, 50),
@@ -562,7 +563,7 @@ async def get_hourly_metrics(terminal_id: str, hours_back: int = 24, request: Re
         return {
             "status": "success",
             "data": metrics,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error getting hourly metrics: {e}")

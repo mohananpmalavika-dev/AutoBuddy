@@ -6,6 +6,7 @@ Implements real-time updates for KPIs, vehicle locations, and heatmaps
 import asyncio
 import logging
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -93,7 +94,7 @@ def register_fleet_socket_events(sio):
                             "completed_rides": 856,
                             "average_rating": 4.7,
                             "health_score": 87,
-                            "updated_at": datetime.utcnow().isoformat(),
+                            "updated_at": get_ist_now().isoformat(),
                         }
                         
                         await sio.emit("fleet_kpi_update", kpi_data, room=room_name)
@@ -159,7 +160,7 @@ def register_fleet_socket_events(sio):
                         location_data = {
                             "fleet_id": fleet_id,
                             "vehicles": vehicles,
-                            "timestamp": datetime.utcnow().isoformat(),
+                            "timestamp": get_ist_now().isoformat(),
                         }
                         
                         await sio.emit("vehicle_location_update", location_data, room=room_name)
@@ -224,7 +225,7 @@ def register_fleet_socket_events(sio):
                         heatmap_data = {
                             "fleet_id": fleet_id,
                             "grid_cells": grid_cells,
-                            "timestamp": datetime.utcnow().isoformat(),
+                            "timestamp": get_ist_now().isoformat(),
                         }
                         
                         await sio.emit("heatmap_update", heatmap_data, room=room_name)
@@ -289,7 +290,7 @@ async def emit_vehicle_location_update(sio, fleet_id: str, vehicles: list) -> No
         location_data = {
             "fleet_id": fleet_id,
             "vehicles": vehicles,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": get_ist_now().isoformat(),
         }
         await sio.emit("vehicle_location_update", location_data, room=room_name)
     except Exception as e:
@@ -305,7 +306,7 @@ async def emit_heatmap_update(sio, fleet_id: str, grid_cells: list) -> None:
         heatmap_data = {
             "fleet_id": fleet_id,
             "grid_cells": grid_cells,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": get_ist_now().isoformat(),
         }
         await sio.emit("heatmap_update", heatmap_data, room=room_name)
     except Exception as e:

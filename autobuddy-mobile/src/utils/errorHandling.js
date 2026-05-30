@@ -4,6 +4,7 @@
  */
 
 import React, { createContext, useState, useCallback } from 'react';
+import { istISOString } from './time';
 
 /**
  * Error severity levels
@@ -378,7 +379,7 @@ export function getRetryActionText(error) {
 export function logError(error, context = {}) {
   const classified = classifyError(error);
   console.error({
-    timestamp: new Date().toISOString(),
+    timestamp: istISOString(new Date()),
     category: classified.category,
     severity: classified.severity,
     code: classified.code,

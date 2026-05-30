@@ -11,6 +11,7 @@ import {
 import { COLORS, SHADOWS } from '../theme';
 import { apiRequest } from '../lib/api';
 import { GlassCard, PremiumEmptyState } from './PremiumUI';
+import { formatToIST } from '../utils/time';
 
 export default function DriverSuspensionAppealPanel({ token, onAppealSubmitted = undefined }) {
   const [loading, setLoading] = useState(false);
@@ -111,7 +112,7 @@ export default function DriverSuspensionAppealPanel({ token, onAppealSubmitted =
 
   const suspensionReason = suspensionData.reason || 'Policy violation';
   const suspensionDate = suspensionData.suspended_at 
-    ? new Date(suspensionData.suspended_at).toLocaleDateString('en-IN')
+    ? formatToIST(suspensionData.suspended_at, { dateStyle: 'short' })
     : 'N/A';
   const daysRemaining = suspensionData.days_remaining || 'N/A';
   const canAppeal = suspensionData.can_appeal !== false;
@@ -165,7 +166,7 @@ export default function DriverSuspensionAppealPanel({ token, onAppealSubmitted =
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Eligible for Reinstatement:</Text>
             <Text style={styles.detailValue}>
-              {new Date(suspensionData.suspension_end_date).toLocaleDateString('en-IN')}
+              {formatToIST(suspensionData.suspension_end_date, { dateStyle: 'short' })}
             </Text>
           </View>
         )}

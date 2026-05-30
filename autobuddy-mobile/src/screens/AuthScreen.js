@@ -22,7 +22,7 @@ import PremiumCard from '../components/PremiumCard';
 import WebCommandBar from '../components/WebCommandBar';
 import VoiceTextInput from '../components/VoiceTextInput';
 
-const LAUNCH_BANNER_SOURCE = require('../../assets/images/autobuddy-login-hero.jpg');
+const LAUNCH_BANNER_SOURCE = require('../../assets/images/autobuddy-logo.jpg');
 const ROLE_OPTIONS = ['passenger', 'driver', 'operator'];
 const GENDER_OPTIONS = ['male', 'female', 'other'];
 const AUTH_METHODS = [

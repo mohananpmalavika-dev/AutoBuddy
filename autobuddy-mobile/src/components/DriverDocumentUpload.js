@@ -12,6 +12,7 @@ import {
 import * as DocumentPicker from 'expo-document-picker';
 import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
+import { formatToIST } from '../utils/time';
 
 const DriverDocumentUpload = ({ onClose }) => {
   const [loading, setLoading] = useState(false);
@@ -237,7 +238,7 @@ const DriverDocumentUpload = ({ onClose }) => {
                     </Text>
                     {req.upload_date && (
                       <Text style={styles.uploadDate}>
-                        Uploaded: {new Date(req.upload_date).toLocaleDateString()}
+                        Uploaded: {formatToIST(req.upload_date, { dateStyle: 'short' })}
                       </Text>
                     )}
                     {req.rejection_reason && (

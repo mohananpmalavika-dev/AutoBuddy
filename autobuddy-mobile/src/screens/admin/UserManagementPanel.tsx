@@ -4,6 +4,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { formatToIST } from '../../utils/time';
 import {
   View,
   ScrollView,
@@ -231,7 +232,7 @@ const UserManagementPanel = ({ adminToken }: UserManagementPanelProps) => {
                 <View style={styles.detailField}>
                   <Text style={styles.detailLabel}>Joined:</Text>
                   <Text style={styles.detailValue}>
-                    {new Date(selectedUser.created_at).toLocaleDateString()}
+                    {formatToIST(selectedUser.created_at, { dateStyle: 'medium' })}
                   </Text>
                 </View>
 

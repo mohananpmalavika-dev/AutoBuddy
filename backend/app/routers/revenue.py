@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -140,12 +141,12 @@ async def mark_priority_ride(
         "booking_id": booking["id"],
         "passenger_id": user["id"],
         "priority_level": "high",
-        "created_at": datetime.utcnow(),
+        "created_at": get_ist_now(),
     }
     await db.priority_rides.insert_one(record)
     await db.bookings.update_one(
         {"id": booking["id"]},
-        {"$set": {"priority_ride": True, "dispatch_priority": 1, "ride_type": "priority", "updated_at": datetime.utcnow()}},
+        {"$set": {"priority_ride": True, "dispatch_priority": 1, "ride_type": "priority", "updated_at": get_ist_now()}},
     )
     return record
 
@@ -168,7 +169,7 @@ async def create_business_ride(
         "notes": payload.notes,
         "status": "requested",
         "billing_status": "pending",
-        "created_at": datetime.utcnow(),
+        "created_at": get_ist_now(),
     }
     await db.business_rides.insert_one(ride)
     return {"message": "Business ride requested", "business_ride": ride}
@@ -205,7 +206,7 @@ async def create_ad_campaign(
         "active": True,
         "starts_at": payload.starts_at,
         "ends_at": payload.ends_at,
-        "created_at": datetime.utcnow(),
+        "created_at": get_ist_now(),
     }
     await db.ad_campaigns.insert_one(campaign)
     return campaign

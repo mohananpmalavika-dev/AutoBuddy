@@ -5,6 +5,7 @@ Provides validators for common data types and business logic
 from pydantic import BaseModel, field_validator, model_validator
 from typing import Optional, List
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 import re
 from enum import Enum
 
@@ -78,12 +79,12 @@ class Validators:
     @staticmethod
     def validate_future_datetime(dt: datetime) -> bool:
         """Validate datetime is in the future"""
-        return dt > datetime.utcnow()
+        return dt > get_ist_now()
     
     @staticmethod
     def validate_past_datetime(dt: datetime) -> bool:
         """Validate datetime is in the past"""
-        return dt < datetime.utcnow()
+        return dt < get_ist_now()
     
     @staticmethod
     def validate_password_strength(password: str, min_length: int = 8) -> tuple[bool, str]:
@@ -290,7 +291,7 @@ class BookingValidator:
             return False, f"Ride must be in_progress to end, got {ride_status}"
         
         # Validate ride has been active
-        duration = datetime.utcnow() - start_time
+        duration = get_ist_now() - start_time
         if duration.total_seconds() < 60:  # At least 1 minute
             return False, "Ride must be active for at least 1 minute"
         

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from typing import Optional, List
 from decimal import Decimal
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 
 from app import models, schemas
 from app.database import get_db
@@ -155,7 +156,7 @@ async def create_booking(
         "vehicle_type_id": vehicle_type_id,
         "estimated_fare": 667.20,
         "estimated_arrival_minutes": 3,
-        "created_at": datetime.utcnow().isoformat()
+        "created_at": get_ist_now().isoformat()
     }
 
 
@@ -238,7 +239,7 @@ async def cancel_booking(
     return {
         "booking_id": booking_id,
         "status": "CANCELLED",
-        "cancelled_at": datetime.utcnow().isoformat(),
+        "cancelled_at": get_ist_now().isoformat(),
         "cancellation_fee": 0.00,
         "refund_amount": 0.00
     }
@@ -278,5 +279,5 @@ async def rate_booking(
         "booking_id": booking_id,
         "rating": rating,
         "review": review,
-        "rated_at": datetime.utcnow().isoformat()
+        "rated_at": get_ist_now().isoformat()
     }

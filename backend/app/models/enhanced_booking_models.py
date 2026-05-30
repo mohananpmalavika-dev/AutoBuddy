@@ -6,6 +6,7 @@ Extends basic booking to support vehicle-specific fields, ride types, and fare b
 from pydantic import BaseModel, Field, model_validator, validator
 from typing import Any, List, Optional, Dict
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 from enum import Enum
 
 
@@ -246,7 +247,7 @@ class EnhancedBooking(BaseModel):
     
     # Status & Timestamps
     status: str = Field(default="pending", description="pending|confirmed|assigned|in_progress|completed|cancelled")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
     scheduled_datetime: Optional[datetime] = None
     
     # Optional Fields

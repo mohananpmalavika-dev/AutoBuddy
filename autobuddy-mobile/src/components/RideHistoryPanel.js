@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
+import { formatToIST } from '../utils/time';
 
 /**
  * RideHistoryPanel - Enhanced ride history with pagination, filters, and sorting
@@ -102,10 +103,9 @@ function RideHistoryCard({ booking, onPress, isLoading, viewerRole = 'passenger'
   }[booking?.status] || '#757575';
 
   const formatDate = (dateStr) => {
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' }) + 
-           ' ' + 
-           date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+    const datePart = formatToIST(dateStr, { month: 'short', day: 'numeric' });
+    const timePart = formatToIST(dateStr, { hour: '2-digit', minute: '2-digit' });
+    return `${datePart} ${timePart}`;
   };
 
   return (

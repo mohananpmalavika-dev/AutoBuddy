@@ -10,6 +10,7 @@ import {
   Alert, ActivityIndicator, Modal, RefreshControl, TextInput
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { formatToIST } from '../utils/time';
 
 const COLORS = {
   primary: '#2D4A7B',
@@ -186,7 +187,7 @@ const FlightsTab = ({ adminToken }) => {
           <View style={styles.flightDetails}>
             <View style={styles.detailItem}>
               <MaterialCommunityIcons name="clock" size={14} color={COLORS.text} />
-              <Text style={styles.detailText}>{new Date(item.departure_time).toLocaleTimeString()}</Text>
+              <Text style={styles.detailText}>{formatToIST(item.departure_time, { timeStyle: 'short' })}</Text>
             </View>
 
             <View style={styles.detailItem}>

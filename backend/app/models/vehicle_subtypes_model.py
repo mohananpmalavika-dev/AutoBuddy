@@ -5,6 +5,7 @@ Vehicle Subtypes and Extended Vehicle Models
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 
 class VehicleSubtype(BaseModel):
     id: str
@@ -42,8 +43,8 @@ EXTENDED_VEHICLE_TYPES = [
         ],
         "active": True,
         "regions": ["all"],
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+        "created_at": get_ist_now(),
+        "updated_at": get_ist_now()
     },
     {
         "_id": "taxi",
@@ -57,8 +58,8 @@ EXTENDED_VEHICLE_TYPES = [
         ],
         "active": True,
         "regions": ["all"],
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+        "created_at": get_ist_now(),
+        "updated_at": get_ist_now()
     },
     {
         "_id": "xl",
@@ -72,8 +73,8 @@ EXTENDED_VEHICLE_TYPES = [
         ],
         "active": True,
         "regions": ["all"],
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+        "created_at": get_ist_now(),
+        "updated_at": get_ist_now()
     },
     {
         "_id": "traveller",
@@ -87,8 +88,8 @@ EXTENDED_VEHICLE_TYPES = [
         ],
         "active": True,
         "regions": ["all"],
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+        "created_at": get_ist_now(),
+        "updated_at": get_ist_now()
     },
     {
         "_id": "bus",
@@ -102,8 +103,8 @@ EXTENDED_VEHICLE_TYPES = [
         ],
         "active": True,
         "regions": ["all"],
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+        "created_at": get_ist_now(),
+        "updated_at": get_ist_now()
     },
     {
         "_id": "minitruck",
@@ -117,8 +118,8 @@ EXTENDED_VEHICLE_TYPES = [
         ],
         "active": True,
         "regions": ["all"],
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+        "created_at": get_ist_now(),
+        "updated_at": get_ist_now()
     },
     {
         "_id": "truck",
@@ -133,7 +134,7 @@ EXTENDED_VEHICLE_TYPES = [
         ],
         "active": True,
         "regions": ["all"],
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+        "created_at": get_ist_now(),
+        "updated_at": get_ist_now()
     }
 ]

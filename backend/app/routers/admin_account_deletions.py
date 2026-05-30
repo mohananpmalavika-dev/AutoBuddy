@@ -2,6 +2,7 @@
 Admin Account Deletions - Enhanced with rejection, grace period, and archival
 """
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel
@@ -35,11 +36,11 @@ async def archive_user_data(
     
     # Create archive record
     archive_doc = {
-        "_id": f"archive_{user_id}_{datetime.utcnow().timestamp()}",
+        "_id": f"archive_{user_id}_{get_ist_now().timestamp()}",
         "user_id": user_id,
         "archived_user_data": user,
-        "archived_at": datetime.utcnow(),
-        "retention_until": datetime.utcnow() + timedelta(days=365),  # 1 year retention
+        "archived_at": get_ist_now(),
+        "retention_until": get_ist_now() + timedelta(days=365),  # 1 year retention
         "archived_by": "system"
     }
     
@@ -54,7 +55,7 @@ async def soft_delete_user(
 ):
     """Soft delete user (30-day grace period)"""
     users_collection = db["users"]
-    grace_period_end = datetime.utcnow() + timedelta(days=30)
+    grace_period_end = get_ist_now() + timedelta(days=30)
     
     await users_collection.update_one(
         {"_id": user_id},
@@ -63,7 +64,7 @@ async def soft_delete_user(
                 "is_deleted": True,
                 "deletion_status": "soft_deleted",
                 "deletion_request_id": deletion_request_id,
-                "deleted_at": datetime.utcnow(),
+                "deleted_at": get_ist_now(),
                 "grace_period_until": grace_period_end,
                 "can_recover_until": grace_period_end
             }
@@ -127,7 +128,7 @@ async def list_deletion_requests(
             "role": doc.get("role"),
             "status": doc.get("status", "pending"),
             "reason": doc.get("deletion_reason"),
-            "created_at": doc.get("created_at", datetime.utcnow()).isoformat(),
+            "created_at": doc.get("created_at", get_ist_now()).isoformat(),
             "grace_period_until": doc.get("grace_period_until"),
             "billing_status": doc.get("billing_status")
         })
@@ -180,7 +181,7 @@ async def process_deletion_request(
         await soft_delete_user(db, user_id, request_id)
         
         status = "approved"
-        grace_period_until = datetime.utcnow() + timedelta(days=30)
+        grace_period_until = get_ist_now() + timedelta(days=30)
         
     elif approval.action == "reject":
         status = "rejected"
@@ -193,7 +194,7 @@ async def process_deletion_request(
         
         if user and user.get("deletion_status") == "soft_deleted":
             grace_period = user.get("grace_period_until")
-            if grace_period and datetime.utcnow() < grace_period:
+            if grace_period and get_ist_now() < grace_period:
                 await users_collection.update_one(
                     {"_id": user_id},
                     {
@@ -219,7 +220,7 @@ async def process_deletion_request(
         "status": status,
         "admin_notes": approval.admin_notes,
         "processed_by": admin_id,
-        "processed_at": datetime.utcnow()
+        "processed_at": get_ist_now()
     }
     
     if grace_period_until:
@@ -234,7 +235,7 @@ async def process_deletion_request(
         "request_id": request_id,
         "action": approval.action,
         "status": status,
-        "processed_at": datetime.utcnow().isoformat(),
+        "processed_at": get_ist_now().isoformat(),
         "grace_period_until": grace_period_until.isoformat() if grace_period_until else None
     }
 
@@ -249,14 +250,14 @@ async def get_grace_period_expiring(
     _ = admin_user
     
     users_collection = db["users"]
-    cutoff_date = datetime.utcnow() + timedelta(days=days)
+    cutoff_date = get_ist_now() + timedelta(days=days)
     
     pipeline = [
         {
             "$match": {
                 "deletion_status": "soft_deleted",
                 "grace_period_until": {
-                    "$gte": datetime.utcnow(),
+                    "$gte": get_ist_now(),
                     "$lte": cutoff_date
                 }
             }
@@ -268,15 +269,15 @@ async def get_grace_period_expiring(
     
     expiring = []
     async for doc in users_collection.aggregate(pipeline):
-        grace_end = doc.get("grace_period_until", datetime.utcnow())
-        days_remaining = (grace_end - datetime.utcnow()).days
+        grace_end = doc.get("grace_period_until", get_ist_now())
+        days_remaining = (grace_end - get_ist_now()).days
         
         expiring.append({
             "user_id": doc.get("_id"),
             "user_name": doc.get("name"),
             "grace_period_until": grace_end.isoformat(),
             "days_remaining": days_remaining,
-            "deleted_at": doc.get("deleted_at", datetime.utcnow()).isoformat()
+            "deleted_at": doc.get("deleted_at", get_ist_now()).isoformat()
         })
     
     return {
@@ -302,7 +303,7 @@ async def permanent_delete_expired_accounts(
         {
             "$match": {
                 "deletion_status": "soft_deleted",
-                "grace_period_until": {"$lt": datetime.utcnow()}
+                "grace_period_until": {"$lt": get_ist_now()}
             }
         }
     ]
@@ -320,7 +321,7 @@ async def permanent_delete_expired_accounts(
     return {
         "permanently_deleted": deleted_count,
         "dry_run": dry_run,
-        "executed_at": datetime.utcnow().isoformat()
+        "executed_at": get_ist_now().isoformat()
     }
 
 
@@ -347,8 +348,8 @@ async def get_archive_status(
     async for archive in archive_collection.find({"user_id": user_id}):
         archives.append({
             "archive_id": archive.get("_id"),
-            "archived_at": archive.get("archived_at", datetime.utcnow()).isoformat(),
-            "retention_until": archive.get("retention_until", datetime.utcnow()).isoformat(),
+            "archived_at": archive.get("archived_at", get_ist_now()).isoformat(),
+            "retention_until": archive.get("retention_until", get_ist_now()).isoformat(),
             "size_estimate_kb": len(str(archive.get("archived_user_data", {}))) / 1024
         })
     
@@ -384,7 +385,7 @@ async def recover_deleted_account(
     
     # Check if grace period expired
     grace_period = user.get("grace_period_until")
-    if grace_period and datetime.utcnow() >= grace_period:
+    if grace_period and get_ist_now() >= grace_period:
         raise HTTPException(status_code=400, detail="Grace period has expired")
     
     # Restore user
@@ -408,7 +409,7 @@ async def recover_deleted_account(
             "$set": {
                 "status": "cancelled",
                 "recovery_initiated_by": admin_id,
-                "recovery_initiated_at": datetime.utcnow()
+                "recovery_initiated_at": get_ist_now()
             }
         }
     )
@@ -416,5 +417,5 @@ async def recover_deleted_account(
     return {
         "user_id": user_id,
         "status": "recovered",
-        "recovered_at": datetime.utcnow().isoformat()
+        "recovered_at": get_ist_now().isoformat()
     }

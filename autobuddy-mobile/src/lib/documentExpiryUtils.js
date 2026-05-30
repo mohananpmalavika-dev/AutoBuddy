@@ -111,7 +111,12 @@ export function formatExpiryDate(expiryDate) {
   if (!expiryDate) return 'No expiry';
   const date = new Date(expiryDate);
   if (Number.isNaN(date.getTime())) return String(expiryDate);
-  return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  try {
+    const { formatToIST } = require('../utils/time');
+    return formatToIST(expiryDate, { year: 'numeric', month: 'short', day: 'numeric' });
+  } catch {
+    return new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', year: 'numeric', month: 'short', day: 'numeric' }).format(date);
+  }
 }
 
 /**

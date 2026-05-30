@@ -11,6 +11,7 @@ import {
 import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
 import VoiceTextInput from './VoiceTextInput';
+import { formatToIST } from '../utils/time';
 
 /**
  * Enhanced PassengerRatingsPanel
@@ -60,9 +61,9 @@ function RatingStars({ current, onSelect, size = 'medium' }) {
 function RideContextCard({ ride, style }) {
   if (!ride) return null;
   
-  const rideDate = ride.created_at ? new Date(ride.created_at) : null;
-  const formattedDate = rideDate?.toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: '2-digit' });
-  const formattedTime = rideDate?.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+  const rideDate = ride.created_at ? ride.created_at : null;
+  const formattedDate = rideDate ? formatToIST(rideDate, { month: 'short', day: 'numeric', year: '2-digit' }) : '';
+  const formattedTime = rideDate ? formatToIST(rideDate, { hour: '2-digit', minute: '2-digit' }) : '';
 
   return (
     <View style={[styles.rideContextCard, style]}>
@@ -93,7 +94,7 @@ function formatRatingDate(value) {
   if (Number.isNaN(date.getTime())) {
     return 'Date unavailable';
   }
-  return date.toLocaleDateString();
+  return formatToIST(value, { dateStyle: 'short' });
 }
 
 export default function PassengerRatingsPanel({ token, onRideSelected = null }) {
@@ -330,7 +331,7 @@ export default function PassengerRatingsPanel({ token, onRideSelected = null }) 
                       ]}>
                       <Text style={styles.rideSelectDriver}>{ride.driver_name || 'Driver'}</Text>
                       <Text style={styles.rideSelectDate}>
-                        {new Date(ride.created_at).toLocaleDateString()}
+                        {formatToIST(ride.created_at, { dateStyle: 'short' })}
                       </Text>
                     </TouchableOpacity>
                   ))}
@@ -468,7 +469,7 @@ export default function PassengerRatingsPanel({ token, onRideSelected = null }) 
               <View style={styles.unratedRideContent}>
                 <Text style={styles.driverName}>{ride.driver_name || 'Driver'}</Text>
                 <Text style={styles.rideDate}>
-                  {new Date(ride.created_at).toLocaleDateString()}
+                  {formatToIST(ride.created_at, { dateStyle: 'short' })}
                 </Text>
                 <Text style={styles.rideFare}>₹{ride.estimated_fare}</Text>
               </View>

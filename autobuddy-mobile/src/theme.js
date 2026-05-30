@@ -1,4 +1,5 @@
 import { Spacing } from '@/constants/theme';
+import { getISTHour } from './utils/time';
 
 export const SPACING = Spacing;
 
@@ -7,7 +8,7 @@ const resolveDirectSunlightIndex = () => {
   if (Number.isFinite(envValue) && envValue >= 0) {
     return envValue;
   }
-  const hour = new Date().getHours();
+  const hour = getISTHour();
   // Midday fallback heuristic when explicit index is not provided.
   return hour >= 11 && hour <= 15 ? 8 : 4;
 };

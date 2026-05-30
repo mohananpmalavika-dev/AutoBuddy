@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from bson import ObjectId
@@ -75,7 +76,7 @@ class DocumentUploadTracking(BaseModel):
     user_id: str
     document_type: str
     file_url: str
-    uploaded_at: datetime = Field(default_factory=datetime.utcnow)
+    uploaded_at: datetime = Field(default_factory=get_ist_now)
     verified: bool = False
     verified_at: Optional[datetime] = None
     verified_by: Optional[str] = None
@@ -201,12 +202,12 @@ async def get_user_document_status(
         total_mandatory = len(mandatory_docs)
         
         # Get user's account created date for grace period calculation
-        user_created_at = user.get("created_at", datetime.utcnow())
+        user_created_at = user.get("created_at", get_ist_now())
         
         # Check grace period - use the strictest (longest) grace period
         max_grace_days = max([req.get("grace_period_days", 7) for req in mandatory_docs], default=7) if mandatory_docs else 0
         grace_expires = user_created_at + timedelta(days=max_grace_days)
-        days_remaining = (grace_expires - datetime.utcnow()).days
+        days_remaining = (grace_expires - get_ist_now()).days
         
         # Determine status
         if total_mandatory == 0:
@@ -311,8 +312,8 @@ async def create_document_requirement(
             "description": requirement.description,
             "enabled": requirement.enabled,
             "category": DOCUMENT_TYPES[requirement.document_type]["category"],
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
+            "created_at": get_ist_now(),
+            "updated_at": get_ist_now(),
             "created_by": admin_user.get("id"),
         }
         
@@ -345,7 +346,7 @@ async def update_document_requirement(
             raise HTTPException(status_code=400, detail="Invalid requirement ID")
         
         update_dict = {k: v for k, v in update_data.dict().items() if v is not None}
-        update_dict["updated_at"] = datetime.utcnow()
+        update_dict["updated_at"] = get_ist_now()
         update_dict["updated_by"] = admin_user.get("id")
         
         result = await db.document_requirements.update_one(
@@ -378,7 +379,7 @@ async def verify_document_upload(
         
         update_data = {
             "verified": verification.verified,
-            "verified_at": datetime.utcnow(),
+            "verified_at": get_ist_now(),
             "verified_by": admin_user.get("id"),
         }
         
@@ -422,7 +423,7 @@ async def delete_document_requirement(
             {
                 "$set": {
                     "enabled": False,
-                    "updated_at": datetime.utcnow(),
+                    "updated_at": get_ist_now(),
                     "updated_by": admin_user.get("id"),
                 }
             }

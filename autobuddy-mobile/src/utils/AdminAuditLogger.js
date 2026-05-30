@@ -8,6 +8,7 @@
  */
 
 import { apiRequest } from '../lib/api';
+import { istISOString, formatToIST } from './time';
 
 const ACTION_TYPES = {
   // Trip actions
@@ -68,7 +69,7 @@ class AdminAuditLogger {
       const payload = {
         action_type: actionType,
         action_data: JSON.stringify(data),
-        timestamp: new Date().toISOString(),
+        timestamp: istISOString(new Date()),
         user_agent: 'AdminDashboard',
       };
 
@@ -138,7 +139,7 @@ class AdminAuditLogger {
    */
   static formatLog(log) {
     const actionType = log.action_type || 'UNKNOWN';
-    const timestamp = new Date(log.timestamp).toLocaleString();
+    const timestamp = formatToIST(log.timestamp);
     const data = typeof log.action_data === 'string' 
       ? JSON.parse(log.action_data) 
       : log.action_data;

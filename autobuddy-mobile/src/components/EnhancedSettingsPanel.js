@@ -10,6 +10,7 @@ import {
 import { apiRequest } from '../lib/api';
 import { buildLanguageOptions, normalizeLanguageCode } from '../locales/indianLanguages';
 import { COLORS, SHADOWS } from '../theme';
+import { formatToIST } from '../utils/time';
 import VoiceTextInput from './VoiceTextInput';
 import { driverDashboardLocales } from '../locales/driverDashboard';
 
@@ -485,7 +486,7 @@ export default function EnhancedSettingsPanel({
         </View>
         <View style={styles.aboutItem}>
           <Text style={styles.aboutLabel}>{t.lastUpdated || 'Last Updated'}</Text>
-          <Text style={styles.aboutValue}>{new Date().toLocaleDateString()}</Text>
+          <Text style={styles.aboutValue}>{formatToIST(new Date(), { dateStyle: 'short' })}</Text>
         </View>
         <TouchableOpacity 
           style={styles.actionButton}

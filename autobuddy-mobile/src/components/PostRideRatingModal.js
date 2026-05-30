@@ -14,6 +14,7 @@ import VoiceTextInput from './VoiceTextInput';
 import LostItemTab from './LostItemTab';
 import PostRideTabs from './PostRideTabs';
 import ReceiptTab from './ReceiptTab';
+import { formatToIST } from '../utils/time';
 
 const POST_RIDE_TABS = [
   { key: 'rate', label: 'Rate Ride' },
@@ -106,7 +107,7 @@ export default function PostRideRatingModal({
   const rideDetails = useMemo(() => ({
     driverName: booking?.driver_name || 'Driver',
     id: booking?.id ? String(booking.id).substring(0, 8) : '',
-    date: booking?.created_at ? new Date(booking.created_at).toLocaleDateString() : '',
+    date: booking?.created_at ? formatToIST(booking.created_at, { dateStyle: 'short' }) : '',
     fare: booking?.final_fare || booking?.estimated_fare || booking?.fare || 0,
   }), [booking]);
 

@@ -5,6 +5,7 @@ B2B management platform for enterprise ride programs
 
 from fastapi import APIRouter, HTTPException, Request, Query, Body
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 import logging
 import random
 import json
@@ -48,15 +49,15 @@ async def register_corporate_company(payload: dict, request: Request):
             "employee_count": payload.get("employee_count", 0),
             "headquarters_city": payload.get("headquarters_city", "Bangalore"),
             "subscription_status": "trial",
-            "subscription_start_date": datetime.utcnow().isoformat(),
-            "subscription_end_date": (datetime.utcnow() + timedelta(days=30)).isoformat(),
-            "created_at": datetime.utcnow().isoformat()
+            "subscription_start_date": get_ist_now().isoformat(),
+            "subscription_end_date": (get_ist_now() + timedelta(days=30)).isoformat(),
+            "created_at": get_ist_now().isoformat()
         }
         
         return {
             "status": "success",
             "data": company,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error registering company: {e}")
@@ -83,13 +84,13 @@ async def get_company_details(company_id: str, request: Request):
             "payment_method": "invoice",
             "billing_cycle": "monthly",
             "is_active": True,
-            "created_at": (datetime.utcnow() - timedelta(days=random.randint(30, 365))).isoformat()
+            "created_at": (get_ist_now() - timedelta(days=random.randint(30, 365))).isoformat()
         }
         
         return {
             "status": "success",
             "data": company,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error fetching company: {e}")
@@ -107,9 +108,9 @@ async def update_company_settings(company_id: str, payload: dict, request: Reque
             "data": {
                 "company_id": company_id,
                 "updated_fields": list(payload.keys()),
-                "updated_at": datetime.utcnow().isoformat()
+                "updated_at": get_ist_now().isoformat()
             },
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error updating company: {e}")
@@ -137,13 +138,13 @@ async def add_employee(company_id: str, payload: dict, request: Request):
             "monthly_ride_budget": payload.get("monthly_ride_budget", 5000),
             "rides_per_month_limit": payload.get("rides_per_month_limit", 20),
             "is_active": True,
-            "created_at": datetime.utcnow().isoformat()
+            "created_at": get_ist_now().isoformat()
         }
         
         return {
             "status": "success",
             "data": employee,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error adding employee: {e}")
@@ -175,7 +176,7 @@ async def list_employees(company_id: str, department: str = None, request: Reque
             "status": "success",
             "data": employees,
             "total_count": len(employees),
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error listing employees: {e}")
@@ -203,13 +204,13 @@ async def get_employee(company_id: str, employee_id: str, request: Request):
             "budget_remaining": 2600,
             "average_ride_cost": 200,
             "total_rides_all_time": 85,
-            "joined_date": (datetime.utcnow() - timedelta(days=random.randint(30, 365))).isoformat()
+            "joined_date": (get_ist_now() - timedelta(days=random.randint(30, 365))).isoformat()
         }
         
         return {
             "status": "success",
             "data": employee,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error getting employee: {e}")
@@ -227,9 +228,9 @@ async def remove_employee(company_id: str, employee_id: str, request: Request):
             "data": {
                 "employee_id": employee_id,
                 "status": "removed",
-                "removed_at": datetime.utcnow().isoformat()
+                "removed_at": get_ist_now().isoformat()
             },
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error removing employee: {e}")
@@ -253,7 +254,7 @@ async def create_policy(company_id: str, payload: dict, request: Request):
             "policy_type": payload.get("policy_type"),
             "description": payload.get("description"),
             "is_active": True,
-            "created_at": datetime.utcnow().isoformat()
+            "created_at": get_ist_now().isoformat()
         }
         
         # Add type-specific fields
@@ -270,7 +271,7 @@ async def create_policy(company_id: str, payload: dict, request: Request):
         return {
             "status": "success",
             "data": policy,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error creating policy: {e}")
@@ -299,7 +300,7 @@ async def list_policies(company_id: str, request: Request):
         return {
             "status": "success",
             "data": policies,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error listing policies: {e}")
@@ -333,13 +334,13 @@ async def request_corporate_ride(payload: dict, request: Request):
             "approval_status": "approved" if not requires_approval else "pending",
             "policy_compliant": not requires_approval,
             "requires_approval": requires_approval,
-            "requested_at": datetime.utcnow().isoformat()
+            "requested_at": get_ist_now().isoformat()
         }
         
         return {
             "status": "success",
             "data": ride_request,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error requesting ride: {e}")
@@ -361,7 +362,7 @@ async def list_ride_requests(company_id: str, status: str = None, request: Reque
                 "id": f"req_{i}",
                 "company_id": company_id,
                 "employee_name": f"Employee {i}",
-                "ride_date": (datetime.utcnow() + timedelta(days=random.randint(-10, 5))).isoformat(),
+                "ride_date": (get_ist_now() + timedelta(days=random.randint(-10, 5))).isoformat(),
                 "pickup": f"Location {i}",
                 "dropoff": f"Location {i+1}",
                 "estimated_cost": round(random.uniform(150, 500), 2),
@@ -372,7 +373,7 @@ async def list_ride_requests(company_id: str, status: str = None, request: Reque
         return {
             "status": "success",
             "data": requests_list,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error listing ride requests: {e}")
@@ -391,9 +392,9 @@ async def approve_ride_request(request_id: str, payload: dict, request: Request)
                 "request_id": request_id,
                 "approval_status": "approved",
                 "approved_by": payload.get("approver_id"),
-                "approved_at": datetime.utcnow().isoformat()
+                "approved_at": get_ist_now().isoformat()
             },
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error approving request: {e}")
@@ -412,9 +413,9 @@ async def reject_ride_request(request_id: str, payload: dict, request: Request):
                 "request_id": request_id,
                 "approval_status": "rejected",
                 "rejection_reason": payload.get("reason"),
-                "rejected_at": datetime.utcnow().isoformat()
+                "rejected_at": get_ist_now().isoformat()
             },
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error rejecting request: {e}")
@@ -434,7 +435,7 @@ async def list_invoices(company_id: str, year: int = None, month: int = None, re
         invoices = []
         for i in range(6):
             month_back = i
-            invoice_date = datetime.utcnow() - timedelta(days=30 * month_back)
+            invoice_date = get_ist_now() - timedelta(days=30 * month_back)
             invoices.append({
                 "id": f"inv_{i}",
                 "invoice_number": f"INV-2024-{i:03d}",
@@ -449,7 +450,7 @@ async def list_invoices(company_id: str, year: int = None, month: int = None, re
         return {
             "status": "success",
             "data": invoices,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error listing invoices: {e}")
@@ -479,7 +480,7 @@ async def get_invoice_details(company_id: str, invoice_id: str, request: Request
                 "total_amount": 30470
             },
             "payment_status": "paid",
-            "payment_date": (datetime.utcnow() - timedelta(days=5)).isoformat(),
+            "payment_date": (get_ist_now() - timedelta(days=5)).isoformat(),
             "employee_breakdown": [
                 {
                     "employee_name": f"Employee {i}",
@@ -493,7 +494,7 @@ async def get_invoice_details(company_id: str, invoice_id: str, request: Request
         return {
             "status": "success",
             "data": invoice,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error getting invoice: {e}")
@@ -512,7 +513,7 @@ async def download_invoice(company_id: str, invoice_id: str, request: Request):
                 "download_url": f"/files/invoices/{invoice_id}.pdf",
                 "file_name": f"Invoice-{invoice_id}.pdf"
             },
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error downloading invoice: {e}")
@@ -547,7 +548,7 @@ async def list_cost_centers(company_id: str, request: Request):
         return {
             "status": "success",
             "data": cost_centers,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error listing cost centers: {e}")
@@ -572,13 +573,13 @@ async def create_expense_report(company_id: str, employee_id: str, payload: dict
             "total_rides": payload.get("total_rides", 0),
             "total_cost": payload.get("total_cost", 0),
             "approval_status": "draft",
-            "created_at": datetime.utcnow().isoformat()
+            "created_at": get_ist_now().isoformat()
         }
         
         return {
             "status": "success",
             "data": report,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error creating expense report: {e}")
@@ -593,7 +594,7 @@ async def list_expense_reports(company_id: str, employee_id: str, request: Reque
         
         reports = []
         for i in range(3, 0, -1):
-            month_ago = datetime.utcnow() - timedelta(days=30 * i)
+            month_ago = get_ist_now() - timedelta(days=30 * i)
             reports.append({
                 "id": f"report_{i}",
                 "report_period": month_ago.strftime("%Y-%m"),
@@ -606,7 +607,7 @@ async def list_expense_reports(company_id: str, employee_id: str, request: Reque
         return {
             "status": "success",
             "data": reports,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error listing expense reports: {e}")
@@ -624,9 +625,9 @@ async def submit_expense_report(report_id: str, request: Request):
             "data": {
                 "report_id": report_id,
                 "approval_status": "submitted",
-                "submitted_at": datetime.utcnow().isoformat()
+                "submitted_at": get_ist_now().isoformat()
             },
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error submitting report: {e}")
@@ -645,7 +646,7 @@ async def get_corporate_dashboard(company_id: str, request: Request):
         
         dashboard = {
             "company_id": company_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": get_ist_now().isoformat(),
             "metrics": {
                 "active_employees": random.randint(100, 500),
                 "total_rides_this_month": random.randint(200, 1000),
@@ -666,7 +667,7 @@ async def get_corporate_dashboard(company_id: str, request: Request):
         return {
             "status": "success",
             "data": dashboard,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
         logger.error(f"Error getting dashboard: {e}")

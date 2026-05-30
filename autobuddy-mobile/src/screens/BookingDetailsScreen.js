@@ -10,6 +10,7 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
+import { formatToIST } from '../utils/time';
 import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme';
 import { bookingAPI, userAPI } from '../services/apiClient';
 import { getSocket } from '../services/socketClient';
@@ -435,11 +436,8 @@ const BookingDetailsScreen = ({ navigation, route }) => {
               onPress={() => setShowSchedulePicker(true)}
             >
               <Text style={styles.dateTimeText}>
-                {rideDate.toLocaleDateString()} at{' '}
-                {rideDate.toLocaleTimeString([], {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}
+                {formatToIST(rideDate, { dateStyle: 'medium' })} at{' '}
+                {formatToIST(rideDate, { timeStyle: 'short' })}
               </Text>
             </TouchableOpacity>
           </View>

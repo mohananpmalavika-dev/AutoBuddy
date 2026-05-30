@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
+import { formatToIST } from '../utils/time';
 
 /**
  * PassengerKYCPanel - KYC (Know Your Customer) verification
@@ -182,7 +183,7 @@ export default function PassengerKYCPanel({ token }) {
         {kycStatus.verification_date && (
           <>
             <Text style={styles.infoLabel}>Verified On</Text>
-            <Text style={styles.infoValue}>{new Date(kycStatus.verification_date).toLocaleDateString()}</Text>
+            <Text style={styles.infoValue}>{formatToIST(kycStatus.verification_date, { dateStyle: 'short' })}</Text>
           </>
         )}
 
@@ -198,7 +199,7 @@ export default function PassengerKYCPanel({ token }) {
         {kycStatus.expiry_date && (
           <>
             <Text style={styles.infoLabel}>Expires On</Text>
-            <Text style={styles.infoValue}>{new Date(kycStatus.expiry_date).toLocaleDateString()}</Text>
+            <Text style={styles.infoValue}>{formatToIST(kycStatus.expiry_date, { dateStyle: 'short' })}</Text>
           </>
         )}
 

@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from math import radians, cos, sin, asin, sqrt
 from app.db.database import get_db
@@ -430,8 +431,8 @@ async def create_booking(
             "assigned_at": None,
             
             # Timestamps
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
+            "created_at": get_ist_now(),
+            "updated_at": get_ist_now(),
             "completed_at": None
         }
         

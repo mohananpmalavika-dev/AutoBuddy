@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends
@@ -11,7 +12,7 @@ router = APIRouter(prefix="/api/admin/analytics", tags=["analytics"])
 
 
 def _utc_now() -> datetime:
-    return datetime.utcnow()
+    return get_ist_now()
 
 
 def _to_float(value: Any, default: float = 0.0) -> float:

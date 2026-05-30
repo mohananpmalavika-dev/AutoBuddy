@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pydantic import BaseModel, Field
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 from typing import Optional
 from bson import ObjectId
 
@@ -258,7 +259,7 @@ async def approve_proposal(
             {
                 "$set": {
                     "status": "approved",
-                    "reviewed_at": datetime.utcnow(),
+                    "reviewed_at": get_ist_now(),
                     "reviewed_by": _current_user_id(current_admin),
                     "rejection_reason": None,
                 }
@@ -274,10 +275,10 @@ async def approve_proposal(
             "per_minute": proposal["per_minute"],
             "minimum_fare": proposal["minimum_fare"],
             "surge_multiplier": proposal["surge_multiplier"],
-            "effective_from": datetime.utcnow(),
+            "effective_from": get_ist_now(),
             "effective_to": None,  # No expiration
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
+            "created_at": get_ist_now(),
+            "updated_at": get_ist_now(),
             "approved_from_proposal": str(proposal_id),
             "approval_notes": approval_request.reason or "",
         }
@@ -348,7 +349,7 @@ async def reject_proposal(
             {
                 "$set": {
                     "status": "rejected",
-                    "reviewed_at": datetime.utcnow(),
+                    "reviewed_at": get_ist_now(),
                     "reviewed_by": _current_user_id(current_admin),
                     "rejection_reason": approval_request.reason,
                 }

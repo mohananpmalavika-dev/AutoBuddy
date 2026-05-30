@@ -5,6 +5,7 @@ B2B ride management for enterprise employees
 
 from pydantic import BaseModel, Field
 from datetime import datetime
+from .models_features import get_ist_now
 from typing import List, Optional, Dict, Any
 from enum import Enum
 
@@ -43,7 +44,7 @@ class EmployeeRoleType(str, Enum):
 
 class CorporateCompany(BaseModel):
     """Main corporate company entity."""
-    id: str = Field(default_factory=lambda: str(datetime.utcnow().timestamp()))
+    id: str = Field(default_factory=lambda: str(get_ist_now().timestamp()))
     company_name: str
     registration_number: str
     industry: str  # e.g., "IT", "Finance", "Retail"
@@ -59,15 +60,15 @@ class CorporateCompany(BaseModel):
     # Account status
     is_active: bool = True
     subscription_status: str  # "trial", "basic", "professional", "enterprise"
-    subscription_start_date: datetime = Field(default_factory=datetime.utcnow)
+    subscription_start_date: datetime = Field(default_factory=get_ist_now)
     subscription_end_date: datetime
     
     # Billing
     payment_method: str  # "invoice", "credit_card", "bank_transfer"
     billing_cycle: str  # "monthly", "quarterly", "annual"
     
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
+    updated_at: datetime = Field(default_factory=get_ist_now)
     
     class Config:
         json_schema_extra = {
@@ -84,7 +85,7 @@ class CorporateCompany(BaseModel):
 
 class CorporateEmployee(BaseModel):
     """Employee enrolled in corporate ride program."""
-    id: str = Field(default_factory=lambda: str(datetime.utcnow().timestamp()))
+    id: str = Field(default_factory=lambda: str(get_ist_now().timestamp()))
     company_id: str
     user_id: str  # Reference to main user
     employee_id: str  # Company's internal employee ID
@@ -111,8 +112,8 @@ class CorporateEmployee(BaseModel):
     budget_spent_this_month: float = 0.0
     total_distance_km: float = 0.0
     
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
+    updated_at: datetime = Field(default_factory=get_ist_now)
     
     class Config:
         json_schema_extra = {
@@ -129,7 +130,7 @@ class CorporateEmployee(BaseModel):
 
 class CorporateRidePolicy(BaseModel):
     """Policy that governs employee ride usage."""
-    id: str = Field(default_factory=lambda: str(datetime.utcnow().timestamp()))
+    id: str = Field(default_factory=lambda: str(get_ist_now().timestamp()))
     company_id: str
     policy_name: str
     policy_type: RidePolicyType
@@ -161,7 +162,7 @@ class CorporateRidePolicy(BaseModel):
     preferred_providers: List[str] = Field(default_factory=list)  # e.g., ["uber", "ola"]
     require_approval: bool = False
     
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
     
     class Config:
         json_schema_extra = {
@@ -177,7 +178,7 @@ class CorporateRidePolicy(BaseModel):
 
 class CorporateRideRequest(BaseModel):
     """Request for a ride that may need corporate approval."""
-    id: str = Field(default_factory=lambda: str(datetime.utcnow().timestamp()))
+    id: str = Field(default_factory=lambda: str(get_ist_now().timestamp()))
     company_id: str
     employee_id: str
     
@@ -213,7 +214,7 @@ class CorporateRideRequest(BaseModel):
     ride_id: Optional[str] = None  # Link to actual ride
     expense_report_id: Optional[str] = None
     
-    requested_at: datetime = Field(default_factory=datetime.utcnow)
+    requested_at: datetime = Field(default_factory=get_ist_now)
     completed_at: Optional[datetime] = None
     
     class Config:
@@ -231,7 +232,7 @@ class CorporateRideRequest(BaseModel):
 
 class ApprovalWorkflow(BaseModel):
     """Approval workflow for corporate rides."""
-    id: str = Field(default_factory=lambda: str(datetime.utcnow().timestamp()))
+    id: str = Field(default_factory=lambda: str(get_ist_now().timestamp()))
     company_id: str
     ride_request_id: str
     
@@ -246,8 +247,8 @@ class ApprovalWorkflow(BaseModel):
     rejection_reason: Optional[str] = None
     
     # Timestamps
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    last_updated: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
+    last_updated: datetime = Field(default_factory=get_ist_now)
     expires_at: datetime
     
     class Config:
@@ -263,7 +264,7 @@ class ApprovalWorkflow(BaseModel):
 
 class CorporateInvoice(BaseModel):
     """Monthly invoice for corporate entity."""
-    id: str = Field(default_factory=lambda: str(datetime.utcnow().timestamp()))
+    id: str = Field(default_factory=lambda: str(get_ist_now().timestamp()))
     company_id: str
     invoice_number: str  # e.g., "INV-2024-001"
     
@@ -289,7 +290,7 @@ class CorporateInvoice(BaseModel):
     
     # Additional info
     notes: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
     
     class Config:
         json_schema_extra = {
@@ -306,7 +307,7 @@ class CorporateInvoice(BaseModel):
 
 class CorporateCostCenter(BaseModel):
     """Department or cost center for ride expense allocation."""
-    id: str = Field(default_factory=lambda: str(datetime.utcnow().timestamp()))
+    id: str = Field(default_factory=lambda: str(get_ist_now().timestamp()))
     company_id: str
     cost_center_code: str
     cost_center_name: str
@@ -322,7 +323,7 @@ class CorporateCostCenter(BaseModel):
     rides_this_period: int = 0
     total_cost_this_period: float = 0.0
     
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
     
     class Config:
         json_schema_extra = {
@@ -338,7 +339,7 @@ class CorporateCostCenter(BaseModel):
 
 class CorporateExpenseReport(BaseModel):
     """Expense report for rides taken under corporate program."""
-    id: str = Field(default_factory=lambda: str(datetime.utcnow().timestamp()))
+    id: str = Field(default_factory=lambda: str(get_ist_now().timestamp()))
     company_id: str
     employee_id: str
     report_period: str  # YYYY-MM
@@ -359,7 +360,7 @@ class CorporateExpenseReport(BaseModel):
     reimbursement_amount: float = 0.0
     reimbursement_date: Optional[datetime] = None
     
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=get_ist_now)
     
     class Config:
         json_schema_extra = {

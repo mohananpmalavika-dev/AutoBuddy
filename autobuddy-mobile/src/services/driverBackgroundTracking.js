@@ -108,13 +108,25 @@ if (!TaskManager.isTaskDefined(DRIVER_BACKGROUND_LOCATION_TASK)) {
           try {
             const bgSocket = io(getSocketUrl(), { reconnection: false, transports: ['websocket'] });
             bgSocket.on('connect', () => {
-              bgSocket.emit('driver_location_update', {
-                ride_id: rideId || '',
-                latitude,
-                longitude,
-                accuracy: accuracy || 0,
-                timestamp: new Date().toISOString(),
-              });
+              try {
+                const { istISOString } = require('../utils/time');
+                bgSocket.emit('driver_location_update', {
+                  ride_id: rideId || '',
+                  latitude,
+                  longitude,
+                  accuracy: accuracy || 0,
+                  timestamp: istISOString(new Date()),
+                });
+              } catch (e) {
+                // fallback
+                bgSocket.emit('driver_location_update', {
+                  ride_id: rideId || '',
+                  latitude,
+                  longitude,
+                  accuracy: accuracy || 0,
+                  timestamp: new Date().toISOString(),
+                });
+              }
               bgSocket.disconnect();
             });
             // ensure we don't hang the task: set a short timeout to force disconnect

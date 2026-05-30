@@ -14,6 +14,7 @@ import { apiRequest } from '../lib/api';
 import { appendPickerAssetToFormData } from '../lib/uploadFormData';
 import { COLORS, SHADOWS } from '../theme';
 import VoiceTextInput from './VoiceTextInput';
+import { formatToIST } from '../utils/time';
 
 export default function SupportTicketsPanel({ token }) {
   const [loading, setLoading] = useState(false);
@@ -315,7 +316,7 @@ export default function SupportTicketsPanel({ token }) {
           <Text style={styles.ticketCategory}>{selectedTicket.category}</Text>
           <Text style={styles.ticketDescription}>{selectedTicket.description}</Text>
           <Text style={styles.createdDate}>
-            Created: {new Date(selectedTicket.created_at).toLocaleString()}
+            Created: {formatToIST(selectedTicket.created_at, { dateStyle: 'medium', timeStyle: 'short' })}
           </Text>
           <TouchableOpacity
             style={styles.statusActionButton}
@@ -344,7 +345,7 @@ export default function SupportTicketsPanel({ token }) {
                     <Text style={styles.messageAttachment}>Attachment: {msg.attachment_url}</Text>
                   )}
                   <Text style={styles.messageTime}>
-                    {new Date(msg.created_at).toLocaleString()}
+                    {formatToIST(msg.created_at, { dateStyle: 'medium', timeStyle: 'short' })}
                   </Text>
                 </View>
               ))
@@ -453,7 +454,7 @@ export default function SupportTicketsPanel({ token }) {
                   </View>
                   <Text style={styles.ticketCardCategory}>{ticket.category}</Text>
                   <Text style={styles.ticketCardDate}>
-                    {new Date(ticket.created_at).toLocaleDateString()}
+                    {formatToIST(ticket.created_at, { dateStyle: 'short' })}
                   </Text>
                 </TouchableOpacity>
               ))}

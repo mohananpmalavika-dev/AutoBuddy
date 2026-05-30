@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 module.exports = ({ config }) => {
   const googleMapsApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
   const plugins = Array.isArray(config.plugins) ? [...config.plugins] : [];

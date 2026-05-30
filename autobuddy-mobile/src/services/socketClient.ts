@@ -10,6 +10,7 @@
 
 import type { Socket } from 'socket.io-client';
 import { createAutoBuddySocket, disconnectAutoBuddySocket, getAutoBuddySocket } from '../lib/socket';
+import { istISOString } from '../utils/time';
 
 export interface SocketEventHandlers {
   onDriverLocation?: (data: any) => void;
@@ -187,12 +188,12 @@ export const emitDriverLocation = (rideId: string, latitude: number, longitude: 
   const socket = getSocket();
   if (!socket) return;
 
-  socket.emit('driver_location_update', {
+    socket.emit('driver_location_update', {
     ride_id: rideId,
     latitude,
     longitude,
     accuracy: accuracy || 0,
-    timestamp: new Date().toISOString(),
+      timestamp: istISOString(new Date()),
   });
 };
 

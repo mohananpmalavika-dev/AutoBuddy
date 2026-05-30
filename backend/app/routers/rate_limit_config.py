@@ -5,6 +5,7 @@ Manages database-driven rate limit settings for all endpoints
 """
 from typing import Dict, List, Optional, Any
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel, Field, ConfigDict
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -161,8 +162,8 @@ async def get_all_profiles(
             window_seconds=p["window_seconds"],
             description=p.get("description"),
             enabled=p.get("enabled", True),
-            created_at=p.get("created_at", datetime.utcnow()),
-            updated_at=p.get("updated_at", datetime.utcnow()),
+            created_at=p.get("created_at", get_ist_now()),
+            updated_at=p.get("updated_at", get_ist_now()),
             created_by=p.get("created_by", "system"),
         )
         for p in profiles
@@ -189,8 +190,8 @@ async def get_profile(
         window_seconds=profile["window_seconds"],
         description=profile.get("description"),
         enabled=profile.get("enabled", True),
-        created_at=profile.get("created_at", datetime.utcnow()),
-        updated_at=profile.get("updated_at", datetime.utcnow()),
+        created_at=profile.get("created_at", get_ist_now()),
+        updated_at=profile.get("updated_at", get_ist_now()),
         created_by=profile.get("created_by", "system"),
     )
 
@@ -213,7 +214,7 @@ async def update_profile(
                 "window_seconds": body.window_seconds,
                 "description": body.description,
                 "enabled": body.enabled,
-                "updated_at": datetime.utcnow(),
+                "updated_at": get_ist_now(),
                 "updated_by": current_user.get("id"),
             }
         },
@@ -253,8 +254,8 @@ async def get_all_endpoints(
             window_seconds=e.get("window_seconds"),
             description=e.get("description"),
             enabled=e.get("enabled", True),
-            created_at=e.get("created_at", datetime.utcnow()),
-            updated_at=e.get("updated_at", datetime.utcnow()),
+            created_at=e.get("created_at", get_ist_now()),
+            updated_at=e.get("updated_at", get_ist_now()),
         )
         for e in endpoints
     ]
@@ -292,8 +293,8 @@ async def create_endpoint_config(
         "window_seconds": body.window_seconds,
         "description": body.description,
         "enabled": body.enabled,
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow(),
+        "created_at": get_ist_now(),
+        "updated_at": get_ist_now(),
         "created_by": current_user.get("id"),
     }
     
@@ -334,7 +335,7 @@ async def update_endpoint_config(
                 "window_seconds": body.window_seconds,
                 "description": body.description,
                 "enabled": body.enabled,
-                "updated_at": datetime.utcnow(),
+                "updated_at": get_ist_now(),
                 "updated_by": current_user.get("id"),
             }
         },
@@ -387,8 +388,8 @@ async def init_default_rate_limit_configs(db: AsyncIOMotorDatabase) -> None:
                     "window_seconds": config["window_seconds"],
                     "description": config["description"],
                     "enabled": True,
-                    "created_at": datetime.utcnow(),
-                    "updated_at": datetime.utcnow(),
+                    "created_at": get_ist_now(),
+                    "updated_at": get_ist_now(),
                     "created_by": "system_init",
                 })
         
@@ -405,8 +406,8 @@ async def init_default_rate_limit_configs(db: AsyncIOMotorDatabase) -> None:
                     "window_seconds": None,
                     "description": endpoint_config.get("description"),
                     "enabled": True,
-                    "created_at": datetime.utcnow(),
-                    "updated_at": datetime.utcnow(),
+                    "created_at": get_ist_now(),
+                    "updated_at": get_ist_now(),
                     "created_by": "system_init",
                 })
     except Exception as e:

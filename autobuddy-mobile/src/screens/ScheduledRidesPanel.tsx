@@ -15,6 +15,7 @@ import {
 import { scheduledRidesAPI } from '@/services/apiClient';
 import { ScheduledRidesContext } from '@/contexts/ScheduledRidesContext';
 import { getSocket } from '@/services/socketClient';
+import { formatToIST } from '../utils/time';
 
 type ScheduledRideStatus = 'scheduled' | 'confirmed' | 'cancelled' | 'completed' | 'pending_confirmation';
 
@@ -296,7 +297,7 @@ const ScheduledRidesPanel: React.FC<ScheduledRidesPanelProps> = ({
       <View style={styles.rideDateTime}>
         <MaterialIcons name="schedule" size={16} color="#666" />
         <Text style={styles.dateTimeText}>
-          {new Date(ride.scheduled_datetime).toLocaleString()}
+          {formatToIST(ride.scheduled_datetime, { dateStyle: 'medium', timeStyle: 'short' })}
         </Text>
       </View>
       <View style={styles.rideDetails}>
@@ -487,7 +488,7 @@ const ScheduledRidesPanel: React.FC<ScheduledRidesPanelProps> = ({
 
                 <Text style={[styles.detailLabel, { marginTop: 16 }]}>Scheduled</Text>
                 <Text style={styles.detailValue}>
-                  {new Date(selectedRide.scheduled_datetime).toLocaleString()}
+                  {formatToIST(selectedRide.scheduled_datetime, { dateStyle: 'medium', timeStyle: 'short' })}
                 </Text>
 
                 <Text style={[styles.detailLabel, { marginTop: 16 }]}>Status</Text>

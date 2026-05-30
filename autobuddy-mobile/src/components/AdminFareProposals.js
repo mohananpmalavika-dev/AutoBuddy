@@ -14,6 +14,7 @@ import {
   TextInput,
 } from 'react-native';
 import { COLORS, SHADOWS, SPACING } from '../theme';
+import { formatToIST } from '../utils/time';
 import { apiRequest } from '../lib/api';
 
 // Proposal Card Component with approval/rejection
@@ -69,7 +70,7 @@ function AdminProposalCard({ proposal, onApprove, onReject, loading }) {
             {proposal.ride_type.charAt(0).toUpperCase() + proposal.ride_type.slice(1)} Ride
           </Text>
           <Text style={styles.proposalCardDate}>
-            Submitted: {new Date(proposal.created_at).toLocaleDateString()}
+            Submitted: {formatToIST(proposal.created_at, { dateStyle: 'short' })}
           </Text>
         </View>
       </View>
@@ -142,7 +143,7 @@ function AdminProposalCard({ proposal, onApprove, onReject, loading }) {
             </Text>
             {proposal.reviewed_at && (
               <Text style={styles.statusDate}>
-                {new Date(proposal.reviewed_at).toLocaleDateString()}
+                {formatToIST(proposal.reviewed_at, { dateStyle: 'short' })}
               </Text>
             )}
           </View>

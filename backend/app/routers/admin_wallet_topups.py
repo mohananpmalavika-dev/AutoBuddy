@@ -2,6 +2,7 @@
 Admin Wallet Top-ups - Complete implementation with approval/rejection workflow
 """
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel
@@ -64,13 +65,13 @@ async def process_topup_payment(
             {
                 "$set": {
                     "balance": new_balance,
-                    "last_updated": datetime.utcnow()
+                    "last_updated": get_ist_now()
                 },
                 "$push": {
                     "transactions": {
                         "type": "topup",
                         "amount": amount,
-                        "timestamp": datetime.utcnow(),
+                        "timestamp": get_ist_now(),
                         "reference_id": topup_id,
                         "payment_method": payment_method
                     }
@@ -82,12 +83,12 @@ async def process_topup_payment(
         await wallets_collection.insert_one({
             "user_id": user_id,
             "balance": amount,
-            "created_at": datetime.utcnow(),
-            "last_updated": datetime.utcnow(),
+            "created_at": get_ist_now(),
+            "last_updated": get_ist_now(),
             "transactions": [{
                 "type": "topup",
                 "amount": amount,
-                "timestamp": datetime.utcnow(),
+                "timestamp": get_ist_now(),
                 "reference_id": topup_id,
                 "payment_method": payment_method
             }]
@@ -99,7 +100,7 @@ async def process_topup_payment(
         {
             "$set": {
                 "status": "completed",
-                "processed_at": datetime.utcnow(),
+                "processed_at": get_ist_now(),
                 "new_wallet_balance": new_balance
             }
         }
@@ -142,7 +143,7 @@ async def list_wallet_topups(
             "payment_method": doc.get("payment_method"),
             "payment_ref": doc.get("payment_reference"),
             "status": doc.get("status", "pending"),
-            "created_at": doc.get("created_at", datetime.utcnow()).isoformat(),
+            "created_at": doc.get("created_at", get_ist_now()).isoformat(),
             "receipt_provided": doc.get("receipt_url") is not None
         })
     
@@ -181,7 +182,7 @@ async def process_topup(
                     "status": "rejected",
                     "rejection_reason": approval.admin_notes,
                     "rejected_by": admin_id,
-                    "rejected_at": datetime.utcnow()
+                    "rejected_at": get_ist_now()
                 }
             }
         )
@@ -193,7 +194,7 @@ async def process_topup(
         "topup_id": topup_id,
         "action": approval.action,
         "status": status,
-        "processed_at": datetime.utcnow().isoformat()
+        "processed_at": get_ist_now().isoformat()
     }
 
 
@@ -227,7 +228,7 @@ async def bulk_process_topups(
                             "status": "rejected",
                             "rejection_reason": bulk_approval.reason,
                             "rejected_by": admin_id,
-                            "rejected_at": datetime.utcnow()
+                            "rejected_at": get_ist_now()
                         }
                     }
                 )
@@ -269,7 +270,7 @@ async def get_topup_details(
         "payment_reference": topup.get("payment_reference"),
         "receipt_url": topup.get("receipt_url"),
         "status": topup.get("status"),
-        "created_at": topup.get("created_at", datetime.utcnow()).isoformat(),
+        "created_at": topup.get("created_at", get_ist_now()).isoformat(),
         "processed_at": topup.get("processed_at"),
         "new_wallet_balance": topup.get("new_wallet_balance"),
         "admin_notes": topup.get("admin_notes")
@@ -307,14 +308,14 @@ async def manual_wallet_adjustment(
             {
                 "$set": {
                     "balance": new_balance,
-                    "last_updated": datetime.utcnow()
+                    "last_updated": get_ist_now()
                 },
                 "$push": {
                     "transactions": {
                         "type": "manual_adjustment",
                         "amount": adjustment.amount,
                         "adjustment_type": adjustment.adjustment_type,
-                        "timestamp": datetime.utcnow(),
+                        "timestamp": get_ist_now(),
                         "reason": adjustment.reason,
                         "adjusted_by": admin_id
                     }
@@ -325,13 +326,13 @@ async def manual_wallet_adjustment(
         await wallets_collection.insert_one({
             "user_id": adjustment.user_id,
             "balance": new_balance,
-            "created_at": datetime.utcnow(),
-            "last_updated": datetime.utcnow(),
+            "created_at": get_ist_now(),
+            "last_updated": get_ist_now(),
             "transactions": [{
                 "type": "manual_adjustment",
                 "amount": adjustment.amount,
                 "adjustment_type": adjustment.adjustment_type,
-                "timestamp": datetime.utcnow(),
+                "timestamp": get_ist_now(),
                 "reason": adjustment.reason,
                 "adjusted_by": admin_id
             }]
@@ -347,7 +348,7 @@ async def manual_wallet_adjustment(
         "adjusted_by": admin_id,
         "previous_balance": current_balance,
         "new_balance": new_balance,
-        "adjusted_at": datetime.utcnow()
+        "adjusted_at": get_ist_now()
     })
     
     return {
@@ -356,7 +357,7 @@ async def manual_wallet_adjustment(
         "adjustment_type": adjustment.adjustment_type,
         "previous_balance": current_balance,
         "new_balance": new_balance,
-        "adjusted_at": datetime.utcnow().isoformat()
+        "adjusted_at": get_ist_now().isoformat()
     }
 
 
@@ -376,7 +377,7 @@ async def get_user_wallet_balance(
         "user_id": user_id,
         "balance": wallet.get("balance", 0) if wallet else 0,
         "currency": wallet.get("currency", "INR") if wallet else "INR",
-        "last_updated": wallet.get("last_updated", datetime.utcnow()).isoformat() if wallet else datetime.utcnow().isoformat()
+        "last_updated": wallet.get("last_updated", get_ist_now()).isoformat() if wallet else get_ist_now().isoformat()
     }
 
 
@@ -405,7 +406,7 @@ async def get_wallet_transaction_history(
             {
                 "type": t.get("type"),
                 "amount": t.get("amount"),
-                "timestamp": t.get("timestamp", datetime.utcnow()).isoformat(),
+                "timestamp": t.get("timestamp", get_ist_now()).isoformat(),
                 "reference_id": t.get("reference_id"),
                 "reason": t.get("reason")
             }
@@ -425,7 +426,7 @@ async def wallet_reconciliation_report(
     _ = admin_user
     
     topups_collection = db["wallet_topups"]
-    start_date = datetime.utcnow() - timedelta(days=days)
+    start_date = get_ist_now() - timedelta(days=days)
     
     pipeline = [
         {
@@ -458,5 +459,5 @@ async def wallet_reconciliation_report(
         "total_topups": total_topups,
         "total_amount": total_amount,
         "period_days": days,
-        "report_generated_at": datetime.utcnow().isoformat()
+        "report_generated_at": get_ist_now().isoformat()
     }

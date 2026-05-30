@@ -10,6 +10,7 @@ import {
 import { COLORS } from '../theme';
 import { apiRequest } from '../lib/api';
 import { GlassCard, PremiumEmptyState } from './PremiumUI';
+import { formatToIST } from '../utils/time';
 
 export default function DocumentExpiryAlertsPanel({ token, onDocumentExpiring = undefined }) {
   const [loading, setLoading] = useState(false);
@@ -244,12 +245,7 @@ export default function DocumentExpiryAlertsPanel({ token, onDocumentExpiring = 
 function formatDate(dateString) {
   if (!dateString) return 'N/A';
   try {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-IN', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
+    return formatToIST(dateString, { year: 'numeric', month: 'short', day: 'numeric' });
   } catch {
     return dateString;
   }

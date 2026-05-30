@@ -96,14 +96,24 @@ export function formatBlockedPassengerDate(value) {
     return 'Date not recorded';
   }
 
-  return date.toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
-}
+  import { formatToIST } from '../utils/time';
+
+  export function formatBlockedPassengerDate(value) {
+    if (!value) {
+      return 'Date not recorded';
+    }
+    try {
+      return formatToIST(value, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      });
+    } catch {
+      return 'Date not recorded';
+    }
+  }
 
 export function filterBlockedPassengers(passengers, query) {
   const normalizedQuery = cleanString(query)?.toLowerCase();

@@ -6,6 +6,7 @@ Handles creation, updating, and fetching of ride service types
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 from enum import Enum
 
 class RideTypeEnum(str, Enum):
@@ -47,8 +48,8 @@ DEFAULT_RIDE_TYPES = [
         "requires_passenger_count": True,
         "active": True,
         "regions": ["all"],
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+        "created_at": get_ist_now(),
+        "updated_at": get_ist_now()
     },
     {
         "_id": "scheduled",
@@ -61,8 +62,8 @@ DEFAULT_RIDE_TYPES = [
         "requires_passenger_count": True,
         "active": True,
         "regions": ["all"],
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+        "created_at": get_ist_now(),
+        "updated_at": get_ist_now()
     },
     {
         "_id": "rental",
@@ -75,8 +76,8 @@ DEFAULT_RIDE_TYPES = [
         "requires_passenger_count": True,
         "active": True,
         "regions": ["all"],
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+        "created_at": get_ist_now(),
+        "updated_at": get_ist_now()
     },
     {
         "_id": "airport",
@@ -89,8 +90,8 @@ DEFAULT_RIDE_TYPES = [
         "requires_passenger_count": True,
         "active": True,
         "regions": ["all"],
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+        "created_at": get_ist_now(),
+        "updated_at": get_ist_now()
     },
     {
         "_id": "corporate",
@@ -103,8 +104,8 @@ DEFAULT_RIDE_TYPES = [
         "requires_passenger_count": True,
         "active": True,
         "regions": ["all"],
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+        "created_at": get_ist_now(),
+        "updated_at": get_ist_now()
     },
     {
         "_id": "tourism",
@@ -117,8 +118,8 @@ DEFAULT_RIDE_TYPES = [
         "requires_passenger_count": True,
         "active": True,
         "regions": ["all"],
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+        "created_at": get_ist_now(),
+        "updated_at": get_ist_now()
     },
     {
         "_id": "goods",
@@ -131,7 +132,7 @@ DEFAULT_RIDE_TYPES = [
         "requires_passenger_count": False,
         "active": True,
         "regions": ["all"],
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+        "created_at": get_ist_now(),
+        "updated_at": get_ist_now()
     }
 ]

@@ -8,6 +8,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional
 from datetime import datetime
+from app.utils.time_helpers import get_ist_now
 import logging
 
 from app.db.deps import get_db
@@ -89,8 +90,8 @@ def _availability_query(
 
 
 def _serialize_vehicle(vehicle: dict) -> dict:
-    created_at = vehicle.get("created_at") or datetime.utcnow()
-    updated_at = vehicle.get("updated_at") or datetime.utcnow()
+    created_at = vehicle.get("created_at") or get_ist_now()
+    updated_at = vehicle.get("updated_at") or get_ist_now()
     vehicle_type_id = vehicle.get("vehicle_type_id")
 
     return {
@@ -118,7 +119,7 @@ def _serialize_vehicle(vehicle: dict) -> dict:
 
 
 def _seed_vehicle_doc(vehicle_data: dict) -> dict:
-    now = datetime.utcnow()
+    now = get_ist_now()
     doc = dict(vehicle_data)
     doc["_id"] = doc["vehicle_type_id"]
     doc.setdefault("active", True)
@@ -542,8 +543,8 @@ async def create_vehicle(
         vehicle_data = payload.dict(exclude_unset=True)
         vehicle_data["_id"] = payload.vehicle_type_id
         vehicle_data["active"] = True
-        vehicle_data["created_at"] = datetime.utcnow()
-        vehicle_data["updated_at"] = datetime.utcnow()
+        vehicle_data["created_at"] = get_ist_now()
+        vehicle_data["updated_at"] = get_ist_now()
         
         await _vehicle_collection(db).insert_one(vehicle_data)
         
@@ -570,7 +571,7 @@ async def update_vehicle(
             raise HTTPException(status_code=404, detail="Vehicle type not found")
         
         update_data = {k: v for k, v in payload.dict(exclude_unset=True).items() if v is not None}
-        update_data["updated_at"] = datetime.utcnow()
+        update_data["updated_at"] = get_ist_now()
         
         await _vehicle_collection(db).update_one(
             {"vehicle_type_id": vehicle_type_id},
@@ -604,7 +605,7 @@ async def update_vehicle_fare_config(
         fare_config = _to_plain_dict(payload.fare_config)
         await _vehicle_collection(db).update_one(
             {"vehicle_type_id": vehicle_type_id},
-            {"$set": {"fare_config": fare_config, "updated_at": datetime.utcnow()}},
+            {"$set": {"fare_config": fare_config, "updated_at": get_ist_now()}},
         )
 
         return {
@@ -634,7 +635,7 @@ async def delete_vehicle(
         # Soft delete - mark as inactive
         await _vehicle_collection(db).update_one(
             {"vehicle_type_id": vehicle_type_id},
-            {"$set": {"active": False, "updated_at": datetime.utcnow()}}
+            {"$set": {"active": False, "updated_at": get_ist_now()}}
         )
         
         logger.info(f"Disabled vehicle type: {vehicle_type_id}")

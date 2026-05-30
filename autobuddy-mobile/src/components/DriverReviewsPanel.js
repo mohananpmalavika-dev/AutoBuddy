@@ -10,6 +10,7 @@ import {
 
 import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
+import { formatToIST } from '../utils/time';
 
 function formatDate(value) {
   if (!value) {
@@ -19,7 +20,7 @@ function formatDate(value) {
   if (Number.isNaN(date.getTime())) {
     return String(value);
   }
-  return date.toLocaleString();
+  return formatToIST(value, { dateStyle: 'medium', timeStyle: 'short' });
 }
 
 function ratingLabel(value) {
