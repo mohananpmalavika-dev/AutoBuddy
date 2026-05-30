@@ -70,6 +70,21 @@ function shouldFallbackGoogleRequest(error) {
   );
 }
 
+function isOperatorRoleSchemaMismatch(error, attemptedRole) {
+  const status = Number(error?.status || 0);
+  const message = String(error?.message || '').toLowerCase();
+  const mentionsRoleField = message.includes('body.role') || message.includes('role');
+  const mentionsOldRoleChoices =
+    message.includes("input should be 'passenger', 'driver' or 'admin'") ||
+    (message.includes('passenger') && message.includes('driver') && message.includes('admin'));
+  return (
+    attemptedRole === 'operator' &&
+    status === 422 &&
+    mentionsRoleField &&
+    mentionsOldRoleChoices
+  );
+}
+
 function shouldRetryGoogleAsLogin(error) {
   const status = Number(error?.status || 0);
   const message = String(error?.message || '').toLowerCase();
@@ -237,7 +252,10 @@ export default function AuthScreen({ onAuthenticated }) {
           body: payload,
         });
       } catch (primaryError) {
-        if (shouldFallbackGoogleRequest(primaryError)) {
+        if (
+          shouldFallbackGoogleRequest(primaryError) ||
+          isOperatorRoleSchemaMismatch(primaryError, payload?.role)
+        ) {
           data = await apiRequest('/auth/_legacy/google', {
             method: 'POST',
             body: payload,
@@ -358,6 +376,8 @@ export default function AuthScreen({ onAuthenticated }) {
       } catch (primaryError) {
         if (isLogin && isTemporaryLoginFailure(primaryError)) {
           data = await apiRequest('/auth/_legacy/login', { method: 'POST', body: payload });
+        } else if (!isLogin && isOperatorRoleSchemaMismatch(primaryError, payload?.role)) {
+          data = await apiRequest('/auth/_legacy/register', { method: 'POST', body: payload });
         } else {
           throw primaryError;
         }

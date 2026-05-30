@@ -31,8 +31,10 @@ import random
 import re
 from urllib.parse import urlparse, parse_qs
 from cryptography.fernet import Fernet
+from pymongo.errors import ServerSelectionTimeoutError, PyMongoError
 from app.core.config import get_settings
 from app.db.retry import retry_on_db_error
+from app.db.client import create_mongo_client, create_database
 from app.database import SessionLocal, get_db
 from app.routers.auth import router as modular_auth_router
 from app.routers.analytics import router as modular_analytics_router
@@ -354,6 +356,7 @@ if STRIPE_SECRET_KEY:
     stripe.api_key = STRIPE_SECRET_KEY
 
 redis_client = None
+db = None
 if REDIS_URL and redis_async:
     try:
         redis_client = redis_async.from_url(
@@ -900,8 +903,8 @@ async def seed_admin():
 
 @app.on_event("startup")
 async def on_startup():
-    global driver_health_monitor_task, ride_dispatch_worker_task, analytics_warehouse_worker_task, redis_client
-    if not MONGO_URL:
+    global driver_health_monitor_task, ride_dispatch_worker_task, analytics_warehouse_worker_task, redis_client, db
+    if not settings.mongo_url:
         error_msg = (
             "MONGO_URL must be configured via environment. "
             "DATABASE_URL is supported as a fallback alias. "
@@ -1010,6 +1013,18 @@ async def on_startup():
                 pass
             redis_client = None
             app.state.redis_client = None
+    
+    # Initialize MongoDB connection
+    try:
+        mongo_client = create_mongo_client(settings)
+        db = create_database(mongo_client, settings)
+        app.state.db = db
+        app.state.mongo_client = mongo_client
+        logger.info("MongoDB connection initialized")
+    except Exception as exc:
+        logger.warning("MongoDB initialization failed; continuing in degraded mode: %s", exc)
+        db = None
+    
     await seed_admin()
     # Initialize default vehicle types
     try:
@@ -15235,4 +15250,8 @@ async def shutdown_db_client():
             await redis_client.close()
         except Exception:
             pass
-    client.close()
+    if hasattr(app.state, 'mongo_client') and app.state.mongo_client:
+        try:
+            app.state.mongo_client.close()
+        except Exception:
+            pass

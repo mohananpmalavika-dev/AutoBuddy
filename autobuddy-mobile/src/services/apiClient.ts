@@ -16,7 +16,7 @@ import { Platform } from 'react-native';
 const API_BASE_URL = (
   process.env.EXPO_PUBLIC_API_BASE_URL ||
   process.env.REACT_APP_API_URL ||
-  'http://localhost:8001'
+  'http://localhost:10000'
 )
   .replace(/\/$/, '')
   .replace(/\/api$/, '');
@@ -149,16 +149,58 @@ rawAxiosInstance.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Add response interceptor for error handling
+// Add response interceptor with retry logic and error handling
+let retryCount = 0;
+const MAX_RETRIES = 3;
+
 rawAxiosInstance.interceptors.response.use(
   (response: AxiosResponse) => attachLegacyDataAlias(response.data) as AxiosResponse,
   async (error: AxiosError) => {
+    // Handle 401 Unauthorized - token expired
     if (error.response?.status === 401) {
-      // Token expired - clear and redirect to login
       await clearStoredAuth();
       redirectToLoginIfWeb();
+      const errorData = error.response?.data as AnyRecord;
+      return Promise.reject({
+        message: errorData?.error?.message || 'Session expired. Please login again.',
+        code: 'AUTH_EXPIRED',
+        status: 401,
+        originalError: error,
+      });
     }
-    return Promise.reject(error);
+
+    // Handle 429 Too Many Requests - retry with exponential backoff
+    if (error.response?.status === 429 && retryCount < MAX_RETRIES) {
+      retryCount++;
+      const delayMs = Math.pow(2, retryCount) * 1000;
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+      return rawAxiosInstance(error.config!);
+    }
+
+    // Handle network errors - retry once
+    if (!error.response && retryCount < 1) {
+      retryCount++;
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      return rawAxiosInstance(error.config!);
+    }
+
+    // Extract user-friendly error message
+    const errorData = error.response?.data as AnyRecord;
+    const message = 
+      errorData?.error?.message ||
+      errorData?.message ||
+      error.message ||
+      'An error occurred. Please try again.';
+    
+    const code = errorData?.error?.code || 'UNKNOWN_ERROR';
+
+    return Promise.reject({
+      message,
+      code,
+      status: error.response?.status || 0,
+      details: errorData?.error?.details,
+      originalError: error,
+    });
   }
 );
 

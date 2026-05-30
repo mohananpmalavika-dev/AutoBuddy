@@ -10,9 +10,27 @@ import {
 } from 'react-native';
 
 import AutoBuddyBrand from '../components/AutoBuddyBrand';
+import {
+  FleetDashboardAdvanced,
+  FleetWalletPanel,
+  IncentiveManagementPanel,
+  LiveFleetMapPanel,
+  PerformanceRankingsPanel,
+} from '../components/FleetAdvancedFeatures';
 import VoiceTextInput from '../components/VoiceTextInput';
 import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
+
+const OPERATOR_TABS = [
+  { key: 'overview', label: 'Overview' },
+  { key: 'profile', label: 'Profile' },
+  { key: 'vehicles', label: 'Vehicles' },
+  { key: 'fleet', label: 'Fleet KPIs' },
+  { key: 'wallet', label: 'Wallet' },
+  { key: 'performance', label: 'Performance' },
+  { key: 'map', label: 'Live Map' },
+  { key: 'incentives', label: 'Incentives' },
+];
 
 const emptyProfileForm = {
   company_name: '',
@@ -74,6 +92,17 @@ function formatCurrency(value) {
   return `INR ${Number(value || 0).toFixed(2)}`;
 }
 
+function formatDateTime(value) {
+  if (!value) {
+    return '-';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+  return date.toLocaleString();
+}
+
 function normalizeProfileForm(profile) {
   return {
     company_name: String(profile?.company_name || ''),
@@ -95,8 +124,10 @@ export default function OperatorDashboard({ token, user, onLogout }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [activeTab, setActiveTab] = useState('overview');
   const [profile, setProfile] = useState(null);
   const [summary, setSummary] = useState({});
+  const [recentBookings, setRecentBookings] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [vehicleTypes, setVehicleTypes] = useState([]);
   const [profileForm, setProfileForm] = useState(emptyProfileForm);
@@ -110,6 +141,7 @@ export default function OperatorDashboard({ token, user, onLogout }) {
   );
 
   const selectedSubtypes = Array.isArray(selectedVehicleType?.subtypes) ? selectedVehicleType.subtypes : [];
+  const operatorFleetId = String(profile?.operator_id || user?.id || '').trim();
 
   const loadPortal = useCallback(async () => {
     try {
@@ -129,6 +161,7 @@ export default function OperatorDashboard({ token, user, onLogout }) {
       setProfile(nextProfile);
       setProfileForm(normalizeProfileForm(nextProfile));
       setSummary(dashboardPayload?.summary || {});
+      setRecentBookings(extractList(dashboardPayload, ['recent_bookings', 'bookings', 'items']));
       setVehicles(nextVehicles);
       setVehicleTypes(nextTypes);
       setVehicleForm((prev) => {
@@ -151,6 +184,11 @@ export default function OperatorDashboard({ token, user, onLogout }) {
       setLoading(false);
     }
   }, [token]);
+
+  const handleAdvancedTabChange = useCallback((nextTab) => {
+    const mappedTab = nextTab === 'assignments' ? 'vehicles' : nextTab;
+    setActiveTab(OPERATOR_TABS.some((tab) => tab.key === mappedTab) ? mappedTab : 'overview');
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -369,25 +407,79 @@ export default function OperatorDashboard({ token, user, onLogout }) {
         {!!error && <Text style={styles.error}>{error}</Text>}
         {!!message && <Text style={styles.success}>{message}</Text>}
 
-        <View style={styles.summaryGrid}>
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>Fleet Vehicles</Text>
-            <Text style={styles.summaryValue}>{Number(summary.total_vehicles || 0)}</Text>
-          </View>
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>Assigned</Text>
-            <Text style={styles.summaryValue}>{Number(summary.assigned_vehicles || 0)}</Text>
-          </View>
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>Drivers</Text>
-            <Text style={styles.summaryValue}>{Number(summary.drivers || 0)}</Text>
-          </View>
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>Gross Earnings</Text>
-            <Text style={styles.summaryValueSmall}>{formatCurrency(summary.gross_earnings)}</Text>
-          </View>
-        </View>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.tabRow}
+          style={styles.tabScroller}>
+          {OPERATOR_TABS.map((tab) => {
+            const active = activeTab === tab.key;
+            return (
+              <TouchableOpacity
+                key={tab.key}
+                style={[styles.tabButton, active && styles.tabButtonActive]}
+                onPress={() => setActiveTab(tab.key)}>
+                <Text style={[styles.tabText, active && styles.tabTextActive]}>{tab.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
 
+        {activeTab === 'overview' && (
+          <>
+            <View style={styles.summaryGrid}>
+              <View style={styles.summaryCard}>
+                <Text style={styles.summaryLabel}>Fleet Vehicles</Text>
+                <Text style={styles.summaryValue}>{Number(summary.total_vehicles || 0)}</Text>
+              </View>
+              <View style={styles.summaryCard}>
+                <Text style={styles.summaryLabel}>Assigned</Text>
+                <Text style={styles.summaryValue}>{Number(summary.assigned_vehicles || 0)}</Text>
+              </View>
+              <View style={styles.summaryCard}>
+                <Text style={styles.summaryLabel}>Drivers</Text>
+                <Text style={styles.summaryValue}>{Number(summary.drivers || 0)}</Text>
+              </View>
+              <View style={styles.summaryCard}>
+                <Text style={styles.summaryLabel}>Completed Rides</Text>
+                <Text style={styles.summaryValue}>{Number(summary.completed_rides || 0)}</Text>
+              </View>
+              <View style={styles.summaryCard}>
+                <Text style={styles.summaryLabel}>Gross Earnings</Text>
+                <Text style={styles.summaryValueSmall}>{formatCurrency(summary.gross_earnings)}</Text>
+              </View>
+              <View style={styles.summaryCard}>
+                <Text style={styles.summaryLabel}>Verification</Text>
+                <Text style={styles.summaryValueSmall}>{titleForRole(profile?.verification_status || 'pending')}</Text>
+              </View>
+            </View>
+
+            <View style={styles.panel}>
+              <Text style={styles.sectionTitle}>Recent Completed Rides</Text>
+              {recentBookings.length === 0 ? (
+                <Text style={styles.emptyText}>No completed rides yet.</Text>
+              ) : (
+                recentBookings.slice(0, 8).map((booking) => (
+                  <View key={booking.id || booking._id || `${booking.driver_id}-${booking.created_at}`} style={styles.rideRow}>
+                    <View>
+                      <Text style={styles.rideTitle}>
+                        {booking.pickup_address || booking.pickup_location?.address || 'Pickup'}
+                        {' -> '}
+                        {booking.drop_address || booking.drop_location?.address || 'Drop'}
+                      </Text>
+                      <Text style={styles.vehicleMeta}>
+                        Driver {booking.driver_name || booking.driver_id || '-'} | {formatDateTime(booking.created_at)}
+                      </Text>
+                    </View>
+                    <Text style={styles.rideFare}>{formatCurrency(booking.final_fare || booking.estimated_fare)}</Text>
+                  </View>
+                ))
+              )}
+            </View>
+          </>
+        )}
+
+        {activeTab === 'profile' && (
         <View style={styles.panel}>
           <Text style={styles.sectionTitle}>Business Profile</Text>
           <View style={styles.formGrid}>
@@ -420,7 +512,10 @@ export default function OperatorDashboard({ token, user, onLogout }) {
             <Text style={styles.primaryText}>Save Profile</Text>
           </TouchableOpacity>
         </View>
+        )}
 
+        {activeTab === 'vehicles' && (
+          <>
         <View style={styles.panel}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>{editingVehicleId ? 'Edit Fleet Vehicle' : 'Add Fleet Vehicle'}</Text>
@@ -573,6 +668,58 @@ export default function OperatorDashboard({ token, user, onLogout }) {
             ))
           )}
         </View>
+          </>
+        )}
+
+        {activeTab === 'fleet' && (
+          operatorFleetId ? (
+            <FleetDashboardAdvanced token={token} fleetId={operatorFleetId} onTabChange={handleAdvancedTabChange} />
+          ) : (
+            <View style={styles.panel}>
+              <Text style={styles.emptyText}>Operator profile is still loading.</Text>
+            </View>
+          )
+        )}
+
+        {activeTab === 'wallet' && (
+          operatorFleetId ? (
+            <FleetWalletPanel token={token} fleetId={operatorFleetId} />
+          ) : (
+            <View style={styles.panel}>
+              <Text style={styles.emptyText}>Operator profile is still loading.</Text>
+            </View>
+          )
+        )}
+
+        {activeTab === 'performance' && (
+          operatorFleetId ? (
+            <PerformanceRankingsPanel token={token} fleetId={operatorFleetId} />
+          ) : (
+            <View style={styles.panel}>
+              <Text style={styles.emptyText}>Operator profile is still loading.</Text>
+            </View>
+          )
+        )}
+
+        {activeTab === 'map' && (
+          operatorFleetId ? (
+            <LiveFleetMapPanel token={token} fleetId={operatorFleetId} />
+          ) : (
+            <View style={styles.panel}>
+              <Text style={styles.emptyText}>Operator profile is still loading.</Text>
+            </View>
+          )
+        )}
+
+        {activeTab === 'incentives' && (
+          operatorFleetId ? (
+            <IncentiveManagementPanel token={token} fleetId={operatorFleetId} />
+          ) : (
+            <View style={styles.panel}>
+              <Text style={styles.emptyText}>Operator profile is still loading.</Text>
+            </View>
+          )
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -639,6 +786,34 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 12,
     fontWeight: '700',
+  },
+  tabScroller: {
+    marginBottom: 14,
+  },
+  tabRow: {
+    gap: 8,
+    paddingRight: 8,
+  },
+  tabButton: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 8,
+    backgroundColor: COLORS.surface,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    minWidth: 96,
+    alignItems: 'center',
+  },
+  tabButtonActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  tabText: {
+    color: COLORS.textMain,
+    fontWeight: '800',
+  },
+  tabTextActive: {
+    color: '#FFFFFF',
   },
   summaryGrid: {
     flexDirection: 'row',
@@ -790,6 +965,25 @@ const styles = StyleSheet.create({
   emptyText: {
     color: COLORS.textMuted,
     fontWeight: '700',
+  },
+  rideRow: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 8,
+    backgroundColor: COLORS.bg,
+    padding: 12,
+    marginBottom: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  rideTitle: {
+    color: COLORS.textMain,
+    fontWeight: '900',
+  },
+  rideFare: {
+    color: COLORS.primary,
+    fontWeight: '900',
   },
   vehicleCard: {
     borderWidth: 1,

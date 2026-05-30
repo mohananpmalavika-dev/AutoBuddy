@@ -3,6 +3,7 @@ import * as Location from 'expo-location';
 import { Platform } from 'react-native';
 
 import { createAutoBuddySocket } from '../lib/socket';
+import { emitDriverLocation } from '../services/socketClient';
 import { apiRequest } from '../lib/api';
 import {
   startBackgroundDriverTracking,
@@ -73,7 +74,12 @@ export function useDriverRealtimeTracking({
     setCurrentSpeed(normalizedSpeed);
     updateAdaptiveIntervalFromKmh(normalizedSpeed);
     if (socketRef.current?.connected) {
-      socketRef.current.emit('driver_location_update', payload);
+      try {
+        emitDriverLocation(payload.booking_id || activeRideId, payload.latitude, payload.longitude, payload.accuracy);
+      } catch (err) {
+        // Fallback to raw socket emit if helper fails
+        socketRef.current.emit('driver_location_update', payload);
+      }
     }
     clearTimeout(telemetryTimerRef.current);
     telemetryTimerRef.current = setTimeout(() => {
@@ -206,7 +212,11 @@ export function useDriverRealtimeTracking({
         socket.emit('request_ride_sync', { booking_id: activeRideId });
       }
       if (lastLocationRef.current) {
-        socket.emit('driver_location_update', lastLocationRef.current);
+        try {
+          emitDriverLocation(lastLocationRef.current.booking_id || activeRideId, lastLocationRef.current.latitude, lastLocationRef.current.longitude, lastLocationRef.current.accuracy);
+        } catch (err) {
+          socket.emit('driver_location_update', lastLocationRef.current);
+        }
       }
     };
 

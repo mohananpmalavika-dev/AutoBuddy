@@ -10,7 +10,7 @@
 
 import io, { Socket } from 'socket.io-client';
 
-const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || 'http://localhost:8000';
+const SOCKET_URL = process.env.EXPO_PUBLIC_SOCKET_URL || process.env.REACT_APP_SOCKET_URL || 'http://localhost:10000';
 
 let socketInstance: Socket | null = null;
 
@@ -181,11 +181,60 @@ export const joinRoom = (room: string) => {
 };
 
 /**
+ * Join ride tracking room and listen for location updates
+ */
+export const joinRideTracking = (rideId: string, handlers: SocketEventHandlers) => {
+  if (!socketInstance) return;
+  
+  const roomName = `ride_${rideId}`;
+  socketInstance.emit('join_room', { room: roomName });
+  
+  // Listen for driver location updates in this ride
+  socketInstance.on('driver_location', (data) => {
+    handlers.onDriverLocation?.(data);
+  });
+  
+  // Listen for ride status changes
+  socketInstance.on('ride_status_changed', (data) => {
+    handlers.onRideStatusChanged?.(data);
+  });
+};
+
+/**
+ * Emit driver location for real-time tracking
+ */
+export const emitDriverLocation = (rideId: string, latitude: number, longitude: number, accuracy?: number) => {
+  if (!socketInstance) return;
+  
+  socketInstance.emit('driver_location_update', {
+    ride_id: rideId,
+    latitude,
+    longitude,
+    accuracy: accuracy || 0,
+    timestamp: new Date().toISOString(),
+  });
+};
+
+/**
  * Leave a specific room
  */
 export const leaveRoom = (room: string) => {
   if (!socketInstance) return;
   socketInstance.emit('leave_room', { room });
+};
+
+/**
+ * Leave ride tracking room
+ */
+export const leaveRideTracking = (rideId: string) => {
+  if (!socketInstance) return;
+  
+  const roomName = `ride_${rideId}`;
+  socketInstance.emit('leave_room', { room: roomName });
+  
+  // Unsubscribe from location events
+  socketInstance.off('driver_location');
+  socketInstance.off('ride_status_changed');
 };
 
 /**

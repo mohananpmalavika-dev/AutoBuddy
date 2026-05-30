@@ -4,6 +4,7 @@ import * as TaskManager from 'expo-task-manager';
 import { Platform } from 'react-native';
 
 import { API_BASE_URL } from '../lib/api';
+import { emitDriverLocation } from './socketClient';
 
 export const DRIVER_BACKGROUND_LOCATION_TASK = 'AUTOBUDDY_DRIVER_BACKGROUND_LOCATION_TASK';
 
@@ -87,8 +88,39 @@ if (!TaskManager.isTaskDefined(DRIVER_BACKGROUND_LOCATION_TASK)) {
       return;
     }
     const latest = locations[0];
-    await postDriverLocation(latest?.coords || {});
+    const coords = latest?.coords || {};
+    await postDriverLocation(coords);
+
+    // Telemetry/logging: attempt socket emit for background updates
+    try {
+      const rideId = await AsyncStorage.getItem(BG_TRACKING_RIDE_ID_KEY) || '';
+      const latitude = toNumber(coords.latitude);
+      const longitude = toNumber(coords.longitude);
+      const accuracy = toNumber(coords.accuracy);
+      if (latitude !== null && longitude !== null) {
+        // emitDriverLocation is resilient if socket isn't connected in background
+        emitDriverLocation(rideId || '', latitude, longitude, accuracy);
+        await appendBackgroundLog({ type: 'emit', rideId: rideId || null, latitude, longitude, accuracy, ts: Date.now() });
+      }
+    } catch (e) {
+      // ensure background task doesn't crash
+      await appendBackgroundLog({ type: 'emit_error', message: String(e), ts: Date.now() });
+    }
   });
+}
+
+async function appendBackgroundLog(entry) {
+  try {
+    const key = 'autobuddy_bg_emit_logs_v1';
+    const raw = await AsyncStorage.getItem(key);
+    const arr = raw ? JSON.parse(raw) : [];
+    arr.push(entry);
+    // keep only last 200 entries to limit storage
+    if (arr.length > 200) arr.splice(0, arr.length - 200);
+    await AsyncStorage.setItem(key, JSON.stringify(arr));
+  } catch (err) {
+    // swallow
+  }
 }
 
 export async function startBackgroundDriverTracking({ token, activeRideId }) {
