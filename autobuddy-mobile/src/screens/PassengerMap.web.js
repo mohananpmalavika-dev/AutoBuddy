@@ -168,6 +168,7 @@ const DEFAULT_CITY_LOCATION = {
   latitude: 13.0827,
   longitude: 80.2707,
 };
+const SHOW_LEGACY_ONE_PAGE_BOOKING_FLOW = false;
 
 export function PassengerMapContent({ token, user, onLogout, onProfilePress = undefined }) {
   const autoPickupInitializedRef = useRef(false);
@@ -851,9 +852,17 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   }, [activeBooking, activeBooking?.id, activeBooking?.status, showRatingModal]);
 
   const handleBookingComplete = useCallback((bookingData) => {
-    if (bookingData && bookingData.booking_id) {
-      setMessage(`Booking created! ID: ${bookingData.booking_id}`);
-      setActiveBooking(bookingData);
+    const bookingId = bookingData?.booking_id || bookingData?.bookingId || bookingData?.id;
+    if (bookingId) {
+      setMessage(`Booking created! ID: ${bookingId}`);
+      setActiveBooking({
+        ...bookingData,
+        id: bookingData?.id || bookingId,
+        booking_id: bookingId,
+        status: bookingData?.status || 'pending',
+      });
+      setBookingJustCreated(true);
+      refreshPassengerBookingsRef.current?.({ silent: true });
     }
     setShowBookingFlow(false);
   }, []);
@@ -2148,6 +2157,18 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             )}
 
             {activePassengerMenu === 'ride' && (
+              <View style={styles.infoBlock}>
+                <TouchableOpacity
+                  style={[styles.bookingButton, { backgroundColor: COLORS.primary }]}
+                  onPress={() => setShowBookingFlow(true)}>
+                  <Text style={[styles.actionText, { color: '#FFFFFF', fontSize: 16 }]}>
+                    {t.rideBooking}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {SHOW_LEGACY_ONE_PAGE_BOOKING_FLOW && activePassengerMenu === 'ride' && (
               <>
                 {/* PHASE 3A: Simplified UI - removed redundant InteractiveMap component */}
                 {/* Use top WebGoogleLiveMap for visual reference, text search below for location selection */}
@@ -2968,6 +2989,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             <PassengerBookingNavigator
               onBookingComplete={handleBookingComplete}
               onCancel={handleBookingCancel}
+              initialPickup={pickupLocation}
+              initialDropoff={dropoffLocation}
             />
           </View>
         )}

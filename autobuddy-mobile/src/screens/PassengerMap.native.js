@@ -151,11 +151,13 @@ function PassengerMenuIcon({ symbol, selected, size = 16 }) {
 
 const DEFAULT_REGION = { latitude: 13.0827, longitude: 80.2707, latitudeDelta: 0.05, longitudeDelta: 0.05 };
 const passengerMapStyle = [];
+const SHOW_LEGACY_ONE_PAGE_BOOKING_FLOW = false;
 
 export function PassengerMapContent({ token, user, onLogout, onProfilePress = undefined }) {
   const autoPickupInitializedRef = useRef(false);
   const bookingStatusRef = useRef({ bookingId: null, status: null });
   const driverAddressCacheRef = useRef(new Map());
+  const refreshPassengerBookingsRef = useRef(null);
   const passengerPollInFlightRef = useRef(false);
   const passengerPollCycleRef = useRef(0);
   const [loading, setLoading] = useState(false);
@@ -328,10 +330,17 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   }, [activeBooking, activeBooking?.id, activeBooking?.status, showRatingModal]);
 
   const handleBookingComplete = useCallback((bookingData) => {
-    if (bookingData && bookingData.booking_id) {
-      setMessage(`Booking created! ID: ${bookingData.booking_id}`);
-      // Auto-refresh active bookings list
-      setActiveBooking(bookingData);
+    const bookingId = bookingData?.booking_id || bookingData?.bookingId || bookingData?.id;
+    if (bookingId) {
+      setMessage(`Booking created! ID: ${bookingId}`);
+      setActiveBooking({
+        ...bookingData,
+        id: bookingData?.id || bookingId,
+        booking_id: bookingId,
+        status: bookingData?.status || 'pending',
+      });
+      setBookingJustCreated(true);
+      refreshPassengerBookingsRef.current?.({ silent: true });
     }
     setShowBookingFlow(false);
   }, []);
@@ -771,6 +780,10 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       return [];
     }
   };
+
+  useEffect(() => {
+    refreshPassengerBookingsRef.current = refreshPassengerBookings;
+  });
 
   const loadMoreHistory = async () => {
     try {
@@ -1781,6 +1794,18 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           )}
 
           {activePassengerMenu === 'ride' && (
+            <View style={styles.infoBlock}>
+              <TouchableOpacity
+                onPress={() => setShowBookingFlow(true)}
+                style={[styles.actionButton, { backgroundColor: COLORS.primary, paddingVertical: 12 }]}>
+                <Text style={{ color: '#FFF', fontSize: 16, fontWeight: '600', textAlign: 'center' }}>
+                  Ride Booking
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {SHOW_LEGACY_ONE_PAGE_BOOKING_FLOW && activePassengerMenu === 'ride' && (
             <>
               {/* PHASE 2: Interactive Map for faster location selection - 67% time reduction */}
               {showInteractiveMap && (
@@ -1828,16 +1853,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                 </Text>
               </TouchableOpacity>
 
-              <TouchableOpacity
-                onPress={() => setShowBookingFlow(true)}
-                style={[
-                  styles.confirmButton,
-                  { backgroundColor: COLORS.primary, marginHorizontal: 12, marginBottom: 12 },
-                ]}>
-                <Text style={{ color: '#FFF', fontSize: 16, fontWeight: '600' }}>
-                  📱 Book New Ride
-                </Text>
-              </TouchableOpacity>
+              {/* One-page booking removed: prefer two-screen flow to reduce scrolling and confusion */}
 
               <View style={styles.searchBlock}>
                 <Text style={styles.searchLabel}>Select Point</Text>
@@ -2621,10 +2637,12 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           animationType="slide"
           transparent={false}
           onRequestClose={() => setShowBookingFlow(false)}>
-          <PassengerBookingNavigator
-            onBookingComplete={handleBookingComplete}
-            onCancel={handleBookingCancel}
-          />
+            <PassengerBookingNavigator
+              onBookingComplete={handleBookingComplete}
+              onCancel={handleBookingCancel}
+              initialPickup={pickupLocation}
+              initialDropoff={dropoffLocation}
+            />
         </Modal>
 
         {/* Post-Ride Rating Modal */}

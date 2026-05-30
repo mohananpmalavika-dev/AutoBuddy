@@ -95,6 +95,7 @@ export default function InteractiveMap({
   dropoffLocation = null,
   selectingPoint = null,
   onLocationSelect = () => {},
+  onLocationsReset = null,
   center = null,
   style = styles.container,
   isLoading = false,
@@ -110,6 +111,32 @@ export default function InteractiveMap({
   const [dropoffAddress, setDropoffAddress] = useState(dropoffLocation?.address || '');
   const [geocodingPickup, setGeocodingPickup] = useState(false);
   const [geocodingDropoff, setGeocodingDropoff] = useState(false);
+  const controlledPickupMarkerPos = useMemo(
+    () => (
+      pickupLocation
+        ? {
+          latitude: Number(pickupLocation.latitude),
+          longitude: Number(pickupLocation.longitude),
+        }
+        : null
+    ),
+    [pickupLocation?.latitude, pickupLocation?.longitude],
+  );
+  const controlledDropoffMarkerPos = useMemo(
+    () => (
+      dropoffLocation
+        ? {
+          latitude: Number(dropoffLocation.latitude),
+          longitude: Number(dropoffLocation.longitude),
+        }
+        : null
+    ),
+    [dropoffLocation?.latitude, dropoffLocation?.longitude],
+  );
+  const activePickupMarkerPos = controlledPickupMarkerPos || pickupMarkerPos;
+  const activeDropoffMarkerPos = controlledDropoffMarkerPos || dropoffMarkerPos;
+  const activePickupAddress = pickupLocation?.address || pickupAddress;
+  const activeDropoffAddress = dropoffLocation?.address || dropoffAddress;
 
   // Compute map region
   const mapRegion = useMemo(() => {
@@ -121,11 +148,11 @@ export default function InteractiveMap({
         longitudeDelta: 0.05,
       };
     }
-    if (pickupMarkerPos && dropoffMarkerPos) {
-      const avgLat = (pickupMarkerPos.latitude + dropoffMarkerPos.latitude) / 2;
-      const avgLng = (pickupMarkerPos.longitude + dropoffMarkerPos.longitude) / 2;
-      const deltaLat = Math.abs(pickupMarkerPos.latitude - dropoffMarkerPos.latitude) + 0.01;
-      const deltaLng = Math.abs(pickupMarkerPos.longitude - dropoffMarkerPos.longitude) + 0.01;
+    if (activePickupMarkerPos && activeDropoffMarkerPos) {
+      const avgLat = (activePickupMarkerPos.latitude + activeDropoffMarkerPos.latitude) / 2;
+      const avgLng = (activePickupMarkerPos.longitude + activeDropoffMarkerPos.longitude) / 2;
+      const deltaLat = Math.abs(activePickupMarkerPos.latitude - activeDropoffMarkerPos.latitude) + 0.01;
+      const deltaLng = Math.abs(activePickupMarkerPos.longitude - activeDropoffMarkerPos.longitude) + 0.01;
       return {
         latitude: avgLat,
         longitude: avgLng,
@@ -133,24 +160,24 @@ export default function InteractiveMap({
         longitudeDelta: deltaLng * 1.5,
       };
     }
-    if (pickupMarkerPos) {
+    if (activePickupMarkerPos) {
       return {
-        latitude: pickupMarkerPos.latitude,
-        longitude: pickupMarkerPos.longitude,
+        latitude: activePickupMarkerPos.latitude,
+        longitude: activePickupMarkerPos.longitude,
         latitudeDelta: 0.05,
         longitudeDelta: 0.05,
       };
     }
-    if (dropoffMarkerPos) {
+    if (activeDropoffMarkerPos) {
       return {
-        latitude: dropoffMarkerPos.latitude,
-        longitude: dropoffMarkerPos.longitude,
+        latitude: activeDropoffMarkerPos.latitude,
+        longitude: activeDropoffMarkerPos.longitude,
         latitudeDelta: 0.05,
         longitudeDelta: 0.05,
       };
     }
     return DEFAULT_REGION;
-  }, [center, pickupMarkerPos, dropoffMarkerPos]);
+  }, [center, activePickupMarkerPos, activeDropoffMarkerPos]);
 
   // Reverse geocode location when marker is placed
   const reverseGeocodeMarker = useCallback(async (lat, lng, setAddress, setGeocoding) => {
@@ -176,7 +203,9 @@ export default function InteractiveMap({
       const lat = e.nativeEvent.coordinate.latitude;
       const lng = e.nativeEvent.coordinate.longitude;
 
-      if (!pickupMarkerPos) {
+      const targetPoint = selectingPoint || (!activePickupMarkerPos ? 'pickup' : !activeDropoffMarkerPos ? 'dropoff' : null);
+
+      if (targetPoint === 'pickup') {
         // Selecting pickup location
         setPickupMarkerPos({ latitude: lat, longitude: lng });
         reverseGeocodeMarker(lat, lng, setPickupAddress, setGeocodingPickup);
@@ -185,7 +214,7 @@ export default function InteractiveMap({
           longitude: lng,
           address: `Lat ${lat.toFixed(6)}, Lng ${lng.toFixed(6)}`,
         });
-      } else if (!dropoffMarkerPos) {
+      } else if (targetPoint === 'dropoff') {
         // Selecting dropoff location
         setDropoffMarkerPos({ latitude: lat, longitude: lng });
         reverseGeocodeMarker(lat, lng, setDropoffAddress, setGeocodingDropoff);
@@ -196,7 +225,7 @@ export default function InteractiveMap({
         });
       }
     },
-    [pickupMarkerPos, dropoffMarkerPos, onLocationSelect, reverseGeocodeMarker],
+    [selectingPoint, activePickupMarkerPos, activeDropoffMarkerPos, onLocationSelect, reverseGeocodeMarker],
   );
 
   // Handle marker drag end to refine location
@@ -232,7 +261,8 @@ export default function InteractiveMap({
     setDropoffMarkerPos(null);
     setPickupAddress('');
     setDropoffAddress('');
-  }, []);
+    onLocationsReset?.();
+  }, [onLocationsReset]);
 
   // Zoom to fit both markers
   const handleZoomToFit = useCallback(() => {

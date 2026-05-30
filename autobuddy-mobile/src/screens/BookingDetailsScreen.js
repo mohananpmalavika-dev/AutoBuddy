@@ -21,6 +21,7 @@ import {
 } from '../lib/places';
 import SavedPlacesQuickSelect from '../components/SavedPlacesQuickSelect';
 import ScheduledPickupPicker from '../components/ScheduledPickupPicker';
+import InteractiveMap from '../components/InteractiveMap';
 
 /**
  * BookingDetailsScreen
@@ -57,10 +58,17 @@ const BookingDetailsScreen = ({ navigation, route }) => {
   const selectedCapacity = Number(vehicle_subtype_capacity || vehicle_capacity || 0);
   const selectedCapacityUnit = capacity_unit || 'passengers';
 
-  const [pickupLocation, setPickupLocation] = useState('');
-  const [dropoffLocation, setDropoffLocation] = useState('');
-  const [pickupCoords, setPickupCoords] = useState(null);
-  const [dropoffCoords, setDropoffCoords] = useState(null);
+  const initialPickup = route.params?.initialPickup || null;
+  const initialDropoff = route.params?.initialDropoff || null;
+
+  const [pickupLocation, setPickupLocation] = useState(initialPickup?.address || '');
+  const [dropoffLocation, setDropoffLocation] = useState(initialDropoff?.address || '');
+  const [pickupCoords, setPickupCoords] = useState(
+    initialPickup ? { latitude: initialPickup.latitude, longitude: initialPickup.longitude } : null,
+  );
+  const [dropoffCoords, setDropoffCoords] = useState(
+    initialDropoff ? { latitude: initialDropoff.latitude, longitude: initialDropoff.longitude } : null,
+  );
   const [rideDate, setRideDate] = useState(new Date());
   const [passengerCount, setPassengerCount] = useState(1);
   
@@ -210,7 +218,10 @@ const BookingDetailsScreen = ({ navigation, route }) => {
   useEffect(() => {
     // Get current location for pickup
     const timer = setTimeout(() => {
-      getCurrentLocation();
+      // Only get current location if pickup not already provided
+      if (!pickupCoords) {
+        getCurrentLocation();
+      }
       fetchSavedPlaces();
     }, 0);
     return () => clearTimeout(timer);
@@ -311,7 +322,12 @@ const BookingDetailsScreen = ({ navigation, route }) => {
         
         // Navigate to ride details
         navigation.navigate('RideDetails', {
+          ...(bookingResponse || {}),
+          booking: bookingResponse,
           bookingId,
+          booking_id: bookingId,
+          id: bookingResponse?.id || bookingId,
+          status: bookingResponse?.status || 'pending',
         });
       }
     } catch (error) {
@@ -327,6 +343,44 @@ const BookingDetailsScreen = ({ navigation, route }) => {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        {/* Mini interactive map to pick pickup/dropoff within two-step flow */}
+        <View style={{ marginBottom: 12 }}>
+          <InteractiveMap
+            pickupLocation={pickupCoords ? { latitude: pickupCoords.latitude, longitude: pickupCoords.longitude, address: pickupLocation } : null}
+            dropoffLocation={dropoffCoords ? { latitude: dropoffCoords.latitude, longitude: dropoffCoords.longitude, address: dropoffLocation } : null}
+            selectingPoint={!pickupCoords ? 'pickup' : !dropoffCoords ? 'dropoff' : null}
+            onLocationSelect={(point, location) => {
+              if (!location) {
+                if (point === 'pickup') {
+                  setPickupCoords(null);
+                  setPickupLocation('');
+                } else if (point === 'dropoff') {
+                  setDropoffCoords(null);
+                  setDropoffLocation('');
+                }
+                return;
+              }
+              if (point === 'pickup') {
+                setPickupCoords({ latitude: location.latitude, longitude: location.longitude });
+                setPickupLocation(location.address || pickupLocation || '');
+              } else if (point === 'dropoff') {
+                setDropoffCoords({ latitude: location.latitude, longitude: location.longitude });
+                setDropoffLocation(location.address || dropoffLocation || '');
+              }
+            }}
+            onLocationsReset={() => {
+              setPickupCoords(null);
+              setDropoffCoords(null);
+              setPickupLocation('');
+              setDropoffLocation('');
+            }}
+            center={
+              pickupCoords || dropoffCoords
+                ? { latitude: (pickupCoords || dropoffCoords).latitude, longitude: (pickupCoords || dropoffCoords).longitude }
+                : undefined
+            }
+          />
+        </View>
         {/* Header with back button */}
         <View style={styles.header}>
           <TouchableOpacity
@@ -414,12 +468,14 @@ const BookingDetailsScreen = ({ navigation, route }) => {
             <TouchableOpacity
               style={styles.swapButton}
               onPress={() => {
-                [pickupLocation, dropoffLocation] = [dropoffLocation, pickupLocation];
-                [pickupCoords, dropoffCoords] = [dropoffCoords, pickupCoords];
-                setPickupLocation(pickupLocation);
-                setDropoffLocation(dropoffLocation);
-                setPickupCoords(pickupCoords);
-                setDropoffCoords(dropoffCoords);
+                const nextPickupLocation = dropoffLocation;
+                const nextDropoffLocation = pickupLocation;
+                const nextPickupCoords = dropoffCoords;
+                const nextDropoffCoords = pickupCoords;
+                setPickupLocation(nextPickupLocation);
+                setDropoffLocation(nextDropoffLocation);
+                setPickupCoords(nextPickupCoords);
+                setDropoffCoords(nextDropoffCoords);
               }}
             >
               <Text style={styles.swapButtonText}>⬌ Swap</Text>

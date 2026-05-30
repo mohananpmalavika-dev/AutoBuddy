@@ -10,7 +10,7 @@ import BookingDetailsScreen from './BookingDetailsScreen';
  * 2. BookingDetailsScreen - Enter locations and complete booking
  */
 
-const PassengerBookingNavigator = ({ onBookingComplete, onCancel }) => {
+const PassengerBookingNavigator = ({ onBookingComplete, onCancel, initialPickup = null, initialDropoff = null }) => {
   const [currentScreen, setCurrentScreen] = useState('service-selection');
   const [selectedService, setSelectedService] = useState(null);
 
@@ -63,7 +63,11 @@ const PassengerBookingNavigator = ({ onBookingComplete, onCancel }) => {
             goBack: handleGoBack,
           }}
           route={{
-            params: selectedService,
+            params: {
+              ...selectedService,
+              initialPickup,
+              initialDropoff,
+            },
           }}
         />
       )}

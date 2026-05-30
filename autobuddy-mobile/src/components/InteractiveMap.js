@@ -130,6 +130,7 @@ export default function InteractiveMap({
   dropoffLocation = null,
   selectingPoint = null,
   onLocationSelect = () => {},
+  onLocationsReset = null,
   center = null,
   style = styles.container,
   isLoading = false,
@@ -147,26 +148,46 @@ export default function InteractiveMap({
   const [dropoffAddress, setDropoffAddress] = useState(dropoffLocation?.address || '');
   const [geocodingPickup, setGeocodingPickup] = useState(false);
   const [geocodingDropoff, setGeocodingDropoff] = useState(false);
+  const controlledPickupMarkerPos = useMemo(
+    () => (
+      pickupLocation
+        ? { lat: Number(pickupLocation.latitude), lng: Number(pickupLocation.longitude) }
+        : null
+    ),
+    [pickupLocation?.latitude, pickupLocation?.longitude],
+  );
+  const controlledDropoffMarkerPos = useMemo(
+    () => (
+      dropoffLocation
+        ? { lat: Number(dropoffLocation.latitude), lng: Number(dropoffLocation.longitude) }
+        : null
+    ),
+    [dropoffLocation?.latitude, dropoffLocation?.longitude],
+  );
+  const activePickupMarkerPos = controlledPickupMarkerPos || pickupMarkerPos;
+  const activeDropoffMarkerPos = controlledDropoffMarkerPos || dropoffMarkerPos;
+  const activePickupAddress = pickupLocation?.address || pickupAddress;
+  const activeDropoffAddress = dropoffLocation?.address || dropoffAddress;
 
   // Compute map center
   const mapCenter = useMemo(() => {
     if (center) {
       return { lat: Number(center.lat || center.latitude), lng: Number(center.lng || center.longitude) };
     }
-    if (pickupMarkerPos && dropoffMarkerPos) {
+    if (activePickupMarkerPos && activeDropoffMarkerPos) {
       return {
-        lat: (pickupMarkerPos.lat + dropoffMarkerPos.lat) / 2,
-        lng: (pickupMarkerPos.lng + dropoffMarkerPos.lng) / 2,
+        lat: (activePickupMarkerPos.lat + activeDropoffMarkerPos.lat) / 2,
+        lng: (activePickupMarkerPos.lng + activeDropoffMarkerPos.lng) / 2,
       };
     }
-    if (pickupMarkerPos) {
-      return pickupMarkerPos;
+    if (activePickupMarkerPos) {
+      return activePickupMarkerPos;
     }
-    if (dropoffMarkerPos) {
-      return dropoffMarkerPos;
+    if (activeDropoffMarkerPos) {
+      return activeDropoffMarkerPos;
     }
     return DEFAULT_CENTER;
-  }, [center, pickupMarkerPos, dropoffMarkerPos]);
+  }, [center, activePickupMarkerPos, activeDropoffMarkerPos]);
 
   // Reverse geocode location when marker moves
   const reverseGeocodeMarker = useCallback(async (lat, lng, setAddress, setGeocoding) => {
@@ -193,7 +214,9 @@ export default function InteractiveMap({
       const lat = e.latLng.lat();
       const lng = e.latLng.lng();
 
-      if (!pickupMarkerPos) {
+      const targetPoint = selectingPoint || (!activePickupMarkerPos ? 'pickup' : !activeDropoffMarkerPos ? 'dropoff' : null);
+
+      if (targetPoint === 'pickup') {
         // Selecting pickup location
         setPickupMarkerPos({ lat, lng });
         reverseGeocodeMarker(lat, lng, setPickupAddress, setGeocodingPickup);
@@ -202,7 +225,7 @@ export default function InteractiveMap({
           longitude: lng,
           address: `Lat ${lat.toFixed(6)}, Lng ${lng.toFixed(6)}`,
         });
-      } else if (!dropoffMarkerPos) {
+      } else if (targetPoint === 'dropoff') {
         // Selecting dropoff location
         setDropoffMarkerPos({ lat, lng });
         reverseGeocodeMarker(lat, lng, setDropoffAddress, setGeocodingDropoff);
@@ -213,7 +236,7 @@ export default function InteractiveMap({
         });
       }
     },
-    [pickupMarkerPos, dropoffMarkerPos, onLocationSelect, reverseGeocodeMarker],
+    [selectingPoint, activePickupMarkerPos, activeDropoffMarkerPos, onLocationSelect, reverseGeocodeMarker],
   );
 
   // Handle marker drag end (refine location)
@@ -228,7 +251,7 @@ export default function InteractiveMap({
         onLocationSelect('pickup', {
           latitude: lat,
           longitude: lng,
-          address: pickupAddress,
+          address: activePickupAddress || `Lat ${lat.toFixed(6)}, Lng ${lng.toFixed(6)}`,
         });
       } else if (markerId === 'dropoff') {
         setDropoffMarkerPos({ lat, lng });
@@ -236,11 +259,11 @@ export default function InteractiveMap({
         onLocationSelect('dropoff', {
           latitude: lat,
           longitude: lng,
-          address: dropoffAddress,
+          address: activeDropoffAddress || `Lat ${lat.toFixed(6)}, Lng ${lng.toFixed(6)}`,
         });
       }
     },
-    [onLocationSelect, reverseGeocodeMarker, pickupAddress, dropoffAddress],
+    [onLocationSelect, reverseGeocodeMarker, activePickupAddress, activeDropoffAddress],
   );
 
   // Reset location selection
@@ -249,23 +272,24 @@ export default function InteractiveMap({
     setDropoffMarkerPos(null);
     setPickupAddress('');
     setDropoffAddress('');
-  }, []);
+    onLocationsReset?.();
+  }, [onLocationsReset]);
 
   // Zoom to fit markers
   const handleZoomToFit = useCallback(() => {
-    if (!mapRef.current || (!pickupMarkerPos && !dropoffMarkerPos)) {
+    if (!mapRef.current || (!activePickupMarkerPos && !activeDropoffMarkerPos)) {
       return;
     }
 
     const bounds = new window.google.maps.LatLngBounds();
-    if (pickupMarkerPos) {
-      bounds.extend(new window.google.maps.LatLng(pickupMarkerPos.lat, pickupMarkerPos.lng));
+    if (activePickupMarkerPos) {
+      bounds.extend(new window.google.maps.LatLng(activePickupMarkerPos.lat, activePickupMarkerPos.lng));
     }
-    if (dropoffMarkerPos) {
-      bounds.extend(new window.google.maps.LatLng(dropoffMarkerPos.lat, dropoffMarkerPos.lng));
+    if (activeDropoffMarkerPos) {
+      bounds.extend(new window.google.maps.LatLng(activeDropoffMarkerPos.lat, activeDropoffMarkerPos.lng));
     }
     mapRef.current.fitBounds(bounds);
-  }, [pickupMarkerPos, dropoffMarkerPos]);
+  }, [activePickupMarkerPos, activeDropoffMarkerPos]);
 
   // Zoom controls
   const handleZoom = useCallback(
@@ -317,9 +341,9 @@ export default function InteractiveMap({
           <>
             <View style={styles.toggleButtonRow}>
               <Text style={styles.instructionText}>
-                {!pickupMarkerPos ? '📍 Tap map to select pickup' : !dropoffMarkerPos ? '📍 Tap map to select dropoff' : '✓ Both locations selected'}
+                {!activePickupMarkerPos ? '📍 Tap map to select pickup' : !activeDropoffMarkerPos ? '📍 Tap map to select dropoff' : '✓ Both locations selected'}
               </Text>
-              {(pickupMarkerPos || dropoffMarkerPos) && (
+              {(activePickupMarkerPos || activeDropoffMarkerPos) && (
                 <TouchableOpacity style={styles.toggleButton} onPress={handleReset}>
                   <Text style={styles.toggleButtonText}>Reset</Text>
                 </TouchableOpacity>
@@ -337,49 +361,49 @@ export default function InteractiveMap({
                 mapTypeControl: false,
                 fullscreenControl: false,
               }}>
-              {pickupMarkerPos && (
+              {activePickupMarkerPos && (
                 <Marker
-                  position={pickupMarkerPos}
+                  position={activePickupMarkerPos}
                   icon={PICKUP_MARKER_ICON}
                   draggable={true}
                   onDragEnd={(e) => handleMarkerDragEnd('pickup', e)}
-                  title={pickupAddress || 'Pickup Location'}
+                  title={activePickupAddress || 'Pickup Location'}
                 />
               )}
 
-              {dropoffMarkerPos && (
+              {activeDropoffMarkerPos && (
                 <Marker
-                  position={dropoffMarkerPos}
+                  position={activeDropoffMarkerPos}
                   icon={DROPOFF_MARKER_ICON}
                   draggable={true}
                   onDragEnd={(e) => handleMarkerDragEnd('dropoff', e)}
-                  title={dropoffAddress || 'Dropoff Location'}
+                  title={activeDropoffAddress || 'Dropoff Location'}
                 />
               )}
             </GoogleMap>
 
-            {(pickupMarkerPos || dropoffMarkerPos) && (
+            {(activePickupMarkerPos || activeDropoffMarkerPos) && (
               <View style={styles.markerInfo}>
-                {pickupMarkerPos && (
+                {activePickupMarkerPos && (
                   <>
                     <Text style={styles.markerLabel}>📍 Pickup Location</Text>
                     {geocodingPickup && <ActivityIndicator color={COLORS.primary} size="small" />}
                     {!geocodingPickup && (
                       <>
-                        <Text style={styles.markerAddress}>{pickupAddress}</Text>
-                        <Text style={styles.markerCoords}>Lat {pickupMarkerPos.lat.toFixed(6)}, Lng {pickupMarkerPos.lng.toFixed(6)}</Text>
+                        <Text style={styles.markerAddress}>{activePickupAddress}</Text>
+                        <Text style={styles.markerCoords}>Lat {activePickupMarkerPos.lat.toFixed(6)}, Lng {activePickupMarkerPos.lng.toFixed(6)}</Text>
                       </>
                     )}
                   </>
                 )}
-                {dropoffMarkerPos && (
+                {activeDropoffMarkerPos && (
                   <>
-                    <Text style={[styles.markerLabel, { marginTop: pickupMarkerPos ? 8 : 0 }]}>📍 Dropoff Location</Text>
+                    <Text style={[styles.markerLabel, { marginTop: activePickupMarkerPos ? 8 : 0 }]}>📍 Dropoff Location</Text>
                     {geocodingDropoff && <ActivityIndicator color={COLORS.primary} size="small" />}
                     {!geocodingDropoff && (
                       <>
-                        <Text style={styles.markerAddress}>{dropoffAddress}</Text>
-                        <Text style={styles.markerCoords}>Lat {dropoffMarkerPos.lat.toFixed(6)}, Lng {dropoffMarkerPos.lng.toFixed(6)}</Text>
+                        <Text style={styles.markerAddress}>{activeDropoffAddress}</Text>
+                        <Text style={styles.markerCoords}>Lat {activeDropoffMarkerPos.lat.toFixed(6)}, Lng {activeDropoffMarkerPos.lng.toFixed(6)}</Text>
                       </>
                     )}
                   </>
@@ -387,7 +411,7 @@ export default function InteractiveMap({
               </View>
             )}
 
-            {(pickupMarkerPos || dropoffMarkerPos) && (
+            {(activePickupMarkerPos || activeDropoffMarkerPos) && (
               <View style={styles.zoomControlsRow}>
                 <TouchableOpacity style={styles.zoomButton} onPress={() => handleZoom('in')}>
                   <Text style={styles.zoomButtonText}>+ Zoom In</Text>
@@ -395,7 +419,7 @@ export default function InteractiveMap({
                 <TouchableOpacity style={styles.zoomButton} onPress={() => handleZoom('out')}>
                   <Text style={styles.zoomButtonText}>- Zoom Out</Text>
                 </TouchableOpacity>
-                {pickupMarkerPos && dropoffMarkerPos && (
+                {activePickupMarkerPos && activeDropoffMarkerPos && (
                   <TouchableOpacity style={styles.zoomButton} onPress={handleZoomToFit}>
                     <Text style={styles.zoomButtonText}>Fit Map</Text>
                   </TouchableOpacity>
