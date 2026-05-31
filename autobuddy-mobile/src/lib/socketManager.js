@@ -84,8 +84,11 @@ class SocketManager {
     if (Platform.OS === 'web') {
       return window.location.origin;
     }
-    // For mobile, use the API base URL
-    return process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:8001';
+    return (
+      process.env.EXPO_PUBLIC_SOCKET_BASE_URL ||
+      process.env.EXPO_PUBLIC_API_BASE_URL ||
+      (typeof __DEV__ !== 'undefined' && __DEV__ ? 'http://localhost:8001' : '')
+    );
   }
 
   /**

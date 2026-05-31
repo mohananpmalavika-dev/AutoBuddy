@@ -18,6 +18,12 @@ import {
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
+const API_BASE_URL = (
+  process.env.EXPO_PUBLIC_API_BASE_URL ||
+  process.env.REACT_APP_API_URL ||
+  '/api'
+).replace(/\/$/, '');
+
 const COLORS = {
   primary: '#2D4A7B',
   secondary: '#FF8C42',
@@ -71,7 +77,7 @@ const FleetProfitabilityScreen = () => {
   const fetchPortfolio = useCallback(async () => {
     try {
       const response = await fetch(
-        `http://localhost:8000/api/v1/fleet-profitability/fleets/${fleetId}/portfolio`,
+        `${API_BASE_URL}/v1/fleet-profitability/fleets/${fleetId}/portfolio`,
         { headers: { Authorization: 'Bearer test-token' } }
       );
       const json = await response.json();
@@ -87,7 +93,7 @@ const FleetProfitabilityScreen = () => {
   const fetchDashboard = useCallback(async () => {
     try {
       const response = await fetch(
-        `http://localhost:8000/api/v1/fleet-profitability/fleets/${fleetId}/dashboard`,
+        `${API_BASE_URL}/v1/fleet-profitability/fleets/${fleetId}/dashboard`,
         { headers: { Authorization: 'Bearer test-token' } }
       );
       const json = await response.json();
@@ -103,7 +109,7 @@ const FleetProfitabilityScreen = () => {
   const fetchVehicles = useCallback(async () => {
     try {
       const response = await fetch(
-        `http://localhost:8000/api/v1/fleet-profitability/fleets/${fleetId}/vehicles?limit=5`,
+        `${API_BASE_URL}/v1/fleet-profitability/fleets/${fleetId}/vehicles?limit=5`,
         { headers: { Authorization: 'Bearer test-token' } }
       );
       const json = await response.json();
@@ -119,7 +125,7 @@ const FleetProfitabilityScreen = () => {
   const fetchTips = useCallback(async () => {
     try {
       const response = await fetch(
-        `http://localhost:8000/api/v1/fleet-profitability/fleets/${fleetId}/optimization-tips`,
+        `${API_BASE_URL}/v1/fleet-profitability/fleets/${fleetId}/optimization-tips`,
         { headers: { Authorization: 'Bearer test-token' } }
       );
       const json = await response.json();
@@ -135,7 +141,7 @@ const FleetProfitabilityScreen = () => {
   const fetchROI = useCallback(async () => {
     try {
       const response = await fetch(
-        `http://localhost:8000/api/v1/fleet-profitability/fleets/${fleetId}/roi-summary`,
+        `${API_BASE_URL}/v1/fleet-profitability/fleets/${fleetId}/roi-summary`,
         { headers: { Authorization: 'Bearer test-token' } }
       );
       const json = await response.json();

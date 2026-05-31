@@ -47,7 +47,9 @@ function resolveSocketBaseUrl() {
 
   const trimmed = trimTrailingSlashes(API_BASE_URL);
   if (!trimmed) {
-    return 'http://localhost:10000';
+    return typeof window !== 'undefined' && window.location?.origin
+      ? window.location.origin
+      : '';
   }
   return trimmed.endsWith('/api') ? trimmed.slice(0, -4) : trimmed;
 }

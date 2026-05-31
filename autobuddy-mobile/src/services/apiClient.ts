@@ -3,7 +3,7 @@
  * Handles all backend API calls for AutoBuddy
  * 
  * Configuration:
- * - Base URL: http://localhost:8000 (development) or production URL
+ * - Base URL: production uses EXPO_PUBLIC_API_BASE_URL / REACT_APP_API_URL or relative /api on web
  * - Auth: Bearer token from Context
  * - Timeout: 30 seconds
  */
@@ -17,7 +17,7 @@ import { istISOString } from '../utils/time';
 const API_BASE_URL = (
   process.env.EXPO_PUBLIC_API_BASE_URL ||
   process.env.REACT_APP_API_URL ||
-  'http://localhost:10000'
+  (typeof window !== 'undefined' ? '/api' : '')
 )
   .replace(/\/$/, '')
   .replace(/\/api$/, '');

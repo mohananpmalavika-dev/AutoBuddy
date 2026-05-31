@@ -20,6 +20,12 @@ import {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSocket } from '../integration/socket-service';
 
+const API_BASE_URL = (
+  process.env.EXPO_PUBLIC_API_BASE_URL ||
+  process.env.REACT_APP_API_URL ||
+  '/api'
+).replace(/\/$/, '');
+
 const COLORS = {
   primary: '#2D4A7B',
   secondary: '#FF8C42',
@@ -74,7 +80,7 @@ const DriverHeatmapsScreen = () => {
   const fetchHeatmap = useCallback(async () => {
     try {
       const response = await fetch(
-        `http://localhost:8000/api/v1/heatmaps/cities/${cityId}/live`,
+        `${API_BASE_URL}/v1/heatmaps/cities/${cityId}/live`,
         { headers: { Authorization: 'Bearer test-token' } }
       );
       const json = await response.json();
@@ -90,7 +96,7 @@ const DriverHeatmapsScreen = () => {
   const fetchForecast = useCallback(async () => {
     try {
       const response = await fetch(
-        `http://localhost:8000/api/v1/heatmaps/cities/${cityId}/forecast/demand`,
+        `${API_BASE_URL}/v1/heatmaps/cities/${cityId}/forecast/demand`,
         { headers: { Authorization: 'Bearer test-token' } }
       );
       const json = await response.json();
@@ -106,7 +112,7 @@ const DriverHeatmapsScreen = () => {
   const fetchTrends = useCallback(async () => {
     try {
       const response = await fetch(
-        `http://localhost:8000/api/v1/heatmaps/cities/${cityId}/trends/weekly`,
+        `${API_BASE_URL}/v1/heatmaps/cities/${cityId}/trends/weekly`,
         { headers: { Authorization: 'Bearer test-token' } }
       );
       const json = await response.json();
@@ -122,7 +128,7 @@ const DriverHeatmapsScreen = () => {
   const fetchAlerts = useCallback(async () => {
     try {
       const response = await fetch(
-        `http://localhost:8000/api/v1/heatmaps/cities/${cityId}/supply-gap-alerts`,
+        `${API_BASE_URL}/v1/heatmaps/cities/${cityId}/supply-gap-alerts`,
         { headers: { Authorization: 'Bearer test-token' } }
       );
       const json = await response.json();
@@ -138,7 +144,7 @@ const DriverHeatmapsScreen = () => {
   const fetchRecommendations = useCallback(async () => {
     try {
       const response = await fetch(
-        `http://localhost:8000/api/v1/heatmaps/cities/${cityId}/incentive-recommendations`,
+        `${API_BASE_URL}/v1/heatmaps/cities/${cityId}/incentive-recommendations`,
         { headers: { Authorization: 'Bearer test-token' } }
       );
       const json = await response.json();
