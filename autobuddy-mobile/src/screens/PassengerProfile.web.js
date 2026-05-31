@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Image,
   Linking,
-  SafeAreaView,
   Share,
   ScrollView,
   StyleSheet,
@@ -11,6 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { apiRequest } from '../lib/api';
 import { normalizeAdminPaymentOptions, requiresUtrForPaymentMethod } from '../lib/paymentOptions';
