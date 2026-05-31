@@ -15,6 +15,8 @@ import * as Location from 'expo-location';
 import { SymbolView } from 'expo-symbols';
 import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme';
 import InteractiveMap from '../components/InteractiveMap';
+import { NotificationProvider, useNotifications } from '../contexts/NotificationContext';
+import { useNotificationManager } from '../hooks/useNotificationManager';
 
 const PASSENGER_MENU_SYMBOLS = {
   ride: { ios: 'car.fill', android: 'local_taxi', web: 'local_taxi' },
