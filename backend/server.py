@@ -99,6 +99,7 @@ from app.routers.operator_portal import (
 )
 from app.services.email_delivery import send_otp_email_message
 from app.models.canonical_vehicle_model import CANONICAL_VEHICLES_COLLECTION
+from app.models.ride_type_compatibility import is_vehicle_compatible_with_ride_type
 from app.routers.dispatch_service import router as modular_dispatch_service_router
 from app.routers.stripe_webhooks import router as modular_stripe_webhooks_router
 from app.routers.ride_operations import router as modular_ride_operations_router
@@ -8535,9 +8536,12 @@ async def get_nearby_drivers(
     radius_km: float = 5.0,
     drop_latitude: Optional[float] = None,
     drop_longitude: Optional[float] = None,
+    vehicle_type_id: Optional[str] = Query(default=None),
+    vehicle_subtype_id: Optional[str] = Query(default=None),
+    ride_type: Optional[str] = Query(default=None),
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(optional_security),
 ):
-    """Get available drivers: search in radius A first, fallback to long-distance radius B."""
+    """Get available drivers matching location, selected vehicle type, and ride type."""
     pricing = await get_pricing_rules()
     radius_cfg = get_driver_search_radius_config(pricing)
     base_radius_km = float(radius_cfg["base_radius_km"])
@@ -8573,10 +8577,39 @@ async def get_nearby_drivers(
     if not available_drivers:
         available_drivers = await db.drivers.find({"is_available": True}).to_list(250)
 
+    requested_vehicle_type = str(vehicle_type_id or "").strip().lower()
+    requested_vehicle_subtype = str(vehicle_subtype_id or "").strip().lower()
+    requested_ride_type = str(ride_type or "").strip().lower()
+
+    def driver_matches_requested_service(driver_doc: Dict[str, Any]) -> bool:
+        raw_vehicle = driver_doc.get("vehicle_info") or {}
+        driver_vehicle_type = str(
+            raw_vehicle.get("vehicle_type_id")
+            or raw_vehicle.get("vehicle_type")
+            or driver_doc.get("vehicle_type_id")
+            or driver_doc.get("vehicle_type")
+            or "auto"
+        ).strip().lower()
+        driver_vehicle_subtype = str(
+            raw_vehicle.get("vehicle_subtype_id")
+            or driver_doc.get("vehicle_subtype_id")
+            or ""
+        ).strip().lower()
+
+        if requested_vehicle_type and driver_vehicle_type != requested_vehicle_type:
+            return False
+        if requested_vehicle_subtype and driver_vehicle_subtype and driver_vehicle_subtype != requested_vehicle_subtype:
+            return False
+        if requested_ride_type and not is_vehicle_compatible_with_ride_type(driver_vehicle_type, requested_ride_type):
+            return False
+        return True
+
     nearby_drivers: List[Dict[str, Any]] = []
     primary_scored_drivers: List[Dict[str, Any]] = []
     fallback_scored_drivers: List[Dict[str, Any]] = []
     for driver in available_drivers:
+        if not driver_matches_requested_service(driver):
+            continue
         if blocked_driver_ids and driver.get("user_id") in blocked_driver_ids:
             continue
         live_location = await get_effective_driver_location(driver)

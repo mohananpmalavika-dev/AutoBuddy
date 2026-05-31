@@ -100,10 +100,12 @@ const BookingDetailsScreen = ({ navigation, route }) => {
   const {
     vehicle_type_id,
     vehicle_subtype_id,
+    vehicle_name,
     vehicle_subtype_capacity,
     vehicle_capacity,
     capacity_unit,
     ride_type,
+    ride_type_name,
   } = service;
 
   const initialPickup = useMemo(
@@ -207,6 +209,9 @@ const BookingDetailsScreen = ({ navigation, route }) => {
           drop_latitude: initialDropoff.coords.latitude,
           drop_longitude: initialDropoff.coords.longitude,
           radius_km: driverRadiusKm,
+          vehicle_type_id,
+          vehicle_subtype_id,
+          ride_type,
         },
       });
       const visibleDrivers = (Array.isArray(drivers) ? drivers : [])
@@ -219,7 +224,7 @@ const BookingDetailsScreen = ({ navigation, route }) => {
     } finally {
       setDriversLoading(false);
     }
-  }, [driverRadiusKm, hasRoute, initialDropoff, initialPickup]);
+  }, [driverRadiusKm, hasRoute, initialDropoff, initialPickup, ride_type, vehicle_subtype_id, vehicle_type_id]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -474,7 +479,9 @@ const BookingDetailsScreen = ({ navigation, route }) => {
           <View style={styles.sectionHeaderRow}>
             <View>
               <Text style={styles.sectionTitle}>Drivers within {km(driverRadiusKm)}</Text>
-              <Text style={styles.hint}>Drivers load automatically from pickup location.</Text>
+              <Text style={styles.hint}>
+                Matching {vehicle_name || vehicle_type_id || 'selected vehicle'} and {ride_type_name || ride_type || 'ride'}.
+              </Text>
             </View>
             <TouchableOpacity
               style={styles.linkButton}
