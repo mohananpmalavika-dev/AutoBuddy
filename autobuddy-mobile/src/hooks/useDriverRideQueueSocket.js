@@ -3,12 +3,18 @@ import { useEffect } from 'react';
 import { DRIVER_RIDE_SOCKET_EVENTS } from '../lib/driverDashboardFlow';
 import { createAutoBuddySocket } from '../lib/socket';
 
+const DRIVER_HEARTBEAT_INTERVAL_MS = Math.max(
+  5000,
+  Number(process.env.EXPO_PUBLIC_REALTIME_HEARTBEAT_SECONDS || 15) * 1000,
+);
+
 export function useDriverRideQueueSocket({
   token,
   socketRef,
   refreshDriverRideQueueFromRealtime,
   onSocketError,
   activeRideId = null,
+  heartbeatEnabled = false,
 }) {
   useEffect(() => {
     if (!token) {
@@ -68,4 +74,30 @@ export function useDriverRideQueueSocket({
       socket.off('connect', joinBookingRoom);
     };
   }, [activeRideId, socketRef, token]);
+
+  useEffect(() => {
+    const socket = socketRef.current;
+    if (!token || !socket || !heartbeatEnabled) {
+      return undefined;
+    }
+
+    const emitHeartbeat = () => {
+      const currentSocket = socketRef.current;
+      if (!currentSocket?.connected) {
+        return;
+      }
+      currentSocket.emit('driver_heartbeat', {
+        booking_id: String(activeRideId || '').trim() || undefined,
+      });
+    };
+
+    socket.on('connect', emitHeartbeat);
+    emitHeartbeat();
+    const timer = setInterval(emitHeartbeat, DRIVER_HEARTBEAT_INTERVAL_MS);
+
+    return () => {
+      clearInterval(timer);
+      socket.off('connect', emitHeartbeat);
+    };
+  }, [activeRideId, heartbeatEnabled, socketRef, token]);
 }

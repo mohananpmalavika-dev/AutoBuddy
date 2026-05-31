@@ -1163,6 +1163,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     token,
     socketRef: rideRequestSocketRef,
     activeRideId,
+    heartbeatEnabled: displayIsOnline && !shouldSyncDriverLocation,
     refreshDriverRideQueueFromRealtime,
     onSocketError: handleDriverRideSocketError,
   });

@@ -1326,6 +1326,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     token,
     socketRef,
     activeRideId,
+    heartbeatEnabled: driverAvailability.isOnline,
     refreshDriverRideQueueFromRealtime,
     onSocketError: handleDriverRideSocketError,
   });
