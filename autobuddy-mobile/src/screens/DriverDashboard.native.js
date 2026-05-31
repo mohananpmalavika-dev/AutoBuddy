@@ -1410,6 +1410,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     pendingAvailabilitySyncRef.current = null;
 
     setAvailabilitySyncPendingState(true);
+    setIsOnline(next);
     setError('');
     setMessage(next ? 'Checking Ready to Drive...' : 'Going offline...');
 
@@ -1433,7 +1434,6 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         }
       }
 
-      setIsOnline(next);
       setMessage(next ? 'Going online...' : 'Going offline...');
 
       const response = await apiRequest('/drivers/availability', {

@@ -7708,6 +7708,7 @@ async def update_driver_location(location_update: DriverLocationUpdate, current_
         latitude,
         longitude,
     )
+    await runtime_state.touch_driver_heartbeat(str(current_user["id"]))
     
     await cache_delete(f"driver_profile:{current_user['id']}")
 
