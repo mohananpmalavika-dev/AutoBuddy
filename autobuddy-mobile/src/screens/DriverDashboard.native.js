@@ -32,7 +32,6 @@ import RideCard from '../components/RideCard';
 import DriverTabBar from '../components/DriverTabBar';
 import EarningsPanel from '../components/EarningsPanel';
 import DocumentUploadPanel from '../components/DocumentUploadPanel';
-import DriverDocumentUpload from '../components/DriverDocumentUpload';
 import DriverFareDisplay from '../components/DriverFareDisplay';
 import DriverFareProposal from '../components/DriverFareProposal';
 import VehicleManagementPanel from '../components/VehicleManagementPanel';
@@ -2614,7 +2613,6 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
           {/* Documents Tab */}
           {activeTab === 'documents' && (
             <>
-              <DriverDocumentUpload token={token} loading={loading} />
               <DocumentUploadPanel token={token} loading={loading} onDataChanged={refreshDriverMenuBadges} />
             </>
           )}

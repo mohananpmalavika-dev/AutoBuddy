@@ -91,10 +91,14 @@ export class OfflineQueueManager {
         });
 
       case 'upload_document':
-        return await apiRequest('/drivers/documents', {
+        if (!payload.docType && !payload.documentType) {
+          throw new Error('Document type is required for queued document upload.');
+        }
+        return await apiRequest(`/drivers/documents/${payload.docType || payload.documentType}`, {
           method: 'POST',
           body: payload.formData,
           token: payload.token,
+          isFormData: true,
         });
 
       case 'update_settings':
