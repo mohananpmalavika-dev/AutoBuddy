@@ -22,6 +22,11 @@ describe('apiRequest integration', () => {
       saveSession: jest.fn(async () => undefined),
       clearSession: jest.fn(async () => undefined),
     }));
+    jest.doMock('./persistentSessionManager', () => ({
+      loadSession: jest.fn(async () => null),
+      saveSession: jest.fn(async () => undefined),
+      clearSession: jest.fn(async () => undefined),
+    }));
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     return require('./api') as typeof import('./api');
   }
@@ -99,5 +104,48 @@ describe('apiRequest integration', () => {
       message: 'body.password: String should have at least 8 characters',
       status: 422,
     });
+  });
+
+  it('clears all stored sessions when an expired token cannot be refreshed', async () => {
+    const fetchMock = (global as unknown as { fetch: jest.Mock }).fetch;
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 401,
+      text: async () => JSON.stringify({ detail: 'Invalid token' }),
+    });
+
+    const clearLegacySession = jest.fn(async () => undefined);
+    const clearPersistentSession = jest.fn(async () => undefined);
+
+    jest.doMock('expo-constants', () => ({
+      __esModule: true,
+      default: {},
+    }));
+    jest.doMock('react-native', () => ({
+      Platform: { OS: 'web' },
+    }));
+    jest.doMock('./session', () => ({
+      loadSession: jest.fn(async () => ({ token: 'expired-access' })),
+      saveSession: jest.fn(async () => undefined),
+      clearSession: clearLegacySession,
+    }));
+    jest.doMock('./persistentSessionManager', () => ({
+      loadSession: jest.fn(async () => null),
+      saveSession: jest.fn(async () => undefined),
+      clearSession: clearPersistentSession,
+    }));
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { apiRequest } = require('./api') as typeof import('./api');
+
+    await expect(apiRequest('/drivers/profile', { token: 'expired-access' })).rejects.toMatchObject({
+      message: 'Session expired. Please log in again.',
+      status: 401,
+      code: 'AUTH_EXPIRED',
+      authExpired: true,
+    });
+    expect(clearLegacySession).toHaveBeenCalledTimes(1);
+    expect(clearPersistentSession).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

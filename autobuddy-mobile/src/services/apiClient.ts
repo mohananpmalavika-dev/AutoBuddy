@@ -11,6 +11,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AxiosError, AxiosInstance, AxiosRequestConfig, AxiosResponse, create } from 'axios';
 import { Platform } from 'react-native';
+import {
+  clearSession as clearPersistentSession,
+  loadSession as loadPersistentSession,
+} from '../lib/persistentSessionManager';
+import {
+  clearSession as clearLegacySession,
+  loadSession as loadLegacySession,
+} from '../lib/session';
 import { istISOString } from '../utils/time';
 
 // API Base URL - adjust based on environment
@@ -73,6 +81,23 @@ const getBrowserStorage = () => {
 };
 
 const getStoredAuthToken = async () => {
+  try {
+    const persistentSession = await loadPersistentSession();
+    const persistentToken =
+      persistentSession?.token || persistentSession?.access_token || persistentSession?.authToken || '';
+    if (persistentToken) {
+      return persistentToken;
+    }
+
+    const legacySession = await loadLegacySession();
+    const legacyToken = legacySession?.token || legacySession?.access_token || legacySession?.authToken || '';
+    if (legacyToken) {
+      return legacyToken;
+    }
+  } catch {
+    // Fall back to older raw storage paths below.
+  }
+
   const browserStorage = getBrowserStorage();
   const browserToken = browserStorage?.getItem('authToken');
   if (browserToken) {
@@ -81,10 +106,7 @@ const getStoredAuthToken = async () => {
 
   try {
     const rawSession = await AsyncStorage.getItem(SESSION_STORAGE_KEY);
-    if (!rawSession) {
-      return '';
-    }
-    const session = JSON.parse(rawSession);
+    const session = rawSession ? JSON.parse(rawSession) : null;
     return session?.token || session?.access_token || session?.authToken || '';
   } catch {
     return '';
@@ -96,7 +118,11 @@ const clearStoredAuth = async () => {
   browserStorage?.removeItem('authToken');
 
   try {
-    await AsyncStorage.removeItem(SESSION_STORAGE_KEY);
+    await Promise.allSettled([
+      clearPersistentSession(),
+      clearLegacySession(),
+      AsyncStorage.removeItem(SESSION_STORAGE_KEY),
+    ]);
   } catch {
     // Clearing auth should not mask the original API failure.
   }
@@ -163,8 +189,9 @@ rawAxiosInstance.interceptors.response.use(
       redirectToLoginIfWeb();
       const errorData = error.response?.data as AnyRecord;
       return Promise.reject({
-        message: errorData?.error?.message || 'Session expired. Please login again.',
+        message: errorData?.error?.message || 'Session expired. Please log in again.',
         code: 'AUTH_EXPIRED',
+        authExpired: true,
         status: 401,
         originalError: error,
       });

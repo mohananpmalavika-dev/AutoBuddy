@@ -24,9 +24,44 @@ type BeforeInstallPromptEvent = Event & {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
 };
 
+type StoredSessionCandidate = Partial<AppSession> & {
+  access_token?: string;
+  accessToken?: string;
+  refreshToken?: string;
+};
+
 const WEB_INSTALL_DISMISSED_KEY = 'autobuddy_web_install_dismissed_v1';
 const WEB_ALERTS_ENABLED_KEY = 'autobuddy_web_alerts_enabled_v1';
 const WEB_SEEN_NOTIFICATION_KEY_PREFIX = 'autobuddy_seen_notifications_v1_';
+
+function normalizeStoredSession(candidate: StoredSessionCandidate | null | undefined): AppSession | null {
+  if (!candidate?.user) {
+    return null;
+  }
+
+  const token = String(candidate.token || candidate.access_token || candidate.accessToken || '').trim();
+  if (!token) {
+    return null;
+  }
+
+  const refreshToken = String(candidate.refresh_token || candidate.refreshToken || '').trim();
+  return {
+    ...candidate,
+    token,
+    refresh_token: refreshToken || undefined,
+    user: candidate.user,
+  };
+}
+
+function pickStoredSession(
+  persistentSession: StoredSessionCandidate | null,
+  legacySession: StoredSessionCandidate | null,
+): AppSession | null {
+  const persistent = normalizeStoredSession(persistentSession);
+  const legacy = normalizeStoredSession(legacySession);
+
+  return persistent?.refresh_token ? persistent : legacy?.refresh_token ? legacy : persistent || legacy;
+}
 
 export default function HomeScreen() {
   const isWeb = Platform.OS === 'web';
@@ -141,13 +176,9 @@ export default function HomeScreen() {
   useEffect(() => {
     async function hydrate() {
       try {
-        // Try to load from persistent session first (survives app close)
-        let stored = await loadPersistentSession();
-
-        // Fallback to legacy session storage
-        if (!stored) {
-          stored = await loadSession();
-        }
+        const persistentStored = await loadPersistentSession();
+        const legacyStored = await loadSession();
+        const stored = pickStoredSession(persistentStored, legacyStored);
 
         if (!stored?.token) {
           setSession(null);
@@ -202,15 +233,21 @@ export default function HomeScreen() {
   }, []);
 
   const handleAuthenticated = useCallback(async (nextSession: AppSession) => {
-    setSession(nextSession);
+    const normalizedSession = normalizeStoredSession(nextSession);
+    if (!normalizedSession) {
+      setSession(null);
+      return;
+    }
+
+    setSession(normalizedSession);
     // Persist session data
-    await savePersistentSession(nextSession);
-    await saveSession(nextSession);
+    await savePersistentSession(normalizedSession);
+    await saveSession(normalizedSession);
     await extendSessionExpiry();
 
     // Provide persistent Sentry context for user/driver issues
-    if (nextSession?.user?.id) {
-      Sentry.setUser({ id: String(nextSession.user.id) });
+    if (normalizedSession?.user?.id) {
+      Sentry.setUser({ id: String(normalizedSession.user.id) });
     }
   }, []);
 

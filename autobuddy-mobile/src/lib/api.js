@@ -1,6 +1,15 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
-import { clearSession, loadSession, saveSession } from './session';
+import {
+  clearSession as clearLegacySession,
+  loadSession as loadLegacySession,
+  saveSession as saveLegacySession,
+} from './session';
+import {
+  clearSession as clearPersistentSession,
+  loadSession as loadPersistentSession,
+  saveSession as savePersistentSession,
+} from './persistentSessionManager';
 
 const DEFAULT_BACKEND_PORT = process.env.EXPO_PUBLIC_API_PORT || '8001';
 const DEFAULT_PROD_API_BASE_URL = 'https://autobuddy-z1vx.onrender.com/api';
@@ -58,6 +67,61 @@ let consecutiveServerErrors = 0;
 const SERVER_ERROR_THRESHOLD = 3;
 const OUTAGE_COOLDOWN_MS = 15000;
 const HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
+const SESSION_EXPIRED_MESSAGE = 'Session expired. Please log in again.';
+const AUTH_EXPIRED_CODE = 'AUTH_EXPIRED';
+
+function createAuthExpiredError(message = SESSION_EXPIRED_MESSAGE) {
+  const error = new Error(message);
+  error.status = 401;
+  error.code = AUTH_EXPIRED_CODE;
+  error.authExpired = true;
+  return error;
+}
+
+async function safelyCall(fn) {
+  try {
+    return await fn();
+  } catch {
+    return null;
+  }
+}
+
+async function clearAllSessions() {
+  await Promise.allSettled([clearLegacySession(), clearPersistentSession()]);
+}
+
+function normalizeStoredSession(session) {
+  if (!session || typeof session !== 'object') {
+    return null;
+  }
+
+  const token = String(session.token || session.access_token || session.accessToken || '').trim();
+  if (!token) {
+    return null;
+  }
+
+  const refreshToken = String(session.refresh_token || session.refreshToken || '').trim();
+  return {
+    ...session,
+    token,
+    refresh_token: refreshToken || undefined,
+  };
+}
+
+async function loadBestSession() {
+  const [legacySession, persistentSession] = await Promise.all([
+    safelyCall(loadLegacySession),
+    safelyCall(loadPersistentSession),
+  ]);
+  const legacy = normalizeStoredSession(legacySession);
+  const persistent = normalizeStoredSession(persistentSession);
+
+  return persistent?.refresh_token ? persistent : legacy?.refresh_token ? legacy : persistent || legacy;
+}
+
+async function saveAllSessions(session) {
+  await Promise.allSettled([saveLegacySession(session), savePersistentSession(session)]);
+}
 
 function extractErrorMessage(data, status) {
   const detail = data?.detail;
@@ -109,9 +173,10 @@ function extractErrorMessage(data, status) {
 }
 
 export async function refreshAccessToken() {
-  const session = await loadSession();
+  const session = await loadBestSession();
   if (!session?.refresh_token) {
-    throw new Error('No refresh token');
+    await clearAllSessions();
+    throw createAuthExpiredError();
   }
   const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
     method: 'POST',
@@ -122,8 +187,8 @@ export async function refreshAccessToken() {
     body: JSON.stringify({ refresh_token: session.refresh_token }),
   });
   if (!response.ok) {
-    await clearSession();
-    throw new Error('Session expired. Please login again.');
+    await clearAllSessions();
+    throw createAuthExpiredError();
   }
   const payload = await response.json();
   const nextSession = {
@@ -131,7 +196,7 @@ export async function refreshAccessToken() {
     token: payload.access_token,
     refresh_token: payload.refresh_token || session.refresh_token,
   };
-  await saveSession(nextSession);
+  await saveAllSessions(nextSession);
   return payload.access_token;
 }
 
@@ -208,7 +273,7 @@ export async function apiRequest(path, options = {}, legacyPath = undefined, leg
   if (effectiveToken || !isAuthPath) {
     try {
       // Prefer the latest persisted access token to avoid stale in-memory token loops.
-      const latestSession = await loadSession();
+      const latestSession = await loadBestSession();
       const latestToken = String(latestSession?.token || '').trim();
       if (latestToken) {
         effectiveToken = latestToken;
