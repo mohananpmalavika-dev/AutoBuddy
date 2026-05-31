@@ -10,6 +10,7 @@ import { Platform, AppState } from 'react-native';
 import { io } from 'socket.io-client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { loadSession } from './persistentSessionManager';
+import { getSocketPath, getSocketTransports, getSocketUrl } from './socket';
 
 const SOCKET_STATE_KEY = 'autobuddy_socket_state_v1';
 const MAX_RECONNECT_ATTEMPTS = 10;
@@ -49,11 +50,12 @@ class SocketManager {
       // Create socket connection
       this.socket = io(baseUrl || this.getDefaultUrl(), {
         auth: { token },
+        path: getSocketPath(),
         reconnection: true,
         reconnectionDelay: RECONNECT_DELAY_MS,
         reconnectionDelayMax: MAX_RECONNECT_DELAY_MS,
         reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
-        transports: ['websocket', 'polling'],
+        transports: getSocketTransports(),
         // Keep connection alive even in background
         closeOnBeforeUnload: false,
         // Persist connection state
@@ -81,14 +83,7 @@ class SocketManager {
    * Get default socket URL
    */
   getDefaultUrl() {
-    if (Platform.OS === 'web') {
-      return window.location.origin;
-    }
-    return (
-      process.env.EXPO_PUBLIC_SOCKET_BASE_URL ||
-      process.env.EXPO_PUBLIC_API_BASE_URL ||
-      (typeof __DEV__ !== 'undefined' && __DEV__ ? 'http://localhost:8001' : '')
-    );
+    return getSocketUrl();
   }
 
   /**

@@ -65,6 +65,14 @@ export function getSocketUrl(baseUrl) {
   return resolveSocketUrl(baseUrl);
 }
 
+export function getSocketPath(value = process.env.EXPO_PUBLIC_SOCKET_PATH) {
+  return normalizeSocketPath(value);
+}
+
+export function getSocketTransports() {
+  return resolveSocketTransports();
+}
+
 function releaseSharedSocket() {
   sharedRefCount = Math.max(0, sharedRefCount - 1);
   if (sharedRefCount > 0) {
@@ -174,8 +182,8 @@ export function createAutoBuddySocket(token, baseUrl) {
   }
 
   sharedSocket = io(url, {
-    path: normalizeSocketPath(process.env.EXPO_PUBLIC_SOCKET_PATH),
-    transports: resolveSocketTransports(),
+    path: getSocketPath(),
+    transports: getSocketTransports(),
     upgrade: true,
     auth: { token },
     reconnection: true,

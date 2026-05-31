@@ -5,8 +5,8 @@ import { Platform } from 'react-native';
 
 import { API_BASE_URL } from '../lib/api';
 import { emitDriverLocation } from './socketClient';
-import { getSocketUrl } from '../lib/socket';
-import io from 'socket.io-client';
+import { getSocketPath, getSocketUrl } from '../lib/socket';
+import { io } from 'socket.io-client';
 import * as Sentry from '@sentry/react-native';
 
 export const DRIVER_BACKGROUND_LOCATION_TASK = 'AUTOBUDDY_DRIVER_BACKGROUND_LOCATION_TASK';
@@ -106,7 +106,16 @@ if (!TaskManager.isTaskDefined(DRIVER_BACKGROUND_LOCATION_TASK)) {
 
           // Attempt a short-lived socket connection in background as a fallback
           try {
-            const bgSocket = io(getSocketUrl(), { reconnection: false, transports: ['websocket'] });
+            const token = await readAuthToken();
+            if (!token) {
+              return;
+            }
+            const bgSocket = io(getSocketUrl(), {
+              auth: { token },
+              path: getSocketPath(),
+              reconnection: false,
+              transports: ['websocket'],
+            });
             bgSocket.on('connect', () => {
               try {
                 const { istISOString } = require('../utils/time');
@@ -117,7 +126,7 @@ if (!TaskManager.isTaskDefined(DRIVER_BACKGROUND_LOCATION_TASK)) {
                   accuracy: accuracy || 0,
                   timestamp: istISOString(new Date()),
                 });
-              } catch (e) {
+              } catch (_e) {
                 // fallback
                 bgSocket.emit('driver_location_update', {
                   ride_id: rideId || '',
@@ -131,16 +140,16 @@ if (!TaskManager.isTaskDefined(DRIVER_BACKGROUND_LOCATION_TASK)) {
             });
             // ensure we don't hang the task: set a short timeout to force disconnect
             setTimeout(() => {
-              try { bgSocket.disconnect(); } catch (e) {}
+              try { bgSocket.disconnect(); } catch (_e) {}
             }, 3000);
-          } catch (e) {
+          } catch (_e) {
             // ignore; best-effort only
           }
         await appendBackgroundLog({ type: 'emit', rideId: rideId || null, latitude, longitude, accuracy, ts: Date.now() });
       }
-    } catch (e) {
+    } catch (_e) {
       // ensure background task doesn't crash
-      await appendBackgroundLog({ type: 'emit_error', message: String(e), ts: Date.now() });
+      await appendBackgroundLog({ type: 'emit_error', message: String(_e), ts: Date.now() });
     }
   });
 }
@@ -152,7 +161,7 @@ async function appendBackgroundLog(entry) {
     if (!rideId) {
       try {
         rideId = await AsyncStorage.getItem(BG_TRACKING_RIDE_ID_KEY);
-      } catch (e) {
+      } catch (_e) {
         // ignore
       }
     }
@@ -168,7 +177,7 @@ async function appendBackgroundLog(entry) {
           userId = null;
         }
       }
-    } catch (e) {
+    } catch (_e) {
       // ignore
     }
 
@@ -178,7 +187,7 @@ async function appendBackgroundLog(entry) {
         category: 'background_emit',
         message: entry?.type ? `${entry.type}` : 'background_emit',
         data: { ...entry, rideId, userId },
-        level: Sentry.Severity.Info,
+        level: 'info',
       });
 
       if (entry?.type === 'emit_error' || entry?.type === 'emit_exception') {
@@ -188,13 +197,13 @@ async function appendBackgroundLog(entry) {
           if (err instanceof Error) {
             Sentry.captureException(err);
           } else {
-            Sentry.captureMessage(String(err), Sentry.Severity.Error);
+            Sentry.captureMessage(String(err), 'error');
           }
-        } catch (e) {
+        } catch (_e) {
           // swallow Sentry failures
         }
       }
-    } catch (e) {
+    } catch (_e) {
       // ignore Sentry failures
     }
 
@@ -206,7 +215,7 @@ async function appendBackgroundLog(entry) {
     // keep only last 200 entries to limit storage
     if (arr.length > 200) arr.splice(0, arr.length - 200);
     await AsyncStorage.setItem(key, JSON.stringify(arr));
-  } catch (err) {
+  } catch (_err) {
     // swallow
   }
 }

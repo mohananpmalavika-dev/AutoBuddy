@@ -434,7 +434,7 @@ register_fleet_socket_events(sio)
 # Register Operations Center Socket.IO events
 from app.sockets.operations_events import register_operations_socket_events
 register_operations_socket_events(sio)
-socket_app = socketio.ASGIApp(sio, socketio_path="/ws/socket.io")
+socket_app = socketio.ASGIApp(sio, socketio_path="socket.io")
 
 driver_health_monitor_task: Optional[asyncio.Task] = None
 ride_dispatch_worker_task: Optional[asyncio.Task] = None
@@ -7662,6 +7662,9 @@ async def _db_update_driver_location(
                 "current_location": current_location,
                 "current_location_geo": geo_location,
                 "last_location_at": now_utc,
+                "last_heartbeat_at": now_utc,
+                "last_online_at": now_utc,
+                "updated_at": now_utc,
                 "is_online": True,
             },
             "$setOnInsert": driver_insert_defaults,
@@ -7802,6 +7805,7 @@ async def _db_update_driver_availability(
                 "updated_at": now_utc,
                 "last_online_at": now_utc if is_available else None,
                 "last_offline_at": now_utc if not is_available else None,
+                "last_heartbeat_at": now_utc if is_available else None,
             },
             "$setOnInsert": driver_insert_defaults,
         },
@@ -14890,7 +14894,22 @@ async def driver_heartbeat(sid, data):
     if role and role != UserRole.DRIVER.value:
         return {"ok": False, "message": "Only driver can send heartbeat"}
 
+    now = get_ist_now()
     await runtime_state.touch_driver_heartbeat(driver_id)
+    await db.drivers.update_one(
+        {"user_id": driver_id},
+        {
+            "$set": {
+                "is_online": True,
+                "last_heartbeat_at": now,
+                "last_online_at": now,
+                "updated_at": now,
+            },
+            "$setOnInsert": build_default_driver_profile(driver_id),
+        },
+        upsert=True,
+    )
+    await cache_delete(f"driver_profile:{driver_id}")
     fallback_booking_id = await runtime_state.get_driver_active_booking(driver_id)
     booking_id = str((data or {}).get("booking_id") or fallback_booking_id or "").strip()
     if booking_id:
@@ -14901,7 +14920,7 @@ async def driver_heartbeat(sid, data):
         {
             "driver_id": driver_id,
             "booking_id": booking_id or None,
-            "server_time": get_ist_now().isoformat(),
+            "server_time": now.isoformat(),
         },
         to=sid,
     )
@@ -14953,6 +14972,7 @@ async def driver_location_update(sid, data):
         await runtime_state.set_driver_active_booking(driver_id, booking_id)
     await runtime_state.touch_driver_heartbeat(driver_id)
 
+    now = get_ist_now()
     location_payload = {
         "latitude": normalized_live_location.get("latitude"),
         "longitude": normalized_live_location.get("longitude"),
@@ -14960,7 +14980,7 @@ async def driver_location_update(sid, data):
         "speed": (data or {}).get("speed"),
         "accuracy": (data or {}).get("accuracy"),
         "address": normalized_live_location.get("address") or (data or {}).get("address"),
-        "updated_at": get_ist_now().isoformat(),
+        "updated_at": now.isoformat(),
     }
     geo_location = {
         "type": "Point",
@@ -14976,7 +14996,10 @@ async def driver_location_update(sid, data):
             "$set": {
                 "current_location": location_payload,
                 "current_location_geo": geo_location,
-                "last_location_at": get_ist_now(),
+                "last_location_at": now,
+                "last_heartbeat_at": now,
+                "last_online_at": now,
+                "updated_at": now,
                 "is_online": True,
             }
         },
@@ -14995,7 +15018,7 @@ async def driver_location_update(sid, data):
         "accuracy": (data or {}).get("accuracy"),
         "eta_to_pickup_min": None,
         "eta_to_drop_min": None,
-        "timestamp": get_ist_now().isoformat(),
+        "timestamp": now.isoformat(),
     }
 
     if booking_id:
@@ -15317,10 +15340,14 @@ async def driver_health_monitor():
             for driver_id in stale_driver_ids:
                 await runtime_state.mark_driver_offline(driver_id)
                 await remove_driver_geo_index(driver_id)
+                # Stale heartbeat is transient presence only. Do not clear the
+                # driver's explicit availability choice; the dashboard and next
+                # location push should keep a ready driver online.
                 await db.drivers.update_one(
                     {"user_id": driver_id},
-                    {"$set": {"is_online": False, "is_available": False, "last_offline_at": now}},
+                    {"$set": {"is_online": False, "last_offline_at": now, "updated_at": now}},
                 )
+                await cache_delete(f"driver_profile:{driver_id}")
 
                 booking_id = await runtime_state.get_driver_active_booking(driver_id)
                 if not booking_id:
