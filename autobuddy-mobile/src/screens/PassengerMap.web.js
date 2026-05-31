@@ -1,29 +1,79 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AccessibilityInfo,
   ActivityIndicator,
   Alert,
-  Modal,
+  Image,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
-  Vibration,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import * as Location from 'expo-location';
 import { SymbolView } from 'expo-symbols';
+
+import { apiRequest } from '../lib/api';
+import { createAutoBuddySocket } from '../lib/socket';
+import {
+  getPlaceLocation,
+  isPlacesConfigured,
+  reverseGeocodeLocation,
+  searchPlaces,
+} from '../lib/places';
 import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme';
-import InteractiveMap from '../components/InteractiveMap';
+import WebCommandBar from '../components/WebCommandBar';
+import RevenueCard from '../components/RevenueCard';
+import WebGoogleLiveMap from '../components/WebGoogleLiveMap';
+import {
+  FadeSlideView,
+  GlassCard,
+  LiveEtaPulse,
+  PremiumEmptyState,
+  RideProgressTimeline,
+} from '../components/PremiumUI';
+import RideProductsGrid from '../components/RideProductsGrid';
+import RideCommunicationCard from '../components/RideCommunicationCard';
+import VoiceTextInput from '../components/VoiceTextInput';
+import BookingConfirmationCard from '../components/BookingConfirmationCard';
+import ScheduledPickupPicker from '../components/ScheduledPickupPicker';
+import KeralaSafetyCard from '../components/KeralaSafetyCard';
+import PromoCodePanel from '../components/PromoCodePanel';
+import SupportTicketsPanel from '../components/SupportTicketsPanel';
+import PaymentMethodsPanel from '../components/PaymentMethodsPanel';
+import PassengerRatingsPanel from '../components/PassengerRatingsPanel';
+import FavoriteDriversPanel from '../components/FavoriteDriversPanel';
+import PostRideRatingModal from '../components/PostRideRatingModal';
+import PassengerBookingNavigator from './PassengerBookingNavigator';
+import PassengerProfile from './PassengerProfile.web';
+import SavedPlacesQuickSelect from '../components/SavedPlacesQuickSelect';
+import PreferencesPanel from '../components/PreferencesPanel';
+import SavedPlacesPanel from '../components/SavedPlacesPanel';
+import EmergencyContactsPanel from '../components/EmergencyContactsPanel';
+import AccessibilityPanel from '../components/AccessibilityPanel';
+import PassengerScheduledRidesPanel from '../components/PassengerScheduledRidesPanel';
+import NotificationCenter from '../components/NotificationCenter';
+import NotificationBell from '../components/NotificationBell';
+import AccessibilityQuickAccess from '../components/AccessibilityQuickAccess';
+import PassengerProfilePanel from '../components/PassengerProfilePanel';
+import PassengerKYCPanel from '../components/PassengerKYCPanel';
+import PassengerDocumentUpload from '../components/PassengerDocumentUpload';
+import PassengerDocumentsPanel from '../components/PassengerDocumentsPanel';
+import ReceiptsPanel from '../components/ReceiptsPanel';
+import SubscriptionPanel from '../components/SubscriptionPanel';
+import RideNotesPanel from '../components/RideNotesPanel';
+import LocationSharingPanel from '../components/LocationSharingPanel';
+import RideStatsPanel from '../components/RideStatsPanel';
 import { NotificationProvider, useNotifications } from '../contexts/NotificationContext';
 import { useNotificationManager } from '../hooks/useNotificationManager';
 import { useVehicleTypes } from '../hooks/useVehicleTypes';
 import { useKeralaSafety } from '../hooks/useKeralaSafety';
 import { AccessibilityProvider } from '../contexts/AccessibilityContext';
-import { isPlacesConfigured } from '../lib/places';
+import { validateScheduledPickup } from '../lib/scheduling';
+import { formatToIST } from '../utils/time';
 import { normalizeLanguageCode } from '../locales/indianLanguages';
 import { resolvePassengerLocale, getPassengerRideProductLabels } from '../locales/passengerDashboard';
+
+const LOGO_SOURCE = require('../../assets/images/autobuddy-logo.jpg');
 
 const PASSENGER_MENU_SYMBOLS = {
   ride: { ios: 'car.fill', android: 'local_taxi', web: 'local_taxi' },
