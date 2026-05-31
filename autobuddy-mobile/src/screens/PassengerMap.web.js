@@ -18,6 +18,7 @@ import InteractiveMap from '../components/InteractiveMap';
 import { NotificationProvider, useNotifications } from '../contexts/NotificationContext';
 import { useNotificationManager } from '../hooks/useNotificationManager';
 import { useVehicleTypes } from '../hooks/useVehicleTypes';
+import { useKeralaSafety } from '../hooks/useKeralaSafety';
 import { isPlacesConfigured } from '../lib/places';
 import { normalizeLanguageCode } from '../locales/indianLanguages';
 import { resolvePassengerLocale, getPassengerRideProductLabels } from '../locales/passengerDashboard';
