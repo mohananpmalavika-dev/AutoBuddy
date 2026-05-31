@@ -17,6 +17,7 @@ import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme';
 import InteractiveMap from '../components/InteractiveMap';
 import { NotificationProvider, useNotifications } from '../contexts/NotificationContext';
 import { useNotificationManager } from '../hooks/useNotificationManager';
+import { useVehicleTypes } from '../hooks/useVehicleTypes';
 
 const PASSENGER_MENU_SYMBOLS = {
   ride: { ios: 'car.fill', android: 'local_taxi', web: 'local_taxi' },
