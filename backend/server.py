@@ -434,7 +434,8 @@ register_fleet_socket_events(sio)
 # Register Operations Center Socket.IO events
 from app.sockets.operations_events import register_operations_socket_events
 register_operations_socket_events(sio)
-socket_app = socketio.ASGIApp(sio, socketio_path="socket.io")
+socket_app = socketio.ASGIApp(sio, socketio_path=None)
+root_socket_app = socketio.ASGIApp(sio, socketio_path=None)
 
 driver_health_monitor_task: Optional[asyncio.Task] = None
 ride_dispatch_worker_task: Optional[asyncio.Task] = None
@@ -15474,7 +15475,9 @@ async def global_options_handler(full_path: str, request: Request):
     }
     return JSONResponse(status_code=200, content={"ok": True}, headers=headers)
 
-# Include the router in the main app and mount socket.io under /ws
+# Include the router in the main app and mount Socket.IO under both legacy
+# /socket.io and current /ws/socket.io paths. Serving both paths avoids
+# frontend/backend deploy-order mismatches during rolling releases.
 app.include_router(modular_auth_router)
 app.include_router(modular_analytics_router)
 app.include_router(modular_driver_trust_router)
@@ -15547,6 +15550,7 @@ app.include_router(phase3_payment_router, prefix="/api/v3/payments", tags=["Phas
 app.include_router(phase3_safety_router, prefix="/api/v3/safety", tags=["Phase 3 - Safety & Insurance"])
 app.include_router(phase3_analytics_router, prefix="/api/v3/analytics", tags=["Phase 3 - Analytics Intelligence"])
 app.include_router(api_router)
+app.mount("/socket.io", root_socket_app)
 app.mount("/ws", socket_app)
 
 @app.on_event("shutdown")

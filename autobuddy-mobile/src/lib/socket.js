@@ -2,7 +2,7 @@ import { io } from 'socket.io-client';
 
 import { API_BASE_URL } from './api';
 
-const DEFAULT_SOCKET_PATH = '/ws/socket.io';
+const DEFAULT_SOCKET_PATH = '/socket.io';
 const DEFAULT_SOCKET_TRANSPORTS = ['polling', 'websocket'];
 const VALID_SOCKET_TRANSPORTS = new Set(DEFAULT_SOCKET_TRANSPORTS);
 

@@ -94,6 +94,8 @@ def test_realtime_uses_single_socketio_server():
     server_source = (backend_dir / 'server.py').read_text(encoding='utf-8')
     assert server_source.count('socketio.AsyncServer(') == 1
     assert 'configure_legacy_socket_helpers(sio)' in server_source
+    assert 'app.mount("/socket.io", root_socket_app)' in server_source
+    assert 'app.mount("/ws", socket_app)' in server_source
 
 
 def test_unsafe_payment_prototype_router_is_removed():
@@ -196,4 +198,3 @@ def test_backend_import_app_core_config(monkeypatch):
 
     config_mod = importlib.import_module('app.core.config')
     assert hasattr(config_mod, 'get_settings')
-
