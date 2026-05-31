@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import * as Location from 'expo-location';
 import { SymbolView } from 'expo-symbols';
-import MapView, { Marker } from 'react-native-maps';
+import InteractiveMap from '../components/InteractiveMap';
 
 const PASSENGER_MENU_SYMBOLS = {
   ride: { ios: 'car.fill', android: 'local_taxi', web: 'local_taxi' },
