@@ -13,6 +13,7 @@ import { AxiosError, AxiosInstance, AxiosRequestConfig, AxiosResponse, create } 
 import { Platform } from 'react-native';
 import {
   clearSession as clearPersistentSession,
+  extendSessionExpiry,
   loadSession as loadPersistentSession,
 } from '../lib/persistentSessionManager';
 import {
@@ -181,7 +182,14 @@ let retryCount = 0;
 const MAX_RETRIES = 3;
 
 rawAxiosInstance.interceptors.response.use(
-  (response: AxiosResponse) => attachLegacyDataAlias(response.data) as AxiosResponse,
+  async (response: AxiosResponse) => {
+    const headers = response.config?.headers as Record<string, unknown> | undefined;
+    const authorization = headers?.Authorization || headers?.authorization;
+    if (authorization) {
+      await extendSessionExpiry();
+    }
+    return attachLegacyDataAlias(response.data) as AxiosResponse;
+  },
   async (error: AxiosError) => {
     // Handle 401 Unauthorized - token expired
     if (error.response?.status === 401) {

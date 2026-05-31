@@ -32,6 +32,7 @@ describe('module workflow integration (frontend)', () => {
       loadSession: jest.fn(async () => null),
       saveSession: jest.fn(async () => undefined),
       clearSession: jest.fn(async () => undefined),
+      extendSessionExpiry: jest.fn(async () => undefined),
     }));
   }
 

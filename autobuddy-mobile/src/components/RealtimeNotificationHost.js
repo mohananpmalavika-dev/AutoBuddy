@@ -2,7 +2,14 @@ import React, { useEffect, useState } from 'react';
 import { Platform } from 'react-native';
 
 import NotificationPanel from './NotificationPanel';
-import { loadSession, subscribeSession } from '../lib/session';
+import {
+  loadSession as loadLegacySession,
+  subscribeSession as subscribeLegacySession,
+} from '../lib/session';
+import {
+  loadSession as loadPersistentSession,
+  subscribeSession as subscribePersistentSession,
+} from '../lib/persistentSessionManager';
 import { initializeSocket } from '../services/socketClient';
 import { initializeBackgroundNotifications } from '../lib/backgroundNotificationService';
 import { API_BASE_URL } from '../lib/api-client';
@@ -20,11 +27,24 @@ export default function RealtimeNotificationHost() {
   // Load session and subscribe to changes
   useEffect(() => {
     let mounted = true;
+    let legacySession = null;
+    let persistentSession = null;
 
-    loadSession()
-      .then((session) => {
+    const syncToken = () => {
+      if (mounted) {
+        setToken(getSessionToken(persistentSession) || getSessionToken(legacySession));
+      }
+    };
+
+    Promise.all([
+      loadPersistentSession().catch(() => null),
+      loadLegacySession().catch(() => null),
+    ])
+      .then(([persistent, legacy]) => {
         if (mounted) {
-          setToken(getSessionToken(session));
+          persistentSession = persistent;
+          legacySession = legacy;
+          syncToken();
         }
       })
       .catch(() => {
@@ -33,15 +53,19 @@ export default function RealtimeNotificationHost() {
         }
       });
 
-    const unsubscribe = subscribeSession((session) => {
-      if (mounted) {
-        setToken(getSessionToken(session));
-      }
+    const unsubscribePersistent = subscribePersistentSession((session) => {
+      persistentSession = session;
+      syncToken();
+    });
+    const unsubscribeLegacy = subscribeLegacySession((session) => {
+      legacySession = session;
+      syncToken();
     });
 
     return () => {
       mounted = false;
-      unsubscribe();
+      unsubscribePersistent();
+      unsubscribeLegacy();
     };
   }, []);
 

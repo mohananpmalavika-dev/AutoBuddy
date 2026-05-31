@@ -26,6 +26,7 @@ describe('apiRequest integration', () => {
       loadSession: jest.fn(async () => null),
       saveSession: jest.fn(async () => undefined),
       clearSession: jest.fn(async () => undefined),
+      extendSessionExpiry: jest.fn(async () => undefined),
     }));
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     return require('./api') as typeof import('./api');
@@ -55,6 +56,41 @@ describe('apiRequest integration', () => {
       'Cache-Control': 'no-store',
       Pragma: 'no-cache',
     });
+  });
+
+  it('extends the persistent session after successful authenticated requests', async () => {
+    const fetchMock = (global as unknown as { fetch: jest.Mock }).fetch;
+    fetchMock.mockResolvedValue({
+      ok: true,
+      text: async () => JSON.stringify({ ok: true }),
+    });
+    const extendSessionExpiry = jest.fn(async () => undefined);
+
+    jest.doMock('expo-constants', () => ({
+      __esModule: true,
+      default: {},
+    }));
+    jest.doMock('react-native', () => ({
+      Platform: { OS: 'web' },
+    }));
+    jest.doMock('./session', () => ({
+      loadSession: jest.fn(async () => ({ token: 'token-123' })),
+      saveSession: jest.fn(async () => undefined),
+      clearSession: jest.fn(async () => undefined),
+    }));
+    jest.doMock('./persistentSessionManager', () => ({
+      loadSession: jest.fn(async () => null),
+      saveSession: jest.fn(async () => undefined),
+      clearSession: jest.fn(async () => undefined),
+      extendSessionExpiry,
+    }));
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { apiRequest } = require('./api') as typeof import('./api');
+
+    await apiRequest('/drivers/profile', { token: 'token-123' });
+
+    expect(extendSessionExpiry).toHaveBeenCalledTimes(1);
   });
 
   it('supports older method-first callers without wrapping the response', async () => {
@@ -133,6 +169,7 @@ describe('apiRequest integration', () => {
       loadSession: jest.fn(async () => null),
       saveSession: jest.fn(async () => undefined),
       clearSession: clearPersistentSession,
+      extendSessionExpiry: jest.fn(async () => undefined),
     }));
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports

@@ -7,6 +7,7 @@ import {
 } from './session';
 import {
   clearSession as clearPersistentSession,
+  extendSessionExpiry,
   loadSession as loadPersistentSession,
   saveSession as savePersistentSession,
 } from './persistentSessionManager';
@@ -355,6 +356,10 @@ export async function apiRequest(path, options = {}, legacyPath = undefined, leg
 
     consecutiveServerErrors = 0;
     backendOutageUntilMs = 0;
+
+    if (effectiveToken && !isAuthPath) {
+      await safelyCall(extendSessionExpiry);
+    }
 
     return shouldWrapLegacyResponse ? { data } : data;
   } catch (err) {

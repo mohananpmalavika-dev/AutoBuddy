@@ -10,6 +10,7 @@ import * as TaskManager from 'expo-task-manager';
 
 const SESSION_KEY = 'autobuddy_session_v2';
 const SESSION_EXPIRY_KEY = 'autobuddy_session_expiry_v1';
+const SESSION_LAST_ACTIVITY_KEY = 'autobuddy_session_last_activity_v1';
 const BACKGROUND_TASK_NAME = 'autobuddy-background-sync';
 const NOTIFICATION_QUEUE_KEY = 'autobuddy_notification_queue_v1';
 
@@ -75,9 +76,11 @@ export async function saveSession(session) {
 
     await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(session));
     
-    // Set expiry timestamp
-    const expiry = Date.now() + SESSION_VALIDITY_MS;
+    // Set sliding expiry timestamp from the latest authenticated activity.
+    const now = Date.now();
+    const expiry = now + SESSION_VALIDITY_MS;
     await AsyncStorage.setItem(SESSION_EXPIRY_KEY, String(expiry));
+    await AsyncStorage.setItem(SESSION_LAST_ACTIVITY_KEY, String(now));
     
     notifySessionListeners(session);
   } catch (error) {
@@ -92,6 +95,7 @@ export async function clearSession() {
   try {
     await AsyncStorage.removeItem(SESSION_KEY);
     await AsyncStorage.removeItem(SESSION_EXPIRY_KEY);
+    await AsyncStorage.removeItem(SESSION_LAST_ACTIVITY_KEY);
     notifySessionListeners(null);
   } catch (error) {
     console.error('Error clearing session:', error);
@@ -221,8 +225,10 @@ export async function isSessionValid() {
  */
 export async function extendSessionExpiry() {
   try {
-    const expiry = Date.now() + SESSION_VALIDITY_MS;
+    const now = Date.now();
+    const expiry = now + SESSION_VALIDITY_MS;
     await AsyncStorage.setItem(SESSION_EXPIRY_KEY, String(expiry));
+    await AsyncStorage.setItem(SESSION_LAST_ACTIVITY_KEY, String(now));
   } catch (error) {
     console.error('Error extending session expiry:', error);
   }
@@ -239,12 +245,15 @@ export async function getSessionInfo() {
     }
 
     const expiryRaw = await AsyncStorage.getItem(SESSION_EXPIRY_KEY);
+    const lastActivityRaw = await AsyncStorage.getItem(SESSION_LAST_ACTIVITY_KEY);
     const expiry = expiryRaw ? parseInt(expiryRaw, 10) : null;
+    const lastActivity = lastActivityRaw ? parseInt(lastActivityRaw, 10) : null;
 
     return {
       userId: session.user?.id,
       userRole: session.user?.role,
       hasToken: !!session.token,
+      lastActivityAt: lastActivity,
       expiresAt: expiry,
       expiresIn: expiry ? Math.max(0, expiry - Date.now()) : null,
     };
