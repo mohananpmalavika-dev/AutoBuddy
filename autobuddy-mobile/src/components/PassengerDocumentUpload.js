@@ -207,7 +207,7 @@ const PassengerDocumentUpload = ({ token, onClose }) => {
 
         {/* Documents List */}
         <View style={styles.documentsSection}>
-          <Text style={styles.sectionTitle}>Required Documents</Text>
+          <Text style={styles.sectionTitle}>Documents</Text>
           {requirements.length === 0 ? (
             <Text style={styles.emptyText}>No documents required</Text>
           ) : (
@@ -276,10 +276,10 @@ const PassengerDocumentUpload = ({ token, onClose }) => {
         <View style={styles.infoSection}>
           <Text style={styles.infoTitle}>About Document Verification</Text>
           <Text style={styles.infoText}>
-            • Mandatory documents are required to book rides
+            • Documents are optional through June 15, 2026
           </Text>
           <Text style={styles.infoText}>
-            • You have a grace period to upload documents after account creation
+            • You can still upload documents early for faster review
           </Text>
           <Text style={styles.infoText}>
             • Admin will verify your documents within 24 hours

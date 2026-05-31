@@ -13,6 +13,14 @@ from typing import List, Optional, Dict, Any
 from bson import ObjectId
 from app.db.client import get_db
 from app.core.auth import require_roles
+from app.models.document_catalog import (
+    DOCUMENT_TYPES as DOCUMENT_CATALOG,
+    ensure_default_document_requirements,
+    effective_is_mandatory,
+    get_document_types_list,
+    group_document_types_by_category,
+    serialize_document_requirement,
+)
 import logging
 
 logger = logging.getLogger(__name__)
@@ -106,24 +114,10 @@ class DocumentVerification(BaseModel):
 async def get_document_types():
     """Get all available document types"""
     try:
-        types_list = []
-        for type_key, type_info in DOCUMENT_TYPES.items():
-            types_list.append({
-                "value": type_key,
-                "label": type_info["label"],
-                "category": type_info["category"],
-            })
-        
-        # Group by category
-        kyc_docs = [t for t in types_list if t["category"] == "KYC"]
-        vehicle_docs = [t for t in types_list if t["category"] == "Vehicle"]
-        
+        types_list = get_document_types_list()
         return {
             "total": len(types_list),
-            "by_category": {
-                "KYC": kyc_docs,
-                "Vehicle": vehicle_docs,
-            },
+            "by_category": group_document_types_by_category(types_list),
             "all": types_list,
         }
     except Exception as e:
@@ -139,6 +133,7 @@ async def get_document_requirements(
 ):
     """Get all document requirements"""
     try:
+        await ensure_default_document_requirements(db)
         query = {"enabled": True}
         if applicable_to:
             query["applicable_to"] = {"$in": [applicable_to, "both"]}
@@ -148,17 +143,8 @@ async def get_document_requirements(
         return {
             "total": len(requirements),
             "requirements": [
-                {
-                    "id": str(doc.get("_id")),
-                    "document_type": doc.get("document_type"),
-                    "display_name": doc.get("display_name"),
-                    "is_mandatory": doc.get("is_mandatory"),
-                    "grace_period_days": doc.get("grace_period_days"),
-                    "applicable_to": doc.get("applicable_to"),
-                    "description": doc.get("description"),
-                    "enabled": doc.get("enabled"),
-                }
-                for doc in requirements
+                serialize_document_requirement(doc)
+                for doc in sorted(requirements, key=lambda item: (item.get("category") or "", item.get("display_name") or ""))
             ]
         }
     except Exception as e:
@@ -185,13 +171,14 @@ async def get_user_document_status(
         role = user.get("role", "passenger")
         
         # Get document requirements
+        await ensure_default_document_requirements(db)
         requirements = await db.document_requirements.find({
             "enabled": True,
             "applicable_to": {"$in": [role, "both"]}
         }).to_list(None)
         
         # Get mandatory requirements
-        mandatory_docs = [req for req in requirements if req.get("is_mandatory")]
+        mandatory_docs = [req for req in requirements if effective_is_mandatory(req)]
         
         # Get user uploads
         uploads = await db.document_uploads.find({"user_id": user_id}).to_list(None)
@@ -231,7 +218,8 @@ async def get_user_document_status(
                 {
                     "document_type": req.get("document_type"),
                     "display_name": req.get("display_name"),
-                    "is_mandatory": req.get("is_mandatory"),
+                    "is_mandatory": effective_is_mandatory(req),
+                    "configured_is_mandatory": bool(req.get("is_mandatory")),
                     "uploaded": req.get("document_type") in uploaded_types,
                     "verified": any(up.get("verified", False) for up in uploads if up.get("document_type") == req.get("document_type")),
                 }
@@ -286,10 +274,10 @@ async def create_document_requirement(
     """Create new document requirement"""
     try:
         # Validate document type
-        if requirement.document_type not in DOCUMENT_TYPES:
+        if requirement.document_type not in DOCUMENT_CATALOG:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid document type. Must be one of: {', '.join(DOCUMENT_TYPES.keys())}"
+                detail=f"Invalid document type. Must be one of: {', '.join(DOCUMENT_CATALOG.keys())}"
             )
         
         # Check if document type already exists
@@ -311,7 +299,7 @@ async def create_document_requirement(
             "applicable_to": requirement.applicable_to,
             "description": requirement.description,
             "enabled": requirement.enabled,
-            "category": DOCUMENT_TYPES[requirement.document_type]["category"],
+            "category": DOCUMENT_CATALOG[requirement.document_type]["category"],
             "created_at": get_ist_now(),
             "updated_at": get_ist_now(),
             "created_by": admin_user.get("id"),

@@ -99,6 +99,11 @@ from app.routers.operator_portal import (
 )
 from app.services.email_delivery import send_otp_email_message
 from app.models.canonical_vehicle_model import CANONICAL_VEHICLES_COLLECTION
+from app.models.document_catalog import (
+    document_mandatory_pause_active,
+    effective_is_mandatory,
+    ensure_default_document_requirements,
+)
 from app.models.ride_type_compatibility import is_vehicle_compatible_with_ride_type
 from app.routers.dispatch_service import router as modular_dispatch_service_router
 from app.routers.stripe_webhooks import router as modular_stripe_webhooks_router
@@ -3764,13 +3769,18 @@ async def ensure_passenger_booking_compliance(user: Dict[str, Any]) -> None:
                 detail="Passenger KYC must be approved before booking a ride.",
             )
 
-    requirements = await db.document_requirements.find(
+    await ensure_default_document_requirements(db)
+    requirement_rows = await db.document_requirements.find(
         {
             "enabled": True,
             "applicable_to": {"$in": ["passenger", "both"]},
-            "is_mandatory": True,
         }
     ).to_list(None)
+    requirements = [
+        requirement
+        for requirement in requirement_rows
+        if effective_is_mandatory(requirement)
+    ]
     if not requirements:
         return
 
@@ -5854,6 +5864,7 @@ async def build_driver_ready_to_drive_status(
             driver_profile["vehicle_info"] = build_driver_vehicle_info(active_vehicle)
 
     documents = await get_driver_documents_map(driver_id, request)
+    documents_required_for_readiness = not document_mandatory_pause_active()
     missing_documents = []
     rejected_documents = []
     pending_documents = []
@@ -5866,41 +5877,45 @@ async def build_driver_ready_to_drive_status(
         has_file = bool(document.get("id") or document.get("filename") or document.get("download_url"))
         if not has_file:
             missing_documents.append(document)
-            blockers.append(
-                build_driver_readiness_issue(
-                    f"missing_document_{doc_type}",
-                    f"Upload {label}.",
-                    "documents",
+            if documents_required_for_readiness:
+                blockers.append(
+                    build_driver_readiness_issue(
+                        f"missing_document_{doc_type}",
+                        f"Upload {label}.",
+                        "documents",
+                    )
                 )
-            )
             continue
         if status_value == "rejected":
             rejected_documents.append(document)
-            blockers.append(
-                build_driver_readiness_issue(
-                    f"rejected_document_{doc_type}",
-                    f"Replace rejected {label}.",
-                    "documents",
+            if documents_required_for_readiness:
+                blockers.append(
+                    build_driver_readiness_issue(
+                        f"rejected_document_{doc_type}",
+                        f"Replace rejected {label}.",
+                        "documents",
+                    )
                 )
-            )
         elif status_value != "approved":
             pending_documents.append(document)
-            blockers.append(
-                build_driver_readiness_issue(
-                    f"pending_document_{doc_type}",
-                    f"{label} is waiting for approval.",
-                    "documents",
+            if documents_required_for_readiness:
+                blockers.append(
+                    build_driver_readiness_issue(
+                        f"pending_document_{doc_type}",
+                        f"{label} is waiting for approval.",
+                        "documents",
+                    )
                 )
-            )
         if document.get("is_expired"):
             expired_documents.append(document)
-            blockers.append(
-                build_driver_readiness_issue(
-                    f"expired_document_{doc_type}",
-                    f"Renew expired {label}.",
-                    "documents",
+            if documents_required_for_readiness:
+                blockers.append(
+                    build_driver_readiness_issue(
+                        f"expired_document_{doc_type}",
+                        f"Renew expired {label}.",
+                        "documents",
+                    )
                 )
-            )
         elif document.get("is_expiring_soon"):
             expiring_documents.append(document)
             warnings.append(
@@ -5966,7 +5981,8 @@ async def build_driver_ready_to_drive_status(
                 "pending_count": len(pending_documents),
                 "expired_count": len(expired_documents),
                 "expiring_count": len(expiring_documents),
-                "required_count": len(DRIVER_DOCUMENT_TYPES),
+                "required_count": len(DRIVER_DOCUMENT_TYPES) if documents_required_for_readiness else 0,
+                "mandatory_paused": not documents_required_for_readiness,
             },
             "vehicle": {
                 "vehicle_count": len(vehicles),
@@ -11087,14 +11103,23 @@ async def get_driver_menu_badges(request: Request, current_user: dict = Depends(
     documents = await get_driver_documents_map(driver_id, request)
     reminders = build_driver_document_reminders(documents)
     document_values = list(documents.values())
-    missing_documents = [
-        document for document in document_values
-        if not document.get("id") and not document.get("download_url") and not document.get("filename")
-    ]
-    rejected_documents = [
-        document for document in document_values
-        if str(document.get("verification_status") or document.get("status") or "").lower() == "rejected"
-    ]
+    documents_required_for_readiness = not document_mandatory_pause_active()
+    missing_documents = (
+        [
+            document for document in document_values
+            if not document.get("id") and not document.get("download_url") and not document.get("filename")
+        ]
+        if documents_required_for_readiness
+        else []
+    )
+    rejected_documents = (
+        [
+            document for document in document_values
+            if str(document.get("verification_status") or document.get("status") or "").lower() == "rejected"
+        ]
+        if documents_required_for_readiness
+        else []
+    )
     pending_documents = [
         document for document in document_values
         if document.get("id")

@@ -12,6 +12,11 @@ from typing import Optional, List
 from bson import ObjectId
 from app.db.client import get_db
 from app.core.auth import require_roles
+from app.models.document_catalog import (
+    DOCUMENT_TYPES as DOCUMENT_CATALOG,
+    effective_is_mandatory,
+    ensure_default_document_requirements,
+)
 from app.services.file_upload import file_upload_service
 import logging
 import os
@@ -87,6 +92,7 @@ async def get_passenger_document_requirements(
 ):
     """Get document requirements for passenger"""
     try:
+        await ensure_default_document_requirements(db)
         # Get document requirements for passengers
         requirements = await db.document_requirements.find({
             "enabled": True,
@@ -107,7 +113,8 @@ async def get_passenger_document_requirements(
             requirements_list.append({
                 "document_type": doc_type,
                 "display_name": req.get("display_name"),
-                "is_mandatory": req.get("is_mandatory"),
+                "is_mandatory": effective_is_mandatory(req),
+                "configured_is_mandatory": bool(req.get("is_mandatory")),
                 "grace_period_days": req.get("grace_period_days"),
                 "description": req.get("description"),
                 "is_uploaded": upload is not None,
@@ -135,13 +142,14 @@ async def get_passenger_document_status(
         passenger_id = passenger.get("id")
         
         # Get document requirements for passengers
+        await ensure_default_document_requirements(db)
         requirements = await db.document_requirements.find({
             "enabled": True,
             "applicable_to": {"$in": ["passenger", "both"]}
         }).to_list(None)
         
         # Separate mandatory and optional documents
-        mandatory_docs = [req for req in requirements if req.get("is_mandatory")]
+        mandatory_docs = [req for req in requirements if effective_is_mandatory(req)]
         
         # Get passenger's uploaded documents
         uploads = await db.document_uploads.find({"user_id": passenger_id}).to_list(None)
@@ -247,13 +255,14 @@ async def upload_document(
         passenger_id = passenger.get("id")
         
         # Validate document type
-        if document_type not in DOCUMENT_TYPES:
+        if document_type not in DOCUMENT_CATALOG:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid document type. Must be one of: {', '.join(DOCUMENT_TYPES.keys())}"
+                detail=f"Invalid document type. Must be one of: {', '.join(DOCUMENT_CATALOG.keys())}"
             )
         
         # Verify document type exists in requirements
+        await ensure_default_document_requirements(db)
         requirement = await db.document_requirements.find_one({
             "document_type": document_type,
             "enabled": True
@@ -357,13 +366,14 @@ async def check_can_book_ride(
                 }
         
         # Get document requirements for passengers
+        await ensure_default_document_requirements(db)
         requirements = await db.document_requirements.find({
             "enabled": True,
             "applicable_to": {"$in": ["passenger", "both"]}
         }).to_list(None)
         
         # Separate mandatory documents
-        mandatory_docs = [req for req in requirements if req.get("is_mandatory")]
+        mandatory_docs = [req for req in requirements if effective_is_mandatory(req)]
         
         # If no mandatory documents, passenger can book ride
         if not mandatory_docs:

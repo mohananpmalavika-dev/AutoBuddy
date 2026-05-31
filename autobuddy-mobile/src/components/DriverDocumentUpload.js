@@ -164,7 +164,11 @@ const DriverDocumentUpload = ({ onClose }) => {
                   style={[
                     styles.progressFill,
                     {
-                      width: `${(status.documents_completed / status.documents_required) * 100}%`,
+                      width: `${
+                        status.documents_required > 0
+                          ? (status.documents_completed / status.documents_required) * 100
+                          : 0
+                      }%`,
                       backgroundColor: getStatusColor(),
                     },
                   ]}
@@ -282,7 +286,7 @@ const DriverDocumentUpload = ({ onClose }) => {
         <View style={styles.infoSection}>
           <Text style={styles.infoTitle}>Important</Text>
           <Text style={styles.infoText}>
-            • Mandatory documents must be uploaded within the grace period
+            • Documents are optional through June 15, 2026
           </Text>
           <Text style={styles.infoText}>
             • Optional documents can be uploaded at any time

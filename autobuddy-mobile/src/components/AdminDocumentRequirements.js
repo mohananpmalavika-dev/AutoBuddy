@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -20,6 +20,7 @@ const AdminDocumentRequirements = ({ isActive = true, onClose }) => {
   const [requirements, setRequirements] = useState([]);
   const [activeTab, setActiveTab] = useState('requirements');
   const [editingReq, setEditingReq] = useState(null);
+  const [isCreatingReq, setIsCreatingReq] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [userStatusQuery, setUserStatusQuery] = useState('');
   const [userStatus, setUserStatus] = useState(null);
@@ -28,28 +29,35 @@ const AdminDocumentRequirements = ({ isActive = true, onClose }) => {
   const [formData, setFormData] = useState({
     document_type: '',
     display_name: '',
-    is_mandatory: true,
-    grace_period_days: 7,
+    is_mandatory: false,
+    grace_period_days: 0,
     applicable_to: 'driver',
     description: '',
     enabled: true,
   });
 
-  const DOCUMENT_TYPES = [
+  const DEFAULT_DOCUMENT_TYPES = useMemo(() => [
     // KYC Documents
     { value: 'passport', label: 'Passport', category: 'KYC' },
     { value: 'national_id', label: 'National ID / Identity Card', category: 'KYC' },
+    { value: 'id_proof', label: 'Identity Proof', category: 'KYC' },
+    { value: 'aadhar', label: 'Aadhar / ID Proof', category: 'KYC' },
     { value: 'driving_license', label: 'Driving License', category: 'KYC' },
+    { value: 'driver_license', label: 'Driver License', category: 'KYC' },
     { value: 'driving_history', label: 'Driving History Report', category: 'KYC' },
     { value: 'fitness_certificate', label: 'Medical/Fitness Certificate', category: 'KYC' },
     { value: 'police_clearance', label: 'Police Clearance Certificate', category: 'KYC' },
     { value: 'pan_id', label: 'PAN / Tax ID', category: 'KYC' },
+    { value: 'pan', label: 'PAN Card', category: 'KYC' },
     { value: 'bank_details', label: 'Bank Account Proof', category: 'KYC' },
     { value: 'address_proof', label: 'Address Proof', category: 'KYC' },
+    { value: 'selfie', label: 'Selfie / Liveness Photo', category: 'KYC' },
     
     // Vehicle Documents
     { value: 'registration', label: 'Vehicle Registration Certificate', category: 'Vehicle' },
-    { value: 'insurance', label: 'Insurance Certificate', category: 'Vehicle' },
+    { value: 'vehicle_registration', label: 'Vehicle Registration', category: 'Vehicle' },
+    { value: 'insurance', label: 'Insurance Document', category: 'Vehicle' },
+    { value: 'vehicle_insurance', label: 'Vehicle Insurance', category: 'Vehicle' },
     { value: 'pollution_certificate', label: 'Pollution Certificate / PUC', category: 'Vehicle' },
     { value: 'vehicle_inspection', label: 'Vehicle Inspection Report', category: 'Vehicle' },
     { value: 'ownership_proof', label: 'Ownership Proof / Title Deed', category: 'Vehicle' },
@@ -59,7 +67,22 @@ const AdminDocumentRequirements = ({ isActive = true, onClose }) => {
     { value: 'vehicle_inspection_sticker', label: 'Inspection Sticker / Permit', category: 'Vehicle' },
     { value: 'loan_details', label: 'Loan/Mortgage Documentation', category: 'Vehicle' },
     { value: 'emission_test', label: 'Emission Test Report', category: 'Vehicle' },
-  ];
+    { value: 'emergency_doc', label: 'Emergency Contact Document', category: 'Passenger' },
+    { value: 'other', label: 'Other Documents', category: 'Passenger' },
+  ], []);
+  const [documentTypes, setDocumentTypes] = useState(DEFAULT_DOCUMENT_TYPES);
+
+  const fetchDocumentTypes = useCallback(async () => {
+    try {
+      const response = await apiRequest('GET', '/api/admin/documents/types');
+      if (Array.isArray(response?.all) && response.all.length > 0) {
+        setDocumentTypes(response.all);
+      }
+    } catch (_error) {
+      console.error('Error fetching document types:', _error);
+      setDocumentTypes(DEFAULT_DOCUMENT_TYPES);
+    }
+  }, [DEFAULT_DOCUMENT_TYPES]);
 
   const fetchRequirements = useCallback(async () => {
     try {
@@ -82,21 +105,22 @@ const AdminDocumentRequirements = ({ isActive = true, onClose }) => {
     let mounted = true;
     (async () => {
       if (mounted) {
-        await fetchRequirements();
+        await Promise.all([fetchDocumentTypes(), fetchRequirements()]);
       }
     })();
     return () => {
       mounted = false;
     };
-  }, [fetchRequirements, isActive]);
+  }, [fetchDocumentTypes, fetchRequirements, isActive]);
 
   const handleAddNew = () => {
     setEditingReq(null);
+    setIsCreatingReq(true);
     setFormData({
       document_type: '',
       display_name: '',
-      is_mandatory: true,
-      grace_period_days: 7,
+      is_mandatory: false,
+      grace_period_days: 0,
       applicable_to: 'driver',
       description: '',
       enabled: true,
@@ -105,10 +129,11 @@ const AdminDocumentRequirements = ({ isActive = true, onClose }) => {
 
   const handleEditReq = (req) => {
     setEditingReq(req);
+    setIsCreatingReq(false);
     setFormData({
       document_type: req.document_type,
       display_name: req.display_name,
-      is_mandatory: req.is_mandatory,
+      is_mandatory: req.configured_is_mandatory ?? req.is_mandatory,
       grace_period_days: req.grace_period_days,
       applicable_to: req.applicable_to,
       description: req.description,
@@ -143,6 +168,7 @@ const AdminDocumentRequirements = ({ isActive = true, onClose }) => {
 
       fetchRequirements();
       setEditingReq(null);
+      setIsCreatingReq(false);
     } catch (error) {
       console.error('Error saving requirement:', error);
       Alert.alert('Error', error.message || 'Failed to save document requirement');
@@ -191,7 +217,8 @@ const AdminDocumentRequirements = ({ isActive = true, onClose }) => {
     }
   }, [userStatusQuery]);
 
-  const documentTypeLabel = DOCUMENT_TYPES.find(d => d.value === formData.document_type)?.label || 'Select document type';
+  const documentTypeLabel = documentTypes.find(d => d.value === formData.document_type)?.label || 'Select document type';
+  const mandatoryPaused = requirements.some((req) => req.mandatory_paused);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -233,8 +260,17 @@ const AdminDocumentRequirements = ({ isActive = true, onClose }) => {
         {activeTab === 'requirements' && (
           <View>
             {/* Requirements List */}
-            {!editingReq && (
+            {!editingReq && !isCreatingReq && (
               <View>
+                {mandatoryPaused && (
+                  <View style={styles.pauseNotice}>
+                    <Text style={styles.pauseNoticeTitle}>Mandatory documents paused</Text>
+                    <Text style={styles.pauseNoticeText}>
+                      No document is mandatory through June 15, 2026. Requirements remain visible as optional uploads.
+                    </Text>
+                  </View>
+                )}
+
                 <TouchableOpacity style={styles.addBtn} onPress={handleAddNew}>
                   <Text style={styles.addBtnText}>+ Add Document Requirement</Text>
                 </TouchableOpacity>
@@ -245,47 +281,55 @@ const AdminDocumentRequirements = ({ isActive = true, onClose }) => {
                   </View>
                 ) : (
                   <View style={styles.list}>
-                    {requirements.map((req) => (
-                      <View key={req.id} style={styles.listItem}>
-                        <View style={styles.itemHeader}>
-                          <Text style={styles.itemTitle}>{req.display_name}</Text>
-                          <View style={styles.badges}>
-                            <View style={[styles.badge, req.is_mandatory ? styles.badgeMandatory : styles.badgeOptional]}>
-                              <Text style={styles.badgeText}>
-                                {req.is_mandatory ? 'Mandatory' : 'Optional'}
-                              </Text>
+                    {requirements.map((req) => {
+                      const configuredMandatory = req.configured_is_mandatory ?? req.is_mandatory;
+                      const effectiveMandatory = req.is_mandatory;
+                      return (
+                        <View key={req.id || req.document_type} style={styles.listItem}>
+                          <View style={styles.itemHeader}>
+                            <Text style={styles.itemTitle}>{req.display_name}</Text>
+                            <View style={styles.badges}>
+                              <View style={[styles.badge, effectiveMandatory ? styles.badgeMandatory : styles.badgeOptional]}>
+                                <Text style={styles.badgeText}>
+                                  {effectiveMandatory
+                                    ? 'Mandatory'
+                                    : configuredMandatory
+                                      ? 'Optional until Jun 15'
+                                      : 'Optional'}
+                                </Text>
+                              </View>
                             </View>
                           </View>
+                          <Text style={styles.itemType}>{req.document_type}</Text>
+                          {req.description && <Text style={styles.itemDesc}>{req.description}</Text>}
+                          <View style={styles.itemMeta}>
+                            <Text style={styles.metaText}>Grace period: {req.grace_period_days} days</Text>
+                            <Text style={styles.metaText}>For: {req.applicable_to}</Text>
+                          </View>
+                          <View style={styles.itemActions}>
+                            <TouchableOpacity
+                              style={[styles.actionBtn, styles.editBtn]}
+                              onPress={() => handleEditReq(req)}
+                            >
+                              <Text style={styles.actionBtnText}>Edit</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[styles.actionBtn, styles.deleteBtn]}
+                              onPress={() => handleDeleteReq(req)}
+                            >
+                              <Text style={styles.actionBtnText}>Delete</Text>
+                            </TouchableOpacity>
+                          </View>
                         </View>
-                        <Text style={styles.itemType}>{req.document_type}</Text>
-                        {req.description && <Text style={styles.itemDesc}>{req.description}</Text>}
-                        <View style={styles.itemMeta}>
-                          <Text style={styles.metaText}>Grace period: {req.grace_period_days} days</Text>
-                          <Text style={styles.metaText}>For: {req.applicable_to}</Text>
-                        </View>
-                        <View style={styles.itemActions}>
-                          <TouchableOpacity
-                            style={[styles.actionBtn, styles.editBtn]}
-                            onPress={() => handleEditReq(req)}
-                          >
-                            <Text style={styles.actionBtnText}>Edit</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={[styles.actionBtn, styles.deleteBtn]}
-                            onPress={() => handleDeleteReq(req)}
-                          >
-                            <Text style={styles.actionBtnText}>Delete</Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    ))}
+                      );
+                    })}
                   </View>
                 )}
               </View>
             )}
 
             {/* Form */}
-            {editingReq || (editingReq === null && requirements.length > 0) ? (
+            {editingReq || isCreatingReq ? (
               <View style={styles.form}>
                 <Text style={styles.formTitle}>{editingReq ? 'Edit' : 'New'} Document Requirement</Text>
 
@@ -295,23 +339,24 @@ const AdminDocumentRequirements = ({ isActive = true, onClose }) => {
                   <TouchableOpacity
                     style={styles.pickerButton}
                     onPress={() => {
-                      const kycDocs = DOCUMENT_TYPES.filter(d => d.category === 'KYC');
-                      const vehicleDocs = DOCUMENT_TYPES.filter(d => d.category === 'Vehicle');
+                      const groupedDocs = documentTypes.reduce((groups, doc) => {
+                        const category = doc.category || 'Other';
+                        groups[category] = [...(groups[category] || []), doc];
+                        return groups;
+                      }, {});
+                      const buttons = Object.entries(groupedDocs).flatMap(([category, docs]) => [
+                        { text: `${category.toUpperCase()} DOCUMENTS`, onPress: () => {} },
+                        ...docs.map(doc => ({
+                          text: `  ${doc.label}`,
+                          onPress: () => setFormData({ ...formData, document_type: doc.value, display_name: formData.display_name || doc.label }),
+                        })),
+                      ]);
                       
                       Alert.alert(
                         'Select Document Type',
                         '',
                         [
-                          { text: 'KYC DOCUMENTS', onPress: () => {} },
-                          ...kycDocs.map(doc => ({
-                            text: `  ${doc.label}`,
-                            onPress: () => setFormData({ ...formData, document_type: doc.value }),
-                          })),
-                          { text: 'VEHICLE DOCUMENTS', onPress: () => {} },
-                          ...vehicleDocs.map(doc => ({
-                            text: `  ${doc.label}`,
-                            onPress: () => setFormData({ ...formData, document_type: doc.value }),
-                          })),
+                          ...buttons,
                           { text: 'Cancel', onPress: () => {} },
                         ]
                       );
@@ -424,7 +469,10 @@ const AdminDocumentRequirements = ({ isActive = true, onClose }) => {
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.btn, styles.cancelBtn]}
-                    onPress={() => setEditingReq(null)}
+                    onPress={() => {
+                      setEditingReq(null);
+                      setIsCreatingReq(false);
+                    }}
                   >
                     <Text style={styles.cancelBtnText}>Cancel</Text>
                   </TouchableOpacity>
@@ -590,6 +638,25 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     fontWeight: '600',
+  },
+  pauseNotice: {
+    backgroundColor: '#E8F5E9',
+    borderLeftColor: COLORS.primary,
+    borderLeftWidth: 4,
+    borderRadius: 8,
+    marginBottom: 16,
+    padding: 12,
+  },
+  pauseNoticeTitle: {
+    color: COLORS.text,
+    fontSize: 14,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  pauseNoticeText: {
+    color: COLORS.textSecondary,
+    fontSize: 12,
+    lineHeight: 18,
   },
   list: {
     marginBottom: 16,

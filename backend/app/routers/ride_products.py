@@ -15,6 +15,7 @@ from app.db.deps import get_db
 from app.db.models_features import PaymentMethod as PassengerPaymentMethod
 from app.db.models_features import PromoCode, PromoCodeUsage
 from app.db.database import SessionLocal
+from app.models.document_catalog import effective_is_mandatory, ensure_default_document_requirements
 from app.utils.rbac import get_current_user_secure
 
 router = APIRouter(prefix="/api", tags=["ride_products"])
@@ -437,13 +438,18 @@ async def _ensure_passenger_booking_compliance(
                 detail="Passenger KYC must be approved before booking a ride.",
             )
 
-    requirements = await db.document_requirements.find(
+    await ensure_default_document_requirements(db)
+    requirement_rows = await db.document_requirements.find(
         {
             "enabled": True,
             "applicable_to": {"$in": ["passenger", "both"]},
-            "is_mandatory": True,
         }
     ).to_list(None)
+    requirements = [
+        requirement
+        for requirement in requirement_rows
+        if effective_is_mandatory(requirement)
+    ]
     if not requirements:
         return
 
