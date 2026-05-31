@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import * as Location from 'expo-location';
 import { SymbolView } from 'expo-symbols';
+import { COLORS, SHADOWS } from '../theme';
 import InteractiveMap from '../components/InteractiveMap';
 
 const PASSENGER_MENU_SYMBOLS = {
