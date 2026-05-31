@@ -11,6 +11,7 @@ import {
   Vibration,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import { SymbolView } from 'expo-symbols';
 import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme';
