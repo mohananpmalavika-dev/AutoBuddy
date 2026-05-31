@@ -151,7 +151,7 @@ function PassengerMenuIcon({ symbol, selected, size = 16 }) {
 
 const DEFAULT_REGION = { latitude: 13.0827, longitude: 80.2707, latitudeDelta: 0.05, longitudeDelta: 0.05 };
 const passengerMapStyle = [];
-const SHOW_LEGACY_ONE_PAGE_BOOKING_FLOW = false;
+const SHOW_LEGACY_ONE_PAGE_BOOKING_FLOW = true;
 
 export function PassengerMapContent({ token, user, onLogout, onProfilePress = undefined }) {
   const autoPickupInitializedRef = useRef(false);

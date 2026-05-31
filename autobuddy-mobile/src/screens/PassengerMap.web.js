@@ -168,7 +168,7 @@ const DEFAULT_CITY_LOCATION = {
   latitude: 13.0827,
   longitude: 80.2707,
 };
-const SHOW_LEGACY_ONE_PAGE_BOOKING_FLOW = false;
+const SHOW_LEGACY_ONE_PAGE_BOOKING_FLOW = true;
 
 export function PassengerMapContent({ token, user, onLogout, onProfilePress = undefined }) {
   const autoPickupInitializedRef = useRef(false);
@@ -2199,10 +2199,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                   )}
                 </View>
 
-                {/* Show text search or interactive mode */}
-                {!showInteractiveMap && (
-                  <>
-                    <View style={styles.selectedBlock}>
+                {/* Show text search + interactive map mode */}
+                <>
+                  <View style={styles.selectedBlock}>
                   <View style={styles.pickupLabelRow}>
                     <Text style={styles.infoTitle}>{t.pickupSearch}</Text>
                     <TouchableOpacity
@@ -2282,7 +2281,6 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                   )}
                 </View>
                   </>
-                )}
                 {/* Trip summary removed per UI request */}
                 <View style={styles.infoBlock}>
                   <Text style={styles.infoTitle}>{t.rideType || 'Ride Type'}</Text>
