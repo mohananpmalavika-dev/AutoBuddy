@@ -27,23 +27,73 @@ function getVehicleId(vehicle) {
   return vehicle?.id || vehicle?.vehicle_type_id;
 }
 
-function normalizeVehicleSubtype(subtype) {
+const DEFAULT_PASSENGER_CAPACITY_BY_VEHICLE = {
+  auto: 3,
+  taxi: 4,
+  xl: 6,
+  traveller: 8,
+  bus: 40,
+};
+
+function positiveNumber(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+}
+
+function getVehicleCapacity(vehicle, fallback = 1) {
+  const vehicleId = String(getVehicleId(vehicle) || '').toLowerCase();
+  const defaultCapacity = DEFAULT_PASSENGER_CAPACITY_BY_VEHICLE[vehicleId] || 0;
+  const explicitCapacity =
+    positiveNumber(vehicle?.capacity) ||
+    positiveNumber(vehicle?.capacity_passengers) ||
+    positiveNumber(vehicle?.passenger_capacity) ||
+    positiveNumber(vehicle?.seating_capacity) ||
+    positiveNumber(vehicle?.max_passengers);
+
+  if (explicitCapacity) {
+    return Math.max(explicitCapacity, defaultCapacity || explicitCapacity);
+  }
+
+  return defaultCapacity || fallback;
+}
+
+function getSubtypeCapacityFromName(name, vehicle) {
+  if (String(vehicle?.capacity_unit || '').toLowerCase() === 'kg') {
+    return null;
+  }
+  const match = String(name || '').match(/\b(\d{1,2})\b/);
+  return match ? positiveNumber(match[1]) : null;
+}
+
+function normalizeVehicleSubtype(subtype, vehicle = null) {
   if (!subtype) {
     return null;
   }
   if (typeof subtype === 'string') {
-    return { id: subtype, name: subtype };
+    return {
+      id: subtype,
+      name: subtype,
+      capacity: getSubtypeCapacityFromName(subtype, vehicle),
+    };
   }
+  const name = subtype.name || subtype.label || subtype.id || 'Variant';
   return {
     ...subtype,
     id: subtype.id || subtype.vehicle_subtype_id || subtype.name,
-    name: subtype.name || subtype.label || subtype.id || 'Variant',
+    name,
+    capacity:
+      positiveNumber(subtype.capacity) ||
+      positiveNumber(subtype.capacity_passengers) ||
+      positiveNumber(subtype.passenger_capacity) ||
+      positiveNumber(subtype.seating_capacity) ||
+      positiveNumber(subtype.max_passengers) ||
+      getSubtypeCapacityFromName(name, vehicle),
   };
 }
 
 function normalizeVehicleSubtypes(vehicle) {
   return (vehicle?.subtypes || [])
-    .map(normalizeVehicleSubtype)
+    .map((subtype) => normalizeVehicleSubtype(subtype, vehicle))
     .filter(Boolean);
 }
 
@@ -54,7 +104,7 @@ function getVehicleDescription(vehicle) {
   if (vehicle?.capacity_unit === 'kg') {
     return `Up to ${vehicle.capacity}${vehicle.capacity_unit}`;
   }
-  return `${vehicle?.capacity || 1} ${vehicle?.capacity_unit || 'passengers'}`;
+  return `${getVehicleCapacity(vehicle)} ${vehicle?.capacity_unit || 'passengers'}`;
 }
 
 function titleFromId(value, fallback) {
@@ -124,6 +174,7 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
       icon: '🛺',
       description: 'Budget friendly',
       color: '#FFA500',
+      capacity: 3,
       subtypes: ['Standard'],
     },
     {
@@ -132,6 +183,7 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
       icon: '🚖',
       description: 'Comfortable ride',
       color: '#FFD700',
+      capacity: 4,
       subtypes: ['Sedan', 'Hatchback'],
     },
     {
@@ -140,6 +192,7 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
       icon: '🚗',
       description: 'More space',
       color: '#4169E1',
+      capacity: 6,
       subtypes: ['SUV', 'Wagon'],
     },
     {
@@ -148,6 +201,7 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
       icon: '🚐',
       description: 'Group travel',
       color: '#20B2AA',
+      capacity: 8,
       subtypes: ['6-seater', '8-seater'],
     },
     {
@@ -156,6 +210,7 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
       icon: '🚌',
       description: 'Large groups',
       color: '#DC143C',
+      capacity: 40,
       subtypes: ['City Bus', 'Coach'],
     },
     {
@@ -164,6 +219,8 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
       icon: '🚚',
       description: 'Small goods',
       color: '#8B4513',
+      capacity: 1000,
+      capacity_unit: 'kg',
       subtypes: ['500kg', '1000kg'],
     },
     {
@@ -172,6 +229,8 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
       icon: '🚛',
       description: 'Heavy goods',
       color: '#654321',
+      capacity: 10000,
+      capacity_unit: 'kg',
       subtypes: ['2.5T', '5T', '10T'],
     },
   ], []);
@@ -413,7 +472,7 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
     }
 
     const vehicleCapacity =
-      selectedVehicleSubtype?.capacity || selectedVehicleType.capacity || 1;
+      selectedVehicleSubtype?.capacity || getVehicleCapacity(selectedVehicleType);
 
     // Navigate to BookingDetailsScreen with comprehensive service data
     navigation.navigate('BookingDetails', {

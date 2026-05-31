@@ -16,6 +16,13 @@ import { bookingAPI } from '../services/apiClient';
 import { getSocket } from '../services/socketClient';
 
 const DEFAULT_DRIVER_RADIUS_KM = 2;
+const DEFAULT_PASSENGER_CAPACITY_BY_VEHICLE = {
+  auto: 3,
+  taxi: 4,
+  xl: 6,
+  traveller: 8,
+  bus: 40,
+};
 
 function normalizeInitialLocation(location) {
   if (!location) {
@@ -42,6 +49,24 @@ function clampNumber(value, min, max) {
     return min;
   }
   return Math.max(min, Math.min(max, numeric));
+}
+
+function positiveNumber(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+}
+
+function getServicePassengerCapacity(service) {
+  const vehicleTypeId = String(service?.vehicle_type_id || service?.vehicle_type || '').toLowerCase();
+  const defaultCapacity = DEFAULT_PASSENGER_CAPACITY_BY_VEHICLE[vehicleTypeId] || 6;
+  const explicitCapacity =
+    positiveNumber(service?.vehicle_subtype_capacity) ||
+    positiveNumber(service?.vehicle_capacity) ||
+    positiveNumber(service?.capacity_passengers) ||
+    positiveNumber(service?.passenger_capacity) ||
+    positiveNumber(service?.max_passengers);
+
+  return Math.max(explicitCapacity || 0, defaultCapacity);
 }
 
 function money(value) {
@@ -110,8 +135,6 @@ const BookingDetailsScreen = ({ navigation, route }) => {
     vehicle_subtype_id,
     vehicle_name,
     vehicle_subtype_name,
-    vehicle_subtype_capacity,
-    vehicle_capacity,
     capacity_unit,
     ride_type,
     ride_type_name,
@@ -126,9 +149,8 @@ const BookingDetailsScreen = ({ navigation, route }) => {
     [route.params?.initialDropoff],
   );
 
-  const selectedCapacity = Number(vehicle_subtype_capacity || vehicle_capacity || 0);
   const maxPassengerCount =
-    capacity_unit !== 'kg' && selectedCapacity > 0 ? selectedCapacity : 6;
+    String(capacity_unit || '').toLowerCase() !== 'kg' ? getServicePassengerCapacity(service) : 6;
   const hasRoute = Boolean(initialPickup.coords && initialDropoff.coords);
 
   const [passengerCount, setPassengerCount] = useState(1);
@@ -440,9 +462,12 @@ const BookingDetailsScreen = ({ navigation, route }) => {
               value={passengerCountInput}
               onChangeText={handlePassengerInputChange}
               onBlur={commitPassengerInput}
-              keyboardType="number-pad"
-              maxLength={2}
+              onSubmitEditing={commitPassengerInput}
+              keyboardType="numeric"
+              inputMode="numeric"
+              maxLength={Math.max(2, String(maxPassengerCount).length)}
               selectTextOnFocus
+              accessibilityLabel="Passenger count"
             />
             <TouchableOpacity
               style={[
