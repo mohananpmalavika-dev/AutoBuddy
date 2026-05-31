@@ -168,7 +168,7 @@ const DEFAULT_CITY_LOCATION = {
   latitude: 13.0827,
   longitude: 80.2707,
 };
-const SHOW_LEGACY_ONE_PAGE_BOOKING_FLOW = true;
+const SHOW_LEGACY_ONE_PAGE_BOOKING_FLOW = false;
 
 export function PassengerMapContent({ token, user, onLogout, onProfilePress = undefined }) {
   const autoPickupInitializedRef = useRef(false);
@@ -2157,16 +2157,124 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             )}
 
             {activePassengerMenu === 'ride' && (
-              <View style={styles.infoBlock}>
+              <>
+                <View style={styles.infoBlock}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                    <Text style={styles.infoTitle}>{showInteractiveMap ? 'Interactive Map' : 'Search Location'}</Text>
+                    <TouchableOpacity
+                      style={[
+                        styles.button,
+                        {
+                          paddingVertical: 8,
+                          paddingHorizontal: 16,
+                          backgroundColor: showInteractiveMap ? COLORS.primary : COLORS.mutedDark,
+                        },
+                      ]}
+                      onPress={() => setShowInteractiveMap(!showInteractiveMap)}>
+                      <Text style={[styles.buttonText, { fontSize: 13 }]}> 
+                        {showInteractiveMap ? t.hide : t.show || (showInteractiveMap ? 'Hide' : 'Show')}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  {showInteractiveMap && (
+                    <Text style={[styles.hint, { marginBottom: 12, fontWeight: '500', color: COLORS.primary }]}> 
+                      {t.tapMapToSelect || `Tap map to pick ${selectingPoint}`}
+                    </Text>
+                  )}
+                </View>
+
+                <View style={styles.selectedBlock}>
+                  <View style={styles.pickupLabelRow}>
+                    <Text style={styles.infoTitle}>{t.pickupSearch}</Text>
+                    <TouchableOpacity
+                      style={styles.currentLocationInlineButton}
+                      onPress={() => autofillPickupFromCurrentLocation({ silent: false })}
+                      disabled={loading || locatingPickup}>
+                      <Text style={styles.currentLocationInlineText}>
+                        {locatingPickup ? t.fetching : t.useCurrent}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  <SavedPlacesQuickSelect
+                    token={token}
+                    selectingFor="pickup"
+                    onSelectPlace={(place) => {
+                      const loc = {
+                        latitude: Number(place?.latitude),
+                        longitude: Number(place?.longitude),
+                        address: String(place?.address || place?.name || '').trim(),
+                      };
+                      setLocationForPoint('pickup', loc);
+                    }}
+                  />
+                  <VoiceTextInput
+                    style={styles.input}
+                    value={pickupQuery}
+                    onChangeText={(text) => handleSearchTextChange('pickup', text)}
+                    placeholder={t.pickupPlaceholder}
+                    placeholderTextColor={COLORS.textMuted}
+                  />
+                  {searchingPickup && <Text style={styles.hint}>{t.searchingPickup}</Text>}
+                  {pickupSuggestions.map((item) => (
+                    <TouchableOpacity
+                      key={`pickup-${item.placeId}`}
+                      style={styles.suggestion}
+                      onPress={() => handleSelectSuggestion('pickup', item)}>
+                      <Text style={styles.suggestionText}>{item.description}</Text>
+                    </TouchableOpacity>
+                  ))}
+                  {locationValidation.pickup && (
+                    <Text style={styles.validationText}>{t.pickupRequired}</Text>
+                  )}
+                </View>
+
+                <View style={styles.selectedBlock}>
+                  <Text style={styles.infoTitle}>{t.dropSearch}</Text>
+                  <SavedPlacesQuickSelect
+                    token={token}
+                    selectingFor="dropoff"
+                    onSelectPlace={(place) => {
+                      const loc = {
+                        latitude: Number(place?.latitude),
+                        longitude: Number(place?.longitude),
+                        address: String(place?.address || place?.name || '').trim(),
+                      };
+                      setLocationForPoint('dropoff', loc);
+                    }}
+                  />
+                  <VoiceTextInput
+                    style={styles.input}
+                    value={dropoffQuery}
+                    onChangeText={(text) => handleSearchTextChange('dropoff', text)}
+                    placeholder={t.dropPlaceholder}
+                    placeholderTextColor={COLORS.textMuted}
+                  />
+                  {searchingDropoff && <Text style={styles.hint}>{t.searchingDrop}</Text>}
+                  {dropoffSuggestions.map((item) => (
+                    <TouchableOpacity
+                      key={`drop-${item.placeId}`}
+                      style={styles.suggestion}
+                      onPress={() => handleSelectSuggestion('dropoff', item)}>
+                      <Text style={styles.suggestionText}>{item.description}</Text>
+                    </TouchableOpacity>
+                  ))}
+                  {locationValidation.dropoff && (
+                    <Text style={styles.validationText}>{t.dropRequired}</Text>
+                  )}
+                </View>
+
                 <TouchableOpacity
-                  style={[styles.bookingButton, { backgroundColor: COLORS.primary }]}
-                  onPress={() => setShowBookingFlow(true)}>
-                  <Text style={[styles.actionText, { color: '#FFFFFF', fontSize: 16 }]}>
-                    {t.rideBooking}
+                  style={[styles.bookingButton, { backgroundColor: COLORS.primary, marginVertical: 12 }]}
+                  onPress={() => setShowBookingFlow(true)}
+                  disabled={!pickupLocation || !dropoffLocation}>
+                  <Text style={[styles.actionText, { color: 'white', fontSize: 16, fontWeight: '700' }]}> 
+                    {t.continueToRideDetails || 'Continue to ride details'}
                   </Text>
                 </TouchableOpacity>
-              </View>
-            )}
+                {(!pickupLocation || !dropoffLocation) && (
+                  <Text style={styles.hint}>{t.selectPickupAndDropFirst || 'Select pickup and dropoff first to continue.'}</Text>
+                )}
+              </>)}
 
             {SHOW_LEGACY_ONE_PAGE_BOOKING_FLOW && activePassengerMenu === 'ride' && (
               <>
