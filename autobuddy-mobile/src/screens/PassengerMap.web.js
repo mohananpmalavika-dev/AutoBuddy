@@ -1,126 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
-  Image,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-import { SymbolView } from 'expo-symbols';
-
-import { apiRequest } from '../lib/api';
-import { createAutoBuddySocket } from '../lib/socket';
-import {
-  getPlaceLocation, 
-  isPlacesConfigured,
-  reverseGeocodeLocation,
-  searchPlaces,
-} from '../lib/places';
-import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme';
-import { AccessibilityProvider } from '../hooks/useAccessibility';
-import { useVehicleTypes } from '../hooks/useVehicleTypes';
-import RideCommunicationCard from '../components/RideCommunicationCard';
-import WebCommandBar from '../components/WebCommandBar';
-import VoiceTextInput from '../components/VoiceTextInput';
-import KeralaSafetyCard from '../components/KeralaSafetyCard';
-import RevenueCard from '../components/RevenueCard';
-import RideProductsGrid from '../components/RideProductsGrid';
-import WebGoogleLiveMap from '../components/WebGoogleLiveMap';
-import BookingConfirmationCard from '../components/BookingConfirmationCard';
-import ScheduledPickupPicker from '../components/ScheduledPickupPicker';
-import NotificationBell from '../components/NotificationBell';
-import NotificationCenter from '../components/NotificationCenter';
-import PromoCodePanel from '../components/PromoCodePanel';
-import SupportTicketsPanel from '../components/SupportTicketsPanel';
-import PaymentMethodsPanel from '../components/PaymentMethodsPanel';
-import PassengerRatingsPanel from '../components/PassengerRatingsPanel';
-import FavoriteDriversPanel from '../components/FavoriteDriversPanel';
-import PreferencesPanel from '../components/PreferencesPanel';
-import SavedPlacesPanel from '../components/SavedPlacesPanel';
-import SavedPlacesQuickSelect from '../components/SavedPlacesQuickSelect';
-import EmergencyContactsPanel from '../components/EmergencyContactsPanel';
-import AccessibilityPanel from '../components/AccessibilityPanel';
-import AccessibilityQuickAccess from '../components/AccessibilityQuickAccess';
-import PassengerScheduledRidesPanel from '../components/PassengerScheduledRidesPanel';
-import { formatToIST } from '../utils/time';
-import PassengerProfilePanel from '../components/PassengerProfilePanel';
-import PassengerKYCPanel from '../components/PassengerKYCPanel';
-import PassengerDocumentUpload from '../components/PassengerDocumentUpload';
-import PassengerDocumentsPanel from '../components/PassengerDocumentsPanel';
-import ReceiptsPanel from '../components/ReceiptsPanel';
-import SubscriptionPanel from '../components/SubscriptionPanel';
-import RideNotesPanel from '../components/RideNotesPanel';
-import LocationSharingPanel from '../components/LocationSharingPanel';
-import RideStatsPanel from '../components/RideStatsPanel';
-import PostRideRatingModal from '../components/PostRideRatingModal';
-import PassengerBookingNavigator from '../screens/PassengerBookingNavigator';
-import { NotificationProvider, useNotifications } from '../contexts/NotificationContext';
-import { useNotificationManager } from '../hooks/useNotificationManager';
-import {
-  FadeSlideView,
-  GlassCard,
-  LiveEtaPulse,
-  PremiumEmptyState,
-  RideProgressTimeline,
-} from '../components/PremiumUI';
-import { useKeralaSafety } from '../hooks/useKeralaSafety';
-import PassengerProfile from './PassengerProfile';
-import {
-  getPassengerRideProductLabels,
-  resolvePassengerLocale,
-} from '../locales/passengerDashboard';
-import { normalizeLanguageCode } from '../locales/indianLanguages';
-import { validateScheduledPickup } from '../lib/scheduling';
-
-const LOGO_SOURCE = require('../../assets/images/autobuddy-logo.jpg');
-const PASSENGER_MENU_SYMBOLS = {
-  ride: { ios: 'car.fill', android: 'local_taxi', web: 'local_taxi' },
-  live: { ios: 'location.circle.fill', android: 'my_location', web: 'my_location' },
-  drivers: { ios: 'person.2.fill', android: 'person_search', web: 'person_search' },
-  favorites: { ios: 'star.fill', android: 'favorite', web: 'favorite' },
-  safety: { ios: 'shield.fill', android: 'shield', web: 'shield' },
-  wallet: { ios: 'creditcard.fill', android: 'account_balance_wallet', web: 'account_balance_wallet' },
-  spin: { ios: 'gift.fill', android: 'redeem', web: 'redeem' },
-  history: { ios: 'clock.arrow.circlepath', android: 'history', web: 'history' },
-  notifications: { ios: 'bell.fill', android: 'notifications', web: 'notifications' },
-  promo: { ios: 'ticket.fill', android: 'confirmation_number', web: 'confirmation_number' },
-  support: { ios: 'questionmark.circle.fill', android: 'support_agent', web: 'support_agent' },
-  payment: { ios: 'creditcard', android: 'credit_card', web: 'credit_card' },
-  ratings: { ios: 'star.circle.fill', android: 'star_rate', web: 'star_rate' },
-  preferences: { ios: 'slider.horizontal.3', android: 'tune', web: 'tune' },
-  places: { ios: 'mappin', android: 'location_on', web: 'location_on' },
-  emergency: { ios: 'exclamationmark.triangle.fill', android: 'emergency', web: 'emergency' },
-  accessibility: { ios: 'figure.roll', android: 'accessible', web: 'accessible' },
-  scheduled: { ios: 'calendar', android: 'calendar_clock', web: 'calendar_clock' },
-  profile: { ios: 'person.crop.circle.fill', android: 'person', web: 'person' },
-  kyc: { ios: 'person.crop.rectangle', android: 'id_card', web: 'id_card' },
-  documents: { ios: 'doc.text.fill', android: 'description', web: 'description' },
-  receipts: { ios: 'list.bullet.rectangle.portrait.fill', android: 'receipt_long', web: 'receipt_long' },
-  subscription: { ios: 'checkmark.seal.fill', android: 'workspace_premium', web: 'workspace_premium' },
-  notes: { ios: 'note.text', android: 'note', web: 'note' },
-  sharing: { ios: 'location.fill', android: 'location_on', web: 'location_on' },
-  stats: { ios: 'chart.bar.fill', android: 'bar_chart', web: 'bar_chart' },
-};
-const PASSENGER_MENU_OPTIONS = [
-  { key: 'ride', symbol: PASSENGER_MENU_SYMBOLS.ride },
-  { key: 'live', symbol: PASSENGER_MENU_SYMBOLS.live },
-  { key: 'drivers', symbol: PASSENGER_MENU_SYMBOLS.drivers },
-  { key: 'favorites', symbol: PASSENGER_MENU_SYMBOLS.favorites },
-  { key: 'safety', symbol: PASSENGER_MENU_SYMBOLS.safety },
-  { key: 'wallet', symbol: PASSENGER_MENU_SYMBOLS.wallet },
-  { key: 'spin', symbol: PASSENGER_MENU_SYMBOLS.spin },
-  { key: 'history', symbol: PASSENGER_MENU_SYMBOLS.history },
-  { key: 'notifications', symbol: PASSENGER_MENU_SYMBOLS.notifications },
-  { key: 'promo', symbol: PASSENGER_MENU_SYMBOLS.promo },
-  { key: 'support', symbol: PASSENGER_MENU_SYMBOLS.support },
-  { key: 'payment', symbol: PASSENGER_MENU_SYMBOLS.payment },
-  { key: 'ratings', symbol: PASSENGER_MENU_SYMBOLS.ratings },
-  { key: 'preferences', symbol: PASSENGER_MENU_SYMBOLS.preferences },
-  { key: 'places', symbol: PASSENGER_MENU_SYMBOLS.places },
+            {activePassengerMenu === 'ride' && (
+              <View style={styles.infoBlock}>
+                <Text style={styles.infoTitle}>{t.rideBooking || 'Ride Booking'}</Text>
+                <Text style={styles.hint}>{t.useTopSearch || 'Use the pickup/drop search at the top to select locations, then continue.'}</Text>
+                <TouchableOpacity
+                  style={[styles.bookingButton, { backgroundColor: COLORS.primary, marginTop: 12 }]}
+                  onPress={() => setShowBookingFlow(true)}
+                  disabled={!pickupLocation || !dropoffLocation}>
+                  <Text style={[styles.actionText, { color: 'white', fontSize: 16 }]}>
+                    {t.continueToRideDetails || 'Continue to ride details'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
   { key: 'emergency', symbol: PASSENGER_MENU_SYMBOLS.emergency },
   { key: 'accessibility', symbol: PASSENGER_MENU_SYMBOLS.accessibility },
   { key: 'scheduled', symbol: PASSENGER_MENU_SYMBOLS.scheduled },
