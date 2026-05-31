@@ -66,7 +66,9 @@ export const getSocket = (): Socket | null => {
  */
 export const registerPassengerListeners = (handlers: SocketEventHandlers) => {
   const socket = getSocket();
-  if (!socket) return;
+  if (!socket) {
+    return;
+  }
 
   socket.on('driver_location_updated', (data) => {
     handlers.onDriverLocation?.(data);
@@ -106,7 +108,9 @@ export const registerPassengerListeners = (handlers: SocketEventHandlers) => {
  */
 export const registerDriverListeners = (handlers: SocketEventHandlers) => {
   const socket = getSocket();
-  if (!socket) return;
+  if (!socket) {
+    return;
+  }
 
   socket.on('ride_offer', (data) => {
     handlers.onNotification?.(data);
@@ -130,7 +134,9 @@ export const registerDriverListeners = (handlers: SocketEventHandlers) => {
  */
 export const registerAdminListeners = (handlers: SocketEventHandlers) => {
   const socket = getSocket();
-  if (!socket) return;
+  if (!socket) {
+    return;
+  }
 
   socket.on('notification', (data) => {
     handlers.onNotification?.(data);
@@ -158,7 +164,9 @@ export const registerAdminListeners = (handlers: SocketEventHandlers) => {
  */
 export const joinRoom = (room: string) => {
   const socket = getSocket();
-  if (!socket) return;
+  if (!socket) {
+    return;
+  }
   socket.emit('join_room', { room });
 };
 
@@ -167,7 +175,9 @@ export const joinRoom = (room: string) => {
  */
 export const joinRideTracking = (rideId: string, handlers: SocketEventHandlers) => {
   const socket = getSocket();
-  if (!socket) return;
+  if (!socket) {
+    return;
+  }
 
   const roomName = `ride_${rideId}`;
   socket.emit('join_room', { room: roomName });
@@ -186,14 +196,16 @@ export const joinRideTracking = (rideId: string, handlers: SocketEventHandlers) 
  */
 export const emitDriverLocation = (rideId: string, latitude: number, longitude: number, accuracy?: number) => {
   const socket = getSocket();
-  if (!socket) return;
+  if (!socket) {
+    return;
+  }
 
-    socket.emit('driver_location_update', {
+  socket.emit('driver_location_update', {
     ride_id: rideId,
     latitude,
     longitude,
     accuracy: accuracy || 0,
-      timestamp: istISOString(new Date()),
+    timestamp: istISOString(new Date()),
   });
 };
 
@@ -202,7 +214,9 @@ export const emitDriverLocation = (rideId: string, latitude: number, longitude: 
  */
 export const leaveRoom = (room: string) => {
   const socket = getSocket();
-  if (!socket) return;
+  if (!socket) {
+    return;
+  }
   socket.emit('leave_room', { room });
 };
 
@@ -211,7 +225,9 @@ export const leaveRoom = (room: string) => {
  */
 export const leaveRideTracking = (rideId: string) => {
   const socket = getSocket();
-  if (!socket) return;
+  if (!socket) {
+    return;
+  }
 
   const roomName = `ride_${rideId}`;
   socket.emit('leave_room', { room: roomName });
@@ -232,7 +248,9 @@ export const disconnectSocket = () => {
  */
 export const emitEvent = (event: string, data: any) => {
   const socket = getSocket();
-  if (!socket) return;
+  if (!socket) {
+    return;
+  }
   socket.emit(event, data);
 };
 
