@@ -2643,6 +2643,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               onCancel={handleBookingCancel}
               initialPickup={pickupLocation}
               initialDropoff={dropoffLocation}
+              recentBookings={passengerBookings}
             />
         </Modal>
 

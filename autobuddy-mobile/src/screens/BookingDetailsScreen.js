@@ -54,6 +54,14 @@ function km(value) {
   return `${numeric.toFixed(2)} km`;
 }
 
+function compactAddress(location, fallback) {
+  const text = String(location?.address || fallback || '').trim();
+  if (!text) {
+    return fallback;
+  }
+  return text.length > 64 ? `${text.slice(0, 61)}...` : text;
+}
+
 function normalizePromo(promo, code) {
   const source = promo?.data || promo || null;
   if (!source) {
@@ -101,6 +109,7 @@ const BookingDetailsScreen = ({ navigation, route }) => {
     vehicle_type_id,
     vehicle_subtype_id,
     vehicle_name,
+    vehicle_subtype_name,
     vehicle_subtype_capacity,
     vehicle_capacity,
     capacity_unit,
@@ -141,6 +150,11 @@ const BookingDetailsScreen = ({ navigation, route }) => {
   const fareAmount = Number(fareEstimate?.total_fare || fareEstimate?.estimated_fare || 0);
   const discountAmount = getDiscountAmount(fareAmount, appliedPromo);
   const payableFare = Math.max(0, fareAmount - discountAmount);
+  const serviceLabel = [
+    vehicle_name || vehicle_type_id || 'Vehicle',
+    vehicle_subtype_name,
+    ride_type_name || ride_type || 'Ride',
+  ].filter(Boolean).join(' - ');
 
   const updatePassengerCount = (nextValue) => {
     const next = clampNumber(Math.round(nextValue), 1, maxPassengerCount);
@@ -277,6 +291,14 @@ const BookingDetailsScreen = ({ navigation, route }) => {
     setPromoMessage('');
   };
 
+  const handleEditService = () => {
+    navigation.navigate?.('ServiceSelection');
+  };
+
+  const handleEditRoute = () => {
+    navigation.navigate?.('EditRoute');
+  };
+
   const applyRadiusInput = () => {
     const nextRadius = clampNumber(Number(driverRadiusInput), 0.5, 50);
     setDriverRadiusKm(nextRadius);
@@ -369,10 +391,38 @@ const BookingDetailsScreen = ({ navigation, route }) => {
             onPress={() => navigation.goBack()}
             style={styles.backButton}
           >
-            <Text style={styles.backButtonText}>{'<- Back'}</Text>
+            <Text style={styles.backButtonText}>{'<- Service'}</Text>
           </TouchableOpacity>
           <Text style={styles.title}>Booking Details</Text>
           <View style={styles.headerSpacer} />
+        </View>
+
+        <View style={styles.tripSetupCard}>
+          <View style={styles.tripSetupHeader}>
+            <View style={styles.tripSetupCopy}>
+              <Text style={styles.tripSetupEyebrow}>Ready to confirm</Text>
+              <Text style={styles.tripSetupTitle} numberOfLines={1}>{serviceLabel}</Text>
+            </View>
+            <TouchableOpacity style={styles.tripEditButton} onPress={handleEditService}>
+              <Text style={styles.tripEditButtonText}>Edit service</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.routeLine}>
+            <Text style={styles.routeLabel}>Pickup</Text>
+            <Text style={styles.routeValue} numberOfLines={1}>
+              {compactAddress(initialPickup, 'Pickup not selected')}
+            </Text>
+          </View>
+          <View style={styles.routeLine}>
+            <Text style={styles.routeLabel}>Dropoff</Text>
+            <Text style={styles.routeValue} numberOfLines={1}>
+              {compactAddress(initialDropoff, 'Dropoff not selected')}
+            </Text>
+          </View>
+          <TouchableOpacity style={styles.routeEditLink} onPress={handleEditRoute}>
+            <Text style={styles.routeEditLinkText}>Edit route</Text>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.section}>
@@ -596,6 +646,86 @@ const styles = StyleSheet.create({
 
   headerSpacer: {
     width: 74,
+  },
+
+  tripSetupCard: {
+    backgroundColor: COLORS.card,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 10,
+    marginBottom: 22,
+    padding: 14,
+    ...SHADOWS.soft,
+  },
+
+  tripSetupHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+  },
+
+  tripSetupCopy: {
+    flex: 1,
+    gap: 2,
+  },
+
+  tripSetupEyebrow: {
+    color: COLORS.textSecondary,
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+
+  tripSetupTitle: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+
+  tripEditButton: {
+    borderColor: COLORS.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+
+  tripEditButtonText: {
+    color: COLORS.primary,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+
+  routeLine: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+
+  routeLabel: {
+    color: COLORS.textSecondary,
+    fontSize: 13,
+    fontWeight: '800',
+    width: 62,
+  },
+
+  routeValue: {
+    color: COLORS.text,
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+
+  routeEditLink: {
+    alignSelf: 'flex-start',
+    paddingVertical: 4,
+  },
+
+  routeEditLinkText: {
+    color: COLORS.primary,
+    fontSize: 13,
+    fontWeight: '900',
   },
 
   section: {

@@ -57,12 +57,30 @@ function getVehicleDescription(vehicle) {
   return `${vehicle?.capacity || 1} ${vehicle?.capacity_unit || 'passengers'}`;
 }
 
+function titleFromId(value, fallback) {
+  const text = String(value || '').trim();
+  if (!text) {
+    return fallback;
+  }
+  return text
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 const ServiceSelectionScreen = ({ navigation, route }) => {
   const pickupRegion = route?.params?.pickup_region;
   const pickupDistrict = route?.params?.pickup_district;
   const pickupPincode = route?.params?.pickup_pincode;
+  const initialService = route?.params?.initialService || null;
+  const initialServiceKey = [
+    initialService?.vehicle_type_id,
+    initialService?.vehicle_subtype_id,
+    initialService?.ride_type,
+  ].join('|');
   const scrollViewRef = useRef(null);
   const sectionOffsetsRef = useRef({});
+  const initialServiceAppliedRef = useRef(false);
   const [selectedVehicleType, setSelectedVehicleType] = useState(null);
   const [selectedVehicleSubtype, setSelectedVehicleSubtype] = useState(null);
   const [selectedRideType, setSelectedRideType] = useState(null);
@@ -288,6 +306,58 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
     return () => clearTimeout(timer);
   }, [loadServiceData]);
 
+  useEffect(() => {
+    initialServiceAppliedRef.current = false;
+  }, [initialServiceKey]);
+
+  useEffect(() => {
+    if (!initialService || initialServiceAppliedRef.current || loading) {
+      return;
+    }
+
+    const allVehicles = vehicleTypes.length > 0 ? vehicleTypes : VEHICLE_TYPES;
+    const allRideTypes = rideTypes.length > 0 ? rideTypes : RIDE_TYPES;
+    const vehicleId = initialService.vehicle_type_id;
+    const rideTypeId = initialService.ride_type;
+    const vehicle =
+      allVehicles.find((item) => String(getVehicleId(item)) === String(vehicleId)) || {
+        id: vehicleId,
+        name: initialService.vehicle_name || titleFromId(vehicleId, 'Vehicle'),
+        icon: initialService.vehicle_icon || '',
+        capacity: initialService.vehicle_capacity || 1,
+        capacity_unit: initialService.capacity_unit || 'passengers',
+        subtypes: initialService.vehicle_subtype_id
+          ? [initialService.vehicle_subtype_name || initialService.vehicle_subtype_id]
+          : [],
+      };
+    const subtypes = normalizeVehicleSubtypes(vehicle);
+    const subtype =
+      subtypes.find((item) => String(item.id) === String(initialService.vehicle_subtype_id)) ||
+      (initialService.vehicle_subtype_id
+        ? {
+            id: initialService.vehicle_subtype_id,
+            name: initialService.vehicle_subtype_name || titleFromId(initialService.vehicle_subtype_id, 'Variant'),
+            capacity: initialService.vehicle_subtype_capacity || null,
+          }
+        : subtypes.length === 1
+          ? subtypes[0]
+          : null);
+    const ride =
+      allRideTypes.find((item) => String(item.id) === String(rideTypeId)) || {
+        id: rideTypeId,
+        name: initialService.ride_type_name || titleFromId(rideTypeId, 'Ride'),
+        icon: initialService.ride_type_icon || '',
+        description: 'Previously selected ride type',
+        color: COLORS.primary,
+      };
+
+    setSelectedVehicleType(vehicle);
+    setSelectedVehicleSubtype(subtype);
+    setSelectedRideType(ride);
+    setFilteredVehicles(allVehicles);
+    initialServiceAppliedRef.current = true;
+  }, [RIDE_TYPES, VEHICLE_TYPES, initialService, loading, rideTypes, vehicleTypes]);
+
   // When ride type is selected, fetch compatible vehicles and filter
   useEffect(() => {
     if (selectedRideType) {
@@ -387,15 +457,15 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
       >
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>Choose Your Service</Text>
+          <Text style={styles.title}>Choose service</Text>
           <Text style={styles.subtitle}>
-            Select vehicle type and ride type to get started
+            Pick the vehicle, variant, and ride type. Each selection moves you forward.
           </Text>
         </View>
 
         {/* Vehicle Type Selection */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>1️⃣ VEHICLE TYPE</Text>
+          <Text style={styles.sectionTitle}>Vehicle type</Text>
           <Text style={styles.sectionDescription}>
             What type of vehicle do you need?
           </Text>
@@ -445,7 +515,7 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
           {/* Subtypes for selected vehicle */}
           {selectedVehicleType && selectedVehicleSubtypes.length > 0 && (
             <View style={styles.subtypesContainer} onLayout={rememberSectionOffset('variants')}>
-              <Text style={styles.subtypeTitle}>Vehicle Variants:</Text>
+              <Text style={styles.subtypeTitle}>Vehicle variant</Text>
               <View style={styles.subtypesGrid}>
                 {selectedVehicleSubtypes.map((subtype) => (
                   <TouchableOpacity
@@ -473,7 +543,7 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
 
         {/* Ride Type Selection */}
         <View style={styles.section} onLayout={rememberSectionOffset('rideType')}>
-          <Text style={styles.sectionTitle}>2️⃣ RIDE TYPE</Text>
+          <Text style={styles.sectionTitle}>Ride type</Text>
           <Text style={styles.sectionDescription}>
             How do you want to book?
           </Text>
@@ -549,7 +619,7 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
           disabled={!canContinue}
         >
           <Text style={styles.continueButtonText}>
-            Continue to Booking Details
+            Continue
           </Text>
           <Text style={styles.continueButtonArrow}>→</Text>
         </TouchableOpacity>
