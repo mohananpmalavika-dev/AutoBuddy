@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   ScrollView,
@@ -61,6 +61,8 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
   const pickupRegion = route?.params?.pickup_region;
   const pickupDistrict = route?.params?.pickup_district;
   const pickupPincode = route?.params?.pickup_pincode;
+  const scrollViewRef = useRef(null);
+  const sectionOffsetsRef = useRef({});
   const [selectedVehicleType, setSelectedVehicleType] = useState(null);
   const [selectedVehicleSubtype, setSelectedVehicleSubtype] = useState(null);
   const [selectedRideType, setSelectedRideType] = useState(null);
@@ -69,6 +71,32 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
   const [rideTypes, setRideTypes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [compatibilityInfo, setCompatibilityInfo] = useState(null);
+  const selectedVehicleSubtypes = useMemo(
+    () => normalizeVehicleSubtypes(selectedVehicleType),
+    [selectedVehicleType],
+  );
+  const requiresVariant = selectedVehicleSubtypes.length > 0;
+  const canContinue = Boolean(
+    selectedVehicleType && selectedRideType && (!requiresVariant || selectedVehicleSubtype),
+  );
+
+  const rememberSectionOffset = useCallback(
+    (key) => (event) => {
+      sectionOffsetsRef.current[key] = event.nativeEvent.layout.y;
+    },
+    [],
+  );
+
+  const scrollToSection = useCallback((key) => {
+    const run = () => {
+      const y = sectionOffsetsRef.current[key];
+      if (typeof y === 'number') {
+        scrollViewRef.current?.scrollTo({ y: Math.max(0, y - 14), animated: true });
+      }
+    };
+    setTimeout(run, 80);
+    setTimeout(run, 260);
+  }, []);
 
   // Vehicle types with categories and sub-types
   const VEHICLE_TYPES = useMemo(() => [
@@ -271,21 +299,46 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
     return undefined;
   }, [fetchCompatibleVehicles, selectedRideType]);
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      const subtypes = normalizeVehicleSubtypes(selectedVehicleType);
-      setSelectedVehicleSubtype(subtypes[0] || null);
-    }, 0);
-    return () => clearTimeout(timer);
-  }, [selectedVehicleType]);
+  const handleVehicleSelect = useCallback(
+    (vehicle) => {
+      const subtypes = normalizeVehicleSubtypes(vehicle);
+      setSelectedVehicleType(vehicle);
+      setSelectedVehicleSubtype(null);
+      setSelectedRideType(null);
+      scrollToSection(subtypes.length > 0 ? 'variants' : 'rideType');
+    },
+    [scrollToSection],
+  );
+
+  const handleVariantSelect = useCallback(
+    (subtype) => {
+      setSelectedVehicleSubtype(subtype);
+      scrollToSection(selectedRideType ? 'summary' : 'rideType');
+    },
+    [scrollToSection, selectedRideType],
+  );
+
+  const handleRideTypeSelect = useCallback(
+    (ride) => {
+      setSelectedRideType(ride);
+      scrollToSection('summary');
+    },
+    [scrollToSection],
+  );
 
   const handleContinue = () => {
     if (!selectedVehicleType) {
       Alert.alert('Please select a vehicle type');
       return;
     }
+    if (requiresVariant && !selectedVehicleSubtype) {
+      Alert.alert('Please select a vehicle variant');
+      scrollToSection('variants');
+      return;
+    }
     if (!selectedRideType) {
       Alert.alert('Please select a ride type');
+      scrollToSection('rideType');
       return;
     }
 
@@ -328,6 +381,7 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView
+        ref={scrollViewRef}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
@@ -363,7 +417,7 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
                   styles.vehicleCard,
                   getVehicleId(selectedVehicleType) === getVehicleId(vehicle) && styles.vehicleCardSelected,
                 ]}
-                onPress={() => setSelectedVehicleType(vehicle)}
+                onPress={() => handleVehicleSelect(vehicle)}
               >
                 <View
                   style={[
@@ -389,18 +443,18 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
           </View>
 
           {/* Subtypes for selected vehicle */}
-          {selectedVehicleType && normalizeVehicleSubtypes(selectedVehicleType).length > 0 && (
-            <View style={styles.subtypesContainer}>
+          {selectedVehicleType && selectedVehicleSubtypes.length > 0 && (
+            <View style={styles.subtypesContainer} onLayout={rememberSectionOffset('variants')}>
               <Text style={styles.subtypeTitle}>Vehicle Variants:</Text>
               <View style={styles.subtypesGrid}>
-                {normalizeVehicleSubtypes(selectedVehicleType).map((subtype) => (
+                {selectedVehicleSubtypes.map((subtype) => (
                   <TouchableOpacity
                     key={subtype.id}
                     style={[
                       styles.subtypeChip,
                       selectedVehicleSubtype?.id === subtype.id && styles.subtypeChipSelected,
                     ]}
-                    onPress={() => setSelectedVehicleSubtype(subtype)}
+                    onPress={() => handleVariantSelect(subtype)}
                   >
                     <Text
                       style={[
@@ -418,7 +472,7 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
         </View>
 
         {/* Ride Type Selection */}
-        <View style={styles.section}>
+        <View style={styles.section} onLayout={rememberSectionOffset('rideType')}>
           <Text style={styles.sectionTitle}>2️⃣ RIDE TYPE</Text>
           <Text style={styles.sectionDescription}>
             How do you want to book?
@@ -432,7 +486,7 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
                   styles.rideTypeCard,
                   selectedRideType?.id === ride.id && styles.rideTypeCardSelected,
                 ]}
-                onPress={() => setSelectedRideType(ride)}
+                onPress={() => handleRideTypeSelect(ride)}
               >
                 <View
                   style={[
@@ -460,7 +514,7 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
 
         {/* Summary */}
         {selectedVehicleType && selectedRideType && (
-          <View style={styles.summaryCard}>
+          <View style={styles.summaryCard} onLayout={rememberSectionOffset('summary')}>
             <Text style={styles.summaryTitle}>Your Selection</Text>
             <View style={styles.summaryContent}>
               <View style={styles.summaryItem}>
@@ -489,10 +543,10 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
         <TouchableOpacity
           style={[
             styles.continueButton,
-            (!selectedVehicleType || !selectedRideType) && styles.continueButtonDisabled,
+            !canContinue && styles.continueButtonDisabled,
           ]}
           onPress={handleContinue}
-          disabled={!selectedVehicleType || !selectedRideType}
+          disabled={!canContinue}
         >
           <Text style={styles.continueButtonText}>
             Continue to Booking Details
