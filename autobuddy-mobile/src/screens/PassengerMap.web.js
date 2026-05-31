@@ -1,31 +1,75 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AccessibilityInfo,
   ActivityIndicator,
-            {activePassengerMenu === 'ride' && (
-              <View style={styles.infoBlock}>
-                <Text style={styles.infoTitle}>{t.rideBooking || 'Ride Booking'}</Text>
-                <Text style={styles.hint}>{t.useTopSearch || 'Use the pickup/drop search at the top to select locations, then continue.'}</Text>
-                <TouchableOpacity
-                  style={[styles.bookingButton, { backgroundColor: COLORS.primary, marginTop: 12 }]}
-                  onPress={() => setShowBookingFlow(true)}
-                  disabled={!pickupLocation || !dropoffLocation}>
-                  <Text style={[styles.actionText, { color: 'white', fontSize: 16 }]}>
-                    {t.continueToRideDetails || 'Continue to ride details'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )}
-  { key: 'emergency', symbol: PASSENGER_MENU_SYMBOLS.emergency },
-  { key: 'accessibility', symbol: PASSENGER_MENU_SYMBOLS.accessibility },
-  { key: 'scheduled', symbol: PASSENGER_MENU_SYMBOLS.scheduled },
-  { key: 'profile', symbol: PASSENGER_MENU_SYMBOLS.profile },
-  { key: 'kyc', symbol: PASSENGER_MENU_SYMBOLS.kyc },
-  { key: 'documents', symbol: PASSENGER_MENU_SYMBOLS.documents },
-  { key: 'receipts', symbol: PASSENGER_MENU_SYMBOLS.receipts },
-  { key: 'subscription', symbol: PASSENGER_MENU_SYMBOLS.subscription },
-  { key: 'notes', symbol: PASSENGER_MENU_SYMBOLS.notes },
-  { key: 'sharing', symbol: PASSENGER_MENU_SYMBOLS.sharing },
-  { key: 'stats', symbol: PASSENGER_MENU_SYMBOLS.stats },
+  Alert,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  Vibration,
+  View,
+} from 'react-native';
+import * as Location from 'expo-location';
+import { SymbolView } from 'expo-symbols';
+import MapView, { Marker } from 'react-native-maps';
+
+const PASSENGER_MENU_SYMBOLS = {
+  ride: { ios: 'car.fill', android: 'local_taxi', web: 'local_taxi' },
+  live: { ios: 'location.circle.fill', android: 'my_location', web: 'my_location' },
+  drivers: { ios: 'person.2.fill', android: 'person_search', web: 'person_search' },
+  favorites: { ios: 'star.fill', android: 'favorite', web: 'favorite' },
+  safety: { ios: 'shield.fill', android: 'shield', web: 'shield' },
+  wallet: { ios: 'creditcard.fill', android: 'account_balance_wallet', web: 'account_balance_wallet' },
+  spin: { ios: 'gift.fill', android: 'redeem', web: 'redeem' },
+  notifications: { ios: 'bell.fill', android: 'notifications', web: 'notifications' },
+  promo: { ios: 'ticket.fill', android: 'confirmation_number', web: 'confirmation_number' },
+  support: { ios: 'questionmark.circle.fill', android: 'support_agent', web: 'support_agent' },
+  payment: { ios: 'creditcard', android: 'credit_card', web: 'credit_card' },
+  ratings: { ios: 'star.circle.fill', android: 'star_rate', web: 'star_rate' },
+  preferences: { ios: 'slider.horizontal.3', android: 'tune', web: 'tune' },
+  places: { ios: 'mappin', android: 'location_on', web: 'location_on' },
+  emergency: { ios: 'exclamationmark.triangle.fill', android: 'emergency', web: 'emergency' },
+  accessibility: { ios: 'figure.roll', android: 'accessible', web: 'accessible' },
+  scheduled: { ios: 'calendar', android: 'calendar_clock', web: 'calendar_clock' },
+  history: { ios: 'clock.arrow.circlepath', android: 'history', web: 'history' },
+  profile: { ios: 'person.crop.circle.fill', android: 'person', web: 'person' },
+  kyc: { ios: 'person.crop.rectangle', android: 'id_card', web: 'id_card' },
+  documents: { ios: 'doc.text.fill', android: 'description', web: 'description' },
+  receipts: { ios: 'list.bullet.rectangle.portrait.fill', android: 'receipt_long', web: 'receipt_long' },
+  subscription: { ios: 'checkmark.seal.fill', android: 'workspace_premium', web: 'workspace_premium' },
+  notes: { ios: 'note.text', android: 'note', web: 'note' },
+  sharing: { ios: 'location.fill', android: 'location_on', web: 'location_on' },
+  stats: { ios: 'chart.bar.fill', android: 'bar_chart', web: 'bar_chart' },
+};
+const PASSENGER_MENU_OPTIONS = [
+  { key: 'ride', label: 'Ride Booking', symbol: PASSENGER_MENU_SYMBOLS.ride },
+  { key: 'live', label: 'Live Ride', symbol: PASSENGER_MENU_SYMBOLS.live },
+  { key: 'drivers', label: 'Drivers', symbol: PASSENGER_MENU_SYMBOLS.drivers },
+  { key: 'favorites', label: 'Favorite Drivers', symbol: PASSENGER_MENU_SYMBOLS.favorites },
+  { key: 'safety', label: 'Safety', symbol: PASSENGER_MENU_SYMBOLS.safety },
+  { key: 'wallet', label: 'Wallet', symbol: PASSENGER_MENU_SYMBOLS.wallet },
+  { key: 'spin', label: 'Spin & Win', symbol: PASSENGER_MENU_SYMBOLS.spin },
+  { key: 'notifications', label: 'Notifications', symbol: PASSENGER_MENU_SYMBOLS.notifications },
+  { key: 'promo', label: 'Promo Codes', symbol: PASSENGER_MENU_SYMBOLS.promo },
+  { key: 'support', label: 'Support', symbol: PASSENGER_MENU_SYMBOLS.support },
+  { key: 'payment', label: 'Payment', symbol: PASSENGER_MENU_SYMBOLS.payment },
+  { key: 'ratings', label: 'Ratings', symbol: PASSENGER_MENU_SYMBOLS.ratings },
+  { key: 'preferences', label: 'Preferences', symbol: PASSENGER_MENU_SYMBOLS.preferences },
+  { key: 'places', label: 'Saved Places', symbol: PASSENGER_MENU_SYMBOLS.places },
+  { key: 'emergency', label: 'Emergency', symbol: PASSENGER_MENU_SYMBOLS.emergency },
+  { key: 'accessibility', label: 'Accessibility', symbol: PASSENGER_MENU_SYMBOLS.accessibility },
+  { key: 'scheduled', label: 'Scheduled Rides', symbol: PASSENGER_MENU_SYMBOLS.scheduled },
+  { key: 'history', label: 'Ride History', symbol: PASSENGER_MENU_SYMBOLS.history },
+  { key: 'profile', label: 'Profile', symbol: PASSENGER_MENU_SYMBOLS.profile },
+  { key: 'kyc', label: 'KYC Verification', symbol: PASSENGER_MENU_SYMBOLS.kyc },
+  { key: 'documents', label: 'Documents', symbol: PASSENGER_MENU_SYMBOLS.documents },
+  { key: 'receipts', label: 'Receipts', symbol: PASSENGER_MENU_SYMBOLS.receipts },
+  { key: 'subscription', label: 'Subscription', symbol: PASSENGER_MENU_SYMBOLS.subscription },
+  { key: 'notes', label: 'Ride Notes', symbol: PASSENGER_MENU_SYMBOLS.notes },
+  { key: 'sharing', label: 'Location Sharing', symbol: PASSENGER_MENU_SYMBOLS.sharing },
+  { key: 'stats', label: 'Ride Stats', symbol: PASSENGER_MENU_SYMBOLS.stats },
 ];
 const PRIMARY_PASSENGER_MENU_KEY = 'ride';
 const buildPassengerMenuOptions = (keys) =>
