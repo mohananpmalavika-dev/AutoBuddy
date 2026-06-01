@@ -266,7 +266,13 @@ export default function InstantPayoutPanel({
           amount: amount,
           method: method.label,
           status: 'processing',
-              date: formatToIST(new Date(), { dateStyle: 'short' }),
+          date: formatToIST(new Date(), { dateStyle: 'short' }),
+          time: 'Initiated now',
+          reference: `PAY${Date.now()}`,
+          eta: '2-4 hours',
+        };
+      setPayoutHistory((prev) => [newPayout, ...prev]);
+      setBalance((prev) => Math.max(0, prev - amount));
       setPayoutRequest({ amount: '', method: null });
       setShowPayoutModal(false);
 

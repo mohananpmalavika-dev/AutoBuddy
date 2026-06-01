@@ -231,6 +231,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   const locationSyncSuspendedUntilRef = useRef(0);
   const lastLocationPauseNoticeAtRef = useRef(0);
   const lastLocationPushAtRef = useRef(0);
+  const locationPushInFlightRef = useRef(null);
   const lastPushedLocationRef = useRef(null);
   const reverseGeocodeInFlightRef = useRef(false);
   const reverseGeocodeCacheRef = useRef(new Map());
@@ -377,6 +378,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     token,
     rideId: activeRideId,
     enabled: driverAvailability.isOnline || !!activeRideId,
+    syncToBackend: false,
   });
 
   const { sosActive, sosError, sosMessage, triggerSOS, cancelSOS } = useSOSAlert({
@@ -568,90 +570,105 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
 
   const pushDriverLocation = useCallback(
     async ({ locationOverride = null, fallbackLocation = null, speedKmhOverride = null, silent = false } = {}) => {
-      if (Date.now() < locationSyncSuspendedUntilRef.current) {
-        return null;
-      }
-      if (!isPageVisible()) {
-        return null;
+      if (locationPushInFlightRef.current) {
+        return locationPushInFlightRef.current;
       }
 
-      const liveLocation = await readBrowserLocation();
-      const locationToSend =
-        normalizeLocation(locationOverride) ||
-        normalizeLocation(liveLocation) ||
-        normalizeLocation(fallbackLocation) ||
-        normalizeLocation(driverLocation);
+      const pushPromise = (async () => {
+        if (Date.now() < locationSyncSuspendedUntilRef.current) {
+          return null;
+        }
+        if (!isPageVisible()) {
+          return null;
+        }
 
-      if (!locationToSend) {
-        return null;
-      }
+        const liveLocation = await readBrowserLocation();
+        const locationToSend =
+          normalizeLocation(locationOverride) ||
+          normalizeLocation(liveLocation) ||
+          normalizeLocation(fallbackLocation) ||
+          normalizeLocation(driverLocation);
 
-      const now = Date.now();
-      const previouslyPushed = lastPushedLocationRef.current;
-      const movedEnough =
-        !previouslyPushed ||
-        Math.abs(previouslyPushed.latitude - locationToSend.latitude) > 0.00003 ||
-        Math.abs(previouslyPushed.longitude - locationToSend.longitude) > 0.00003;
-      const minPushIntervalMs = movedEnough ? 10000 : 30000;
-      if (now - lastLocationPushAtRef.current < minPushIntervalMs) {
-        return locationToSend;
-      }
+        if (!locationToSend) {
+          return null;
+        }
 
-      try {
-        await apiRequest('/drivers/location', {
-          method: 'PUT',
-          token,
-          body: { location: locationToSend },
-        });
-        if (socketRef.current) {
-          socketRef.current.emit('driver_location_update', {
-            booking_id: activeRideId || undefined,
-            latitude: locationToSend.latitude,
-            longitude: locationToSend.longitude,
-            heading: null,
-            speed:
-              Number.isFinite(Number(speedKmhOverride)) && Number(speedKmhOverride) >= 0
-                ? Number(speedKmhOverride)
-                : null,
-            accuracy: null,
-            address: locationToSend.address,
+        const now = Date.now();
+        const previouslyPushed = lastPushedLocationRef.current;
+        const movedEnough =
+          !previouslyPushed ||
+          Math.abs(previouslyPushed.latitude - locationToSend.latitude) > 0.00003 ||
+          Math.abs(previouslyPushed.longitude - locationToSend.longitude) > 0.00003;
+        const minPushIntervalMs = movedEnough ? 10000 : 30000;
+        if (now - lastLocationPushAtRef.current < minPushIntervalMs) {
+          return locationToSend;
+        }
+
+        try {
+          await apiRequest('/drivers/location', {
+            method: 'PUT',
+            token,
+            body: { location: locationToSend },
           });
-        }
-        lastLocationPushAtRef.current = now;
-        lastPushedLocationRef.current = locationToSend;
-        locationSyncSuspendedUntilRef.current = 0;
-        setDriverLocation(locationToSend);
-        attachReadableAddress(locationToSend).then((resolved) => {
-          if (resolved) {
-            setDriverLocation(resolved);
+          if (socketRef.current) {
+            socketRef.current.emit('driver_location_update', {
+              booking_id: activeRideId || undefined,
+              latitude: locationToSend.latitude,
+              longitude: locationToSend.longitude,
+              heading: null,
+              speed:
+                Number.isFinite(Number(speedKmhOverride)) && Number(speedKmhOverride) >= 0
+                  ? Number(speedKmhOverride)
+                  : null,
+              accuracy: null,
+              address: locationToSend.address,
+            });
           }
-        });
-        return locationToSend;
-      } catch (err) {
-        const messageLower = String(err?.message || '').toLowerCase();
-        const isBackendUnavailable =
-          Number(err?.status || 0) === 503 ||
-          messageLower.includes('database temporarily unavailable') ||
-          messageLower.includes('service unavailable');
-        const isRateLimited = Number(err?.status || 0) === 429 || messageLower.includes('too many requests');
+          lastLocationPushAtRef.current = now;
+          lastPushedLocationRef.current = locationToSend;
+          locationSyncSuspendedUntilRef.current = 0;
+          setDriverLocation(locationToSend);
+          attachReadableAddress(locationToSend).then((resolved) => {
+            if (resolved) {
+              setDriverLocation(resolved);
+            }
+          });
+          return locationToSend;
+        } catch (err) {
+          const messageLower = String(err?.message || '').toLowerCase();
+          const isBackendUnavailable =
+            Number(err?.status || 0) === 503 ||
+            messageLower.includes('database temporarily unavailable') ||
+            messageLower.includes('service unavailable');
+          const isRateLimited = Number(err?.status || 0) === 429 || messageLower.includes('too many requests');
 
-        if (isBackendUnavailable) {
-          locationSyncSuspendedUntilRef.current = Date.now() + 60000;
-          const now = Date.now();
-          if (now - lastLocationPauseNoticeAtRef.current > 15000) {
-            setMessage('Driver location sync paused for 60 seconds. Backend database is temporarily unavailable.');
-            lastLocationPauseNoticeAtRef.current = now;
+          if (isBackendUnavailable) {
+            locationSyncSuspendedUntilRef.current = Date.now() + 60000;
+            const now = Date.now();
+            if (now - lastLocationPauseNoticeAtRef.current > 15000) {
+              setMessage('Driver location sync paused for 60 seconds. Backend database is temporarily unavailable.');
+              lastLocationPauseNoticeAtRef.current = now;
+            }
+            return null;
+          }
+          if (isRateLimited) {
+            locationSyncSuspendedUntilRef.current = Date.now() + 20000;
+            return null;
+          }
+          if (!silent) {
+            setError(err.message || 'Could not update current driver location.');
           }
           return null;
         }
-        if (isRateLimited) {
-          locationSyncSuspendedUntilRef.current = Date.now() + 20000;
-          return null;
+      })();
+
+      locationPushInFlightRef.current = pushPromise;
+      try {
+        return await pushPromise;
+      } finally {
+        if (locationPushInFlightRef.current === pushPromise) {
+          locationPushInFlightRef.current = null;
         }
-        if (!silent) {
-          setError(err.message || 'Could not update current driver location.');
-        }
-        return null;
       }
     },
     [activeRideId, attachReadableAddress, driverLocation, isPageVisible, normalizeLocation, readBrowserLocation, token],

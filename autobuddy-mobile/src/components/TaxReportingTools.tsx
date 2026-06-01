@@ -314,42 +314,6 @@ export default function TaxReportingTools({
       setLoading(false);
     }
   }, [selectedYear, driverId]);
-        {
-          id: 'deduct_1',
-          category: 'Fuel & Maintenance',
-          amount: 45000,
-          percentage: 53,
-          items: ['Petrol/Diesel', 'Vehicle repair', 'Oil changes'],
-        },
-        {
-          id: 'deduct_2',
-          category: 'Insurance',
-          amount: 12000,
-          percentage: 14,
-          items: ['Vehicle insurance', 'Passenger safety'],
-        },
-        {
-          id: 'deduct_3',
-          category: 'Equipment',
-          amount: 10000,
-          percentage: 12,
-          items: ['Phone mounts', 'Safety kits', 'Dashcam'],
-        },
-        {
-          id: 'deduct_4',
-          category: 'Registration & License',
-          amount: 8000,
-          percentage: 9,
-          items: ['Vehicle registration', 'License renewal'],
-        },
-        {
-          id: 'deduct_5',
-          category: 'Other Expenses',
-          amount: 10000,
-          percentage: 12,
-          items: ['Cleaning supplies', 'Utilities', 'Miscellaneous'],
-        },
-      ]);
 
       // Mock documents
       setDocuments([

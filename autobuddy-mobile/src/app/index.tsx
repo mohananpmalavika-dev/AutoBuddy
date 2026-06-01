@@ -155,7 +155,6 @@ export default function HomeScreen() {
     }
 
     const onBeforeInstallPrompt = (event: Event) => {
-      event.preventDefault();
       setInstallPromptEvent(event as BeforeInstallPromptEvent);
     };
     const onAppInstalled = () => {

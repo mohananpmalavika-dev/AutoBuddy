@@ -5,7 +5,13 @@ import { apiRequest } from '../lib/api';
 const GPS_UPDATE_INTERVAL = 10000; // 10 seconds
 const GPS_ACCURACY_THRESHOLD = 50; // meters
 
-export function useGPSTracking({ token, rideId, enabled = true, onLocationUpdate }) {
+export function useGPSTracking({
+  token,
+  rideId,
+  enabled = true,
+  onLocationUpdate,
+  syncToBackend = true,
+}) {
   const [location, setLocation] = useState(null);
   const [accuracy, setAccuracy] = useState(null);
   const [speed, setSpeed] = useState(null);
@@ -86,7 +92,7 @@ export function useGPSTracking({ token, rideId, enabled = true, onLocationUpdate
             setError('');
 
             // Sync to backend if ride is active
-            if (rideId && Date.now() - lastSyncRef.current > GPS_UPDATE_INTERVAL) {
+            if (syncToBackend && rideId && Date.now() - lastSyncRef.current > GPS_UPDATE_INTERVAL) {
               syncLocationToBackend(newLocation, rideId);
               lastSyncRef.current = Date.now();
             }
@@ -105,7 +111,7 @@ export function useGPSTracking({ token, rideId, enabled = true, onLocationUpdate
       setError(`Tracking failed: ${err.message}`);
       setIsTracking(false);
     }
-  }, [enabled, location, onLocationUpdate, requestPermissions, rideId, syncLocationToBackend, token]);
+  }, [enabled, location, onLocationUpdate, requestPermissions, rideId, syncLocationToBackend, syncToBackend, token]);
 
   // Stop tracking
   const stopTracking = useCallback(() => {
