@@ -118,11 +118,16 @@ const DEFAULT_DRIVER_SETTINGS = {
   accept_promo: true,
 };
 const AVAILABILITY_RETRY_WINDOW_MS = 300000;
-const AVAILABILITY_TRANSIENT_MESSAGES = new Set([
-  'Checking Ready to Drive...',
-  'Going online...',
-  'Going offline...',
-]);
+const AVAILABILITY_TRANSIENT_MESSAGE_PARTS = [
+  'checking ready to drive',
+  'going online',
+  'going offline',
+];
+
+function isAvailabilityTransientMessage(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return AVAILABILITY_TRANSIENT_MESSAGE_PARTS.some((part) => normalized.includes(part));
+}
 
 function normalizeDriverSettings(rawSettings = {}) {
   const source =
@@ -377,8 +382,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   const shouldSyncDriverLocation =
     (shareLocationWhileOnline && driverAvailability.isOnline && !driverAvailability.syncing) ||
     activeRideSharesLocation;
-  const visibleMessage =
-    !driverAvailability.syncing && AVAILABILITY_TRANSIENT_MESSAGES.has(message) ? '' : message;
+  const visibleMessage = isAvailabilityTransientMessage(message) ? '' : message;
 
   // TIER 1 FEATURES: GPS, SOS, Countdown, Expenses
   const { location: driverGPSLocation, speed: driverSpeed, isTracking } = useGPSTracking({

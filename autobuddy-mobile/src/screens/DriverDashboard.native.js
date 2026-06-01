@@ -136,11 +136,16 @@ const DRIVER_MOVING_TRACK_INTERVAL_MS = 5000;
 const DRIVER_IDLE_TRACK_INTERVAL_MS = 20000;
 const DRIVER_IDLE_SPEED_THRESHOLD_KMH = 2;
 const AVAILABILITY_RETRY_WINDOW_MS = 300000;
-const AVAILABILITY_TRANSIENT_MESSAGES = new Set([
-  'Checking Ready to Drive...',
-  'Going online...',
-  'Going offline...',
-]);
+const AVAILABILITY_TRANSIENT_MESSAGE_PARTS = [
+  'checking ready to drive',
+  'going online',
+  'going offline',
+];
+
+function isAvailabilityTransientMessage(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return AVAILABILITY_TRANSIENT_MESSAGE_PARTS.some((part) => normalized.includes(part));
+}
 
 function normalizeDriverSettings(rawSettings = {}) {
   const source =
@@ -318,8 +323,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     (shareLocationWhileOnline && isOnline && !availabilitySyncPending) || activeRideSharesLocation;
   const shouldPushAvailabilityLocation = shareLocationWhileOnline || activeRideSharesLocation;
   const displayIsOnline = availabilitySyncPending ? isOnline : serverIsOnline;
-  const visibleMessage =
-    !availabilitySyncPending && AVAILABILITY_TRANSIENT_MESSAGES.has(message) ? '' : message;
+  const visibleMessage = isAvailabilityTransientMessage(message) ? '' : message;
 
   const visibleBlockedPassengers = useMemo(
     () => filterBlockedPassengers(blockedPassengers, blockedPassengerSearch),
