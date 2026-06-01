@@ -5,6 +5,7 @@ Investor-grade and KSUM-ready pitch assets for AutoBuddy.
 ## Files
 
 - `deck.html` - self-contained browser deck with keyboard navigation and print styles.
+- `deck-from-code.html` - fresh code-driven pitch deck based on the AutoBuddy repo and competitor-aware messaging.
 - `KSUM_SUBMISSION.md` - application checklist, grant-use plan, and 2-minute video script.
 - `VALUATION_REPORT.md` - investor-facing valuation range, methods, round math, risks, and source notes.
 

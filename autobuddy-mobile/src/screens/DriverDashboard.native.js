@@ -156,15 +156,15 @@ function isAvailabilityTransientMessage(value) {
   return AVAILABILITY_TRANSIENT_MESSAGE_PARTS.some((part) => normalized.includes(part));
 }
 
-function getVisibleAvailabilityMessage(value, isOnline) {
+function getVisibleAvailabilityMessage(value) {
   const normalized = String(value || '').trim().toLowerCase();
   if (!normalized || isAvailabilityTransientMessage(value)) {
     return '';
   }
-  if (!isOnline && AVAILABILITY_ONLINE_SUCCESS_MESSAGE_PARTS.some((part) => normalized.includes(part))) {
-    return '';
-  }
-  if (isOnline && AVAILABILITY_OFFLINE_SUCCESS_MESSAGE_PARTS.some((part) => normalized.includes(part))) {
+  if (
+    AVAILABILITY_ONLINE_SUCCESS_MESSAGE_PARTS.some((part) => normalized.includes(part)) ||
+    AVAILABILITY_OFFLINE_SUCCESS_MESSAGE_PARTS.some((part) => normalized.includes(part))
+  ) {
     return '';
   }
   return value;
@@ -399,7 +399,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   const displayIsOnline = !!serverIsOnline;
   const pendingDisplayIsOnline =
     availabilityPendingDesired == null ? displayIsOnline : !!availabilityPendingDesired;
-  const visibleMessage = getVisibleAvailabilityMessage(message, displayIsOnline);
+  const visibleMessage = getVisibleAvailabilityMessage(message);
 
   const visibleBlockedPassengers = useMemo(
     () => filterBlockedPassengers(blockedPassengers, blockedPassengerSearch),
@@ -840,7 +840,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
           silent: true,
         });
       }
-      setMessage(savedStatus ? 'You are online and discoverable.' : 'You are offline.');
+      setMessage(savedStatus ? '' : 'You are offline.');
     } catch (err) {
       if (isRetriableAvailabilityError(err)) {
         pendingAvailabilitySyncRef.current = {
@@ -1595,7 +1595,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         return;
       }
 
-      setMessage(confirmedStatus ? 'You are now online.' : 'You are now offline.');
+      setMessage(confirmedStatus ? '' : 'You are now offline.');
 
       if (confirmedStatus && shouldPushAvailabilityLocation) {
         await pushDriverLocation({ silent: true });
