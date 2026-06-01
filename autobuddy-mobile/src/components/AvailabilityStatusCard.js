@@ -6,7 +6,7 @@ import { View, Text, TouchableOpacity, ActivityIndicator } from 'react-native';
  * Shows driver's availability status with sync state and detailed feedback
  * 
  * Props:
- *   - availability: { isOnline, label, status, syncing, tone }
+ *   - availability: { isOnline, desiredIsOnline, label, status, syncing, tone }
  *   - error: string - Error message if sync failed
  *   - message: string - Status message
  *   - onToggle: () => void - Callback to toggle availability
@@ -21,11 +21,13 @@ export default function AvailabilityStatusCard({
 }) {
   const {
     isOnline = false,
+    desiredIsOnline = isOnline,
     syncing = false,
   } = availability;
+  const labelIsOnline = syncing ? !!desiredIsOnline : !!isOnline;
   const resolvedTone = syncing ? 'syncing' : isOnline ? 'online' : 'offline';
   const resolvedLabel = syncing
-    ? isOnline
+    ? labelIsOnline
       ? 'GOING ONLINE...'
       : 'GOING OFFLINE...'
     : isOnline
@@ -67,8 +69,8 @@ export default function AvailabilityStatusCard({
     if (syncing) {
       return {
         icon: '⟳',
-        detail: 'Syncing with server...',
-        hint: 'Your availability is being updated',
+        detail: labelIsOnline ? 'Going online...' : 'Going offline...',
+        hint: 'Waiting for server confirmation',
       };
     }
     if (isOnline) {
@@ -83,7 +85,7 @@ export default function AvailabilityStatusCard({
       detail: 'Not accepting requests',
       hint: 'You are currently offline',
     };
-  }, [syncing, isOnline]);
+  }, [labelIsOnline, syncing, isOnline]);
 
   return (
     <View style={[styles.container, { borderColor: colors.border, backgroundColor: colors.background }]}>

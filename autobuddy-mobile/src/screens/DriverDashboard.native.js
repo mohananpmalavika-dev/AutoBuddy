@@ -304,6 +304,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   const [isOnline, setIsOnline] = useState(false);
   const [serverIsOnline, setServerIsOnline] = useState(false);
   const [availabilitySyncPending, setAvailabilitySyncPending] = useState(false);
+  const [availabilityPendingDesired, setAvailabilityPendingDesired] = useState(null);
   const [menuBadges, setMenuBadges] = useState({});
   const [driverSettings, setDriverSettings] = useState(DEFAULT_DRIVER_SETTINGS);
   useNotificationManager(token, user?.id, driverSettings);
@@ -393,9 +394,11 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     sharesLocation: activeRideSharesLocation,
   } = getRideStatusMode(activeRideStatus);
   const shouldSyncDriverLocation =
-    (shareLocationWhileOnline && isOnline && !availabilitySyncPending) || activeRideSharesLocation;
+    (shareLocationWhileOnline && serverIsOnline && !availabilitySyncPending) || activeRideSharesLocation;
   const shouldPushAvailabilityLocation = shareLocationWhileOnline || activeRideSharesLocation;
-  const displayIsOnline = availabilitySyncPending ? isOnline : serverIsOnline;
+  const displayIsOnline = !!serverIsOnline;
+  const pendingDisplayIsOnline =
+    availabilityPendingDesired == null ? displayIsOnline : !!availabilityPendingDesired;
   const visibleMessage = getVisibleAvailabilityMessage(message, displayIsOnline);
 
   const visibleBlockedPassengers = useMemo(
@@ -828,6 +831,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       const updated = await driverAPI.updateAvailability({ is_available: !!pending.desired });
       const savedStatus = applyAvailabilitySnapshot(updated, !!pending.desired, { protect: true });
       pendingAvailabilitySyncRef.current = null;
+      setAvailabilityPendingDesired(null);
       setAvailabilitySyncPendingState(false);
       setError('');
       if (savedStatus) {
@@ -846,12 +850,13 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         };
         availabilityUiOverrideUntilRef.current = Date.now() + AVAILABILITY_RETRY_WINDOW_MS;
         availabilityLocalChangeAtRef.current = Date.now();
+        setAvailabilityPendingDesired(!!pending.desired);
         setAvailabilitySyncPendingState(true);
-        setIsOnline(!!pending.desired);
         setError(getAvailabilityErrorMessage(err));
         setMessage('Availability sync queued. Retrying automatically.');
       } else {
         pendingAvailabilitySyncRef.current = null;
+        setAvailabilityPendingDesired(null);
         setAvailabilitySyncPendingState(false);
         setError(getAvailabilityErrorMessage(err));
         setMessage('');
@@ -1528,7 +1533,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     pendingAvailabilitySyncRef.current = null;
 
     setAvailabilitySyncPendingState(true);
-    setIsOnline(next);
+    setAvailabilityPendingDesired(next);
     setError('');
     setMessage(next ? 'Checking Ready to Drive...' : 'Going offline...');
 
@@ -1542,6 +1547,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
           const rollbackAt = Date.now();
           availabilityLocalChangeAtRef.current = rollbackAt;
           availabilityUiOverrideUntilRef.current = rollbackAt + 15000;
+          setAvailabilityPendingDesired(null);
           setIsOnline(previousLocalStatus);
           setServerIsOnline(previousServerStatus);
           setActiveTab(getDriverReadinessTab(readiness));
@@ -1586,11 +1592,13 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       const rollbackAt = Date.now();
       availabilityLocalChangeAtRef.current = rollbackAt;
       availabilityUiOverrideUntilRef.current = rollbackAt + 15000;
+      setAvailabilityPendingDesired(null);
       setIsOnline(previousLocalStatus);
       setServerIsOnline(previousServerStatus);
       if (availabilityToggleInFlightRef.current === requestId) {
         availabilityToggleInFlightRef.current = null;
         pendingAvailabilitySyncRef.current = null;
+        setAvailabilityPendingDesired(null);
         setAvailabilitySyncPendingState(false);
       }
       const readiness = extractDriverReadinessFromError(err);
@@ -1607,6 +1615,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       if (availabilityToggleInFlightRef.current === requestId) {
         availabilityToggleInFlightRef.current = null;
         pendingAvailabilitySyncRef.current = null;
+        setAvailabilityPendingDesired(null);
         setAvailabilitySyncPendingState(false);
       }
     }
@@ -2116,14 +2125,20 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
 
       <View style={styles.topBar}>
         <TouchableOpacity
-          style={[styles.statusBadgeButton, { backgroundColor: displayIsOnline ? '#E8F5E9' : '#F5F5F5', borderColor: displayIsOnline ? COLORS.primary : '#BDBDBD' }]}
+          style={[
+            styles.statusBadgeButton,
+            {
+              backgroundColor: availabilitySyncPending ? '#FFF7E6' : displayIsOnline ? '#E8F5E9' : '#F5F5F5',
+              borderColor: availabilitySyncPending ? '#FFA500' : displayIsOnline ? COLORS.primary : '#BDBDBD',
+            },
+          ]}
           onPress={() => toggleDriverAvailability(!displayIsOnline)}
           disabled={availabilitySyncPending}
         >
           <View style={[styles.statusDot, { backgroundColor: availabilitySyncPending ? '#FFA500' : displayIsOnline ? COLORS.primary : COLORS.textMuted }]} />
           <View style={styles.statusContent}>
-            <Text style={[styles.statusText, { color: displayIsOnline ? COLORS.primary : '#666' }]}>
-              {availabilitySyncPending ? (displayIsOnline ? 'GOING ONLINE...' : 'GOING OFFLINE...') : (displayIsOnline ? 'ONLINE & READY' : 'OFFLINE')}
+            <Text style={[styles.statusText, { color: availabilitySyncPending ? '#B26A00' : displayIsOnline ? COLORS.primary : '#666' }]}>
+              {availabilitySyncPending ? (pendingDisplayIsOnline ? 'GOING ONLINE...' : 'GOING OFFLINE...') : (displayIsOnline ? 'ONLINE & READY' : 'OFFLINE')}
             </Text>
             <Text style={styles.statusSub}>{user?.name || 'Driver'} - Tap to toggle</Text>
           </View>

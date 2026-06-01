@@ -287,6 +287,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   const [serverIsOnline, setServerIsOnline] = useState(false);
   const [availabilitySyncPending, setAvailabilitySyncPending] = useState(false);
   const [availabilityToggleInFlight, setAvailabilityToggleInFlight] = useState(false);
+  const [availabilityPendingDesired, setAvailabilityPendingDesired] = useState(null);
   const [menuBadges, setMenuBadges] = useState({});
   const [driverSettings, setDriverSettings] = useState(DEFAULT_DRIVER_SETTINGS);
   useNotificationManager(token, user?.id, driverSettings);
@@ -393,29 +394,33 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   });
   const driverAvailability = useMemo(() => {
     const syncing = availabilitySyncPending || availabilityToggleInFlight;
-    const nextIsOnline = syncing ? !!isOnline : !!serverIsOnline;
+    const confirmedIsOnline = !!serverIsOnline;
+    const desiredIsOnline =
+      availabilityPendingDesired == null ? confirmedIsOnline : !!availabilityPendingDesired;
+    const labelIsOnline = syncing ? desiredIsOnline : confirmedIsOnline;
     const status = syncing
-      ? nextIsOnline
+      ? labelIsOnline
         ? 'going_online'
         : 'going_offline'
-      : nextIsOnline
+      : confirmedIsOnline
         ? 'online'
         : 'offline';
 
     return {
-      isOnline: nextIsOnline,
+      isOnline: confirmedIsOnline,
+      desiredIsOnline,
       label: syncing
-        ? nextIsOnline
+        ? labelIsOnline
           ? 'GOING ONLINE...'
           : 'GOING OFFLINE...'
-        : nextIsOnline
+        : confirmedIsOnline
           ? 'ONLINE & READY'
           : 'OFFLINE',
       status,
       syncing,
-      tone: syncing ? 'syncing' : nextIsOnline ? 'online' : 'offline',
+      tone: syncing ? 'syncing' : confirmedIsOnline ? 'online' : 'offline',
     };
-  }, [availabilitySyncPending, availabilityToggleInFlight, isOnline, serverIsOnline]);
+  }, [availabilityPendingDesired, availabilitySyncPending, availabilityToggleInFlight, serverIsOnline]);
   const shouldSyncDriverLocation =
     (shareLocationWhileOnline && driverAvailability.isOnline && !driverAvailability.syncing) ||
     activeRideSharesLocation;
@@ -913,6 +918,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       });
       const savedStatus = readDriverAvailability(updated, !!pending.desired);
       pendingAvailabilitySyncRef.current = null;
+      setAvailabilityPendingDesired(null);
       setAvailabilitySyncPendingState(false);
       applyAvailabilitySnapshot(updated, !!pending.desired, { protect: true });
       setError('');
@@ -932,12 +938,13 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         };
         availabilityUiOverrideUntilRef.current = Date.now() + AVAILABILITY_RETRY_WINDOW_MS;
         availabilityLocalChangeAtRef.current = Date.now();
+        setAvailabilityPendingDesired(!!pending.desired);
         setAvailabilitySyncPendingState(true);
-        setIsOnline(!!pending.desired);
         setError(getAvailabilityErrorMessage(err));
         setMessage('Availability sync queued. Retrying automatically.');
       } else {
         pendingAvailabilitySyncRef.current = null;
+        setAvailabilityPendingDesired(null);
         setAvailabilitySyncPendingState(false);
         setServerIsOnline(serverIsOnline);
         setIsOnline(serverIsOnline);
@@ -1566,7 +1573,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
 
     setAvailabilityToggleInFlight(true);
     setAvailabilitySyncPendingState(true);
-    setIsOnline(next);
+    setAvailabilityPendingDesired(next);
     setError('');
     setMessage(next ? 'Checking Ready to Drive...' : 'Going offline...');
 
@@ -1580,6 +1587,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
           const rollbackAt = Date.now();
           availabilityLocalChangeAtRef.current = rollbackAt;
           availabilityUiOverrideUntilRef.current = rollbackAt + 15000;
+          setAvailabilityPendingDesired(null);
           setServerIsOnline(previousServerStatus);
           setIsOnline(previousLocalStatus);
           setActiveTab(getDriverReadinessTab(readiness));
@@ -1628,6 +1636,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       availabilityLocalChangeAtRef.current = rollbackAt;
       availabilityUiOverrideUntilRef.current = rollbackAt + 15000;
 
+      setAvailabilityPendingDesired(null);
       setServerIsOnline(previousServerStatus);
       setIsOnline(previousLocalStatus);
 
@@ -1645,6 +1654,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       if (availabilityToggleInFlightRef.current === requestId) {
         availabilityToggleInFlightRef.current = null;
         pendingAvailabilitySyncRef.current = null;
+        setAvailabilityPendingDesired(null);
         setAvailabilityToggleInFlight(false);
         setAvailabilitySyncPendingState(false);
       }
@@ -2120,7 +2130,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                   ]}
                 >
                   {driverAvailability.syncing
-                    ? driverAvailability.isOnline
+                    ? driverAvailability.desiredIsOnline
                       ? 'GOING ONLINE...'
                       : 'GOING OFFLINE...'
                     : driverAvailability.isOnline
