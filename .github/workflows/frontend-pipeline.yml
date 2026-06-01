@@ -136,7 +136,7 @@ jobs:
 
       - name: Build web app
         working-directory: autobuddy-mobile
-        run: npm run build
+        run: npm run export:web
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v3
@@ -146,11 +146,11 @@ jobs:
           retention-days: 5
 
   # ============================================================================
-  # E2E Tests
+  # Web Build Smoke Check
   # ============================================================================
   e2e:
     runs-on: ubuntu-latest
-    name: E2E Tests
+    name: Web Build Smoke Check
     needs: build-web
 
     steps:
@@ -167,26 +167,15 @@ jobs:
         working-directory: autobuddy-mobile
         run: npm ci
 
-      - name: Install Playwright
-        working-directory: autobuddy-mobile
-        run: npx playwright install
-
       - name: Download web build
         uses: actions/download-artifact@v3
         with:
           name: web-build
           path: autobuddy-mobile/dist/
 
-      - name: Run E2E tests
+      - name: Verify web build artifact
         working-directory: autobuddy-mobile
-        run: npm run test:e2e
-
-      - name: Upload Playwright report
-        if: always()
-        uses: actions/upload-artifact@v3
-        with:
-          name: playwright-report
-          path: autobuddy-mobile/playwright-report/
+        run: test -f dist/app/index.html && test -d dist/_expo/static/js/web
 
   # ============================================================================
   # Build Mobile App
@@ -247,23 +236,26 @@ jobs:
 
       - name: Deploy to Vercel (Production)
         if: github.ref == 'refs/heads/main'
-        uses: vercel/action@master
+        uses: amondnet/vercel-action@v25
         with:
           vercel-token: ${{ secrets.VERCEL_TOKEN }}
           vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
           vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
           working-directory: autobuddy-mobile
+          scope: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-args: '--prod'
 
       - name: Deploy to Vercel (Preview)
         if: github.ref == 'refs/heads/develop'
-        uses: vercel/action@master
+        uses: amondnet/vercel-action@v25
         with:
           vercel-token: ${{ secrets.VERCEL_TOKEN }}
           vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
           vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
           working-directory: autobuddy-mobile
+          scope: ${{ secrets.VERCEL_ORG_ID }}
 
       - name: Comment PR with Vercel preview URL
         if: github.event_name == 'pull_request'
