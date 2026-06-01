@@ -136,6 +136,7 @@ const DRIVER_MOVING_TRACK_INTERVAL_MS = 5000;
 const DRIVER_IDLE_TRACK_INTERVAL_MS = 20000;
 const DRIVER_IDLE_SPEED_THRESHOLD_KMH = 2;
 const AVAILABILITY_RETRY_WINDOW_MS = 300000;
+const AVAILABILITY_CONFIRMED_OVERRIDE_MS = 90000;
 const AVAILABILITY_TRANSIENT_MESSAGE_PARTS = [
   'checking ready to drive',
   'going online',
@@ -212,6 +213,42 @@ function getAvailabilityErrorMessage(err) {
     return 'Network connection issue. Retrying automatically...';
   }
   return err?.message || 'Failed to update availability status.';
+}
+
+function readDriverAvailability(payload, fallback = false) {
+  if (typeof payload?.is_available === 'boolean') {
+    return payload.is_available;
+  }
+  if (typeof payload?.is_online === 'boolean') {
+    return payload.is_online;
+  }
+
+  const status = String(
+    payload?.availability_status ||
+      payload?.availability ||
+      payload?.online_status ||
+      payload?.status ||
+      '',
+  ).toLowerCase();
+
+  if (['online', 'available', 'active', 'ready'].includes(status)) {
+    return true;
+  }
+  if (['offline', 'unavailable', 'inactive', 'disabled'].includes(status)) {
+    return false;
+  }
+
+  return !!fallback;
+}
+
+function hasDriverAvailabilitySnapshot(payload) {
+  return (
+    typeof payload?.is_available === 'boolean' ||
+    typeof payload?.is_online === 'boolean' ||
+    typeof payload?.availability_status === 'string' ||
+    typeof payload?.availability === 'string' ||
+    typeof payload?.online_status === 'string'
+  );
 }
 
 function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefined }) {
@@ -310,6 +347,20 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     !pendingAvailabilitySyncRef.current &&
     Date.now() >= availabilityUiOverrideUntilRef.current
   ), []);
+  const applyAvailabilitySnapshot = useCallback((payload, fallback = false, options = {}) => {
+    const nextStatus = readDriverAvailability(payload, fallback);
+    if (options.protect) {
+      const now = Date.now();
+      availabilityLocalChangeAtRef.current = now;
+      availabilityUiOverrideUntilRef.current = Math.max(
+        availabilityUiOverrideUntilRef.current,
+        now + AVAILABILITY_CONFIRMED_OVERRIDE_MS,
+      );
+    }
+    setServerIsOnline(nextStatus);
+    setIsOnline(nextStatus);
+    return nextStatus;
+  }, []);
   const activeRideStatus = String(activeRide?.status || '').toLowerCase();
   const activeRideId = String(activeRide?.id || '').trim() || null;
   const shareLocationWhileOnline = driverSettings.share_location !== false;
@@ -753,14 +804,9 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     availabilityRetryInFlightRef.current = true;
     try {
       const updated = await driverAPI.updateAvailability({ is_available: !!pending.desired });
-      const savedStatus =
-        typeof updated?.is_available === 'boolean' ? updated.is_available : !!pending.desired;
+      const savedStatus = applyAvailabilitySnapshot(updated, !!pending.desired, { protect: true });
       pendingAvailabilitySyncRef.current = null;
       setAvailabilitySyncPendingState(false);
-      availabilityLocalChangeAtRef.current = Date.now();
-      availabilityUiOverrideUntilRef.current = Date.now() + 15000;
-      setServerIsOnline(savedStatus);
-      setIsOnline(savedStatus);
       setError('');
       if (savedStatus) {
         await pushDriverLocation({
@@ -791,7 +837,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     } finally {
       availabilityRetryInFlightRef.current = false;
     }
-  }, [driverLocation, pushDriverLocation, setAvailabilitySyncPendingState, token]);
+  }, [applyAvailabilitySnapshot, driverLocation, pushDriverLocation, setAvailabilitySyncPendingState, token]);
 
   const notifyWithVoice = useCallback((title, body) => {
     Alert.alert(title, body);
@@ -801,12 +847,19 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   const refreshDriverData = useCallback(async () => {
     const refreshStartedAt = Date.now();
     const profile = await runAction(() => driverAPI.getProfile());
+    const availabilitySnapshot = await apiRequest('/drivers/availability', { token }).catch(() => null);
+    const appliedAvailabilitySnapshot =
+      availabilitySnapshot &&
+      hasDriverAvailabilitySnapshot(availabilitySnapshot) &&
+      canApplyServerAvailabilitySnapshot(refreshStartedAt);
+    if (appliedAvailabilitySnapshot) {
+      applyAvailabilitySnapshot(availabilitySnapshot, serverIsOnline);
+    }
     if (profile) {
-      if (typeof profile.is_available === 'boolean') {
+      if (!appliedAvailabilitySnapshot && hasDriverAvailabilitySnapshot(profile)) {
         // Avoid overriding an in-flight toggle with stale profile snapshots.
         if (canApplyServerAvailabilitySnapshot(refreshStartedAt)) {
-          setServerIsOnline(profile.is_available);
-          setIsOnline(profile.is_available);
+          applyAvailabilitySnapshot(profile, false);
         }
       }
       const resolvedLocation = normalizeLocation(profile.current_location);
@@ -848,7 +901,15 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     }
     setActiveVehicleId(resolveActiveVehicleId(vehiclesPayload));
     setMessage('Driver dashboard refreshed.');
-  }, [canApplyServerAvailabilitySnapshot, hydrateDriverFareConfig, normalizeLocation, runAction, token]);
+  }, [
+    applyAvailabilitySnapshot,
+    canApplyServerAvailabilitySnapshot,
+    hydrateDriverFareConfig,
+    normalizeLocation,
+    runAction,
+    serverIsOnline,
+    token,
+  ]);
 
   const refreshDriverDataSilently = useCallback(async ({ includeProfile = false, includeMeta = false } = {}) => {
     const refreshStartedAt = Date.now();
@@ -857,7 +918,19 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     }
     refreshInFlightRef.current = true;
     try {
-      const [profile, settingsPayload, requests, scheduledPayload, ride, blockedPassengersPayload, spinStatus, menuBadgePayload, vehiclesPayload] = await Promise.all([
+      const [
+        availabilitySnapshot,
+        profile,
+        settingsPayload,
+        requests,
+        scheduledPayload,
+        ride,
+        blockedPassengersPayload,
+        spinStatus,
+        menuBadgePayload,
+        vehiclesPayload,
+      ] = await Promise.all([
+        apiRequest('/drivers/availability', { token }).catch(() => null),
         includeProfile ? apiRequest('/drivers/profile', { token }).catch(() => null) : Promise.resolve(null),
         includeProfile ? apiRequest('/drivers/settings', { token }).catch(() => null) : Promise.resolve(null),
         apiRequest('/drivers/pending-requests', { token }).catch(() => []),
@@ -876,10 +949,15 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         ])
         : [null, null, null];
 
-      if (includeProfile && profile && typeof profile.is_available === 'boolean') {
+      const appliedAvailabilitySnapshot =
+        availabilitySnapshot &&
+        hasDriverAvailabilitySnapshot(availabilitySnapshot) &&
+        canApplyServerAvailabilitySnapshot(refreshStartedAt);
+      if (appliedAvailabilitySnapshot) {
+        applyAvailabilitySnapshot(availabilitySnapshot, serverIsOnline);
+      } else if (includeProfile && profile && hasDriverAvailabilitySnapshot(profile)) {
         if (canApplyServerAvailabilitySnapshot(refreshStartedAt)) {
-          setServerIsOnline(profile.is_available);
-          setIsOnline(profile.is_available);
+          applyAvailabilitySnapshot(profile, false);
         }
       }
       if (includeProfile) {
@@ -914,7 +992,14 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     } finally {
       refreshInFlightRef.current = false;
     }
-  }, [canApplyServerAvailabilitySnapshot, hydrateDriverFareConfig, normalizeLocation, token]);
+  }, [
+    applyAvailabilitySnapshot,
+    canApplyServerAvailabilitySnapshot,
+    hydrateDriverFareConfig,
+    normalizeLocation,
+    serverIsOnline,
+    token,
+  ]);
 
   const refreshRideStageValidation = useCallback(async () => {
     const [ride, requests, scheduledPayload] = await Promise.all([
@@ -1457,20 +1542,20 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         return;
       }
 
-      const savedStatus =
-        typeof response?.is_available === 'boolean' ? response.is_available : next;
-
-      const savedAt = Date.now();
-      availabilityLocalChangeAtRef.current = savedAt;
-      availabilityUiOverrideUntilRef.current = savedAt + 15000;
-      setIsOnline(savedStatus);
-      setServerIsOnline(savedStatus);
+      const savedStatus = applyAvailabilitySnapshot(response, next, { protect: true });
       setMessage(savedStatus ? 'You are now online.' : 'You are now offline.');
       setError('');
 
       if (savedStatus && shouldPushAvailabilityLocation) {
         await pushDriverLocation({ silent: true });
       }
+      apiRequest('/drivers/availability', { token })
+        .then((availabilitySnapshot) => {
+          if (hasDriverAvailabilitySnapshot(availabilitySnapshot)) {
+            applyAvailabilitySnapshot(availabilitySnapshot, savedStatus, { protect: true });
+          }
+        })
+        .catch(() => null);
     } catch (err) {
       if (requestId !== availabilityToggleRequestIdRef.current) {
         return;
@@ -1504,6 +1589,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       }
     }
   }, [
+    applyAvailabilitySnapshot,
     isOnline,
     pushDriverLocation,
     refreshDriverMenuBadges,
