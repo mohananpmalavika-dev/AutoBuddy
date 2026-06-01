@@ -136,6 +136,11 @@ const DRIVER_MOVING_TRACK_INTERVAL_MS = 5000;
 const DRIVER_IDLE_TRACK_INTERVAL_MS = 20000;
 const DRIVER_IDLE_SPEED_THRESHOLD_KMH = 2;
 const AVAILABILITY_RETRY_WINDOW_MS = 300000;
+const AVAILABILITY_TRANSIENT_MESSAGES = new Set([
+  'Checking Ready to Drive...',
+  'Going online...',
+  'Going offline...',
+]);
 
 function normalizeDriverSettings(rawSettings = {}) {
   const source =
@@ -313,6 +318,9 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     (shareLocationWhileOnline && isOnline && !availabilitySyncPending) || activeRideSharesLocation;
   const shouldPushAvailabilityLocation = shareLocationWhileOnline || activeRideSharesLocation;
   const displayIsOnline = availabilitySyncPending ? isOnline : serverIsOnline;
+  const visibleMessage =
+    !availabilitySyncPending && AVAILABILITY_TRANSIENT_MESSAGES.has(message) ? '' : message;
+
   const visibleBlockedPassengers = useMemo(
     () => filterBlockedPassengers(blockedPassengers, blockedPassengerSearch),
     [blockedPassengerSearch, blockedPassengers],
@@ -2043,7 +2051,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
           </Text>
           {!!trackingError && <Text style={styles.warningText}>{trackingError}</Text>}
           {!!error && <Text style={styles.error}>{error}</Text>}
-          {!!message && <Text style={styles.message}>{message}</Text>}
+          {!!visibleMessage && <Text style={styles.message}>{visibleMessage}</Text>}
           {loading && <ActivityIndicator color={COLORS.primary} style={styles.loader} />}
 
           {/* Tab Navigation */}
