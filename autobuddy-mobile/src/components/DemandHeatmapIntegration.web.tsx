@@ -12,28 +12,58 @@ import InteractiveMap from './InteractiveMap';
 import { COLORS, SHADOWS } from '../theme';
 import { demandTrafficAPI } from '../services/apiClient';
 
+type LocationCoords = {
+  latitude: number;
+  longitude: number;
+};
+
+type Hotspot = {
+  id: string;
+  latitude: number;
+  longitude: number;
+  name: string;
+  demandLevel: string;
+  estimatedRequests: number;
+  avgFare: number;
+  radius: number;
+  radarColor: string;
+  eta: string;
+  peakHours: string;
+  distance?: string | number;
+};
+
+type RawHotspot = Record<string, any>;
+
+type DemandHeatmapIntegrationProps = {
+  onNavigateToHotspot?: (hotspot: Hotspot) => void;
+  currentLocation?: LocationCoords | null;
+  disabled?: boolean;
+};
+
+const DemandInteractiveMap = InteractiveMap as React.ComponentType<any>;
+
 export default function DemandHeatmapIntegration({
   onNavigateToHotspot,
   currentLocation,
   disabled = false,
-}) {
+}: DemandHeatmapIntegrationProps) {
   const [loading, setLoading] = useState(false);
-  const [heatmapData, setHeatmapData] = useState([]);
-  const [selectedHotspot, setSelectedHotspot] = useState(null);
+  const [heatmapData, setHeatmapData] = useState<Hotspot[]>([]);
+  const [selectedHotspot, setSelectedHotspot] = useState<Hotspot | null>(null);
   const [error, setError] = useState('');
 
   const loadHeatmapData = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const payload = await demandTrafficAPI.getDemandHeatmap(
+      const payload = (await demandTrafficAPI.getDemandHeatmap(
         currentLocation?.latitude,
         currentLocation?.longitude
-      );
-      const rows = Array.isArray(payload)
+      )) as any;
+      const rows: RawHotspot[] = Array.isArray(payload)
         ? payload
         : payload?.hotspots || payload?.data || payload?.cells || [];
-      const hotspots = rows.map((r, i) => ({
+      const hotspots = rows.map((r: RawHotspot, i: number): Hotspot => ({
         id: String(r.id ?? r._id ?? `hotspot-${i}`),
         latitude: Number(r.latitude ?? r.lat ?? r.center?.latitude ?? r.center?.lat),
         longitude: Number(r.longitude ?? r.lng ?? r.center?.longitude ?? r.center?.lng),
@@ -45,10 +75,11 @@ export default function DemandHeatmapIntegration({
         radarColor: r.color || (r.demandLevel === 'HIGH' ? '#FF3B30' : r.demandLevel === 'LOW' ? '#34C759' : '#FFA500'),
         eta: r.eta || 'Live',
         peakHours: r.peakHours || r.peak_window || 'Live demand',
-      })).filter(h => Number.isFinite(h.latitude) && Number.isFinite(h.longitude));
+        distance: r.distance,
+      })).filter((h: Hotspot) => Number.isFinite(h.latitude) && Number.isFinite(h.longitude));
       setHeatmapData(hotspots);
     } catch (err) {
-      setError(err?.message || 'Failed to load heatmap');
+      setError(err instanceof Error ? err.message : 'Failed to load heatmap');
     } finally {
       setLoading(false);
     }
@@ -63,7 +94,7 @@ export default function DemandHeatmapIntegration({
     };
   }, [loadHeatmapData]);
 
-  const handleNavigateToHotspot = (hotspot) => {
+  const handleNavigateToHotspot = (hotspot: Hotspot) => {
     Alert.alert(
       `Navigate to ${hotspot.name}?`,
       `${hotspot.estimatedRequests} requests expected\nAverage fare: ₹${hotspot.avgFare}\nETA: ${hotspot.eta}`,
@@ -94,7 +125,7 @@ export default function DemandHeatmapIntegration({
 
       {currentLocation && (
         <View style={styles.mapContainer}>
-          <InteractiveMap
+          <DemandInteractiveMap
             apiKey={process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY}
             center={{ lat: currentLocation.latitude, lng: currentLocation.longitude }}
             style={{ width: '100%', height: '100%' }}

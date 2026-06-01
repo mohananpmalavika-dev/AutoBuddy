@@ -315,6 +315,7 @@ export default function TaxReportingTools({
     }
   }, [selectedYear, driverId]);
 
+  /*
       // Mock documents
       setDocuments([
         {
@@ -369,6 +370,8 @@ export default function TaxReportingTools({
       setLoading(false);
     }
   }, [selectedYear]);
+
+  */
 
   useEffect(() => {
     void Promise.resolve().then(loadTaxData);

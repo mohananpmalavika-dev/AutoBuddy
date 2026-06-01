@@ -25,6 +25,7 @@ import {
 import { NotificationContext } from '../contexts/NotificationContext';
 import { useNotifications } from '../hooks/useBackendIntegration';
 import { COLORS } from '../theme';
+import { formatToIST } from '../utils/time';
 
 type AppNotification = {
   id: string;
