@@ -1478,7 +1478,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     const next = !driverAvailability.isOnline;
     const previousLocalStatus = isOnline;
     const previousServerStatus = serverIsOnline;
-    const requestId = Date.now();
+    const requestId = availabilityToggleRequestIdRef.current + 1;
     const toggledAt = Date.now();
     availabilityToggleInFlightRef.current = requestId;
     availabilityToggleRequestIdRef.current = requestId;
@@ -1549,8 +1549,6 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
 
       setServerIsOnline(previousServerStatus);
       setIsOnline(previousLocalStatus);
-      setAvailabilityToggleInFlight(false);
-      setAvailabilitySyncPendingState(false);
 
       const readiness = extractDriverReadinessFromError(err);
       if (next && !isDriverReadyToDrive(readiness)) {
@@ -1560,13 +1558,15 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         refreshDriverMenuBadges().catch(() => null);
         return;
       }
-      setError(err?.message || 'Failed to update driver status.');
+      setError(getAvailabilityErrorMessage(err));
       setMessage('Status update failed. Please try again.');
     } finally {
-      availabilityToggleInFlightRef.current = null;
-      pendingAvailabilitySyncRef.current = null;
-      setAvailabilityToggleInFlight(false);
-      setAvailabilitySyncPendingState(false);
+      if (availabilityToggleInFlightRef.current === requestId) {
+        availabilityToggleInFlightRef.current = null;
+        pendingAvailabilitySyncRef.current = null;
+        setAvailabilityToggleInFlight(false);
+        setAvailabilitySyncPendingState(false);
+      }
     }
   }, [
     driverAvailability.isOnline,

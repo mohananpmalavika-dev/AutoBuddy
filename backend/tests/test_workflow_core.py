@@ -143,6 +143,7 @@ def test_full_server_route_graph_contains_critical_routes(monkeypatch):
         '/api/v1/passengers/preferences',
         '/api/v1/passengers/support/tickets',
         '/api/v1/passengers/scheduled-rides',
+        '/api/drivers/readiness',
         '/api/drivers/availability',
         '/api/drivers/location',
         '/drivers/status',
