@@ -1570,20 +1570,36 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         return;
       }
 
-      const savedStatus = applyAvailabilitySnapshot(response, next, { protect: true });
-      setMessage(savedStatus ? 'You are now online.' : 'You are now offline.');
+      const savedStatus = readDriverAvailability(response, next);
+      let confirmedSnapshot = response;
+      try {
+        const availabilitySnapshot = await apiRequest('/drivers/availability', { token });
+        if (hasDriverAvailabilitySnapshot(availabilitySnapshot)) {
+          confirmedSnapshot = availabilitySnapshot;
+        }
+      } catch (_err) {
+        // Keep the successful PUT response when the follow-up read is unavailable.
+      }
+      const confirmedStatus = readDriverAvailability(confirmedSnapshot, savedStatus);
+
+      applyAvailabilitySnapshot(confirmedSnapshot, confirmedStatus, { protect: true });
       setError('');
 
-      if (savedStatus && shouldPushAvailabilityLocation) {
+      if (confirmedStatus !== next) {
+        setError(
+          next
+            ? 'Server did not confirm online status. Please retry after Ready to Drive is complete.'
+            : 'Server did not confirm offline status. Please retry.',
+        );
+        setMessage('');
+        return;
+      }
+
+      setMessage(confirmedStatus ? 'You are now online.' : 'You are now offline.');
+
+      if (confirmedStatus && shouldPushAvailabilityLocation) {
         await pushDriverLocation({ silent: true });
       }
-      apiRequest('/drivers/availability', { token })
-        .then((availabilitySnapshot) => {
-          if (hasDriverAvailabilitySnapshot(availabilitySnapshot)) {
-            applyAvailabilitySnapshot(availabilitySnapshot, savedStatus, { protect: true });
-          }
-        })
-        .catch(() => null);
     } catch (err) {
       if (requestId !== availabilityToggleRequestIdRef.current) {
         return;
@@ -2191,6 +2207,16 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
               notificationCount={unreadCount}
               menuBadges={menuBadges}
               isOnline={displayIsOnline}
+              statusLabel={
+                availabilitySyncPending
+                  ? pendingDisplayIsOnline
+                    ? 'GOING ONLINE...'
+                    : 'GOING OFFLINE...'
+                  : displayIsOnline
+                    ? 'Online'
+                    : 'Offline'
+              }
+              statusSyncing={availabilitySyncPending}
               compact={false}
             />
           </View>

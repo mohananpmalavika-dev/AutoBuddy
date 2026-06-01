@@ -1612,21 +1612,30 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       }
 
       const savedStatus = readDriverAvailability(response, next);
+      const availabilitySnapshot = await requestDriverData('/drivers/availability', null);
+      const confirmedSnapshot = hasDriverAvailabilitySnapshot(availabilitySnapshot)
+        ? availabilitySnapshot
+        : response;
+      const confirmedStatus = readDriverAvailability(confirmedSnapshot, savedStatus);
 
-      applyAvailabilitySnapshot(response, next, { protect: true });
-      setMessage(savedStatus ? 'You are now online.' : 'You are now offline.');
+      applyAvailabilitySnapshot(confirmedSnapshot, confirmedStatus, { protect: true });
       setError('');
 
-      if (savedStatus) {
+      if (confirmedStatus !== next) {
+        setError(
+          next
+            ? 'Server did not confirm online status. Please retry after Ready to Drive is complete.'
+            : 'Server did not confirm offline status. Please retry.',
+        );
+        setMessage('');
+        return;
+      }
+
+      setMessage(confirmedStatus ? 'You are now online.' : 'You are now offline.');
+
+      if (confirmedStatus) {
         pushDriverLocation({ silent: true }).catch(() => null);
       }
-      requestDriverData('/drivers/availability', null)
-        .then((availabilitySnapshot) => {
-          if (hasDriverAvailabilitySnapshot(availabilitySnapshot)) {
-            applyAvailabilitySnapshot(availabilitySnapshot, savedStatus, { protect: true });
-          }
-        })
-        .catch(() => null);
     } catch (err) {
       if (availabilityToggleRequestIdRef.current !== requestId) {
         return;
@@ -2180,6 +2189,8 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
               notificationCount={unreadCount}
               menuBadges={menuBadges}
               isOnline={driverAvailability.isOnline}
+              statusLabel={driverAvailability.label}
+              statusSyncing={driverAvailability.syncing}
               compact={true}
             />
           </View>

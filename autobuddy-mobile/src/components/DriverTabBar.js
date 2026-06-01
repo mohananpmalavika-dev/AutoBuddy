@@ -326,8 +326,16 @@ export default function DriverTabBar({
   notificationCount = 0,
   menuBadges = {},
   isOnline = false,
+  statusLabel = '',
+  statusSyncing = false,
   compact = false,
 }) {
+  const resolvedStatusLabel = statusLabel || (isOnline ? 'Online' : 'Offline');
+  const resolvedStatusColor = statusSyncing
+    ? '#FFA500'
+    : isOnline
+      ? COLORS.success
+      : '#8A8A8A';
   const getBadgeCount = useCallback((key) => {
     const value = menuBadges?.[key];
     const count = typeof value === 'number' ? value : Number(value?.count || 0);
@@ -640,8 +648,8 @@ export default function DriverTabBar({
     return (
       <View style={styles.sidebarContainer}>
         <View style={styles.statusSection}>
-          <View style={[styles.statusIndicator, isOnline && styles.statusOnline]} />
-          <Text style={styles.statusText}>{isOnline ? 'Online' : 'Offline'}</Text>
+          <View style={[styles.statusIndicator, { backgroundColor: resolvedStatusColor }]} />
+          <Text style={styles.statusText}>{resolvedStatusLabel}</Text>
         </View>
         <View style={styles.sidebarPinned}>
           {primaryTabs.map((tab) => (

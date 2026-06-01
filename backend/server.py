@@ -7912,16 +7912,30 @@ async def update_driver_availability(
                 float(geo_loc.get("longitude")),
             )
     
-    # Return the state we just set (not fetched from DB to avoid timing issues)
+    confirmed_profile = await db.drivers.find_one({"user_id": current_user["id"]}) or {}
+    if bool(confirmed_profile.get("is_available", False)) != bool(availability.is_available):
+        await _db_update_driver_availability(
+            current_user["id"],
+            availability.is_available,
+            now_utc,
+            driver_insert_defaults,
+        )
+        confirmed_profile = await db.drivers.find_one({"user_id": current_user["id"]}) or {}
+    if not confirmed_profile:
+        confirmed_profile = {
+            "is_available": bool(availability.is_available),
+            "is_online": bool(availability.is_available),
+        }
+
+    confirmed_location = (
+        await runtime_state.get_driver_live_location(str(current_user["id"]))
+        or confirmed_profile.get("current_location")
+        or {}
+    )
+
     return {
         "message": "Availability updated",
-        **build_driver_availability_response(
-            {
-                "is_available": bool(availability.is_available),
-                "is_online": bool(availability.is_available),
-            },
-            await runtime_state.get_driver_live_location(str(current_user["id"])) or {},
-        ),
+        **build_driver_availability_response(confirmed_profile, confirmed_location),
     }
 
 @api_router.get("/drivers/availability")

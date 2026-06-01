@@ -168,6 +168,8 @@ def test_driver_availability_response_uses_explicit_availability_for_dashboard()
     assert '"presence_online": presence_online' in server_source
     assert '"availability_status": availability_status' in server_source
     assert 'response.update(build_driver_availability_response(profile, profile.get("current_location")))' in server_source
+    assert 'confirmed_profile = await db.drivers.find_one({"user_id": current_user["id"]}) or {}' in server_source
+    assert 'build_driver_availability_response(confirmed_profile, confirmed_location)' in server_source
     assert 'return build_driver_availability_response(profile, await get_effective_driver_location(profile))' in server_source
 
 
