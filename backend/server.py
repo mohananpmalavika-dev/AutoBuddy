@@ -2593,6 +2593,24 @@ def decrypt_profile_value(value: Any) -> str:
     except Exception:
         return ""
 
+def build_driver_availability_response(
+    profile: Dict[str, Any],
+    current_location: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    is_available = bool((profile or {}).get("is_available", False))
+    presence_online = bool((profile or {}).get("is_online", False))
+    availability_status = "online" if is_available else "offline"
+    return {
+        "is_available": is_available,
+        # Dashboard compatibility: is_online is the driver's explicit
+        # availability choice. Raw socket presence is exposed separately.
+        "is_online": is_available,
+        "presence_online": presence_online,
+        "availability_status": availability_status,
+        "online_status": availability_status,
+        "current_location": current_location if current_location is not None else (profile or {}).get("current_location"),
+    }
+
 def build_driver_profile_response(user: Dict[str, Any], profile: Dict[str, Any]) -> Dict[str, Any]:
     bank_account_masked = str(profile.get("bank_account_masked") or "").strip()
     if not bank_account_masked:
@@ -2630,6 +2648,7 @@ def build_driver_profile_response(user: Dict[str, Any], profile: Dict[str, Any])
             "emergency_contact_updated_at": profile.get("emergency_contact_updated_at"),
         }
     )
+    response.update(build_driver_availability_response(profile, profile.get("current_location")))
     return response
 
 def resolve_driver_active_fare_status(driver_profile: Optional[Dict[str, Any]]) -> str:
@@ -7896,9 +7915,13 @@ async def update_driver_availability(
     # Return the state we just set (not fetched from DB to avoid timing issues)
     return {
         "message": "Availability updated",
-        "is_available": bool(availability.is_available),
-        "is_online": bool(availability.is_available),
-        "current_location": await runtime_state.get_driver_live_location(str(current_user["id"])) or {},
+        **build_driver_availability_response(
+            {
+                "is_available": bool(availability.is_available),
+                "is_online": bool(availability.is_available),
+            },
+            await runtime_state.get_driver_live_location(str(current_user["id"])) or {},
+        ),
     }
 
 @api_router.get("/drivers/availability")
@@ -7909,11 +7932,7 @@ async def get_driver_availability(current_user: dict = Depends(get_current_user)
         raise HTTPException(status_code=403, detail="Only drivers can view their availability")
     
     profile = await db.drivers.find_one({"user_id": current_user["id"]}) or {}
-    return {
-        "is_available": bool(profile.get("is_available", False)),
-        "is_online": bool(profile.get("is_online", False)),
-        "current_location": await get_effective_driver_location(profile),
-    }
+    return build_driver_availability_response(profile, await get_effective_driver_location(profile))
 
 @api_router.get("/drivers/analytics")
 async def get_driver_analytics(period: str = "week", current_user: dict = Depends(get_current_user)):
