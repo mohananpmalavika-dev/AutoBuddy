@@ -33,6 +33,21 @@ type StoredSessionCandidate = Partial<AppSession> & {
 const WEB_INSTALL_DISMISSED_KEY = 'autobuddy_web_install_dismissed_v1';
 const WEB_ALERTS_ENABLED_KEY = 'autobuddy_web_alerts_enabled_v1';
 const WEB_SEEN_NOTIFICATION_KEY_PREFIX = 'autobuddy_seen_notifications_v1_';
+const WEB_APP_UPDATE_CHECK_MS = 60 * 1000;
+const WEB_APP_UPDATE_RELOAD_KEY = 'autobuddy_last_update_reload_at';
+
+function extractWebBundleIds(source: string): string[] {
+  return Array.from(new Set(source.match(/entry-[a-f0-9][^"']*\.js/g) || []));
+}
+
+function getCurrentWebBundleIds(): string[] {
+  if (typeof document === 'undefined') {
+    return [];
+  }
+  return Array.from(document.querySelectorAll<HTMLScriptElement>('script[src]'))
+    .map((script) => script.getAttribute('src') || '')
+    .flatMap(extractWebBundleIds);
+}
 
 function normalizeStoredSession(candidate: StoredSessionCandidate | null | undefined): AppSession | null {
   if (!candidate?.user) {
@@ -169,6 +184,79 @@ export default function HomeScreen() {
     return () => {
       window.removeEventListener('beforeinstallprompt', onBeforeInstallPrompt as EventListener);
       window.removeEventListener('appinstalled', onAppInstalled);
+    };
+  }, [isWeb]);
+
+  useEffect(() => {
+    if (!isWeb || typeof window === 'undefined') {
+      return undefined;
+    }
+
+    let cancelled = false;
+    let checkInFlight = false;
+
+    const reloadWhenSafe = () => {
+      if (cancelled) {
+        return;
+      }
+      const lastReloadAt = Number(window.localStorage.getItem(WEB_APP_UPDATE_RELOAD_KEY) || 0);
+      if (Date.now() - lastReloadAt < 30000) {
+        return;
+      }
+      window.localStorage.setItem(WEB_APP_UPDATE_RELOAD_KEY, String(Date.now()));
+      setWebSetupMessage('Updating AutoBuddy to the latest version...');
+      window.setTimeout(() => {
+        if (!cancelled) {
+          window.location.reload();
+        }
+      }, 250);
+    };
+
+    const checkForNewWebBundle = async () => {
+      if (checkInFlight || cancelled) {
+        return;
+      }
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
+      const currentBundles = getCurrentWebBundleIds();
+      if (currentBundles.length === 0) {
+        return;
+      }
+
+      checkInFlight = true;
+      try {
+        const response = await fetch(`/app?autobuddy_version_check=${Date.now()}`, {
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-store',
+            Pragma: 'no-cache',
+          },
+        });
+        if (!response.ok) {
+          return;
+        }
+        const html = await response.text();
+        const latestBundles = extractWebBundleIds(html);
+        if (latestBundles.some((bundleId) => !currentBundles.includes(bundleId))) {
+          reloadWhenSafe();
+        }
+      } catch {
+        // Version checks must never interrupt the app.
+      } finally {
+        checkInFlight = false;
+      }
+    };
+
+    const startupTimer = window.setTimeout(checkForNewWebBundle, 10000);
+    const interval = window.setInterval(checkForNewWebBundle, WEB_APP_UPDATE_CHECK_MS);
+    window.addEventListener('focus', checkForNewWebBundle);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(startupTimer);
+      window.clearInterval(interval);
+      window.removeEventListener('focus', checkForNewWebBundle);
     };
   }, [isWeb]);
 

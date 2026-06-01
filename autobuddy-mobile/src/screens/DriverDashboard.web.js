@@ -1494,7 +1494,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
 
     try {
       if (next) {
-        const readiness = await apiRequest('/drivers/readiness', { token });
+        const readiness = await apiRequest('/drivers/readiness', { token, timeoutMs: 8000 });
         if (availabilityToggleRequestIdRef.current !== requestId) {
           return;
         }
@@ -1517,6 +1517,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       const response = await apiRequest('/drivers/availability', {
         method: 'PUT',
         token,
+        timeoutMs: 10000,
         body: { is_available: next },
       });
 
