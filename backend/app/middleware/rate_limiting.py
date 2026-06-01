@@ -33,6 +33,7 @@ class RateLimitingMiddleware(BaseHTTPMiddleware):
             "/docs",
             "/openapi.json",
             "/redoc",
+            "/socket.io",
             "/ws",
         }
     

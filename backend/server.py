@@ -406,6 +406,12 @@ runtime_state = RuntimeStateStore(
 )
 app.state.runtime_state = runtime_state
 
+REALTIME_RATE_LIMIT_EXEMPT_PATH_PREFIXES = ("/socket.io", "/ws")
+
+
+def is_realtime_rate_limit_exempt_path(path: str) -> bool:
+    return any(str(path or "").startswith(prefix) for prefix in REALTIME_RATE_LIMIT_EXEMPT_PATH_PREFIXES)
+
 # Socket.IO setup
 socket_manager = None
 if REDIS_URL:
@@ -1169,7 +1175,9 @@ async def api_guardrails_middleware(request: Request, call_next):
     token = REQUEST_ID_CONTEXT.set(request_id)
     start_time = time.perf_counter()
     client_ip = get_request_ip(request)
-    path_template = request.url.path
+    request_path = request.url.path
+    path_template = request_path
+    is_realtime_path = is_realtime_rate_limit_exempt_path(request_path)
     status_code = 500
     response: Optional[Any] = None
     try:
@@ -1237,8 +1245,8 @@ async def api_guardrails_middleware(request: Request, call_next):
                 status_code = int(response.status_code)
                 return response
 
-        if request.url.path not in {"/api/health", "/health"}:
-            rate_limit_rule = await get_rate_limit_rule_for_path(request.url.path, db)
+        if not is_realtime_path and request_path not in {"/api/health", "/health"}:
+            rate_limit_rule = await get_rate_limit_rule_for_path(request_path, db)
             try:
                 if rate_limit_rule:
                     await runtime_state.check_bucket_rate_limit(
@@ -1269,7 +1277,7 @@ async def api_guardrails_middleware(request: Request, call_next):
                 status_code = int(response.status_code)
                 return response
 
-        if request.url.path.startswith("/api") and request.url.path != "/api/health":
+        if not is_realtime_path and request_path.startswith("/api") and request_path != "/api/health":
             api_global_rule = await get_rate_limit_profile_rule(
                 "api_global",
                 db,

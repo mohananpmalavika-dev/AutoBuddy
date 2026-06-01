@@ -96,6 +96,30 @@ def test_realtime_uses_single_socketio_server():
     assert 'configure_legacy_socket_helpers(sio)' in server_source
     assert 'app.mount("/socket.io", root_socket_app)' in server_source
     assert 'app.mount("/ws", socket_app)' in server_source
+    assert 'REALTIME_RATE_LIMIT_EXEMPT_PATH_PREFIXES = ("/socket.io", "/ws")' in server_source
+
+    rate_middleware_source = (backend_dir / 'app' / 'middleware' / 'rate_limiting.py').read_text(encoding='utf-8')
+    advanced_rate_middleware_source = (
+        backend_dir / 'app' / 'middleware' / 'advanced_rate_limiting.py'
+    ).read_text(encoding='utf-8')
+    assert '"/socket.io"' in rate_middleware_source
+    assert '"/socket.io"' in advanced_rate_middleware_source
+
+
+def test_socketio_polling_paths_are_not_http_rate_limited(monkeypatch):
+    monkeypatch.setenv('MONGO_URL', os.getenv('MONGO_URL') or 'mongodb://localhost:27017/test')
+    monkeypatch.setenv('JWT_SECRET', os.getenv('JWT_SECRET') or 'a' * 40)
+
+    server = importlib.import_module('server')
+    client = TestClient(server.app, raise_server_exceptions=False)
+
+    for path in (
+        '/socket.io/?EIO=4&transport=polling',
+        '/ws/socket.io/?EIO=4&transport=polling',
+    ):
+        response = client.get(path)
+        assert response.status_code != 404, path
+        assert response.status_code != 429, path
 
 
 def test_unsafe_payment_prototype_router_is_removed():

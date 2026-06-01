@@ -57,6 +57,7 @@ class AdvancedRateLimitingMiddleware(BaseHTTPMiddleware):
             "/docs",
             "/openapi.json",
             "/redoc",
+            "/socket.io",
             "/ws"
         ]
         self.enable_adaptation = enable_adaptation
