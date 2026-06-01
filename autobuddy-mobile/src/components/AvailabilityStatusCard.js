@@ -21,10 +21,16 @@ export default function AvailabilityStatusCard({
 }) {
   const {
     isOnline = false,
-    label = 'OFFLINE',
     syncing = false,
-    tone = 'offline',
   } = availability;
+  const resolvedTone = syncing ? 'syncing' : isOnline ? 'online' : 'offline';
+  const resolvedLabel = syncing
+    ? isOnline
+      ? 'GOING ONLINE...'
+      : 'GOING OFFLINE...'
+    : isOnline
+      ? 'ONLINE & READY'
+      : 'OFFLINE';
 
   // Determine colors based on tone
   const colorMap = useMemo(
@@ -54,7 +60,7 @@ export default function AvailabilityStatusCard({
     [],
   );
 
-  const colors = colorMap[tone] || colorMap.offline;
+  const colors = colorMap[resolvedTone] || colorMap.offline;
 
   // Status details
   const statusDetails = useMemo(() => {
@@ -105,7 +111,7 @@ export default function AvailabilityStatusCard({
 
         <View style={styles.statusInfo}>
           <Text style={[styles.statusLabel, { color: colors.text }]}>
-            {label}
+            {resolvedLabel}
           </Text>
           <Text style={[styles.statusDetail, { color: colors.subText }]}>
             {statusDetails.detail}

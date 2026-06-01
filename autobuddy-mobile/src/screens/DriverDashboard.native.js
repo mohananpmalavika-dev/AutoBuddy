@@ -142,10 +142,32 @@ const AVAILABILITY_TRANSIENT_MESSAGE_PARTS = [
   'going online',
   'going offline',
 ];
+const AVAILABILITY_ONLINE_SUCCESS_MESSAGE_PARTS = [
+  'you are now online',
+  'you are online and discoverable',
+];
+const AVAILABILITY_OFFLINE_SUCCESS_MESSAGE_PARTS = [
+  'you are now offline',
+  'you are offline',
+];
 
 function isAvailabilityTransientMessage(value) {
   const normalized = String(value || '').trim().toLowerCase();
   return AVAILABILITY_TRANSIENT_MESSAGE_PARTS.some((part) => normalized.includes(part));
+}
+
+function getVisibleAvailabilityMessage(value, isOnline) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized || isAvailabilityTransientMessage(value)) {
+    return '';
+  }
+  if (!isOnline && AVAILABILITY_ONLINE_SUCCESS_MESSAGE_PARTS.some((part) => normalized.includes(part))) {
+    return '';
+  }
+  if (isOnline && AVAILABILITY_OFFLINE_SUCCESS_MESSAGE_PARTS.some((part) => normalized.includes(part))) {
+    return '';
+  }
+  return value;
 }
 
 function normalizeDriverSettings(rawSettings = {}) {
@@ -374,7 +396,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     (shareLocationWhileOnline && isOnline && !availabilitySyncPending) || activeRideSharesLocation;
   const shouldPushAvailabilityLocation = shareLocationWhileOnline || activeRideSharesLocation;
   const displayIsOnline = availabilitySyncPending ? isOnline : serverIsOnline;
-  const visibleMessage = isAvailabilityTransientMessage(message) ? '' : message;
+  const visibleMessage = getVisibleAvailabilityMessage(message, displayIsOnline);
 
   const visibleBlockedPassengers = useMemo(
     () => filterBlockedPassengers(blockedPassengers, blockedPassengerSearch),

@@ -124,10 +124,32 @@ const AVAILABILITY_TRANSIENT_MESSAGE_PARTS = [
   'going online',
   'going offline',
 ];
+const AVAILABILITY_ONLINE_SUCCESS_MESSAGE_PARTS = [
+  'you are now online',
+  'you are online and discoverable',
+];
+const AVAILABILITY_OFFLINE_SUCCESS_MESSAGE_PARTS = [
+  'you are now offline',
+  'you are offline',
+];
 
 function isAvailabilityTransientMessage(value) {
   const normalized = String(value || '').trim().toLowerCase();
   return AVAILABILITY_TRANSIENT_MESSAGE_PARTS.some((part) => normalized.includes(part));
+}
+
+function getVisibleAvailabilityMessage(value, isOnline) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized || isAvailabilityTransientMessage(value)) {
+    return '';
+  }
+  if (!isOnline && AVAILABILITY_ONLINE_SUCCESS_MESSAGE_PARTS.some((part) => normalized.includes(part))) {
+    return '';
+  }
+  if (isOnline && AVAILABILITY_OFFLINE_SUCCESS_MESSAGE_PARTS.some((part) => normalized.includes(part))) {
+    return '';
+  }
+  return value;
 }
 
 function normalizeDriverSettings(rawSettings = {}) {
@@ -397,7 +419,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   const shouldSyncDriverLocation =
     (shareLocationWhileOnline && driverAvailability.isOnline && !driverAvailability.syncing) ||
     activeRideSharesLocation;
-  const visibleMessage = isAvailabilityTransientMessage(message) ? '' : message;
+  const visibleMessage = getVisibleAvailabilityMessage(message, driverAvailability.isOnline);
 
   // TIER 1 FEATURES: GPS, SOS, Countdown, Expenses
   const { location: driverGPSLocation, speed: driverSpeed, isTracking } = useGPSTracking({
@@ -2054,17 +2076,17 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                 styles.statusBadgeButton,
                 {
                   backgroundColor:
-                    driverAvailability.tone === 'online'
+                    driverAvailability.syncing
+                      ? '#FFF7E6'
+                      : driverAvailability.isOnline
                       ? '#E8F5E9'
-                      : driverAvailability.tone === 'syncing'
-                        ? '#FFF7E6'
-                        : '#F5F5F5',
+                      : '#F5F5F5',
                   borderColor:
-                    driverAvailability.tone === 'online'
+                    driverAvailability.syncing
+                      ? '#FFA500'
+                      : driverAvailability.isOnline
                       ? '#2E7D32'
-                      : driverAvailability.tone === 'syncing'
-                        ? '#FFA500'
-                        : '#BDBDBD',
+                      : '#BDBDBD',
                 },
               ]}
               onPress={toggleOnlineStatus}
@@ -2075,11 +2097,11 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                   styles.statusDot,
                   {
                     backgroundColor:
-                      driverAvailability.tone === 'online'
+                      driverAvailability.syncing
+                        ? '#FFA500'
+                        : driverAvailability.isOnline
                         ? '#2E7D32'
-                        : driverAvailability.tone === 'syncing'
-                          ? '#FFA500'
-                          : '#8A8A8A',
+                        : '#8A8A8A',
                   },
                 ]}
               />
@@ -2089,15 +2111,21 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                     styles.statusText,
                     {
                       color:
-                        driverAvailability.tone === 'online'
+                        driverAvailability.syncing
+                          ? '#B26A00'
+                          : driverAvailability.isOnline
                           ? '#2E7D32'
-                          : driverAvailability.tone === 'syncing'
-                            ? '#B26A00'
-                            : '#666',
+                          : '#666',
                     },
                   ]}
                 >
-                  {driverAvailability.label}
+                  {driverAvailability.syncing
+                    ? driverAvailability.isOnline
+                      ? 'GOING ONLINE...'
+                      : 'GOING OFFLINE...'
+                    : driverAvailability.isOnline
+                      ? 'ONLINE & READY'
+                      : 'OFFLINE'}
                 </Text>
                 <Text style={styles.statusSub}>{user?.name || 'Driver'} - Tap to toggle</Text>
               </View>
