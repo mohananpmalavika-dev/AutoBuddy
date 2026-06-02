@@ -29,13 +29,15 @@ export default function AvailabilityStatusCard({
   const labelIsOnline = syncing ? !!desiredIsOnline : !!isOnline;
   const fallbackTone = syncing ? 'syncing' : isOnline ? 'online' : 'offline';
   const resolvedTone = tone || fallbackTone;
+  // Prefer the label that reflects the user's desired/visible state (labelIsOnline)
+  // so the UI shows the intent (or live location) even when brief server states lag.
   const fallbackLabel = syncing
     ? labelIsOnline
       ? 'GOING ONLINE...'
       : 'GOING OFFLINE...'
-    : isOnline
-      ? 'ONLINE & READY'
-      : 'OFFLINE';
+    : labelIsOnline
+      ? 'ONLINE — Receiving requests'
+      : 'OFFLINE — Tap to go online';
   const resolvedLabel = label || fallbackLabel;
 
   // Determine colors based on tone
@@ -56,11 +58,11 @@ export default function AvailabilityStatusCard({
         subText: '#FF9800',
       },
       offline: {
-        background: '#F5F5F5',
-        border: '#BDBDBD',
-        dot: '#8A8A8A',
-        text: '#666',
-        subText: '#999',
+        background: '#FFEBEE',
+        border: '#F44336',
+        dot: '#D32F2F',
+        text: '#B71C1C',
+        subText: '#D32F2F',
       },
     }),
     [],
