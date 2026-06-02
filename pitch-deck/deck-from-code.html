@@ -29,25 +29,25 @@
   <body>
     <main class="page">
       <section class="section">
-        <p class="pill">Code-derived pitch</p>
+        <p class="pill">Code + competitor reference</p>
         <h1>AutoBuddy</h1>
-        <p class="muted">A full-stack ride operations platform built for local mobility with passenger, driver, and operator workflows, realtime dispatch, safety, fleet, enterprise, and analytics — verified from code.</p>
+        <p class="muted">A full-stack ride operations platform built from the repo and aligned with the shared Uber/Ola/Rapido comparison reference.</p>
       </section>
 
       <section class="section">
-        <h2>Why it matters</h2>
+        <h2>Market problem</h2>
         <div class="cards">
           <div class="card">
-            <h3>Trust gap for passengers</h3>
-            <p>Inconsistent fares, weak live updates, and opaque trip execution reduce confidence for short local rides.</p>
+            <h3>Uncertain local rides</h3>
+            <p class="muted">Passengers face unclear fares, poor ETA accuracy, inconsistent communication, and safety concerns.</p>
           </div>
           <div class="card">
-            <h3>Driver reliability problem</h3>
-            <p>High commission models, manual payouts, and hidden economics push drivers toward informal and unreliable operations.</p>
+            <h3>Bad driver economics</h3>
+            <p class="muted">High commissions, manual payouts, poor earnings visibility, and low trust push drivers away.</p>
           </div>
           <div class="card">
-            <h3>Operators lack control</h3>
-            <p>Local teams need unified KYC, pricing, dispute resolution, support, and reporting in one platform.</p>
+            <h3>Operators are fragmented</h3>
+            <p class="muted">Local teams need pricing, KYC, compliance, analytics, and support workflows in one system.</p>
           </div>
         </div>
       </section>
@@ -56,25 +56,25 @@
         <h2>AutoBuddy solution</h2>
         <div class="cards">
           <div class="card">
-            <h3>Passenger, driver, operator in one product</h3>
-            <p>Expo mobile/web passenger and driver apps plus a FastAPI admin/control layer with feature-rich routers.</p>
+            <h3>Passenger, driver & admin together</h3>
+            <p class="muted">Passenger and driver Expo apps plus FastAPI backend with admin and operations routers for full lifecycle management.</p>
           </div>
           <div class="card">
-            <h3>Realtime dispatch and tracking</h3>
-            <p>Socket.IO, heartbeat monitoring, live location updates, and retry-based driver assignment are core code features.</p>
+            <h3>Realtime dispatch & tracking</h3>
+            <p class="muted">Socket.IO live location, heartbeat monitoring, driver assignment retries, and dispatch heatmaps are implemented in code.</p>
           </div>
           <div class="card">
-            <h3>Safety, KYC, compliance</h3>
-            <p>Document uploads, OTP flow, SOS support, audit trails, and admin safety compliance routes are implemented in code.</p>
+            <h3>Built for trust</h3>
+            <p class="muted">KYC, OTP trip control, SOS, audit trails, and safety compliance are baked into the platform.</p>
           </div>
         </div>
       </section>
 
       <section class="section">
-        <h2>Features built in the repo</h2>
+        <h2>Repo feature set</h2>
         <div class="cards">
           <div class="card">
-            <h3>Advanced mobility modules</h3>
+            <h3>Mobility modules</h3>
             <ul>
               <li>Ride pooling</li>
               <li>Airport rides</li>
@@ -83,41 +83,38 @@
             </ul>
           </div>
           <div class="card">
-            <h3>Driver-first systems</h3>
+            <h3>Driver & earnings</h3>
             <ul>
-              <li>Driver trust scores</li>
+              <li>Driver trust scoring</li>
               <li>Referral and earnings analytics</li>
               <li>Vehicle and ride-type management</li>
             </ul>
           </div>
           <div class="card">
-            <h3>Ops, analytics & monitoring</h3>
+            <h3>Operations & safety</h3>
             <ul>
               <li>Support tickets, disputes, refunds</li>
-              <li>Prometheus metrics, Sentry, CI/CD, Docker deployment</li>
-              <li>Admin pricing, subscriptions, launch visitor workflows</li>
+              <li>Admin pricing, subscriptions, KYC workflows</li>
+              <li>Monitoring, analytics, compliance</li>
             </ul>
           </div>
         </div>
       </section>
 
       <section class="section">
-        <h2>Technical strength score</h2>
+        <h2>Tech stack</h2>
         <div class="cards">
-          <div class="card center">
-            <div class="metric">9/10</div>
-            <h3>Architecture quality</h3>
-            <p class="muted">FastAPI backend, Socket.IO realtime, Postgres/SQLAlchemy, Stripe, monitoring, Redis optional, modular routers.</p>
+          <div class="card">
+            <h3>Frontend</h3>
+            <p class="muted">Expo / React Native / Web, Google Maps, Stripe mobile SDK, real-time client state, async storage.</p>
           </div>
-          <div class="card center">
-            <div class="metric">9.2/10</div>
-            <h3>Product capability</h3>
-            <p class="muted">Feature set rivals national apps across ride-pooling, airport, corporate, fleet, safety, and analytics.</p>
+          <div class="card">
+            <h3>Backend</h3>
+            <p class="muted">FastAPI; SQLAlchemy/Postgres; Socket.IO; Stripe; Redis optional; Sentry; Prometheus; Stripe webhooks.</p>
           </div>
-          <div class="card center">
-            <div class="metric">4/10</div>
-            <h3>Business value today</h3>
-            <p class="muted">Product is strong; go-to-market and market penetration need launch validation.</p>
+          <div class="card">
+            <h3>Infrastructure</h3>
+            <p class="muted">Docker deployment assets, CI/CD, production readiness docs, log/metric hooks, upload storage backends.</p>
           </div>
         </div>
       </section>
@@ -132,46 +129,67 @@
           <div class="row"><div class="cell">Safety features</div><div class="cell">9</div><div class="cell">10</div><div class="cell">8</div><div class="cell">7</div></div>
           <div class="row"><div class="cell">Enterprise features</div><div class="cell">9</div><div class="cell">10</div><div class="cell">7</div><div class="cell">3</div></div>
           <div class="row"><div class="cell">Technical architecture</div><div class="cell">9</div><div class="cell">10</div><div class="cell">8.5</div><div class="cell">7</div></div>
-          <div class="row"><div class="cell">Market presence</div><div class="cell">0</div><div class="cell">10</div><div class="cell">9</div><div class="cell">8</div></div>
-          <div class="row"><div class="cell">Revenue scale</div><div class="cell">0</div><div class="cell">10</div><div class="cell">8</div><div class="cell">7</div></div>
+          <div class="row"><div class="cell">Market presence</div><div class="cell">1</div><div class="cell">10</div><div class="cell">9</div><div class="cell">8</div></div>
+          <div class="row"><div class="cell">Revenue scale</div><div class="cell">1</div><div class="cell">10</div><div class="cell">8</div><div class="cell">7</div></div>
         </div>
       </section>
 
       <section class="section">
-        <h2>What makes AutoBuddy strong</h2>
+        <h2>Scores and stage</h2>
+        <div class="cards">
+          <div class="card center">
+            <div class="metric">9.2/10</div>
+            <h3>Product capability</h3>
+            <p class="muted">AutoBuddy’s feature set is very strong and broad across mobility, safety, fleet, and enterprise.</p>
+          </div>
+          <div class="card center">
+            <div class="metric">4/10</div>
+            <h3>Business value today</h3>
+            <p class="muted">The code is strong, but market traction and revenue proof are the next stage.</p>
+          </div>
+          <div class="card center">
+            <div class="metric">70–80%</div>
+            <h3>Uber product scope</h3>
+            <p class="muted">Feature scope is roughly 70–80% of Uber’s product breadth in a regional deployment.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Strengths from the repo</h2>
         <ul>
-          <li>Built-in ride pooling, airport rides, corporate portal, and fleet profitability.</li>
-          <li>Driver trust system, dynamic pricing, and subscription model.</li>
-          <li>Real-time tracking, heatmaps, SOS safety, and operations center.</li>
-          <li>Monitoring, CI/CD, Docker deployment, and mobile + backend architecture already in repo.</li>
+          <li>Ride pooling, airport rides, corporate portal, fleet profitability already built.</li>
+          <li>Driver trust system, SOS, realtime tracking, heatmaps, dynamic pricing.</li>
+          <li>Admin analytics, support workflows, KYC, compliance, and multi-role operations.</li>
+          <li>Monitoring, CI/CD, Docker deployment, and mobile+backend architecture ready for launch.</li>
         </ul>
       </section>
 
       <section class="section">
-        <h2>Where AutoBuddy must close the gap</h2>
+        <h2>What must be proved</h2>
         <ul>
-          <li>Market penetration and rider adoption need pilot launch evidence.</li>
-          <li>Driver supply density and enterprise sales must be proven in one Kerala corridor.</li>
-          <li>Operational maturity and repeatable revenue model are the next milestones.</li>
+          <li>Local rider adoption and driver density through a Kerala corridor pilot.</li>
+          <li>Repeatable unit economics, driver retention, and support throughput.</li>
+          <li>Operational maturity from code to a stable live service with real revenue.</li>
         </ul>
       </section>
 
       <section class="section">
-        <h2>Launch ask</h2>
+        <h2>Funding ask</h2>
         <div class="cards">
           <div class="card">
             <h3>KSUM Idea Grant</h3>
-            <p class="muted">Rs. 3,00,000 to harden the platform for pilot, cover cloud payments/testing, enable onboarding, and produce the KSUM demo.</p>
+            <p class="muted">Rs. 3,00,000 to harden pilot readiness, build cloud/test infrastructure, onboard drivers, and produce the grant demo.</p>
           </div>
           <div class="card">
             <h3>Pre-seed</h3>
-            <p class="muted">Rs. 50 lakh to launch the first city, build driver density, tighten unit economics, and validate repeatable liquidity.</p>
+            <p class="muted">Rs. 50 lakh to launch first Kerala city, build density, improve unit economics, and validate the local mobility flywheel.</p>
           </div>
         </div>
       </section>
 
       <section class="section center">
-        <p class="muted">This pitch deck is based on AutoBuddy's codebase, not external docs. It reflects the repo's feature set, architecture, and competitor-aware product positioning.</p>
+        <p class="muted">This deck is based on AutoBuddy’s codebase and the shared competitor comparison reference. It reflects real repo features, product strengths, and launch priorities.</p>
       </section>
     </main>
   </body>

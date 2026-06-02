@@ -3,7 +3,13 @@
   "outputDirectory": "dist",
   "routes": [
     { "src": "^/$", "dest": "/index.html" },
-    { "src": "^/app(/.*)?$", "dest": "/app/index.html" },
+    {
+      "src": "^/app(/.*)?$",
+      "headers": {
+        "Cache-Control": "no-store, max-age=0, must-revalidate"
+      },
+      "dest": "/app/index.html"
+    },
     { "src": "^/api/(.*)$", "dest": "https://autobuddy-z1vx.onrender.com/api/$1" },
     { "src": "^/(.*)$", "dest": "/$1" }
   ],
@@ -15,7 +21,7 @@
       ]
     },
     {
-      "source": "/app/(.*)",
+      "source": "/app/:path*",
       "headers": [
         { "key": "Cache-Control", "value": "no-store, max-age=0, must-revalidate" }
       ]
