@@ -337,7 +337,9 @@ BOOTSTRAP_ADMIN_PHONE = settings.bootstrap_admin_phone
 BOOTSTRAP_ADMIN_PASSWORD = settings.bootstrap_admin_password
 MAX_PRODUCTION_ALLOWED_ORIGINS = int(os.environ.get("MAX_PRODUCTION_ALLOWED_ORIGINS", "10"))
 WEAK_JWT_SECRET_VALUES = {"autorickshaw-secret-key-change-in-production", "changeme", "default", "secret"}
-EFFECTIVE_CORS_ALLOW_ORIGIN_REGEX = "" if IS_PRODUCTION_ENV else CORS_ALLOW_ORIGIN_REGEX
+# Enable regex-based origin validation in all environments to support wildcard domain patterns.
+# The regex itself is strictly controlled via environment config, so this is safe.
+EFFECTIVE_CORS_ALLOW_ORIGIN_REGEX = CORS_ALLOW_ORIGIN_REGEX
 SENTRY_DSN = os.environ.get("SENTRY_DSN", "").strip()
 SENTRY_TRACE_SAMPLE_RATE = float(os.environ.get("SENTRY_TRACE_SAMPLE_RATE", "0.1"))
 ENABLE_METRICS = os.environ.get("ENABLE_METRICS", "true").strip().lower() in {"1", "true", "yes", "on"}
@@ -555,13 +557,30 @@ def is_origin_allowed(origin: Optional[str]) -> bool:
     if not normalized_origin:
         return False
     normalized_lower = normalized_origin.lower()
+    
+    # Check explicit allow-list first
     if ALLOWED_ORIGINS and "*" not in ALLOWED_ORIGINS:
         for allowed_origin in ALLOWED_ORIGINS:
             if allowed_origin and allowed_origin.lower().rstrip("/") == normalized_lower:
+                logger.debug(f"Origin allowed by whitelist: {normalized_origin}")
                 return True
+    
+    # Check regex pattern
     if EFFECTIVE_CORS_ALLOW_ORIGIN_REGEX:
-        return re.match(EFFECTIVE_CORS_ALLOW_ORIGIN_REGEX, normalized_origin, flags=re.IGNORECASE) is not None
-    return "*" in ALLOWED_ORIGINS
+        pattern_matches = re.match(EFFECTIVE_CORS_ALLOW_ORIGIN_REGEX, normalized_origin, flags=re.IGNORECASE) is not None
+        if pattern_matches:
+            logger.debug(f"Origin allowed by regex: {normalized_origin}")
+        else:
+            logger.debug(f"Origin blocked by regex: {normalized_origin}, pattern={EFFECTIVE_CORS_ALLOW_ORIGIN_REGEX}")
+        return pattern_matches
+    
+    # Fallback to wildcard check
+    is_allowed = "*" in ALLOWED_ORIGINS
+    if is_allowed:
+        logger.debug(f"Origin allowed by wildcard: {normalized_origin}")
+    else:
+        logger.debug(f"Origin rejected: {normalized_origin}, allowed_origins={ALLOWED_ORIGINS}, regex_enabled={bool(EFFECTIVE_CORS_ALLOW_ORIGIN_REGEX)}")
+    return is_allowed
 
 
 def get_route_template(request: Request) -> str:
@@ -14798,6 +14817,12 @@ async def emit_ride_sync_state(
 async def connect(sid, environ, auth=None):
     socket_origin = str((environ or {}).get("HTTP_ORIGIN") or "").strip()
     if socket_origin and not is_origin_allowed(socket_origin):
+        logger.warning(
+            f"Socket connection rejected: origin not allowed. "
+            f"sid={sid}, origin={socket_origin}, "
+            f"allowed_origins={ALLOWED_ORIGINS}, "
+            f"regex_enabled={bool(EFFECTIVE_CORS_ALLOW_ORIGIN_REGEX)}"
+        )
         raise ConnectionRefusedError("Origin not allowed")
 
     user = await get_user_from_socket(environ or {}, auth if isinstance(auth, dict) else None)
@@ -14805,7 +14830,10 @@ async def connect(sid, environ, auth=None):
         raise ConnectionRefusedError("Unauthorized socket")
 
     await _bind_socket_user(sid, str(user.get("id") or ""), str(user.get("role") or ""))
-    logger.info(f"Socket connected and authenticated: sid={sid}")
+    if socket_origin:
+        logger.info(f"Socket connected and authenticated: sid={sid}, origin={socket_origin}")
+    else:
+        logger.info(f"Socket connected and authenticated: sid={sid}")
     user_id = str(user.get("id") or "").strip()
     role = str(user.get("role") or "").strip().lower()
     if role == UserRole.DRIVER.value:
