@@ -1662,13 +1662,18 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       availabilityLocalChangeAtRef.current = failedAt;
 
       if (err?.message?.includes('503') || err?.message?.includes('Service Unavailable')) {
+        pendingAvailabilitySyncRef.current = {
+          desired: next,
+          attempts: 1,
+          lastAttemptAt: failedAt,
+        };
+        availabilityUiOverrideUntilRef.current = failedAt + AVAILABILITY_RETRY_WINDOW_MS;
+        setAvailabilityPendingDesired(next);
+        setAvailabilitySyncPendingState(true);
         setIsOnline(next);
         setServerIsOnline(next);
         setLocalTrackingOnline(next);
-        availabilityUiOverrideUntilRef.current = failedAt + 15000;
-        pendingAvailabilitySyncRef.current = null;
-        setAvailabilityPendingDesired(null);
-        setError('Server confirmed slowly. Online mode kept locally.');
+        setError('Server confirmed slowly. Online mode kept locally. Retrying automatically.');
         setMessage('');
         if (next) {
           pushDriverLocation({ silent: true }).catch(() => null);
