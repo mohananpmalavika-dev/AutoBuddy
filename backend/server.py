@@ -7829,17 +7829,22 @@ async def _db_update_driver_availability(
     driver_insert_defaults: dict,
 ):
     """Database operations for availability update with retry support."""
+    set_fields = {
+        "is_available": is_available,
+        "is_online": is_available,
+        "updated_at": now_utc,
+        "last_online_at": now_utc if is_available else None,
+        "last_offline_at": now_utc if not is_available else None,
+        "last_heartbeat_at": now_utc if is_available else None,
+    }
+    if not is_available:
+        set_fields["current_location"] = None
+        set_fields["current_location_geo"] = None
+
     await db.drivers.update_one(
         {"user_id": driver_id},
         {
-            "$set": {
-                "is_available": is_available,
-                "is_online": is_available,
-                "updated_at": now_utc,
-                "last_online_at": now_utc if is_available else None,
-                "last_offline_at": now_utc if not is_available else None,
-                "last_heartbeat_at": now_utc if is_available else None,
-            },
+            "$set": set_fields,
             "$setOnInsert": driver_insert_defaults,
         },
         upsert=True,

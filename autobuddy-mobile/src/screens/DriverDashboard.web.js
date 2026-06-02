@@ -119,6 +119,7 @@ const DEFAULT_DRIVER_SETTINGS = {
 };
 const AVAILABILITY_RETRY_WINDOW_MS = 300000;
 const AVAILABILITY_CONFIRMED_OVERRIDE_MS = 90000;
+const LIVE_LOCATION_STATUS_WINDOW_MS = 90000;
 const AVAILABILITY_TRANSIENT_MESSAGE_PARTS = [
   'checking ready to drive',
   'going online',
@@ -266,6 +267,26 @@ function hasDriverAvailabilitySnapshot(payload) {
   );
 }
 
+function hasLiveLocationSignal(location) {
+  if (!location || typeof location !== 'object') {
+    return false;
+  }
+  const latitude = Number(location.latitude ?? location.lat);
+  const longitude = Number(location.longitude ?? location.lng);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return false;
+  }
+  if (location.is_live_location || location.location_online || location.is_live) {
+    return true;
+  }
+  const address = String(location.address || '').trim().toLowerCase();
+  if (address === 'live location') {
+    return true;
+  }
+  const updatedAt = Date.parse(location.updated_at || location.timestamp || location.last_location_at || '');
+  return Number.isFinite(updatedAt) && Date.now() - updatedAt <= LIVE_LOCATION_STATUS_WINDOW_MS;
+}
+
 function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefined }) {
   const refreshInFlightRef = useRef(false);
   const initialLocationSyncAttemptedRef = useRef(false);
@@ -405,7 +426,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   });
   const driverAvailability = useMemo(() => {
     const syncing = availabilitySyncPending || availabilityToggleInFlight;
-    const confirmedIsOnline = !!serverIsOnline || !!isOnline || !!activeRideId;
+    const confirmedIsOnline = !!serverIsOnline || !!isOnline || !!activeRideId || hasLiveLocationSignal(driverLocation);
     const desiredIsOnline =
       availabilityPendingDesired == null ? confirmedIsOnline : !!availabilityPendingDesired;
     const labelIsOnline = syncing ? desiredIsOnline : confirmedIsOnline;
@@ -436,6 +457,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     availabilityPendingDesired,
     availabilitySyncPending,
     availabilityToggleInFlight,
+    driverLocation,
     isOnline,
     serverIsOnline,
   ]);
@@ -565,6 +587,10 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       address:
         (typeof location.address === 'string' && location.address.trim()) ||
         `Lat ${Number(latitude.toFixed(6))}, Lng ${Number(longitude.toFixed(6))}`,
+      is_live_location:
+        Boolean(location.is_live_location || location.location_online || location.is_live) ||
+        String(location.address || '').trim().toLowerCase() === 'live location',
+      updated_at: location.updated_at || location.timestamp || location.last_location_at,
     };
   }, []);
 
@@ -945,6 +971,10 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
           fallbackLocation: updated?.current_location || driverLocation,
           silent: true,
         });
+      } else {
+        lastWatchedLocationRef.current = null;
+        lastPushedLocationRef.current = null;
+        setDriverLocation(null);
       }
       setMessage(savedStatus ? '' : 'You are offline.');
     } catch (err) {
@@ -1653,6 +1683,10 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
 
       if (confirmedStatus) {
         pushDriverLocation({ silent: true }).catch(() => null);
+      } else {
+        lastWatchedLocationRef.current = null;
+        lastPushedLocationRef.current = null;
+        setDriverLocation(null);
       }
     } catch (err) {
       if (availabilityToggleRequestIdRef.current !== requestId) {
