@@ -380,7 +380,10 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     enabled: gpsTrackingEnabled,
     syncToBackend: false,
   });
-  const gpsTrackingOnline = isTracking && hasLiveLocationSignal(driverGPSLocation);
+  const gpsTrackingOnline =
+    isTracking &&
+    Number.isFinite(Number(driverGPSLocation?.latitude)) &&
+    Number.isFinite(Number(driverGPSLocation?.longitude));
   const driverAvailability = useMemo(() => buildDriverAvailabilityState({
     serverIsOnline,
     localIsOnline: isOnline || localTrackingOnline || gpsTrackingOnline,
