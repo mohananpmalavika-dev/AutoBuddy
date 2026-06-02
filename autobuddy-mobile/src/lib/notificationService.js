@@ -114,12 +114,26 @@ export const notificationService = {
         });
       });
 
+      notificationSocket.on('connect', () => {
+        console.log('WebSocket connected for notifications');
+      });
+
+      notificationSocket.on('connect_error', (error) => {
+        console.error('WebSocket connect_error:', error);
+      });
+
+      notificationSocket.on('connect_timeout', () => {
+        console.error('WebSocket connect_timeout');
+      });
+
+      notificationSocket.on('disconnect', (reason) => {
+        console.warn('WebSocket disconnected:', reason);
+      });
+
       notificationSocket.on('error', (error) => {
         console.error('WebSocket error:', error);
         // Continue with polling fallback
       });
-
-      console.log('WebSocket connected for notifications');
     } catch (error) {
       console.warn('WebSocket setup failed, using polling:', error);
     }

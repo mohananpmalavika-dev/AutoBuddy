@@ -3,7 +3,7 @@ import { io } from 'socket.io-client';
 import { API_BASE_URL } from './api';
 
 const DEFAULT_SOCKET_PATH = '/socket.io';
-const DEFAULT_SOCKET_TRANSPORTS = ['websocket', 'polling'];
+const DEFAULT_SOCKET_TRANSPORTS = ['polling', 'websocket'];
 const VALID_SOCKET_TRANSPORTS = new Set(DEFAULT_SOCKET_TRANSPORTS);
 
 let sharedSocket = null;
@@ -54,11 +54,28 @@ function resolveSocketBaseUrl() {
   return trimmed.endsWith('/api') ? trimmed.slice(0, -4) : trimmed;
 }
 
+function normalizeSocketUrl(value) {
+  const rawValue = trimTrailingSlashes(value);
+  if (!rawValue) {
+    return '';
+  }
+
+  try {
+    const url = new URL(rawValue, typeof window !== 'undefined' ? window.location.origin : undefined);
+    if (typeof window !== 'undefined' && window.location?.protocol === 'https:' && url.protocol === 'http:') {
+      url.protocol = 'https:';
+    }
+    return url.toString();
+  } catch (error) {
+    return rawValue;
+  }
+}
+
 function resolveSocketUrl(baseUrl) {
   if (baseUrl) {
-    return trimTrailingSlashes(baseUrl);
+    return normalizeSocketUrl(baseUrl);
   }
-  return resolveSocketBaseUrl();
+  return normalizeSocketUrl(resolveSocketBaseUrl());
 }
 
 export function getSocketUrl(baseUrl) {
@@ -192,8 +209,26 @@ export function createAutoBuddySocket(token, baseUrl) {
     reconnectionDelayMax: 8000,
     randomizationFactor: 0.5,
     timeout: 20000,
-    autoConnect: true,
+    autoConnect: false,
   });
+
+  sharedSocket.on('connect', () => {
+    console.log('Socket.IO connected', url);
+  });
+  sharedSocket.on('connect_error', (error) => {
+    console.error('Socket.IO connect_error', error);
+  });
+  sharedSocket.on('connect_timeout', () => {
+    console.error('Socket.IO connect_timeout');
+  });
+  sharedSocket.on('disconnect', (reason) => {
+    console.warn('Socket.IO disconnected', reason);
+  });
+  sharedSocket.on('reconnect_attempt', (attempt) => {
+    console.log('Socket.IO reconnect attempt', attempt);
+  });
+
+  sharedSocket.connect();
 
   sharedToken = token;
   sharedBaseUrl = url;
