@@ -1631,34 +1631,59 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         return;
       }
 
-      const rollbackAt = Date.now();
-      availabilityLocalChangeAtRef.current = rollbackAt;
-      availabilityUiOverrideUntilRef.current = rollbackAt + 15000;
-      setAvailabilityPendingDesired(null);
-      setIsOnline(previousLocalStatus);
-      setServerIsOnline(previousServerStatus);
-      if (availabilityToggleInFlightRef.current === requestId) {
-        availabilityToggleInFlightRef.current = null;
-        pendingAvailabilitySyncRef.current = null;
-        setAvailabilityPendingDesired(null);
-        setAvailabilitySyncPendingState(false);
-      }
+      const failedAt = Date.now();
+      availabilityLocalChangeAtRef.current = failedAt;
+
       const readiness = extractDriverReadinessFromError(err);
       if (next && !isDriverReadyToDrive(readiness)) {
+        availabilityUiOverrideUntilRef.current = failedAt + 15000;
+        pendingAvailabilitySyncRef.current = null;
+        setAvailabilityPendingDesired(null);
+        setIsOnline(previousLocalStatus);
+        setServerIsOnline(previousServerStatus);
         setActiveTab(getDriverReadinessTab(readiness));
         setError(formatDriverReadinessMessage(readiness));
         setMessage('Complete Ready to Drive before going online.');
         refreshDriverMenuBadges().catch(() => null);
         return;
       }
+
+      if (isRetriableAvailabilityError(err)) {
+        pendingAvailabilitySyncRef.current = {
+          desired: next,
+          attempts: 1,
+          lastAttemptAt: failedAt,
+        };
+        availabilityUiOverrideUntilRef.current = failedAt + AVAILABILITY_RETRY_WINDOW_MS;
+        setAvailabilityPendingDesired(next);
+        setAvailabilitySyncPendingState(true);
+        setIsOnline(next);
+        if (next && shouldPushAvailabilityLocation) {
+          pushDriverLocation({ silent: true }).catch(() => null);
+        }
+        setError(getAvailabilityErrorMessage(err));
+        setMessage('Availability sync queued. Retrying automatically.');
+        return;
+      }
+
+      availabilityUiOverrideUntilRef.current = failedAt + 15000;
+      pendingAvailabilitySyncRef.current = null;
+      setAvailabilityPendingDesired(null);
+      setIsOnline(previousLocalStatus);
+      setServerIsOnline(previousServerStatus);
       setError(getAvailabilityErrorMessage(err));
       setMessage('Failed to update status. Please try again.');
     } finally {
       if (availabilityToggleInFlightRef.current === requestId) {
+        const pendingAvailabilitySync = pendingAvailabilitySyncRef.current;
         availabilityToggleInFlightRef.current = null;
-        pendingAvailabilitySyncRef.current = null;
-        setAvailabilityPendingDesired(null);
-        setAvailabilitySyncPendingState(false);
+        if (pendingAvailabilitySync) {
+          setAvailabilityPendingDesired(!!pendingAvailabilitySync.desired);
+          setAvailabilitySyncPendingState(true);
+        } else {
+          setAvailabilityPendingDesired(null);
+          setAvailabilitySyncPendingState(false);
+        }
       }
     }
   }, [

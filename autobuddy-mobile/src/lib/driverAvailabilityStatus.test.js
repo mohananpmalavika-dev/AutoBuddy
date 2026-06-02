@@ -65,6 +65,21 @@ describe('driverAvailabilityStatus', () => {
     });
   });
 
+  it('does not render offline while an online sync is queued', () => {
+    expect(
+      buildDriverAvailabilityState({
+        serverIsOnline: false,
+        localIsOnline: true,
+        availabilityPendingDesired: true,
+        availabilitySyncPending: true,
+      }),
+    ).toMatchObject({
+      isOnline: true,
+      label: 'GOING ONLINE...',
+      tone: 'syncing',
+    });
+  });
+
   it('strips UI-only fields from the driver location API body', () => {
     expect(
       toDriverLocationApiBody({

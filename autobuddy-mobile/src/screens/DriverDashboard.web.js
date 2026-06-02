@@ -1655,31 +1655,67 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         return;
       }
 
-      const rollbackAt = Date.now();
-      availabilityLocalChangeAtRef.current = rollbackAt;
-      availabilityUiOverrideUntilRef.current = rollbackAt + 15000;
-
-      setAvailabilityPendingDesired(null);
-      setServerIsOnline(previousServerStatus);
-      setIsOnline(previousLocalStatus);
+      const failedAt = Date.now();
+      availabilityLocalChangeAtRef.current = failedAt;
 
       const readiness = extractDriverReadinessFromError(err);
       if (next && !isDriverReadyToDrive(readiness)) {
+        availabilityUiOverrideUntilRef.current = failedAt + 15000;
+        pendingAvailabilitySyncRef.current = null;
+        setAvailabilityPendingDesired(null);
+        setServerIsOnline(previousServerStatus);
+        setIsOnline(previousLocalStatus);
         setActiveTab(getDriverReadinessTab(readiness));
         setError(formatDriverReadinessMessage(readiness));
         setMessage('Complete Ready to Drive before going online.');
         refreshDriverMenuBadges().catch(() => null);
         return;
       }
+
+      if (isRetriableAvailabilityError(err)) {
+        pendingAvailabilitySyncRef.current = {
+          desired: next,
+          attempts: 1,
+          lastAttemptAt: failedAt,
+        };
+        availabilityUiOverrideUntilRef.current = failedAt + AVAILABILITY_RETRY_WINDOW_MS;
+        setAvailabilityPendingDesired(next);
+        setAvailabilitySyncPendingState(true);
+        setIsOnline(next);
+        if (next) {
+          setLocalTrackingOnline(true);
+          pushDriverLocation({ silent: true }).catch(() => null);
+        } else {
+          setServerIsOnline(false);
+          setLocalTrackingOnline(false);
+          lastWatchedLocationRef.current = null;
+          lastPushedLocationRef.current = null;
+          setDriverLocation(null);
+        }
+        setError(getAvailabilityErrorMessage(err));
+        setMessage('Availability sync queued. Retrying automatically.');
+        return;
+      }
+
+      availabilityUiOverrideUntilRef.current = failedAt + 15000;
+      pendingAvailabilitySyncRef.current = null;
+      setAvailabilityPendingDesired(null);
+      setServerIsOnline(previousServerStatus);
+      setIsOnline(previousLocalStatus);
       setError(getAvailabilityErrorMessage(err));
       setMessage('Status update failed. Please try again.');
     } finally {
       if (availabilityToggleInFlightRef.current === requestId) {
+        const pendingAvailabilitySync = pendingAvailabilitySyncRef.current;
         availabilityToggleInFlightRef.current = null;
-        pendingAvailabilitySyncRef.current = null;
-        setAvailabilityPendingDesired(null);
         setAvailabilityToggleInFlight(false);
-        setAvailabilitySyncPendingState(false);
+        if (pendingAvailabilitySync) {
+          setAvailabilityPendingDesired(!!pendingAvailabilitySync.desired);
+          setAvailabilitySyncPendingState(true);
+        } else {
+          setAvailabilityPendingDesired(null);
+          setAvailabilitySyncPendingState(false);
+        }
       }
     }
   }, [
