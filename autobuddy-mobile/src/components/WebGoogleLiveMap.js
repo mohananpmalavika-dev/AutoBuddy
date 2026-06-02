@@ -81,6 +81,7 @@ export default function WebGoogleLiveMap({
   onMapPress = null,
   onMarkerDragEnd = null,
   selectingPoint = null,
+  showStatusOverlay = true,
 }) {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
@@ -285,14 +286,16 @@ export default function WebGoogleLiveMap({
             loading="lazy"
           />
         )}
-        <View style={styles.statusOverlay} pointerEvents="none">
-          <Text style={styles.statusTitle}>{fallbackUrl ? 'Live map fallback' : 'Live map unavailable'}</Text>
-          <Text style={styles.statusCopy}>
-            {fallbackUrl
-              ? 'Showing the browser-safe Google Maps embed.'
-              : 'Map coordinates are available when the driver location syncs.'}
-          </Text>
-        </View>
+        {showStatusOverlay && (
+          <View style={styles.statusOverlay} pointerEvents="none">
+            <Text style={styles.statusTitle}>{fallbackUrl ? 'Live map fallback' : 'Live map unavailable'}</Text>
+            <Text style={styles.statusCopy}>
+              {fallbackUrl
+                ? 'Showing the browser-safe Google Maps embed.'
+                : 'Map coordinates are available when the driver location syncs.'}
+            </Text>
+          </View>
+        )}
       </View>
     );
   }
@@ -309,7 +312,7 @@ export default function WebGoogleLiveMap({
         />
       )}
       <View ref={mapContainerRef} style={[MAP_CONTAINER_STYLE, !mapReady && styles.loadingMapLayer]} />
-      {!mapReady && (
+      {showStatusOverlay && !mapReady && (
         <View style={styles.statusOverlay} pointerEvents="none">
           <Text style={styles.statusTitle}>Live map loading</Text>
           <Text style={styles.statusCopy}>Preparing driver location and route view.</Text>

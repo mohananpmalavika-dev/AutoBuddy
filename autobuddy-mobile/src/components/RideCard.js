@@ -39,6 +39,7 @@ const UNKNOWN_RIDE_STATUS = { label: 'Unknown', color: COLORS.gray, icon: '?' };
  *   - onCall: () => void
  *   - onMapPress: () => void
  *   - safety: Safety state object (from useKeralaSafety hook)
+ *   - isOnline: boolean
  *   - loading: boolean
  *   - expanded: boolean
  *   - onToggleExpand: (boolean) => void
@@ -53,6 +54,7 @@ export default function RideCard({
   onCall,
   onMapPress,
   safety = null,
+  isOnline = false,
   loading = false,
   expanded = false,
   onToggleExpand,
@@ -89,7 +91,9 @@ export default function RideCard({
         <View style={styles.emptyState}>
           <Text style={styles.emptyStateIcon}>-</Text>
           <Text style={styles.emptyStateText}>No active requests</Text>
-          <Text style={styles.emptyStateSubtext}>Turn online to receive ride requests</Text>
+          <Text style={styles.emptyStateSubtext}>
+            {isOnline ? 'Waiting for new ride requests' : 'Turn online to receive ride requests'}
+          </Text>
         </View>
       </View>
     );

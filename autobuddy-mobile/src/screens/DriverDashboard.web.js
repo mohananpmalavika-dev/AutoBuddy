@@ -401,7 +401,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   });
   const driverAvailability = useMemo(() => {
     const syncing = availabilitySyncPending || availabilityToggleInFlight;
-    const confirmedIsOnline = !!serverIsOnline;
+    const confirmedIsOnline = !!serverIsOnline || !!isOnline || !!activeRideId;
     const desiredIsOnline =
       availabilityPendingDesired == null ? confirmedIsOnline : !!availabilityPendingDesired;
     const labelIsOnline = syncing ? desiredIsOnline : confirmedIsOnline;
@@ -427,7 +427,14 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       syncing,
       tone: syncing ? 'syncing' : confirmedIsOnline ? 'online' : 'offline',
     };
-  }, [availabilityPendingDesired, availabilitySyncPending, availabilityToggleInFlight, serverIsOnline]);
+  }, [
+    activeRideId,
+    availabilityPendingDesired,
+    availabilitySyncPending,
+    availabilityToggleInFlight,
+    isOnline,
+    serverIsOnline,
+  ]);
   const shouldSyncDriverLocation =
     (shareLocationWhileOnline && driverAvailability.isOnline && !driverAvailability.syncing) ||
     activeRideSharesLocation;
@@ -2086,6 +2093,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
             driverLocation={mapState.driverPlace}
             routeOrigin={mapState.routeOrigin}
             routeDestination={mapState.routeDestination}
+            showStatusOverlay={false}
           />
           <View style={styles.mapOverlayWrap} pointerEvents="none">
             <View style={styles.mapOverlayCard}>
@@ -2221,6 +2229,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                 onMessage={focusRideCommunication}
                 onCall={openActiveRideCall}
                 onMapPress={openActiveRideMap}
+                isOnline={driverAvailability.isOnline}
                 loading={loading}
                 expanded={expandedRideCard}
                 onToggleExpand={setExpandedRideCard}
