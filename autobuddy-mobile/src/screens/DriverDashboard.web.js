@@ -1594,56 +1594,34 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     };
   }, [normalizeLocation, pushDriverLocation, shouldSyncDriverLocation]);
 
+  // Server-confirmed toggle: UI waits for backend confirmation before switching state.
   const toggleOnlineStatus = useCallback(async () => {
-    if (availabilityToggleInFlightRef.current) {
-      return;
-    }
-
+    if (availabilityToggleInFlightRef.current) return;
     if (!token) {
       setError('Missing authentication token');
       return;
     }
 
     const next = !driverAvailability.isOnline;
-    const previousLocalStatus = isOnline;
-    const previousServerStatus = serverIsOnline;
-    const requestId = availabilityToggleRequestIdRef.current + 1;
-    const toggledAt = Date.now();
-    availabilityToggleInFlightRef.current = requestId;
-    availabilityToggleRequestIdRef.current = requestId;
-    availabilityLocalChangeAtRef.current = toggledAt;
-    availabilityUiOverrideUntilRef.current = toggledAt + 15000;
-    pendingAvailabilitySyncRef.current = null;
-
+    availabilityToggleInFlightRef.current = true;
     setAvailabilityToggleInFlight(true);
     setAvailabilitySyncPendingState(true);
-    setAvailabilityPendingDesired(next);
+    setAvailabilityPendingDesired(null);
     setError('');
-    setMessage(next ? 'Checking Ready to Drive...' : 'Going offline...');
+    setMessage('Updating availability...');
 
     try {
+      // If going online, ensure driver readiness first
       if (next) {
         const readiness = await apiRequest('/drivers/readiness', { token, timeoutMs: 8000 });
-        if (availabilityToggleRequestIdRef.current !== requestId) {
-          return;
-        }
         if (!isDriverReadyToDrive(readiness)) {
-          const rollbackAt = Date.now();
-          availabilityLocalChangeAtRef.current = rollbackAt;
-          availabilityUiOverrideUntilRef.current = rollbackAt + 15000;
-          setAvailabilityPendingDesired(null);
-          setServerIsOnline(previousServerStatus);
-          setIsOnline(previousLocalStatus);
-          setActiveTab(getDriverReadinessTab(readiness));
           setError(formatDriverReadinessMessage(readiness));
           setMessage('Complete Ready to Drive before going online.');
-          refreshDriverMenuBadges().catch(() => null);
           return;
         }
       }
 
-      setMessage(next ? 'Going online...' : 'Going offline...');
-
+      // Ask server to change availability
       const response = await apiRequest('/drivers/availability', {
         method: 'PUT',
         token,
@@ -1651,34 +1629,24 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         body: { is_available: next },
       });
 
-      if (availabilityToggleRequestIdRef.current !== requestId) {
-        return;
-      }
-
-      const savedStatus = readDriverAvailability(response, next);
+      // Confirm via server snapshot (preferred) or response
       const availabilitySnapshot = await requestDriverData('/drivers/availability', null);
       const confirmedSnapshot = hasDriverAvailabilitySnapshot(availabilitySnapshot)
         ? availabilitySnapshot
         : response;
-      const confirmedStatus = readDriverAvailability(confirmedSnapshot, savedStatus);
+      const confirmedStatus = readDriverAvailability(confirmedSnapshot, next);
 
       applyAvailabilitySnapshot(confirmedSnapshot, confirmedStatus, { protect: true });
-      setError('');
 
       if (confirmedStatus !== next) {
-        setError(
-          next
-            ? 'Server did not confirm online status. Please retry after Ready to Drive is complete.'
-            : 'Server did not confirm offline status. Please retry.',
-        );
+        setError(next ? 'Server did not confirm online status.' : 'Server did not confirm offline status.');
         setMessage('');
         return;
       }
 
       setMessage(confirmedStatus ? '' : 'You are now offline.');
-
       if (confirmedStatus) {
-        pushDriverLocation({ silent: true }).catch(() => null);
+        await pushDriverLocation({ silent: true });
       } else {
         lastWatchedLocationRef.current = null;
         lastPushedLocationRef.current = null;
@@ -1686,109 +1654,26 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         setDriverLocation(null);
       }
     } catch (err) {
-      if (availabilityToggleRequestIdRef.current !== requestId) {
-        return;
-      }
-
-      const failedAt = Date.now();
-      availabilityLocalChangeAtRef.current = failedAt;
-
-      if (err?.message?.includes('503') || err?.message?.includes('Service Unavailable')) {
-        pendingAvailabilitySyncRef.current = {
-          desired: next,
-          attempts: 1,
-          lastAttemptAt: failedAt,
-        };
-        availabilityUiOverrideUntilRef.current = failedAt + AVAILABILITY_RETRY_WINDOW_MS;
-        setAvailabilityPendingDesired(next);
-        setAvailabilitySyncPendingState(true);
-        setIsOnline(next);
-        setServerIsOnline(next);
-        setLocalTrackingOnline(next);
-        setError('Server confirmed slowly. Online mode kept locally. Retrying automatically.');
-        setMessage('');
-        if (next) {
-          pushDriverLocation({ silent: true }).catch(() => null);
-        } else {
-          lastWatchedLocationRef.current = null;
-          lastPushedLocationRef.current = null;
-          setDriverLocation(null);
-        }
-        return;
-      }
-
-      const readiness = extractDriverReadinessFromError(err);
-      if (next && !isDriverReadyToDrive(readiness)) {
-        availabilityUiOverrideUntilRef.current = failedAt + 15000;
-        pendingAvailabilitySyncRef.current = null;
-        setAvailabilityPendingDesired(null);
-        setServerIsOnline(previousServerStatus);
-        setIsOnline(previousLocalStatus);
-        setActiveTab(getDriverReadinessTab(readiness));
-        setError(formatDriverReadinessMessage(readiness));
-        setMessage('Complete Ready to Drive before going online.');
-        refreshDriverMenuBadges().catch(() => null);
-        return;
-      }
-
-      if (isRetriableAvailabilityError(err)) {
-        pendingAvailabilitySyncRef.current = {
-          desired: next,
-          attempts: 1,
-          lastAttemptAt: failedAt,
-        };
-        availabilityUiOverrideUntilRef.current = failedAt + AVAILABILITY_RETRY_WINDOW_MS;
-        setAvailabilityPendingDesired(next);
-        setAvailabilitySyncPendingState(true);
-        setIsOnline(next);
-        if (next) {
-          setLocalTrackingOnline(true);
-          pushDriverLocation({ silent: true }).catch(() => null);
-        } else {
-          setServerIsOnline(false);
-          setLocalTrackingOnline(false);
-          lastWatchedLocationRef.current = null;
-          lastPushedLocationRef.current = null;
-          setDriverLocation(null);
-        }
-        setError(getAvailabilityErrorMessage(err));
-        setMessage('Availability sync queued. Retrying automatically.');
-        return;
-      }
-
-      availabilityUiOverrideUntilRef.current = failedAt + 15000;
-      pendingAvailabilitySyncRef.current = null;
-      setAvailabilityPendingDesired(null);
-      setServerIsOnline(previousServerStatus);
-      setIsOnline(previousLocalStatus);
-      setError(getAvailabilityErrorMessage(err));
-      setMessage('Status update failed. Please try again.');
+      setError(getAvailabilityErrorMessage(err) || err?.message || 'Availability update failed');
+      setMessage('');
     } finally {
-      if (availabilityToggleInFlightRef.current === requestId) {
-        const pendingAvailabilitySync = pendingAvailabilitySyncRef.current;
-        availabilityToggleInFlightRef.current = null;
-        setAvailabilityToggleInFlight(false);
-        if (pendingAvailabilitySync) {
-          setAvailabilityPendingDesired(!!pendingAvailabilitySync.desired);
-          setAvailabilitySyncPendingState(true);
-        } else {
-          setAvailabilityPendingDesired(null);
-          setAvailabilitySyncPendingState(false);
-        }
-      }
+      availabilityToggleInFlightRef.current = null;
+      setAvailabilityToggleInFlight(false);
+      setAvailabilitySyncPendingState(false);
+      setAvailabilityPendingDesired(null);
     }
   }, [
     driverAvailability.isOnline,
-    applyAvailabilitySnapshot,
-    isOnline,
-    pushDriverLocation,
-    requestDriverData,
-    refreshDriverMenuBadges,
-    serverIsOnline,
-    setAvailabilityPendingDesired,
-    setAvailabilityToggleInFlight,
-    setAvailabilitySyncPendingState,
     token,
+    apiRequest,
+    isDriverReadyToDrive,
+    formatDriverReadinessMessage,
+    requestDriverData,
+    hasDriverAvailabilitySnapshot,
+    readDriverAvailability,
+    applyAvailabilitySnapshot,
+    pushDriverLocation,
+    getAvailabilityErrorMessage,
   ]);
 
   const acceptRequest = async (bookingId) => {
