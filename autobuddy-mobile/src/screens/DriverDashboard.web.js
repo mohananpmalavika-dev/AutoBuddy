@@ -1451,6 +1451,31 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     onSocketError: handleDriverRideSocketError,
   });
 
+  // Listen to real-time availability updates from socket
+  useEffect(() => {
+    const socket = socketRef.current;
+    if (!socket) return;
+
+    const availabilityEvents = [
+      'availability_sync',
+      'driver_availability_changed',
+      'driver_status_update',
+      'driver_status_changed',
+    ];
+
+    const handleAvailabilityUpdate = (data) => {
+      if (data && typeof data === 'object') {
+        applyAvailabilitySnapshot(data);
+      }
+    };
+
+    availabilityEvents.forEach((event) => socket.on(event, handleAvailabilityUpdate));
+    
+    return () => {
+      availabilityEvents.forEach((event) => socket.off(event, handleAvailabilityUpdate));
+    };
+  }, [applyAvailabilitySnapshot]);
+
   useEffect(() => {
     let unmounted = false;
     let cycleCount = 0;
