@@ -126,6 +126,8 @@ const DEFAULT_DRIVER_SETTINGS = {
 };
 const AVAILABILITY_RETRY_WINDOW_MS = 300000;
 const AVAILABILITY_CONFIRMED_OVERRIDE_MS = 90000;
+const DRIVER_DASHBOARD_RATE_LIMIT_COOLDOWN_MS = 60000;
+const DRIVER_DASHBOARD_POLL_INTERVAL_MS = 60000;
 const AVAILABILITY_TRANSIENT_MESSAGE_PARTS = [
   'checking ready to drive',
   'going online',
@@ -256,6 +258,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   const [message, setMessage] = useState('');
   const [isOnline, setIsOnline] = useState(false);
   const [serverIsOnline, setServerIsOnline] = useState(false);
+  const [localTrackingOnline, setLocalTrackingOnline] = useState(false);
   const [availabilitySyncPending, setAvailabilitySyncPending] = useState(false);
   const [availabilityToggleInFlight, setAvailabilityToggleInFlight] = useState(false);
   const [availabilityPendingDesired, setAvailabilityPendingDesired] = useState(null);
@@ -365,7 +368,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   });
   const driverAvailability = useMemo(() => buildDriverAvailabilityState({
     serverIsOnline,
-    localIsOnline: isOnline,
+    localIsOnline: isOnline || localTrackingOnline,
     activeRideId,
     driverLocation,
     availabilityPendingDesired,
@@ -378,6 +381,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     availabilityToggleInFlight,
     driverLocation,
     isOnline,
+    localTrackingOnline,
     serverIsOnline,
   ]);
   const shouldSyncDriverLocation =
@@ -392,6 +396,11 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     enabled: driverAvailability.isOnline || !!activeRideId,
     syncToBackend: false,
   });
+  useEffect(() => {
+    if (isTracking && hasLiveLocationSignal(driverGPSLocation)) {
+      setLocalTrackingOnline(true);
+    }
+  }, [driverGPSLocation, isTracking]);
 
   const { sosActive, sosError, sosMessage, triggerSOS, cancelSOS } = useSOSAlert({
     token,
@@ -620,7 +629,14 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
           return locationToSend;
         }
 
-        const locationApiBody = toDriverLocationApiBody(locationToSend);
+        const locationApiBody = toDriverLocationApiBody({
+          ...locationToSend,
+          speed:
+            Number.isFinite(Number(speedKmhOverride)) && Number(speedKmhOverride) >= 0
+              ? Number(speedKmhOverride)
+              : 0,
+          accuracy: null,
+        });
         if (!locationApiBody) {
           return null;
         }
@@ -651,6 +667,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
           if (hasLiveLocationSignal(locationToSend)) {
             setServerIsOnline(true);
             setIsOnline(true);
+            setLocalTrackingOnline(true);
           }
           setDriverLocation(locationToSend);
           attachReadableAddress(locationToSend).then((resolved) => {
@@ -902,6 +919,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       } else {
         lastWatchedLocationRef.current = null;
         lastPushedLocationRef.current = null;
+        setLocalTrackingOnline(false);
         setDriverLocation(null);
       }
       setMessage(savedStatus ? '' : 'You are offline.');
@@ -947,13 +965,16 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         const status = Number(err?.status || 0);
         if (status === 429) {
           const now = Date.now();
-          driverPollCooldownUntilRef.current = Math.max(driverPollCooldownUntilRef.current, now + 30000);
+          driverPollCooldownUntilRef.current = Math.max(
+            driverPollCooldownUntilRef.current,
+            now + DRIVER_DASHBOARD_RATE_LIMIT_COOLDOWN_MS,
+          );
           if (now - lastRateLimitNoticeAtRef.current > 15000) {
-            setMessage('Server is busy. Slowing dashboard sync for 30 seconds.');
+            setMessage('Server is busy. Slowing dashboard sync for 60 seconds.');
             lastRateLimitNoticeAtRef.current = now;
           }
         } else if (status === 503) {
-          driverPollCooldownUntilRef.current = Math.max(driverPollCooldownUntilRef.current, Date.now() + 20000);
+          driverPollCooldownUntilRef.current = Math.max(driverPollCooldownUntilRef.current, Date.now() + 30000);
         }
         return fallbackValue;
       }
@@ -1043,8 +1064,12 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     }
     refreshInFlightRef.current = true;
     try {
+      const availabilitySnapshot = await requestDriverData('/drivers/availability', null);
+      if (!availabilitySnapshot && Date.now() < driverPollCooldownUntilRef.current) {
+        return;
+      }
+
       const [
-        availabilitySnapshot,
         profile,
         settingsPayload,
         requests,
@@ -1055,16 +1080,15 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         menuBadgePayload,
         vehiclesPayload,
       ] = await Promise.all([
-        requestDriverData('/drivers/availability', null),
         includeProfile ? requestDriverData('/drivers/profile', null) : Promise.resolve(null),
         includeProfile ? requestDriverData('/drivers/settings', null) : Promise.resolve(null),
         requestDriverData('/drivers/pending-requests', []),
         requestDriverData('/drivers/upcoming-rides', null),
         requestDriverData('/drivers/active-ride', null),
-        requestDriverData('/drivers/blocked-passengers', { passenger_ids: [], passengers: [] }),
-        requestDriverData('/spin-win/config', null),
-        requestDriverData('/drivers/menu-badges', null),
-        requestDriverData('/drivers/vehicles', null),
+        includeProfile ? requestDriverData('/drivers/blocked-passengers', { passenger_ids: [], passengers: [] }) : Promise.resolve({ passenger_ids: [], passengers: [] }),
+        includeProfile ? requestDriverData('/spin-win/config', null) : Promise.resolve(null),
+        includeProfile ? requestDriverData('/drivers/menu-badges', null) : Promise.resolve(null),
+        includeProfile ? requestDriverData('/drivers/vehicles', null) : Promise.resolve(null),
       ]);
       const [earningsSummary, pricing, fareCalc] = includeMeta
         ? await Promise.all([
@@ -1133,6 +1157,9 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   ]);
 
   const refreshRideStageValidation = useCallback(async () => {
+    if (Date.now() < driverPollCooldownUntilRef.current) {
+      return;
+    }
     const [ride, requests, scheduledPayload] = await Promise.all([
       requestDriverData('/drivers/active-ride', null),
       requestDriverData('/drivers/pending-requests', []),
@@ -1429,7 +1456,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     };
     refreshDriverDataSilently({ includeProfile: true, includeMeta: true }).catch(() => null);
     tick();
-    const timer = setInterval(tick, 20000);
+    const timer = setInterval(tick, DRIVER_DASHBOARD_POLL_INTERVAL_MS);
     return () => {
       unmounted = true;
       clearInterval(timer);
@@ -1614,6 +1641,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       } else {
         lastWatchedLocationRef.current = null;
         lastPushedLocationRef.current = null;
+        setLocalTrackingOnline(false);
         setDriverLocation(null);
       }
     } catch (err) {

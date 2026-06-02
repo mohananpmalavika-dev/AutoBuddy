@@ -78,11 +78,11 @@ describe('driverAvailabilityStatus', () => {
         accuracy: 5,
       }),
     ).toEqual({
-      location: {
-        latitude: 10.123456,
-        longitude: 76.123456,
-        address: 'Live location',
-      },
+      latitude: 10.123456,
+      longitude: 76.123456,
+      address: 'Live location',
+      speed: 20,
+      accuracy: 5,
     });
   });
 });

@@ -171,6 +171,20 @@ def test_driver_availability_response_uses_availability_or_presence_for_dashboar
     assert '"availability_status": availability_status' in server_source
     assert 'response.update(build_driver_availability_response(profile, profile.get("current_location")))' in server_source
     assert 'confirmed_profile = await db.drivers.find_one({"user_id": current_user["id"]}) or {}' in server_source
+
+
+def test_driver_location_update_accepts_flat_and_nested_payloads(monkeypatch):
+    monkeypatch.setenv('MONGO_URL', os.getenv('MONGO_URL') or 'mongodb://localhost:27017/test')
+    monkeypatch.setenv('JWT_SECRET', os.getenv('JWT_SECRET') or 'a' * 40)
+
+    server = importlib.import_module('server')
+    flat = server.DriverLocationUpdate(latitude=8.897, longitude=76.568, address='Live location')
+    nested = server.DriverLocationUpdate(location={'latitude': 8.897, 'longitude': 76.568})
+
+    assert flat.location.latitude == pytest.approx(8.897)
+    assert flat.location.longitude == pytest.approx(76.568)
+    assert flat.location.address == 'Live location'
+    assert nested.location.latitude == pytest.approx(8.897)
     assert 'confirmed_location = live_location or confirmed_profile.get("current_location") or {}' in server_source
     assert 'location_online=bool(live_location)' in server_source
 

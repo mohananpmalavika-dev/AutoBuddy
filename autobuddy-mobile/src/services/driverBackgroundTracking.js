@@ -63,10 +63,10 @@ async function postDriverLocation(coords) {
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
-        location: {
-          latitude,
-          longitude,
-        },
+        latitude,
+        longitude,
+        speed: 0,
+        accuracy: null,
       }),
     });
   } catch {

@@ -188,16 +188,21 @@ export function toDriverLocationApiBody(location) {
     return null;
   }
 
-  const bodyLocation = {
+  const body = {
     latitude,
     longitude,
   };
   const address = String(location.address || location.label || '').trim();
   if (address) {
-    bodyLocation.address = address;
+    body.address = address;
   }
 
-  return { location: bodyLocation };
+  const speed = Number(location.speed ?? location.speedKmh ?? location.speed_kmh);
+  body.speed = Number.isFinite(speed) && speed >= 0 ? speed : 0;
+  const accuracy = Number(location.accuracy);
+  body.accuracy = Number.isFinite(accuracy) && accuracy >= 0 ? accuracy : null;
+
+  return body;
 }
 
 function collectAvailabilitySignals(payload) {

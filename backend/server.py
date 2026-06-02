@@ -1737,6 +1737,28 @@ class TwoFactorDisableRequest(BaseModel):
 class DriverLocationUpdate(BaseModel):
     location: Location
 
+    @model_validator(mode="before")
+    @classmethod
+    def accept_flat_or_nested_location(cls, data):
+        if not isinstance(data, dict):
+            return data
+        if isinstance(data.get("location"), dict):
+            return data
+
+        latitude = data.get("latitude", data.get("lat"))
+        longitude = data.get("longitude", data.get("lng"))
+        if latitude is None or longitude is None:
+            return data
+
+        location = {
+            "latitude": latitude,
+            "longitude": longitude,
+        }
+        address = str(data.get("address") or "").strip()
+        if address:
+            location["address"] = address
+        return {"location": location}
+
 class DriverTelemetryUpdate(BaseModel):
     latitude: float
     longitude: float
