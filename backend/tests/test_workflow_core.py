@@ -177,6 +177,8 @@ def test_driver_location_update_accepts_flat_and_nested_payloads():
     server_source = (Path(__file__).resolve().parents[1] / 'server.py').read_text(encoding='utf-8')
 
     assert 'class DriverLocationUpdate(BaseModel):' in server_source
+    assert '@api_router.post("/drivers/location")' in server_source
+    assert '@api_router.put("/drivers/location")' in server_source
     assert 'def accept_flat_or_nested_location(cls, data):' in server_source
     assert 'if isinstance(data.get("location"), dict):' in server_source
     assert 'latitude = data.get("latitude", data.get("lat"))' in server_source

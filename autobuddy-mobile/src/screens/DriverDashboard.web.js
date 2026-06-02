@@ -366,11 +366,26 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     userName: user?.name,
     activeBooking: activeRide,
   });
+  // TIER 1 FEATURES: GPS, SOS, Countdown, Expenses
+  const gpsTrackingEnabled =
+    isOnline ||
+    serverIsOnline ||
+    localTrackingOnline ||
+    availabilityPendingDesired === true ||
+    availabilitySyncPending ||
+    !!activeRideId;
+  const { location: driverGPSLocation, speed: driverSpeed, isTracking } = useGPSTracking({
+    token,
+    rideId: activeRideId,
+    enabled: gpsTrackingEnabled,
+    syncToBackend: false,
+  });
+  const gpsTrackingOnline = isTracking && hasLiveLocationSignal(driverGPSLocation);
   const driverAvailability = useMemo(() => buildDriverAvailabilityState({
     serverIsOnline,
-    localIsOnline: isOnline || localTrackingOnline,
+    localIsOnline: isOnline || localTrackingOnline || gpsTrackingOnline,
     activeRideId,
-    driverLocation,
+    driverLocation: driverGPSLocation || driverLocation,
     availabilityPendingDesired,
     availabilitySyncPending,
     availabilityToggleInFlight,
@@ -379,7 +394,9 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     availabilityPendingDesired,
     availabilitySyncPending,
     availabilityToggleInFlight,
+    driverGPSLocation,
     driverLocation,
+    gpsTrackingOnline,
     isOnline,
     localTrackingOnline,
     serverIsOnline,
@@ -388,19 +405,6 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     (shareLocationWhileOnline && driverAvailability.isOnline && !driverAvailability.syncing) ||
     activeRideSharesLocation;
   const visibleMessage = getVisibleAvailabilityMessage(message);
-
-  // TIER 1 FEATURES: GPS, SOS, Countdown, Expenses
-  const { location: driverGPSLocation, speed: driverSpeed, isTracking } = useGPSTracking({
-    token,
-    rideId: activeRideId,
-    enabled: driverAvailability.isOnline || !!activeRideId,
-    syncToBackend: false,
-  });
-  useEffect(() => {
-    if (isTracking && hasLiveLocationSignal(driverGPSLocation)) {
-      setLocalTrackingOnline(true);
-    }
-  }, [driverGPSLocation, isTracking]);
 
   const { sosActive, sosError, sosMessage, triggerSOS, cancelSOS } = useSOSAlert({
     token,

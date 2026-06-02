@@ -20,6 +20,7 @@ import { driverAPI } from '../services/apiClient';
 import { getSocket } from '../services/socketClient';
 import { COLORS, SHADOWS } from '../theme';
 import { apiRequest } from '../lib/api';
+import { toDriverLocationApiBody } from '../lib/driverAvailabilityStatus';
 import { offlineQueueManager } from '../lib/offlineQueueManager';
 import { retryWithBackoff } from '../lib/retryUtils';
 import KeralaSafetyCard from '../components/KeralaSafetyCard';
@@ -782,8 +783,22 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         return locationToSend;
       }
 
+      const locationApiBody = toDriverLocationApiBody({
+        ...locationToSend,
+        speed:
+          Number.isFinite(Number(speedKmhOverride)) && Number(speedKmhOverride) >= 0
+            ? Number(speedKmhOverride)
+            : 0,
+        accuracy: null,
+        ride_id: activeRideId || null,
+        timestamp: new Date().toISOString(),
+      });
+      if (!locationApiBody) {
+        return null;
+      }
+
       try {
-        await driverAPI.updateLocation(locationToSend);
+        await driverAPI.updateLocation(locationApiBody);
         const socket = getSocket();
         emitSocketLocationUpdate({
             booking_id: activeRideId || undefined,
