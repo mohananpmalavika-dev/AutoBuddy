@@ -7739,6 +7739,7 @@ async def _db_get_active_booking(driver_id: str):
     })
 
 
+@api_router.post("/drivers/location")
 @api_router.put("/drivers/location")
 async def update_driver_location(location_update: DriverLocationUpdate, current_user: dict = Depends(get_current_user)):
     if current_user["role"] != UserRole.DRIVER:

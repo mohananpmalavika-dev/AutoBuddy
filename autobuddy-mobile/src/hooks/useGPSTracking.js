@@ -45,7 +45,7 @@ export function useGPSTracking({
           return;
         }
         await apiRequest('/drivers/location', {
-          method: 'PUT',
+          method: 'POST',
           token,
           body,
         });

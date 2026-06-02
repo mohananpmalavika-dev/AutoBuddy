@@ -636,6 +636,8 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
               ? Number(speedKmhOverride)
               : 0,
           accuracy: null,
+          ride_id: activeRideId || null,
+          timestamp: new Date().toISOString(),
         });
         if (!locationApiBody) {
           return null;
@@ -643,7 +645,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
 
         try {
           await apiRequest('/drivers/location', {
-            method: 'PUT',
+            method: 'POST',
             token,
             body: locationApiBody,
           });

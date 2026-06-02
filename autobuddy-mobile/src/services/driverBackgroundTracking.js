@@ -48,6 +48,7 @@ async function postDriverLocation(coords) {
   if (!token) {
     return;
   }
+  const rideId = await AsyncStorage.getItem(BG_TRACKING_RIDE_ID_KEY);
   const latitude = toNumber(coords?.latitude);
   const longitude = toNumber(coords?.longitude);
   if (latitude === null || longitude === null) {
@@ -56,7 +57,7 @@ async function postDriverLocation(coords) {
 
   try {
     await fetch(`${API_BASE_URL}/drivers/location`, {
-      method: 'PUT',
+      method: 'POST',
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
@@ -67,6 +68,8 @@ async function postDriverLocation(coords) {
         longitude,
         speed: 0,
         accuracy: null,
+        ride_id: rideId || null,
+        timestamp: new Date().toISOString(),
       }),
     });
   } catch {

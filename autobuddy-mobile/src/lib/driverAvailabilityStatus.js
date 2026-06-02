@@ -201,6 +201,8 @@ export function toDriverLocationApiBody(location) {
   body.speed = Number.isFinite(speed) && speed >= 0 ? speed : 0;
   const accuracy = Number(location.accuracy);
   body.accuracy = Number.isFinite(accuracy) && accuracy >= 0 ? accuracy : null;
+  body.ride_id = location.ride_id || location.rideId || location.booking_id || location.bookingId || null;
+  body.timestamp = location.timestamp || location.updated_at || location.updatedAt || new Date().toISOString();
 
   return body;
 }

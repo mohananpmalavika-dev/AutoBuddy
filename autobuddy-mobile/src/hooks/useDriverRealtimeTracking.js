@@ -121,7 +121,7 @@ export function useDriverRealtimeTracking({
           return;
         }
         await apiRequest('/drivers/location', {
-          method: 'PUT',
+          method: 'POST',
           token,
           body,
         });

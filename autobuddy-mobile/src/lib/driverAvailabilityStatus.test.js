@@ -76,6 +76,8 @@ describe('driverAvailabilityStatus', () => {
         heading: 180,
         speed: 20,
         accuracy: 5,
+        ride_id: 'ride-123',
+        timestamp: '2026-06-02T12:00:00.000Z',
       }),
     ).toEqual({
       latitude: 10.123456,
@@ -83,6 +85,8 @@ describe('driverAvailabilityStatus', () => {
       address: 'Live location',
       speed: 20,
       accuracy: 5,
+      ride_id: 'ride-123',
+      timestamp: '2026-06-02T12:00:00.000Z',
     });
   });
 });
