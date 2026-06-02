@@ -20,7 +20,10 @@ import { driverAPI } from '../services/apiClient';
 import { getSocket } from '../services/socketClient';
 import { COLORS, SHADOWS } from '../theme';
 import { apiRequest } from '../lib/api';
-import { toDriverLocationApiBody } from '../lib/driverAvailabilityStatus';
+import {
+  buildDriverAvailabilityState,
+  toDriverLocationApiBody,
+} from '../lib/driverAvailabilityStatus';
 import { offlineQueueManager } from '../lib/offlineQueueManager';
 import { retryWithBackoff } from '../lib/retryUtils';
 import KeralaSafetyCard from '../components/KeralaSafetyCard';
@@ -317,6 +320,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   const [serverIsOnline, setServerIsOnline] = useState(false);
   const [availabilitySyncPending, setAvailabilitySyncPending] = useState(false);
   const [availabilityPendingDesired, setAvailabilityPendingDesired] = useState(null);
+  const [availabilityToggleInFlight, setAvailabilityToggleInFlight] = useState(null);
   const [menuBadges, setMenuBadges] = useState({});
   const [driverSettings, setDriverSettings] = useState(DEFAULT_DRIVER_SETTINGS);
   useNotificationManager(token, user?.id, driverSettings);
@@ -411,6 +415,31 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   const displayIsOnline = !!serverIsOnline;
   const pendingDisplayIsOnline =
     availabilityPendingDesired == null ? displayIsOnline : !!availabilityPendingDesired;
+  
+  const driverAvailability = useMemo(() => buildDriverAvailabilityState({
+    serverIsOnline,
+    localIsOnline: isOnline,
+    activeRideId,
+    driverLocation,
+    availabilityPendingDesired,
+    availabilitySyncPending,
+    availabilityToggleInFlight,
+  }), [
+    activeRideId,
+    availabilityPendingDesired,
+    availabilitySyncPending,
+    availabilityToggleInFlight,
+    driverLocation,
+    isOnline,
+    serverIsOnline,
+  ]);
+  const resolvedDriverStatusLabel = useMemo(() => {
+    if (driverAvailability.label) {
+      return driverAvailability.label;
+    }
+    return driverAvailability.isOnline ? 'ONLINE & READY' : 'OFFLINE';
+  }, [driverAvailability.isOnline, driverAvailability.label]);
+  
   const visibleMessage = getVisibleAvailabilityMessage(message);
 
   const visibleBlockedPassengers = useMemo(
@@ -1554,6 +1583,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     const toggledAt = Date.now();
     availabilityToggleRequestIdRef.current = requestId;
     availabilityToggleInFlightRef.current = requestId;
+    setAvailabilityToggleInFlight(requestId);
     availabilityLocalChangeAtRef.current = toggledAt;
     availabilityUiOverrideUntilRef.current = toggledAt + 15000;
     pendingAvailabilitySyncRef.current = null;
@@ -1677,6 +1707,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       if (availabilityToggleInFlightRef.current === requestId) {
         const pendingAvailabilitySync = pendingAvailabilitySyncRef.current;
         availabilityToggleInFlightRef.current = null;
+        setAvailabilityToggleInFlight(null);
         if (pendingAvailabilitySync) {
           setAvailabilityPendingDesired(!!pendingAvailabilitySync.desired);
           setAvailabilitySyncPendingState(true);
@@ -1692,7 +1723,9 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     pushDriverLocation,
     refreshDriverMenuBadges,
     serverIsOnline,
+    setAvailabilityPendingDesired,
     setAvailabilitySyncPendingState,
+    setAvailabilityToggleInFlight,
     shouldPushAvailabilityLocation,
     token,
   ]);
@@ -2205,7 +2238,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
           <View style={[styles.statusDot, { backgroundColor: availabilitySyncPending ? '#FFA500' : displayIsOnline ? COLORS.primary : COLORS.textMuted }]} />
           <View style={styles.statusContent}>
             <Text style={[styles.statusText, { color: availabilitySyncPending ? '#B26A00' : displayIsOnline ? COLORS.primary : '#666' }]}>
-              {availabilitySyncPending ? (pendingDisplayIsOnline ? 'GOING ONLINE...' : 'GOING OFFLINE...') : (displayIsOnline ? 'ONLINE & READY' : 'OFFLINE')}
+              {resolvedDriverStatusLabel}
             </Text>
             <Text style={styles.statusSub}>{user?.name || 'Driver'} - Tap to toggle</Text>
           </View>
@@ -2258,15 +2291,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
               notificationCount={unreadCount}
               menuBadges={menuBadges}
               isOnline={displayIsOnline}
-              statusLabel={
-                availabilitySyncPending
-                  ? pendingDisplayIsOnline
-                    ? 'GOING ONLINE...'
-                    : 'GOING OFFLINE...'
-                  : displayIsOnline
-                    ? 'Online'
-                    : 'Offline'
-              }
+              statusLabel={resolvedDriverStatusLabel}
               statusSyncing={availabilitySyncPending}
               compact={false}
             />

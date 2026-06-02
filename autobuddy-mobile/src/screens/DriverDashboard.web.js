@@ -1760,6 +1760,8 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     requestDriverData,
     refreshDriverMenuBadges,
     serverIsOnline,
+    setAvailabilityPendingDesired,
+    setAvailabilityToggleInFlight,
     setAvailabilitySyncPendingState,
     token,
   ]);
