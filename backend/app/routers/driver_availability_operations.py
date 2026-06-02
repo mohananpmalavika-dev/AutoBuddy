@@ -8,6 +8,8 @@ from datetime import datetime
 from app.utils.time_helpers import get_ist_now
 from typing import Optional
 import logging
+import asyncio
+from pymongo.errors import PyMongoError, ServerSelectionTimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -138,15 +140,25 @@ async def set_driver_availability(driver_id: str, request: Request):
         else:
             update_data['availability_ended_at'] = get_ist_now()
         
-        updated_driver = await db.drivers.find_one_and_update(
-            {'_id': ObjectId(driver_id)},
-            {'$set': update_data},
-            return_document=True
-        )
-        
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
+            try:
+                updated_driver = await db.drivers.find_one_and_update(
+                    {'_id': ObjectId(driver_id)},
+                    {'$set': update_data},
+                    return_document=True
+                )
+                break
+            except (ServerSelectionTimeoutError, PyMongoError) as exc:
+                if attempt >= max_attempts:
+                    logger.exception("Database error while updating driver availability: %s", exc)
+                    raise HTTPException(status_code=503, detail="Database unavailable. Please try again.")
+                logger.warning("Transient database error updating availability (attempt %s/%s): %s", attempt, max_attempts, exc)
+                await asyncio.sleep(0.2 * attempt)
+
         if not updated_driver:
             raise HTTPException(status_code=404, detail="Driver not found")
-        
+
         # Notify admin of status change
         status = "ONLINE" if is_available else "OFFLINE"
         logger.info(f"Driver {driver_id} is now {status}")
@@ -183,7 +195,12 @@ async def get_driver_availability(driver_id: str, request: Request):
         driver_data = await verify_driver_token(request)
         _assert_driver_owns_resource(driver_data, driver_id)
 
-        driver = await db.drivers.find_one({'_id': ObjectId(driver_id)})
+        try:
+            driver = await db.drivers.find_one({'_id': ObjectId(driver_id)})
+        except (ServerSelectionTimeoutError, PyMongoError) as exc:
+            logger.exception("Database error while retrieving driver availability: %s", exc)
+            raise HTTPException(status_code=503, detail="Database unavailable. Please try again.")
+
         if not driver:
             raise HTTPException(status_code=404, detail="Driver not found")
 
