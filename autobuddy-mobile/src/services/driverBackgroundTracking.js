@@ -54,10 +54,6 @@ async function postDriverLocation(coords) {
     return;
   }
 
-  const heading = toNumber(coords?.heading);
-  const speed = toNumber(coords?.speed);
-  const accuracy = toNumber(coords?.accuracy);
-
   try {
     await fetch(`${API_BASE_URL}/drivers/location`, {
       method: 'PUT',
@@ -70,9 +66,6 @@ async function postDriverLocation(coords) {
         location: {
           latitude,
           longitude,
-          heading,
-          speed,
-          accuracy,
         },
       }),
     });

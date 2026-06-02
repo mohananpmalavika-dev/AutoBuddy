@@ -102,6 +102,7 @@ import {
   hasDriverAvailabilitySnapshot,
   hasLiveLocationSignal,
   readDriverAvailability,
+  toDriverLocationApiBody,
 } from '../lib/driverAvailabilityStatus';
 
 const DEFAULT_CITY_LOCATION = {
@@ -619,11 +620,16 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
           return locationToSend;
         }
 
+        const locationApiBody = toDriverLocationApiBody(locationToSend);
+        if (!locationApiBody) {
+          return null;
+        }
+
         try {
           await apiRequest('/drivers/location', {
             method: 'PUT',
             token,
-            body: { location: locationToSend },
+            body: locationApiBody,
           });
           if (socketRef.current) {
             socketRef.current.emit('driver_location_update', {

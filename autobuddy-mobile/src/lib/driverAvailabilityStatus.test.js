@@ -3,6 +3,7 @@ import {
   hasDriverAvailabilitySnapshot,
   hasLiveLocationSignal,
   readDriverAvailability,
+  toDriverLocationApiBody,
 } from './driverAvailabilityStatus';
 
 describe('driverAvailabilityStatus', () => {
@@ -61,6 +62,27 @@ describe('driverAvailabilityStatus', () => {
       isOnline: false,
       label: 'OFFLINE',
       tone: 'offline',
+    });
+  });
+
+  it('strips UI-only fields from the driver location API body', () => {
+    expect(
+      toDriverLocationApiBody({
+        latitude: 10.123456,
+        longitude: 76.123456,
+        address: 'Live location',
+        is_live_location: true,
+        updated_at: new Date().toISOString(),
+        heading: 180,
+        speed: 20,
+        accuracy: 5,
+      }),
+    ).toEqual({
+      location: {
+        latitude: 10.123456,
+        longitude: 76.123456,
+        address: 'Live location',
+      },
     });
   });
 });

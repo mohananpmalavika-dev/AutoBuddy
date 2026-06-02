@@ -177,6 +177,29 @@ export function hasLiveLocationSignal(location) {
   return Number.isFinite(updatedAt) && Date.now() - updatedAt <= LIVE_LOCATION_STATUS_WINDOW_MS;
 }
 
+export function toDriverLocationApiBody(location) {
+  if (!isRecord(location)) {
+    return null;
+  }
+
+  const latitude = Number(location.latitude ?? location.lat);
+  const longitude = Number(location.longitude ?? location.lng);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return null;
+  }
+
+  const bodyLocation = {
+    latitude,
+    longitude,
+  };
+  const address = String(location.address || location.label || '').trim();
+  if (address) {
+    bodyLocation.address = address;
+  }
+
+  return { location: bodyLocation };
+}
+
 function collectAvailabilitySignals(payload) {
   const candidates = getAvailabilityCandidates(payload);
   const signals = [];

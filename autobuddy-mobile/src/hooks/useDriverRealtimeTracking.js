@@ -5,6 +5,7 @@ import { Platform } from 'react-native';
 import { createAutoBuddySocket } from '../lib/socket';
 import { emitDriverLocation } from '../services/socketClient';
 import { apiRequest } from '../lib/api';
+import { toDriverLocationApiBody } from '../lib/driverAvailabilityStatus';
 import {
   startBackgroundDriverTracking,
   stopBackgroundDriverTracking,
@@ -115,18 +116,14 @@ export function useDriverRealtimeTracking({
       emitSocketLocationUpdate(payload);
 
       try {
+        const body = toDriverLocationApiBody(payload);
+        if (!body) {
+          return;
+        }
         await apiRequest('/drivers/location', {
           method: 'PUT',
           token,
-          body: {
-            location: {
-              latitude: payload.latitude,
-              longitude: payload.longitude,
-              heading: payload.heading,
-              speed: payload.speed,
-              accuracy: payload.accuracy,
-            },
-          },
+          body,
         });
       } catch {
         // Socket still handles live tracking; REST retry can be added later.

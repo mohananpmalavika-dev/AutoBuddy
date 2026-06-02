@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as Location from 'expo-location';
 import { apiRequest } from '../lib/api';
+import { toDriverLocationApiBody } from '../lib/driverAvailabilityStatus';
 
 const GPS_UPDATE_INTERVAL = 10000; // 10 seconds
 const GPS_ACCURACY_THRESHOLD = 50; // meters
@@ -37,25 +38,22 @@ export function useGPSTracking({
 
   // Sync location to backend
   const syncLocationToBackend = useCallback(
-    async (loc, rid) => {
+    async (loc) => {
       try {
+        const body = toDriverLocationApiBody(loc);
+        if (!body) {
+          return;
+        }
         await apiRequest('/drivers/location', {
-          method: 'POST',
+          method: 'PUT',
           token,
-          body: {
-            latitude: loc.latitude,
-            longitude: loc.longitude,
-            accuracy,
-            speed,
-            ride_id: rid,
-            timestamp: loc.timestamp,
-          },
+          body,
         });
       } catch (err) {
         console.warn('Location sync failed:', err);
       }
     },
-    [token, accuracy, speed]
+    [token]
   );
 
   // Start GPS tracking
@@ -93,7 +91,7 @@ export function useGPSTracking({
 
             // Sync to backend if ride is active
             if (syncToBackend && rideId && Date.now() - lastSyncRef.current > GPS_UPDATE_INTERVAL) {
-              syncLocationToBackend(newLocation, rideId);
+              syncLocationToBackend(newLocation);
               lastSyncRef.current = Date.now();
             }
 
