@@ -1144,6 +1144,15 @@ async def on_startup():
         
         import app.routers.driver_operations as driver_operations
         driver_operations.set_dependencies(db, sio)
+        # Ensure driver availability module has runtime dependencies wired
+        try:
+            import app.routers.driver_availability_operations as driver_availability_operations
+            driver_availability_operations.set_dependencies(db, sio)
+        except Exception:
+            # Non-fatal: availability module may be unused in some deployments
+            logging.getLogger("autobuddy.bootstrap").warning(
+                "Driver availability dependency wiring skipped",
+            )
 
         import app.routers.support_backend as support_backend
         support_backend.set_dependencies(db, sio)
