@@ -224,6 +224,8 @@ function readDriverAvailability(payload, fallback = false) {
     payload?.is_available,
     payload?.is_online,
     payload?.presence_online,
+    payload?.location_online,
+    payload?.is_live,
   ].filter((value) => typeof value === 'boolean');
 
   if (onlineFlags.some(Boolean)) {
@@ -256,6 +258,8 @@ function hasDriverAvailabilitySnapshot(payload) {
     typeof payload?.is_available === 'boolean' ||
     typeof payload?.is_online === 'boolean' ||
     typeof payload?.presence_online === 'boolean' ||
+    typeof payload?.location_online === 'boolean' ||
+    typeof payload?.is_live === 'boolean' ||
     typeof payload?.availability_status === 'string' ||
     typeof payload?.availability === 'string' ||
     typeof payload?.online_status === 'string'

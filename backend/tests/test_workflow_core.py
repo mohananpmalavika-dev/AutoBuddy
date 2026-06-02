@@ -164,14 +164,15 @@ def test_driver_availability_response_uses_availability_or_presence_for_dashboar
     server_source = (Path(__file__).resolve().parents[1] / 'server.py').read_text(encoding='utf-8')
 
     assert 'def build_driver_availability_response(' in server_source
-    assert 'is_online = is_available or presence_online' in server_source
+    assert 'is_online = is_available or presence_online or live_location_online' in server_source
     assert '"is_online": is_online' in server_source
     assert '"presence_online": presence_online' in server_source
+    assert '"location_online": live_location_online' in server_source
     assert '"availability_status": availability_status' in server_source
     assert 'response.update(build_driver_availability_response(profile, profile.get("current_location")))' in server_source
     assert 'confirmed_profile = await db.drivers.find_one({"user_id": current_user["id"]}) or {}' in server_source
-    assert 'build_driver_availability_response(confirmed_profile, confirmed_location)' in server_source
-    assert 'return build_driver_availability_response(profile, await get_effective_driver_location(profile))' in server_source
+    assert 'confirmed_location = live_location or confirmed_profile.get("current_location") or {}' in server_source
+    assert 'location_online=bool(live_location)' in server_source
 
 
 def test_full_server_smoke_requests_reach_real_app(monkeypatch):
