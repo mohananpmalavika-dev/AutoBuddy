@@ -224,32 +224,33 @@ function readDriverAvailability(payload, fallback = false) {
   const onlineFlags = [
     payload?.is_available,
     payload?.is_online,
+    payload?.available,
+    payload?.online,
     payload?.presence_online,
     payload?.location_online,
     payload?.is_live,
+    payload?.driver?.is_available,
+    payload?.driver?.is_online,
+    payload?.driver?.available,
+    payload?.driver?.online,
   ].filter((value) => typeof value === 'boolean');
 
-  if (onlineFlags.some(Boolean)) {
-    return true;
-  }
-  if (onlineFlags.length > 0) {
-    return false;
-  }
+  if (onlineFlags.some(Boolean)) return true;
+  if (onlineFlags.length > 0) return false;
 
   const status = String(
     payload?.availability_status ||
-      payload?.availability ||
-      payload?.online_status ||
-      payload?.status ||
-      '',
+    payload?.availability ||
+    payload?.online_status ||
+    payload?.status ||
+    payload?.driver?.availability_status ||
+    payload?.driver?.availability ||
+    payload?.driver?.status ||
+    ''
   ).toLowerCase();
 
-  if (['online', 'available', 'active', 'ready'].includes(status)) {
-    return true;
-  }
-  if (['offline', 'unavailable', 'inactive', 'disabled'].includes(status)) {
-    return false;
-  }
+  if (['online', 'available', 'active', 'ready', 'live'].includes(status)) return true;
+  if (['offline', 'unavailable', 'inactive', 'disabled'].includes(status)) return false;
 
   return !!fallback;
 }
@@ -258,12 +259,17 @@ function hasDriverAvailabilitySnapshot(payload) {
   return (
     typeof payload?.is_available === 'boolean' ||
     typeof payload?.is_online === 'boolean' ||
-    typeof payload?.presence_online === 'boolean' ||
-    typeof payload?.location_online === 'boolean' ||
-    typeof payload?.is_live === 'boolean' ||
+    typeof payload?.available === 'boolean' ||
+    typeof payload?.online === 'boolean' ||
+    typeof payload?.driver?.is_available === 'boolean' ||
+    typeof payload?.driver?.is_online === 'boolean' ||
+    typeof payload?.driver?.available === 'boolean' ||
+    typeof payload?.driver?.online === 'boolean' ||
     typeof payload?.availability_status === 'string' ||
     typeof payload?.availability === 'string' ||
-    typeof payload?.online_status === 'string'
+    typeof payload?.online_status === 'string' ||
+    typeof payload?.driver?.availability_status === 'string' ||
+    typeof payload?.driver?.availability === 'string'
   );
 }
 
