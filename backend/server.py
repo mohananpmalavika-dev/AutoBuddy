@@ -7872,15 +7872,18 @@ async def _db_update_driver_availability(
         },
         upsert=True,
     )
-    await db.driver_availability_events.insert_one(
-        {
-            "id": f"drv-avail-{uuid.uuid4()}",
-            "driver_id": driver_id,
-            "is_available": bool(is_available),
-            "is_online": bool(is_available),
-            "created_at": now_utc,
-        }
-    )
+    try:
+        await db.driver_availability_events.insert_one(
+            {
+                "id": f"drv-avail-{uuid.uuid4()}",
+                "driver_id": driver_id,
+                "is_available": bool(is_available),
+                "is_online": bool(is_available),
+                "created_at": now_utc,
+            }
+        )
+    except Exception as exc:
+        logger.warning("Availability event log failed: %s", exc)
 
 
 @retry_on_db_error(max_attempts=3, base_delay=0.5, max_delay=5.0)
