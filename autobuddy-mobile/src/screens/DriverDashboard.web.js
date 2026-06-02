@@ -97,6 +97,12 @@ import {
   getDriverReadinessTab,
   isDriverReadyToDrive,
 } from '../lib/driverReadiness';
+import {
+  buildDriverAvailabilityState,
+  hasDriverAvailabilitySnapshot,
+  hasLiveLocationSignal,
+  readDriverAvailability,
+} from '../lib/driverAvailabilityStatus';
 
 const DEFAULT_CITY_LOCATION = {
   latitude: 13.0827,
@@ -119,7 +125,6 @@ const DEFAULT_DRIVER_SETTINGS = {
 };
 const AVAILABILITY_RETRY_WINDOW_MS = 300000;
 const AVAILABILITY_CONFIRMED_OVERRIDE_MS = 90000;
-const LIVE_LOCATION_STATUS_WINDOW_MS = 90000;
 const AVAILABILITY_TRANSIENT_MESSAGE_PARTS = [
   'checking ready to drive',
   'going online',
@@ -218,79 +223,6 @@ function getAvailabilityErrorMessage(err) {
     return 'Network connection issue. Retrying automatically...';
   }
   return err?.message || 'Failed to update availability status.';
-}
-
-function readDriverAvailability(payload, fallback = false) {
-  const onlineFlags = [
-    payload?.is_available,
-    payload?.is_online,
-    payload?.available,
-    payload?.online,
-    payload?.presence_online,
-    payload?.location_online,
-    payload?.is_live,
-    payload?.driver?.is_available,
-    payload?.driver?.is_online,
-    payload?.driver?.available,
-    payload?.driver?.online,
-  ].filter((value) => typeof value === 'boolean');
-
-  if (onlineFlags.some(Boolean)) return true;
-  if (onlineFlags.length > 0) return false;
-
-  const status = String(
-    payload?.availability_status ||
-    payload?.availability ||
-    payload?.online_status ||
-    payload?.status ||
-    payload?.driver?.availability_status ||
-    payload?.driver?.availability ||
-    payload?.driver?.status ||
-    ''
-  ).toLowerCase();
-
-  if (['online', 'available', 'active', 'ready', 'live'].includes(status)) return true;
-  if (['offline', 'unavailable', 'inactive', 'disabled'].includes(status)) return false;
-
-  return !!fallback;
-}
-
-function hasDriverAvailabilitySnapshot(payload) {
-  return (
-    typeof payload?.is_available === 'boolean' ||
-    typeof payload?.is_online === 'boolean' ||
-    typeof payload?.available === 'boolean' ||
-    typeof payload?.online === 'boolean' ||
-    typeof payload?.driver?.is_available === 'boolean' ||
-    typeof payload?.driver?.is_online === 'boolean' ||
-    typeof payload?.driver?.available === 'boolean' ||
-    typeof payload?.driver?.online === 'boolean' ||
-    typeof payload?.availability_status === 'string' ||
-    typeof payload?.availability === 'string' ||
-    typeof payload?.online_status === 'string' ||
-    typeof payload?.driver?.availability_status === 'string' ||
-    typeof payload?.driver?.availability === 'string'
-  );
-}
-
-function hasLiveLocationSignal(location) {
-  if (!location || typeof location !== 'object') {
-    return false;
-  }
-  const latitude = Number(location.latitude ?? location.lat);
-  const longitude = Number(location.longitude ?? location.lng);
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-    return false;
-  }
-  if (location.is_live_location || location.location_online || location.is_live) {
-    return true;
-  }
-  const address = String(location.address || '').trim().toLowerCase();
-  if (address === 'live location') {
-    return true;
-  }
-  const updatedAt = Date.parse(location.updated_at || location.timestamp || location.last_location_at || '');
-  return Number.isFinite(updatedAt) && Date.now() - updatedAt <= LIVE_LOCATION_STATUS_WINDOW_MS;
 }
 
 function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefined }) {
@@ -430,35 +362,15 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     userName: user?.name,
     activeBooking: activeRide,
   });
-  const driverAvailability = useMemo(() => {
-    const syncing = availabilitySyncPending || availabilityToggleInFlight;
-    const confirmedIsOnline = !!serverIsOnline || !!isOnline || !!activeRideId || hasLiveLocationSignal(driverLocation);
-    const desiredIsOnline =
-      availabilityPendingDesired == null ? confirmedIsOnline : !!availabilityPendingDesired;
-    const labelIsOnline = syncing ? desiredIsOnline : confirmedIsOnline;
-    const status = syncing
-      ? labelIsOnline
-        ? 'going_online'
-        : 'going_offline'
-      : confirmedIsOnline
-        ? 'online'
-        : 'offline';
-
-    return {
-      isOnline: confirmedIsOnline,
-      desiredIsOnline,
-      label: syncing
-        ? labelIsOnline
-          ? 'GOING ONLINE...'
-          : 'GOING OFFLINE...'
-        : confirmedIsOnline
-          ? 'ONLINE & READY'
-          : 'OFFLINE',
-      status,
-      syncing,
-      tone: syncing ? 'syncing' : confirmedIsOnline ? 'online' : 'offline',
-    };
-  }, [
+  const driverAvailability = useMemo(() => buildDriverAvailabilityState({
+    serverIsOnline,
+    localIsOnline: isOnline,
+    activeRideId,
+    driverLocation,
+    availabilityPendingDesired,
+    availabilitySyncPending,
+    availabilityToggleInFlight,
+  }), [
     activeRideId,
     availabilityPendingDesired,
     availabilitySyncPending,
@@ -730,6 +642,10 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
           lastLocationPushAtRef.current = now;
           lastPushedLocationRef.current = locationToSend;
           locationSyncSuspendedUntilRef.current = 0;
+          if (hasLiveLocationSignal(locationToSend)) {
+            setServerIsOnline(true);
+            setIsOnline(true);
+          }
           setDriverLocation(locationToSend);
           attachReadableAddress(locationToSend).then((resolved) => {
             if (resolved) {
@@ -2162,15 +2078,15 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                 styles.statusBadgeButton,
                 {
                   backgroundColor:
-                    driverAvailability.syncing
+                    driverAvailability.tone === 'syncing'
                       ? '#FFF7E6'
-                      : driverAvailability.isOnline
+                      : driverAvailability.tone === 'online'
                       ? '#E8F5E9'
                       : '#F5F5F5',
                   borderColor:
-                    driverAvailability.syncing
+                    driverAvailability.tone === 'syncing'
                       ? '#FFA500'
-                      : driverAvailability.isOnline
+                      : driverAvailability.tone === 'online'
                       ? '#2E7D32'
                       : '#BDBDBD',
                 },
@@ -2183,9 +2099,9 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                   styles.statusDot,
                   {
                     backgroundColor:
-                      driverAvailability.syncing
+                      driverAvailability.tone === 'syncing'
                         ? '#FFA500'
-                        : driverAvailability.isOnline
+                        : driverAvailability.tone === 'online'
                         ? '#2E7D32'
                         : '#8A8A8A',
                   },
@@ -2197,21 +2113,15 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                     styles.statusText,
                     {
                       color:
-                        driverAvailability.syncing
+                        driverAvailability.tone === 'syncing'
                           ? '#B26A00'
-                          : driverAvailability.isOnline
+                          : driverAvailability.tone === 'online'
                           ? '#2E7D32'
                           : '#666',
                     },
                   ]}
                 >
-                  {driverAvailability.syncing
-                    ? driverAvailability.desiredIsOnline
-                      ? 'GOING ONLINE...'
-                      : 'GOING OFFLINE...'
-                    : driverAvailability.isOnline
-                      ? 'ONLINE & READY'
-                      : 'OFFLINE'}
+                  {driverAvailability.label}
                 </Text>
                 <Text style={styles.statusSub}>{user?.name || 'Driver'} - Tap to toggle</Text>
               </View>
@@ -2295,6 +2205,8 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                   </FadeSlideView>
                   <AvailabilityStatusCard
                     availability={driverAvailability}
+                    error={error}
+                    message={visibleMessage}
                     onToggle={toggleOnlineStatus}
                     loading={availabilityToggleInFlight}
                   />

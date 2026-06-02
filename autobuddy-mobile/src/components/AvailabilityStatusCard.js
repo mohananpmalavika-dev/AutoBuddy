@@ -23,16 +23,20 @@ export default function AvailabilityStatusCard({
     isOnline = false,
     desiredIsOnline = isOnline,
     syncing = false,
+    label = '',
+    tone = '',
   } = availability;
   const labelIsOnline = syncing ? !!desiredIsOnline : !!isOnline;
-  const resolvedTone = syncing ? 'syncing' : isOnline ? 'online' : 'offline';
-  const resolvedLabel = syncing
+  const fallbackTone = syncing ? 'syncing' : isOnline ? 'online' : 'offline';
+  const resolvedTone = tone || fallbackTone;
+  const fallbackLabel = syncing
     ? labelIsOnline
       ? 'GOING ONLINE...'
       : 'GOING OFFLINE...'
     : isOnline
       ? 'ONLINE & READY'
       : 'OFFLINE';
+  const resolvedLabel = label || fallbackLabel;
 
   // Determine colors based on tone
   const colorMap = useMemo(
