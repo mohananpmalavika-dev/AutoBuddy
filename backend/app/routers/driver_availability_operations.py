@@ -72,12 +72,18 @@ def _assert_driver_owns_resource(driver_data: dict, driver_id: str):
 
 @router.put("/availability", tags=["driver-availability"])
 async def set_my_availability(request: Request):
+    if not db:
+        logger.error("Database not initialized in driver_availability_operations")
+        raise HTTPException(status_code=503, detail="Service temporarily unavailable. DB not initialized.")
     driver_data = await verify_driver_token(request)
     return await set_driver_availability(str(driver_data["_id"]), request)
 
 
 @router.get("/availability", tags=["driver-availability"])
 async def get_my_availability(request: Request):
+    if not db:
+        logger.error("Database not initialized in driver_availability_operations")
+        raise HTTPException(status_code=503, detail="Service temporarily unavailable. DB not initialized.")
     driver_data = await verify_driver_token(request)
     return await get_driver_availability(str(driver_data["_id"]), request)
 
@@ -116,6 +122,7 @@ async def set_driver_availability(driver_id: str, request: Request):
     """
     try:
         # Verify request is from authenticated driver
+        logger.debug(f"Setting availability for driver {driver_id}")
         driver_data = await verify_driver_token(request)
         _assert_driver_owns_resource(driver_data, driver_id)
         
@@ -143,17 +150,19 @@ async def set_driver_availability(driver_id: str, request: Request):
         max_attempts = 3
         for attempt in range(1, max_attempts + 1):
             try:
+                logger.debug(f"Attempting to update driver {driver_id} availability (attempt {attempt}/{max_attempts})")
                 updated_driver = await db.drivers.find_one_and_update(
                     {'_id': ObjectId(driver_id)},
                     {'$set': update_data},
                     return_document=True
                 )
+                logger.debug(f"Successfully updated driver {driver_id} availability")
                 break
             except (ServerSelectionTimeoutError, PyMongoError) as exc:
                 if attempt >= max_attempts:
-                    logger.exception("Database error while updating driver availability: %s", exc)
+                    logger.exception(f"Database error while updating driver {driver_id} availability after {max_attempts} attempts: %s", exc)
                     raise HTTPException(status_code=503, detail="Database unavailable. Please try again.")
-                logger.warning("Transient database error updating availability (attempt %s/%s): %s", attempt, max_attempts, exc)
+                logger.warning(f"Transient database error updating availability for driver {driver_id} (attempt {attempt}/{max_attempts}): %s", exc)
                 await asyncio.sleep(0.2 * attempt)
 
         if not updated_driver:
