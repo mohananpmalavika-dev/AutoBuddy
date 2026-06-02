@@ -206,7 +206,7 @@ export function createAutoBuddySocket(token, baseUrl) {
     reconnection: true,
     reconnectionAttempts: Infinity,
     reconnectionDelay: 1000,
-    reconnectionDelayMax: 8000,
+    reconnectionDelayMax: 30000,
     randomizationFactor: 0.5,
     timeout: 20000,
     autoConnect: false,
