@@ -160,11 +160,12 @@ def test_full_server_route_graph_contains_critical_routes(monkeypatch):
     assert expected_paths <= mounted_paths
 
 
-def test_driver_availability_response_uses_explicit_availability_for_dashboard():
+def test_driver_availability_response_uses_availability_or_presence_for_dashboard():
     server_source = (Path(__file__).resolve().parents[1] / 'server.py').read_text(encoding='utf-8')
 
     assert 'def build_driver_availability_response(' in server_source
-    assert '"is_online": is_available' in server_source
+    assert 'is_online = is_available or presence_online' in server_source
+    assert '"is_online": is_online' in server_source
     assert '"presence_online": presence_online' in server_source
     assert '"availability_status": availability_status' in server_source
     assert 'response.update(build_driver_availability_response(profile, profile.get("current_location")))' in server_source

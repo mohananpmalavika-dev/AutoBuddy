@@ -2599,12 +2599,13 @@ def build_driver_availability_response(
 ) -> Dict[str, Any]:
     is_available = bool((profile or {}).get("is_available", False))
     presence_online = bool((profile or {}).get("is_online", False))
-    availability_status = "online" if is_available else "offline"
+    is_online = is_available or presence_online
+    availability_status = "online" if is_online else "offline"
     return {
         "is_available": is_available,
-        # Dashboard compatibility: is_online is the driver's explicit
-        # availability choice. Raw socket presence is exposed separately.
-        "is_online": is_available,
+        # Dashboard compatibility: show a driver as online when either the
+        # explicit availability toggle or live heartbeat/location presence is on.
+        "is_online": is_online,
         "presence_online": presence_online,
         "availability_status": availability_status,
         "online_status": availability_status,

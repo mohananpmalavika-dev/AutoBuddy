@@ -238,11 +238,17 @@ function getAvailabilityErrorMessage(err) {
 }
 
 function readDriverAvailability(payload, fallback = false) {
-  if (typeof payload?.is_available === 'boolean') {
-    return payload.is_available;
+  const onlineFlags = [
+    payload?.is_available,
+    payload?.is_online,
+    payload?.presence_online,
+  ].filter((value) => typeof value === 'boolean');
+
+  if (onlineFlags.some(Boolean)) {
+    return true;
   }
-  if (typeof payload?.is_online === 'boolean') {
-    return payload.is_online;
+  if (onlineFlags.length > 0) {
+    return false;
   }
 
   const status = String(
@@ -267,6 +273,7 @@ function hasDriverAvailabilitySnapshot(payload) {
   return (
     typeof payload?.is_available === 'boolean' ||
     typeof payload?.is_online === 'boolean' ||
+    typeof payload?.presence_online === 'boolean' ||
     typeof payload?.availability_status === 'string' ||
     typeof payload?.availability === 'string' ||
     typeof payload?.online_status === 'string'
