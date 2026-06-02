@@ -302,7 +302,7 @@ export default function WebGoogleLiveMap({
 
   return (
     <View style={[mapStyle, styles.mapFallbackSurface]}>
-      {showEmbedFallback && (
+      {showEmbedFallback && fallbackUrl && (
         <iframe
           title={title}
           src={fallbackUrl}
@@ -311,10 +311,16 @@ export default function WebGoogleLiveMap({
           loading="lazy"
         />
       )}
-      <View ref={mapContainerRef} style={[MAP_CONTAINER_STYLE, !mapReady && styles.loadingMapLayer]} />
-      {showStatusOverlay && !mapReady && (
+      <View ref={mapContainerRef} style={[MAP_CONTAINER_STYLE, !mapReady && styles.hiddenMapLayer]} />
+      {!mapReady && !showEmbedFallback && (
+        <View style={styles.mapLoadingPlaceholder} pointerEvents="none">
+          <Text style={styles.loadingSpinner}>◐</Text>
+          <Text style={styles.loadingText}>Loading map...</Text>
+        </View>
+      )}
+      {showStatusOverlay && !mapReady && showEmbedFallback && (
         <View style={styles.statusOverlay} pointerEvents="none">
-          <Text style={styles.statusTitle}>Live map loading</Text>
+          <Text style={styles.statusTitle}>Map initializing</Text>
           <Text style={styles.statusCopy}>Preparing driver location and route view.</Text>
         </View>
       )}
@@ -338,8 +344,30 @@ const styles = StyleSheet.create({
     height: '100%',
     borderWidth: 0,
   },
-  loadingMapLayer: {
-    opacity: 0,
+  hiddenMapLayer: {
+    display: 'none',
+  },
+  mapLoadingPlaceholder: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+    zIndex: 1,
+  },
+  loadingSpinner: {
+    fontSize: 48,
+    color: '#0F2F1E',
+    marginBottom: 8,
+  },
+  loadingText: {
+    marginTop: 8,
+    fontSize: 13,
+    color: '#666',
+    fontWeight: '500',
   },
   statusOverlay: {
     position: 'absolute',
@@ -352,6 +380,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.94)',
     paddingHorizontal: 14,
     paddingVertical: 10,
+    zIndex: 10,
   },
   statusTitle: {
     color: '#0F2F1E',

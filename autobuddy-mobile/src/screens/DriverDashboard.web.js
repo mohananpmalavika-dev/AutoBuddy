@@ -1000,7 +1000,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       hasDriverAvailabilitySnapshot(availabilitySnapshot) &&
       canApplyServerAvailabilitySnapshot(refreshStartedAt);
     if (appliedAvailabilitySnapshot) {
-      applyAvailabilitySnapshot(availabilitySnapshot, serverIsOnline);
+      applyAvailabilitySnapshot(availabilitySnapshot);
     }
     if (profile) {
       if (!appliedAvailabilitySnapshot && hasDriverAvailabilitySnapshot(profile)) {
@@ -1112,7 +1112,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         hasDriverAvailabilitySnapshot(availabilitySnapshot) &&
         canApplyServerAvailabilitySnapshot(refreshStartedAt);
       if (appliedAvailabilitySnapshot) {
-        applyAvailabilitySnapshot(availabilitySnapshot, serverIsOnline);
+        applyAvailabilitySnapshot(availabilitySnapshot);
       } else if (includeProfile && profile && hasDriverAvailabilitySnapshot(profile)) {
         if (canApplyServerAvailabilitySnapshot(refreshStartedAt)) {
           applyAvailabilitySnapshot(profile, false);

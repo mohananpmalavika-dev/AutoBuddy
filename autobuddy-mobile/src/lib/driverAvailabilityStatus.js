@@ -249,6 +249,18 @@ export function readDriverAvailability(payload, fallback = false) {
   if (signals.some((signal) => signal === false)) {
     return false;
   }
+
+  // Fallback: check availability_status or online_status strings directly
+  if (isRecord(payload)) {
+    const status = String(payload.availability_status || payload.online_status || '').toLowerCase();
+    if (status === 'online' || status === 'available') {
+      return true;
+    }
+    if (status === 'offline' || status === 'unavailable') {
+      return false;
+    }
+  }
+
   return !!fallback;
 }
 
