@@ -285,8 +285,9 @@ export function buildDriverAvailabilityState({
     hasLiveLocationSignal(driverLocation);
   const desiredIsOnline =
     availabilityPendingDesired == null ? confirmedIsOnline : !!availabilityPendingDesired;
-  const labelIsOnline = syncing ? desiredIsOnline : confirmedIsOnline;
-  const status = syncing
+  const showPendingStatus = !syncing && availabilityPendingDesired != null;
+  const labelIsOnline = syncing || showPendingStatus ? desiredIsOnline : confirmedIsOnline;
+  const status = syncing || showPendingStatus
     ? labelIsOnline
       ? 'going_online'
       : 'going_offline'
@@ -297,7 +298,7 @@ export function buildDriverAvailabilityState({
   return {
     isOnline: confirmedIsOnline,
     desiredIsOnline,
-    label: syncing
+    label: syncing || showPendingStatus
       ? labelIsOnline
         ? 'GOING ONLINE...'
         : 'GOING OFFLINE...'

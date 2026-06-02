@@ -404,6 +404,13 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     localTrackingOnline,
     serverIsOnline,
   ]);
+  const resolvedDriverStatusLabel = useMemo(() => {
+    if (driverAvailability.label) {
+      return driverAvailability.label;
+    }
+    return driverAvailability.isOnline ? 'ONLINE & READY' : 'OFFLINE';
+  }, [driverAvailability.isOnline, driverAvailability.label]);
+
   const shouldSyncDriverLocation =
     (shareLocationWhileOnline && driverAvailability.isOnline && !driverAvailability.syncing) ||
     activeRideSharesLocation;
@@ -2224,7 +2231,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                     },
                   ]}
                 >
-                  {driverAvailability.label}
+                  {resolvedDriverStatusLabel}
                 </Text>
                 <Text style={styles.statusSub}>{user?.name || 'Driver'} - Tap to toggle</Text>
               </View>
@@ -2269,7 +2276,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
               notificationCount={unreadCount}
               menuBadges={menuBadges}
               isOnline={driverAvailability.isOnline}
-              statusLabel={driverAvailability.label}
+              statusLabel={resolvedDriverStatusLabel}
               statusSyncing={driverAvailability.syncing}
             />
           </View>
