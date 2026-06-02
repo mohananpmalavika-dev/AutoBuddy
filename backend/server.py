@@ -7925,64 +7925,86 @@ async def update_driver_availability(
                 },
             )
         await ensure_user_can_take_ride_actions(current_user, "going online")
+
     now_utc = get_ist_now()
     driver_insert_defaults = build_default_driver_profile(current_user["id"])
     driver_insert_defaults.pop("is_available", None)
 
-    # Update availability with retries
-    await _db_update_driver_availability(
-        current_user["id"],
-        availability.is_available,
-        now_utc,
-        driver_insert_defaults,
-    )
-    
-    if availability.is_available:
-        await runtime_state.touch_driver_heartbeat(str(current_user["id"]))
-    else:
-        await runtime_state.mark_driver_offline(str(current_user["id"]))
-    
-    await cache_delete(f"driver_profile:{current_user['id']}")
-    
-    if not availability.is_available:
-        await runtime_state.clear_driver_live_location(str(current_user["id"]))
-        await remove_driver_geo_index(str(current_user["id"]))
-    else:
-        profile_for_geo = await _db_get_driver_for_geo(current_user["id"])
-        geo_loc = normalize_tracking_location((profile_for_geo or {}).get("current_location"))
-        if geo_loc:
-            await upsert_driver_geo_index(
-                str(current_user["id"]),
-                float(geo_loc.get("latitude")),
-                float(geo_loc.get("longitude")),
-            )
-    
-    confirmed_profile = await db.drivers.find_one({"user_id": current_user["id"]}) or {}
-    if bool(confirmed_profile.get("is_available", False)) != bool(availability.is_available):
+    try:
+        # Update availability with retries
         await _db_update_driver_availability(
             current_user["id"],
             availability.is_available,
             now_utc,
             driver_insert_defaults,
         )
+
+        if availability.is_available:
+            await runtime_state.touch_driver_heartbeat(str(current_user["id"]))
+        else:
+            await runtime_state.mark_driver_offline(str(current_user["id"]))
+
+        await cache_delete(f"driver_profile:{current_user['id']}")
+
+        if not availability.is_available:
+            await runtime_state.clear_driver_live_location(str(current_user["id"]))
+            await remove_driver_geo_index(str(current_user["id"]))
+        else:
+            profile_for_geo = await _db_get_driver_for_geo(current_user["id"])
+            geo_loc = normalize_tracking_location((profile_for_geo or {}).get("current_location"))
+            if geo_loc:
+                await upsert_driver_geo_index(
+                    str(current_user["id"]),
+                    float(geo_loc.get("latitude")),
+                    float(geo_loc.get("longitude")),
+                )
+
         confirmed_profile = await db.drivers.find_one({"user_id": current_user["id"]}) or {}
-    if not confirmed_profile:
-        confirmed_profile = {
+        if bool(confirmed_profile.get("is_available", False)) != bool(availability.is_available):
+            await _db_update_driver_availability(
+                current_user["id"],
+                availability.is_available,
+                now_utc,
+                driver_insert_defaults,
+            )
+            confirmed_profile = await db.drivers.find_one({"user_id": current_user["id"]}) or {}
+        if not confirmed_profile:
+            confirmed_profile = {
+                "is_available": bool(availability.is_available),
+                "is_online": bool(availability.is_available),
+            }
+
+        live_location = await runtime_state.get_driver_live_location(str(current_user["id"]))
+        confirmed_location = live_location or confirmed_profile.get("current_location") or {}
+
+        status_payload = {
+            "driver_id": current_user["id"],
+            "online": bool(availability.is_available),
             "is_available": bool(availability.is_available),
-            "is_online": bool(availability.is_available),
+            "location": confirmed_location or None,
+            "timestamp": now_utc.isoformat(),
         }
+        try:
+            await emit_to_user(current_user["id"], "driver_status_update", status_payload)
+            await emit_to_user(current_user["id"], "availability_sync", status_payload)
+            await emit_to_user(current_user["id"], "driver_availability_changed", status_payload)
+        except Exception as exc:
+            logger.warning("Failed to emit availability socket event for driver %s: %s", current_user["id"], exc)
 
-    live_location = await runtime_state.get_driver_live_location(str(current_user["id"]))
-    confirmed_location = live_location or confirmed_profile.get("current_location") or {}
-
-    return {
-        "message": "Availability updated",
-        **build_driver_availability_response(
-            confirmed_profile,
-            confirmed_location,
-            location_online=bool(live_location),
-        ),
-    }
+        return {
+            "message": "Availability updated",
+            **build_driver_availability_response(
+                confirmed_profile,
+                confirmed_location,
+                location_online=bool(live_location),
+            ),
+        }
+    except (ServerSelectionTimeoutError, PyMongoError) as exc:
+        logger.exception("Database error while updating driver availability: %s", exc)
+        raise HTTPException(status_code=503, detail="Database unavailable. Please try again.")
+    except Exception as exc:
+        logger.exception("Error updating driver availability: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to update availability")
 
 @api_router.get("/drivers/availability")
 @retry_on_db_error(max_attempts=2, base_delay=0.3, max_delay=3.0)
