@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 const DEFAULT_ZOOM = 14;
 const MAP_CONTAINER_STYLE = { width: '100%', height: '100%' };
@@ -104,6 +104,7 @@ export default function WebGoogleLiveMap({
   const driverPoint = useMemo(() => normalizeCoords(driverLocation), [driverLocation]);
   const routeOriginPoint = useMemo(() => normalizeCoords(routeOrigin), [routeOrigin]);
   const routeDestinationPoint = useMemo(() => normalizeCoords(routeDestination), [routeDestination]);
+  const showEmbedFallback = !!fallbackUrl && (!apiKey || loadFailed || !mapReady);
 
   useEffect(() => {
     if (!apiKey || typeof window === 'undefined' || !mapContainerRef.current) {
@@ -273,23 +274,91 @@ export default function WebGoogleLiveMap({
   ]);
 
   if (!apiKey || loadFailed) {
-    if (!fallbackUrl) {
-      return <View style={mapStyle} />;
-    }
     return (
-      <iframe
-        title={title}
-        src={fallbackUrl}
-        style={mapStyle}
-        allowFullScreen
-        loading="lazy"
-      />
+      <View style={[mapStyle, styles.mapFallbackSurface]}>
+        {!!fallbackUrl && (
+          <iframe
+            title={title}
+            src={fallbackUrl}
+            style={styles.fallbackFrame}
+            allowFullScreen
+            loading="lazy"
+          />
+        )}
+        <View style={styles.statusOverlay} pointerEvents="none">
+          <Text style={styles.statusTitle}>{fallbackUrl ? 'Live map fallback' : 'Live map unavailable'}</Text>
+          <Text style={styles.statusCopy}>
+            {fallbackUrl
+              ? 'Showing the browser-safe Google Maps embed.'
+              : 'Map coordinates are available when the driver location syncs.'}
+          </Text>
+        </View>
+      </View>
     );
   }
 
   return (
-    <View style={mapStyle}>
-      <View ref={mapContainerRef} style={MAP_CONTAINER_STYLE} />
+    <View style={[mapStyle, styles.mapFallbackSurface]}>
+      {showEmbedFallback && (
+        <iframe
+          title={title}
+          src={fallbackUrl}
+          style={styles.fallbackFrame}
+          allowFullScreen
+          loading="lazy"
+        />
+      )}
+      <View ref={mapContainerRef} style={[MAP_CONTAINER_STYLE, !mapReady && styles.loadingMapLayer]} />
+      {!mapReady && (
+        <View style={styles.statusOverlay} pointerEvents="none">
+          <Text style={styles.statusTitle}>Live map loading</Text>
+          <Text style={styles.statusCopy}>Preparing driver location and route view.</Text>
+        </View>
+      )}
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  mapFallbackSurface: {
+    position: 'relative',
+    overflow: 'hidden',
+    backgroundColor: '#EAF1ED',
+  },
+  fallbackFrame: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+    borderWidth: 0,
+  },
+  loadingMapLayer: {
+    opacity: 0,
+  },
+  statusOverlay: {
+    position: 'absolute',
+    left: 16,
+    bottom: 16,
+    maxWidth: 360,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(215, 226, 218, 0.92)',
+    backgroundColor: 'rgba(255, 255, 255, 0.94)',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  statusTitle: {
+    color: '#0F2F1E',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  statusCopy: {
+    color: '#486453',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+});

@@ -802,13 +802,13 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
 
     if (usingBasicEmbed) {
       if (hasRoute) {
-        fallbackUrl = `https://www.google.com/maps?output=embed&saddr=${routeOrigin.latitude},${routeOrigin.longitude}&daddr=${routeDestination.latitude},${routeDestination.longitude}`;
+        fallbackUrl = `https://maps.google.com/maps?saddr=${routeOrigin.latitude},${routeOrigin.longitude}&daddr=${routeDestination.latitude},${routeDestination.longitude}&output=embed`;
       } else if (pickup && drop) {
-        fallbackUrl = `https://www.google.com/maps?output=embed&saddr=${pickup.latitude},${pickup.longitude}&daddr=${drop.latitude},${drop.longitude}`;
+        fallbackUrl = `https://maps.google.com/maps?saddr=${pickup.latitude},${pickup.longitude}&daddr=${drop.latitude},${drop.longitude}&output=embed`;
       } else if (place) {
-        fallbackUrl = `https://www.google.com/maps?output=embed&q=${place.latitude},${place.longitude}&z=14`;
+        fallbackUrl = `https://maps.google.com/maps?q=${place.latitude},${place.longitude}&z=14&output=embed`;
       } else {
-        fallbackUrl = `https://www.google.com/maps?output=embed&q=${DEFAULT_CITY_LOCATION.latitude},${DEFAULT_CITY_LOCATION.longitude}&z=11`;
+        fallbackUrl = `https://maps.google.com/maps?q=${DEFAULT_CITY_LOCATION.latitude},${DEFAULT_CITY_LOCATION.longitude}&z=11&output=embed`;
       }
     } else if (hasRoute) {
       fallbackUrl = `https://www.google.com/maps/embed/v1/directions?key=${encodeURIComponent(googleMapsWebKey)}&origin=${routeOrigin.latitude},${routeOrigin.longitude}&destination=${routeDestination.latitude},${routeDestination.longitude}&avoid=tolls|highways`;
@@ -2080,6 +2080,14 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
             routeOrigin={mapState.routeOrigin}
             routeDestination={mapState.routeDestination}
           />
+          <View style={styles.mapOverlayWrap} pointerEvents="none">
+            <View style={styles.mapOverlayCard}>
+              <Text style={styles.mapOverlayTitle}>Live Driver Map</Text>
+              <Text style={styles.mapOverlayMalayalam}>
+                {activeRide ? 'Route view ready for the current ride.' : 'Showing current driver coverage area.'}
+              </Text>
+            </View>
+          </View>
         </View>
 
         <View style={styles.panel}>
@@ -2191,7 +2199,6 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
               isOnline={driverAvailability.isOnline}
               statusLabel={driverAvailability.label}
               statusSyncing={driverAvailability.syncing}
-              compact={true}
             />
           </View>
 
@@ -2934,13 +2941,19 @@ const styles = StyleSheet.create({
   },
   mapOverlayWrap: {
     position: 'absolute',
-    left: 10,
-    right: 10,
-    bottom: 10,
+    left: 12,
+    right: 12,
+    top: 12,
   },
   mapOverlayCard: {
-    paddingVertical: 9,
-    paddingHorizontal: 10,
+    alignSelf: 'flex-start',
+    maxWidth: 360,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(215, 226, 218, 0.9)',
+    backgroundColor: 'rgba(255, 255, 255, 0.94)',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
   },
   mapOverlayTitle: {
     fontSize: 13,
@@ -3498,7 +3511,6 @@ const styles = StyleSheet.create({
   tabsContainer: {
     marginVertical: 12,
     borderRadius: 12,
-    overflow: 'hidden',
     backgroundColor: '#F8FBF9',
     borderWidth: 1,
     borderColor: '#D7E2DA',
