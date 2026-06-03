@@ -422,7 +422,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     if (driverAvailability.syncing) {
       return driverAvailability.desiredIsOnline ? 'GOING ONLINE...' : 'GOING OFFLINE...';
     }
-    return displayIsOnline ? 'ONLINE & READY' : 'OFFLINE';
+    return displayIsOnline ? 'ONLINE & READY' : displayIsOnline;//'OFFLINE';
   }, [displayIsOnline, driverAvailability.desiredIsOnline, driverAvailability.syncing]);
 
   const shouldSyncDriverLocation =
