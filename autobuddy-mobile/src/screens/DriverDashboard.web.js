@@ -386,7 +386,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     Number.isFinite(Number(driverGPSLocation?.longitude));
   const driverAvailability = useMemo(() => buildDriverAvailabilityState({
     serverIsOnline,
-    localIsOnline: isOnline || localTrackingOnline || gpsTrackingOnline,
+    localIsOnline: isOnline || localTrackingOnline || gpsTrackingOnline || isTracking,
     activeRideId,
     driverLocation: driverGPSLocation || driverLocation,
     availabilityPendingDesired,
@@ -401,15 +401,29 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     driverLocation,
     gpsTrackingOnline,
     isOnline,
+    isTracking,
     localTrackingOnline,
     serverIsOnline,
   ]);
+  const visibleDriverLatitude =
+    driverGPSLocation?.latitude ??
+    driverGPSLocation?.lat ??
+    driverLocation?.latitude ??
+    driverLocation?.lat;
+  const visibleDriverLongitude =
+    driverGPSLocation?.longitude ??
+    driverGPSLocation?.lng ??
+    driverGPSLocation?.lon ??
+    driverLocation?.longitude ??
+    driverLocation?.lng ??
+    driverLocation?.lon;
   const hasVisibleDriverLocation =
-    Number.isFinite(Number(driverGPSLocation?.latitude ?? driverLocation?.latitude)) &&
-    Number.isFinite(Number(driverGPSLocation?.longitude ?? driverLocation?.longitude));
+    Number.isFinite(Number(visibleDriverLatitude)) &&
+    Number.isFinite(Number(visibleDriverLongitude));
   const displayIsOnline =
     driverAvailability.tone === 'online' ||
     driverAvailability.isOnline ||
+    isTracking ||
     gpsTrackingOnline ||
     localTrackingOnline ||
     hasVisibleDriverLocation;
@@ -422,8 +436,8 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     if (driverAvailability.syncing) {
       return driverAvailability.desiredIsOnline ? 'GOING ONLINE...' : 'GOING OFFLINE...';
     }
-    return displayIsOnline ? 'ONLINE & READY' : 'OFFLINE1';
-  }, [displayIsOnline, driverAvailability.desiredIsOnline, driverAvailability.syncing]);
+    return displayAvailabilityTone === 'online' ? 'ONLINE & READY' : 'OFFLINE';
+  }, [displayAvailabilityTone, driverAvailability.desiredIsOnline, driverAvailability.syncing]);
 
   const shouldSyncDriverLocation =
     (shareLocationWhileOnline && displayIsOnline && !driverAvailability.syncing) ||
