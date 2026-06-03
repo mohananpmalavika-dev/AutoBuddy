@@ -37,10 +37,10 @@ const DriverAvailabilityToggle: React.FC<{ driverId: string }> = ({ driverId }) 
     try {
       setLoading(true);
       const status = await driverAPI.getAvailability(driverId);
-      setIsOnline(status.availability_status === 'online');
+      setIsOnline(status.is_available === true);
       setCurrentLocation(status.current_location || null);
-      setLastUpdated(status.last_updated || new Date());
-      setShiftStarted(status.shift_started || false);
+      setLastUpdated(status.availability_updated_at || new Date());
+      setShiftStarted(Boolean(status.shift_active || status.shift_started));
       
       if (status.earnings) {
         setEarnings(status.earnings);
@@ -66,7 +66,12 @@ const DriverAvailabilityToggle: React.FC<{ driverId: string }> = ({ driverId }) 
 
     socket.on('driver_availability_changed', (data) => {
       if (data.driver_id === driverId) {
-        setIsOnline(data.is_online);
+        const isOnline =
+          typeof data.is_available === 'boolean'
+            ? data.is_available
+            : data.is_online;
+        setIsOnline(isOnline);
+        setLastUpdated(new Date());
       }
     });
   }, [driverId]);
@@ -93,9 +98,16 @@ const DriverAvailabilityToggle: React.FC<{ driverId: string }> = ({ driverId }) 
         return;
       }
 
-      await driverAPI.setAvailability(driverId, {
-        is_online: value,
-      });
+      const payload: Record<string, any> = {
+        is_available: value,
+      };
+
+      if (currentLocation?.latitude != null && currentLocation?.longitude != null) {
+        payload.latitude = currentLocation.latitude;
+        payload.longitude = currentLocation.longitude;
+      }
+
+      await driverAPI.setAvailability(driverId, payload);
 
       setIsOnline(value);
       Alert.alert(
@@ -115,10 +127,8 @@ const DriverAvailabilityToggle: React.FC<{ driverId: string }> = ({ driverId }) 
     try {
       setShiftLoading(true);
       await driverAPI.startShift(driverId, {
-        start_location: currentLocation || {
-          latitude: 0,
-          longitude: 0,
-        },
+        latitude: currentLocation?.latitude ?? 0,
+        longitude: currentLocation?.longitude ?? 0,
       });
 
       setShiftStarted(true);
@@ -149,14 +159,19 @@ const DriverAvailabilityToggle: React.FC<{ driverId: string }> = ({ driverId }) 
             setShiftStarted(false);
             setIsOnline(false);
 
-            // Update earnings from response
-            if (response.shift_earnings) {
-              setEarnings(response.shift_earnings);
+            const shiftEarnings =
+              response.shift_earnings ?? response.earnings ?? response.earnings_today;
+
+            if (shiftEarnings != null) {
+              setEarnings((prev) => ({
+                ...prev,
+                total: Number(shiftEarnings) || prev.total,
+              }));
             }
 
             Alert.alert(
               'Shift Ended',
-              `Today's earnings: ₹${response.shift_earnings?.total || 0}`
+              `Today's earnings: ₹${Number(shiftEarnings || 0).toFixed(2)}`
             );
           } catch (error) {
             console.error('Error ending shift:', error);

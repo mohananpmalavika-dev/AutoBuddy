@@ -216,6 +216,9 @@ async def get_driver_availability(driver_id: str, request: Request):
         return {
             'driver_id': driver_id,
             'is_available': driver.get('is_available', False),
+            'shift_active': driver.get('shift_active', False),
+            'shift_started': bool(driver.get('shift_active', False)),
+            'shift_start_time': driver.get('shift_start_time'),
             'availability_updated_at': driver.get('availability_updated_at'),
             'current_location': {
                 'latitude': driver.get('current_latitude'),

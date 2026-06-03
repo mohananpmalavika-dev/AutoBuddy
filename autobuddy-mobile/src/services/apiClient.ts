@@ -545,6 +545,28 @@ export const vehicleTypesAPI = {
 // DRIVER AVAILABILITY & OPERATIONS
 // =====================================================================
 
+const normalizeAvailabilityPayload = (payload: any) => {
+  if (!isRecord(payload)) {
+    return payload;
+  }
+
+  const normalized = { ...payload };
+
+  if (typeof normalized.is_online === 'boolean' && normalized.is_available === undefined) {
+    normalized.is_available = normalized.is_online;
+  }
+
+  if (
+    typeof normalized.availability_status === 'string' &&
+    normalized.is_available === undefined
+  ) {
+    const status = normalized.availability_status.toLowerCase();
+    normalized.is_available = ['online', 'available', 'active', 'ready'].includes(status);
+  }
+
+  return normalized;
+};
+
 export const driverAPI = {
   // Toggle driver online/offline (legacy)
   setAvailability: (
@@ -553,11 +575,11 @@ export const driverAPI = {
     location?: any
   ) => {
     const payload = isRecord(statusOrPayload)
-      ? statusOrPayload
-      : {
+      ? normalizeAvailabilityPayload(statusOrPayload)
+      : normalizeAvailabilityPayload({
           availability_status: statusOrPayload,
           location,
-        };
+        });
     return axiosInstance.put(`/api/drivers/${driverId}/availability`, payload);
   },
 
