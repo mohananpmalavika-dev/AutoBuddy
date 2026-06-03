@@ -29,6 +29,7 @@ import {
 import { useKeralaSafety } from '../hooks/useKeralaSafety';
 import RideCard from '../components/RideCard';
 import DriverTabBar from '../components/DriverTabBar';
+import DriverDebugPage from './DriverDebugPage';
 import EarningsPanel from '../components/EarningsPanel';
 import VoiceTextInput from '../components/VoiceTextInput';
 import DocumentUploadPanel from '../components/DocumentUploadPanel';
@@ -314,6 +315,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     avg_response_time: 0,
   });
   const [analyticsHistory, setAnalyticsHistory] = useState([]);
+  const [showDebug, setShowDebug] = useState(false);
 
   const setAvailabilitySyncPendingState = useCallback((value) => {
     const nextValue = !!value;
@@ -2063,6 +2065,9 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
         <WebCommandBar />
+        <TouchableOpacity style={styles.debugButton} onPress={() => setShowDebug(true)}>
+          <Text style={styles.debugButtonText}>Debug</Text>
+        </TouchableOpacity>
         <View style={styles.mapContainer}>
           <WebGoogleLiveMap
             apiKey={googleMapsWebKey}
@@ -2912,6 +2917,14 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
           </ScrollView>
         </View>
       </View>
+      {showDebug && (
+        <View style={styles.debugOverlay}>
+          <TouchableOpacity style={styles.debugCloseButton} onPress={() => setShowDebug(false)}>
+            <Text style={styles.debugCloseText}>Close Debug</Text>
+          </TouchableOpacity>
+          <DriverDebugPage />
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -2959,6 +2972,39 @@ const styles = StyleSheet.create({
     ...TYPOGRAPHY.malayalam,
     fontSize: 12,
   },
+  debugButton: {
+    position: 'absolute',
+    top: 12,
+    right: 16,
+    backgroundColor: COLORS.primary,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    zIndex: 50,
+  },
+  debugButtonText: { color: '#fff', fontWeight: '700' },
+  debugOverlay: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    zIndex: 9999,
+    paddingTop: 60,
+    paddingHorizontal: 16,
+    overflow: 'auto',
+  },
+  debugCloseButton: {
+    position: 'fixed',
+    top: 16,
+    right: 16,
+    backgroundColor: '#fff',
+    padding: 8,
+    borderRadius: 6,
+    zIndex: 10000,
+  },
+  debugCloseText: { fontWeight: '700' },
   mapFallback: {
     height: 220,
     borderRadius: 18,
