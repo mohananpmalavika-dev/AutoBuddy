@@ -29,7 +29,6 @@ import {
 import { useKeralaSafety } from '../hooks/useKeralaSafety';
 import RideCard from '../components/RideCard';
 import DriverTabBar from '../components/DriverTabBar';
-import DriverDebugPage from './DriverDebugPage';
 import EarningsPanel from '../components/EarningsPanel';
 import VoiceTextInput from '../components/VoiceTextInput';
 import DocumentUploadPanel from '../components/DocumentUploadPanel';
@@ -1608,7 +1607,8 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     availabilityToggleInFlightRef.current = true;
     setAvailabilityToggleInFlight(true);
     setAvailabilitySyncPendingState(true);
-    setAvailabilityPendingDesired(null);
+    setAvailabilityPendingDesired(next);
+    setIsOnline(next);
     setError('');
     setMessage('Updating availability...');
 

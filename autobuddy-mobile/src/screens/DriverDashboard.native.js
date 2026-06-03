@@ -34,7 +34,6 @@ import RideCommunicationCard from '../components/RideCommunicationCard';
 import VoiceTextInput from '../components/VoiceTextInput';
 import RideCard from '../components/RideCard';
 import DriverTabBar from '../components/DriverTabBar';
-import DriverDebugPage from './DriverDebugPage';
 import EarningsPanel from '../components/EarningsPanel';
 import DocumentUploadPanel from '../components/DocumentUploadPanel';
 import DriverFareDisplay from '../components/DriverFareDisplay';
@@ -328,7 +327,6 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   const { unreadCount } = useNotifications();
   const { updatePreference } = usePreferences();
   const [driverLocation, setDriverLocation] = useState(DEFAULT_DRIVER_LOCATION);
-  const [showDebug, setShowDebug] = useState(false);
   const [pendingRequests, setPendingRequests] = useState([]);
   const [upcomingRides, setUpcomingRides] = useState(null);
   const [blockedPassengerIds, setBlockedPassengerIds] = useState([]);
@@ -3092,26 +3090,6 @@ const styles = StyleSheet.create({
   },
   sheetBackground: { backgroundColor: COLORS.surface, borderRadius: 24, ...SHADOWS.card },
   sheetScroll: { flex: 1 },
-  debugOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    zIndex: 9999,
-    paddingTop: 60,
-  },
-  debugCloseButton: {
-    position: 'absolute',
-    top: 60,
-    right: 16,
-    backgroundColor: '#fff',
-    padding: 8,
-    borderRadius: 6,
-    zIndex: 10000,
-  },
-  debugCloseText: { fontWeight: '700' },
   sheetContent: { padding: 20, flexGrow: 1, paddingBottom: 26 },
   title: { fontSize: 22, fontWeight: '900', color: COLORS.textMain, marginBottom: 10 },
   dashboardTopRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
