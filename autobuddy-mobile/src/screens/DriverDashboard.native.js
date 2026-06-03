@@ -2281,20 +2281,8 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
           <TouchableOpacity style={styles.refreshButton} onPress={onLogout}>
             <Text style={styles.refreshText}>Logout</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.refreshButton} onPress={() => setShowDebug(true)}>
-            <Text style={styles.refreshText}>Debug</Text>
-          </TouchableOpacity>
         </View>
       </View>
-
-      {showDebug && (
-        <View style={styles.debugOverlay}>
-          <TouchableOpacity style={styles.debugCloseButton} onPress={() => setShowDebug(false)}>
-            <Text style={styles.debugCloseText}>Close Debug</Text>
-          </TouchableOpacity>
-          <DriverDebugPage />
-        </View>
-      )}
 
       <BottomSheet index={0} snapPoints={snapPoints} backgroundStyle={styles.sheetBackground}>
         {renderStickyActiveRideBar()}
