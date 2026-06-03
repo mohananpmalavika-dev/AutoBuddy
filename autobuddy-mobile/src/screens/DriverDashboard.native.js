@@ -412,10 +412,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   const shouldSyncDriverLocation =
     (shareLocationWhileOnline && serverIsOnline && !availabilitySyncPending) || activeRideSharesLocation;
   const shouldPushAvailabilityLocation = shareLocationWhileOnline || activeRideSharesLocation;
-  const displayIsOnline = !!serverIsOnline;
-  const pendingDisplayIsOnline =
-    availabilityPendingDesired == null ? displayIsOnline : !!availabilityPendingDesired;
-  
+
   const driverAvailability = useMemo(() => buildDriverAvailabilityState({
     serverIsOnline,
     localIsOnline: isOnline,
@@ -433,6 +430,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     isOnline,
     serverIsOnline,
   ]);
+  const displayIsOnline = driverAvailability.isOnline;
   const resolvedDriverStatusLabel = useMemo(() => {
     if (driverAvailability.label) {
       return driverAvailability.label;

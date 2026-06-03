@@ -26,11 +26,25 @@ export default function AvailabilityStatusCard({
     label = '',
     tone = '',
   } = availability;
-  const labelIsOnline = syncing ? !!desiredIsOnline : !!isOnline;
   const fallbackTone = syncing ? 'syncing' : isOnline ? 'online' : 'offline';
   const resolvedTone = tone || fallbackTone;
+  const labelIsOnline = syncing
+    ? !!desiredIsOnline
+    : resolvedTone === 'online'
+      ? true
+      : resolvedTone === 'offline'
+        ? false
+        : !!isOnline;
   // Prefer the label that reflects the user's desired/visible state (labelIsOnline)
   // so the UI shows the intent (or live location) even when brief server states lag.
+  const normalizedLabel = String(label || '').toLowerCase();
+  const labelSaysOnline = /\bonline\b|\bavailable\b|\bready\b/.test(normalizedLabel);
+  const labelSaysOffline = /\boffline\b|\bunavailable\b/.test(normalizedLabel);
+  const labelMatchesVisibleState =
+    !label ||
+    (labelIsOnline && labelSaysOnline && !labelSaysOffline) ||
+    (!labelIsOnline && labelSaysOffline && !labelSaysOnline) ||
+    (syncing && !labelSaysOnline && !labelSaysOffline);
   const fallbackLabel = syncing
     ? labelIsOnline
       ? 'GOING ONLINE...'
@@ -38,7 +52,7 @@ export default function AvailabilityStatusCard({
     : labelIsOnline
       ? 'ONLINE — Receiving requests'
       : 'OFFLINE — Tap to go online';
-  const resolvedLabel = label || fallbackLabel;
+  const resolvedLabel = labelMatchesVisibleState ? label || fallbackLabel : fallbackLabel;
 
   // Determine colors based on tone
   const colorMap = useMemo(
@@ -79,7 +93,7 @@ export default function AvailabilityStatusCard({
         hint: 'Waiting for server confirmation',
       };
     }
-    if (isOnline) {
+    if (labelIsOnline) {
       return {
         icon: '●',
         detail: 'Ready for requests',
@@ -91,7 +105,7 @@ export default function AvailabilityStatusCard({
       detail: 'Not accepting requests',
       hint: 'You are currently offline',
     };
-  }, [labelIsOnline, syncing, isOnline]);
+  }, [labelIsOnline, syncing]);
 
   return (
     <View style={[styles.container, { borderColor: colors.border, backgroundColor: colors.background }]}>
@@ -169,7 +183,7 @@ export default function AvailabilityStatusCard({
           activeOpacity={0.7}
         >
           <Text style={[styles.toggleButtonText, { color: colors.text }]}>
-            {loading ? 'Updating...' : isOnline ? 'Go Offline' : 'Go Online'}
+            {loading ? 'Updating...' : labelIsOnline ? 'Go Offline' : 'Go Online'}
           </Text>
         </TouchableOpacity>
 

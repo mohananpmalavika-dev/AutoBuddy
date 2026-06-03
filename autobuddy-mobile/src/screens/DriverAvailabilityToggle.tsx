@@ -14,10 +14,23 @@ import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { driverAPI } from '@/services/apiClient';
 import { formatToIST } from '../utils/time';
 import { getSocket } from '@/services/socketClient';
+import { readDriverAvailability } from '../lib/driverAvailabilityStatus';
 
 type LocationPoint = {
   latitude: number;
   longitude: number;
+};
+
+const getAvailabilityPayload = (payload: Record<string, any> | null | undefined) => {
+  if (
+    payload?.data &&
+    payload.data !== payload &&
+    typeof payload.data === 'object' &&
+    !Array.isArray(payload.data)
+  ) {
+    return { ...payload, ...payload.data };
+  }
+  return payload || {};
 };
 
 const DriverAvailabilityToggle: React.FC<{ driverId: string }> = ({ driverId }) => {
@@ -37,13 +50,30 @@ const DriverAvailabilityToggle: React.FC<{ driverId: string }> = ({ driverId }) 
     try {
       setLoading(true);
       const status = await driverAPI.getAvailability(driverId);
-      setIsOnline(status.is_available === true);
-      setCurrentLocation(status.current_location || null);
-      setLastUpdated(status.availability_updated_at || new Date());
-      setShiftStarted(Boolean(status.shift_active || status.shift_started));
+      const statusPayload = getAvailabilityPayload(status);
+      setIsOnline(readDriverAvailability(status, false));
+      setCurrentLocation(
+        statusPayload.current_location ||
+          statusPayload.currentLocation ||
+          statusPayload.location ||
+          null
+      );
+      setLastUpdated(
+        statusPayload.availability_updated_at ||
+          statusPayload.availabilityUpdatedAt ||
+          statusPayload.updated_at ||
+          statusPayload.last_updated ||
+          new Date()
+      );
+      setShiftStarted(Boolean(
+        statusPayload.shift_active ||
+          statusPayload.shift_started ||
+          statusPayload.shiftActive ||
+          statusPayload.shiftStarted
+      ));
       
-      if (status.earnings) {
-        setEarnings(status.earnings);
+      if (statusPayload.earnings) {
+        setEarnings(statusPayload.earnings);
       }
     } catch (error) {
       console.error('Error loading availability status:', error);
@@ -66,11 +96,7 @@ const DriverAvailabilityToggle: React.FC<{ driverId: string }> = ({ driverId }) 
 
     socket.on('driver_availability_changed', (data) => {
       if (data.driver_id === driverId) {
-        const isOnline =
-          typeof data.is_available === 'boolean'
-            ? data.is_available
-            : data.is_online;
-        setIsOnline(isOnline);
+        setIsOnline((previous) => readDriverAvailability(data, previous));
         setLastUpdated(new Date());
       }
     });
@@ -102,14 +128,19 @@ const DriverAvailabilityToggle: React.FC<{ driverId: string }> = ({ driverId }) 
         is_available: value,
       };
 
-      if (currentLocation?.latitude != null && currentLocation?.longitude != null) {
+      if (
+        currentLocation?.latitude !== null &&
+        currentLocation?.latitude !== undefined &&
+        currentLocation?.longitude !== null &&
+        currentLocation?.longitude !== undefined
+      ) {
         payload.latitude = currentLocation.latitude;
         payload.longitude = currentLocation.longitude;
       }
 
-      await driverAPI.setAvailability(driverId, payload);
+      const updated = await driverAPI.setAvailability(driverId, payload);
 
-      setIsOnline(value);
+      setIsOnline(readDriverAvailability(updated, value));
       Alert.alert(
         'Success',
         value ? 'You are now online' : 'You are now offline'
@@ -162,7 +193,7 @@ const DriverAvailabilityToggle: React.FC<{ driverId: string }> = ({ driverId }) 
             const shiftEarnings =
               response.shift_earnings ?? response.earnings ?? response.earnings_today;
 
-            if (shiftEarnings != null) {
+            if (shiftEarnings !== null && shiftEarnings !== undefined) {
               setEarnings((prev) => ({
                 ...prev,
                 total: Number(shiftEarnings) || prev.total,
@@ -234,7 +265,17 @@ const DriverAvailabilityToggle: React.FC<{ driverId: string }> = ({ driverId }) 
 
           <View style={styles.availabilityCard}>
             <View style={styles.availabilityHeader}>
-              <Text style={styles.availabilityLabel}>Status</Text>
+              <View style={styles.availabilityStatusGroup}>
+                <Text style={styles.availabilityLabel}>Status</Text>
+                <Text
+                  style={[
+                    styles.availabilityStateText,
+                    { color: isOnline ? '#51CF66' : '#95A5A6' },
+                  ]}
+                >
+                  {isOnline ? 'Online' : 'Offline'}
+                </Text>
+              </View>
               <Switch
                 value={isOnline}
                 onValueChange={handleToggleAvailability}
@@ -469,10 +510,17 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  availabilityStatusGroup: {
+    gap: 4,
+  },
   availabilityLabel: {
     fontSize: 16,
     fontWeight: '600',
     color: '#333',
+  },
+  availabilityStateText: {
+    fontSize: 13,
+    fontWeight: '700',
   },
   warningText: {
     fontSize: 12,
