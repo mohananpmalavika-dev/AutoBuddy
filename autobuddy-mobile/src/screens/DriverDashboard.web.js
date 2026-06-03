@@ -404,7 +404,15 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     localTrackingOnline,
     serverIsOnline,
   ]);
-  const displayIsOnline = driverAvailability.tone === 'online' || driverAvailability.isOnline;
+  const hasVisibleDriverLocation =
+    Number.isFinite(Number(driverGPSLocation?.latitude ?? driverLocation?.latitude)) &&
+    Number.isFinite(Number(driverGPSLocation?.longitude ?? driverLocation?.longitude));
+  const displayIsOnline =
+    driverAvailability.tone === 'online' ||
+    driverAvailability.isOnline ||
+    gpsTrackingOnline ||
+    localTrackingOnline ||
+    hasVisibleDriverLocation;
   const displayAvailabilityTone = driverAvailability.syncing
     ? 'syncing'
     : displayIsOnline
