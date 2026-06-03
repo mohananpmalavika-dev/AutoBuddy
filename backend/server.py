@@ -7950,6 +7950,8 @@ async def update_driver_availability(
     now_utc = get_ist_now()
     driver_insert_defaults = build_default_driver_profile(current_user["id"])
     driver_insert_defaults.pop("is_available", None)
+    driver_insert_defaults.pop("current_location", None)
+    driver_insert_defaults.pop("current_location_geo", None)
 
     try:
         # Update availability with retries
