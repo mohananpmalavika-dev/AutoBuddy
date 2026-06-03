@@ -404,15 +404,21 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     localTrackingOnline,
     serverIsOnline,
   ]);
+  const displayIsOnline = driverAvailability.tone === 'online' || driverAvailability.isOnline;
+  const displayAvailabilityTone = driverAvailability.syncing
+    ? 'syncing'
+    : displayIsOnline
+      ? 'online'
+      : 'offline';
   const resolvedDriverStatusLabel = useMemo(() => {
-    if (driverAvailability.label) {
-      return driverAvailability.label;
+    if (driverAvailability.syncing) {
+      return driverAvailability.desiredIsOnline ? 'GOING ONLINE...' : 'GOING OFFLINE...';
     }
-    return driverAvailability.isOnline ? 'ONLINE & READY' : 'OFFLINE';
-  }, [driverAvailability.isOnline, driverAvailability.label]);
+    return displayIsOnline ? 'ONLINE & READY' : 'OFFLINE';
+  }, [displayIsOnline, driverAvailability.desiredIsOnline, driverAvailability.syncing]);
 
   const shouldSyncDriverLocation =
-    (shareLocationWhileOnline && driverAvailability.isOnline && !driverAvailability.syncing) ||
+    (shareLocationWhileOnline && displayIsOnline && !driverAvailability.syncing) ||
     activeRideSharesLocation;
   const visibleMessage = getVisibleAvailabilityMessage(message);
 
@@ -1397,7 +1403,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
 
   const handleQuickActionPress = (action) => {
     runDriverQuickAction(action, {
-      isOnline: driverAvailability.isOnline,
+      isOnline: displayIsOnline,
       hasActiveRide: Boolean(activeRideId),
       setError,
       setMessage,
@@ -1446,7 +1452,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     token,
     socketRef,
     activeRideId,
-    heartbeatEnabled: driverAvailability.isOnline,
+    heartbeatEnabled: displayIsOnline,
     refreshDriverRideQueueFromRealtime,
     onSocketError: handleDriverRideSocketError,
   });
@@ -1602,7 +1608,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       return;
     }
 
-    const next = !driverAvailability.isOnline;
+    const next = !displayIsOnline;
     availabilityToggleInFlightRef.current = true;
     setAvailabilityToggleInFlight(true);
     setAvailabilitySyncPendingState(true);
@@ -1664,7 +1670,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       setAvailabilityPendingDesired(null);
     }
   }, [
-    driverAvailability.isOnline,
+    displayIsOnline,
     token,
     apiRequest,
     isDriverReadyToDrive,
@@ -2101,15 +2107,15 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                 styles.statusBadgeButton,
                 {
                   backgroundColor:
-                    driverAvailability.tone === 'syncing'
+                    displayAvailabilityTone === 'syncing'
                       ? '#FFF7E6'
-                      : driverAvailability.tone === 'online'
+                      : displayAvailabilityTone === 'online'
                       ? '#E8F5E9'
                       : '#F5F5F5',
                   borderColor:
-                    driverAvailability.tone === 'syncing'
+                    displayAvailabilityTone === 'syncing'
                       ? '#FFA500'
-                      : driverAvailability.tone === 'online'
+                      : displayAvailabilityTone === 'online'
                       ? '#2E7D32'
                       : '#BDBDBD',
                 },
@@ -2122,9 +2128,9 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                   styles.statusDot,
                   {
                     backgroundColor:
-                      driverAvailability.tone === 'syncing'
+                      displayAvailabilityTone === 'syncing'
                         ? '#FFA500'
-                        : driverAvailability.tone === 'online'
+                        : displayAvailabilityTone === 'online'
                         ? '#2E7D32'
                         : '#8A8A8A',
                   },
@@ -2136,9 +2142,9 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                     styles.statusText,
                     {
                       color:
-                        driverAvailability.tone === 'syncing'
+                        displayAvailabilityTone === 'syncing'
                           ? '#B26A00'
-                          : driverAvailability.tone === 'online'
+                          : displayAvailabilityTone === 'online'
                           ? '#2E7D32'
                           : '#666',
                     },
@@ -2188,7 +2194,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
               upcomingCount={upcomingRideCount}
               notificationCount={unreadCount}
               menuBadges={menuBadges}
-              isOnline={driverAvailability.isOnline}
+              isOnline={displayIsOnline}
               statusLabel={resolvedDriverStatusLabel}
               statusSyncing={driverAvailability.syncing}
             />
@@ -2206,7 +2212,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                 onMessage={focusRideCommunication}
                 onCall={openActiveRideCall}
                 onMapPress={openActiveRideMap}
-                isOnline={driverAvailability.isOnline}
+                isOnline={displayIsOnline}
                 loading={loading}
                 expanded={expandedRideCard}
                 onToggleExpand={setExpandedRideCard}
@@ -2356,7 +2362,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
               ) : null}
 
               {!activeRide && (
-                driverAvailability.isOnline ? (
+                displayIsOnline ? (
                   pendingRequests.length === 0 ? (
                     <PremiumEmptyState
                       title="No pending requests"
@@ -2903,7 +2909,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
             <EnhancedSettingsPanel
               token={token}
               loading={loading}
-              displayIsOnline={driverAvailability.isOnline}
+              displayIsOnline={displayIsOnline}
               onToggleOnline={toggleOnlineStatus}
               onNavigateToTab={handleSettingsNavigateToTab}
               onSettingsChange={handleDriverSettingsChange}
