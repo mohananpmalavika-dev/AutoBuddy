@@ -132,14 +132,17 @@ const AVAILABILITY_TRANSIENT_MESSAGE_PARTS = [
   'checking ready to drive',
   'going online',
   'going offline',
+  'pausing requests',
 ];
 const AVAILABILITY_ONLINE_SUCCESS_MESSAGE_PARTS = [
   'you are now online',
   'you are online and discoverable',
+  'ready for ride requests',
 ];
 const AVAILABILITY_OFFLINE_SUCCESS_MESSAGE_PARTS = [
   'you are now offline',
   'you are offline',
+  'paused new requests',
 ];
 
 function isAvailabilityTransientMessage(value) {
@@ -159,6 +162,10 @@ function getVisibleAvailabilityMessage(value) {
     return '';
   }
   return value;
+}
+
+function getAvailabilityDisplayText(value) {
+  return String(value || '').replace(/offline/gi, 'paused').trim();
 }
 
 function normalizeDriverSettings(rawSettings = {}) {
@@ -432,17 +439,36 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     ? 'syncing'
     : displayIsOnline
       ? 'online'
-      : 'offline';
+      : 'paused';
   const resolvedDriverStatusLabel = useMemo(() => {
     if (driverAvailability.syncing) {
-      return driverAvailability.desiredIsOnline ? 'GOING ONLINE...' : 'GOING OFFLINE...';
+      return driverAvailability.desiredIsOnline ? 'GOING ONLINE...' : 'PAUSING REQUESTS...';
     }
-    return displayAvailabilityTone === 'online' ? 'ONLINE & READY' : 'OFFLINE';
+    return displayAvailabilityTone === 'online' ? 'ACCEPTING RIDES' : 'PAUSED';
   }, [displayAvailabilityTone, driverAvailability.desiredIsOnline, driverAvailability.syncing]);
+  const displayDriverAvailability = useMemo(() => ({
+    ...driverAvailability,
+    isOnline: displayIsOnline,
+    desiredIsOnline: driverAvailability.syncing ? driverAvailability.desiredIsOnline : displayIsOnline,
+    label: resolvedDriverStatusLabel,
+    status:
+      displayAvailabilityTone === 'syncing'
+        ? driverAvailability.status
+        : displayAvailabilityTone === 'online'
+          ? 'online'
+          : 'paused',
+    tone: displayAvailabilityTone,
+  }), [
+    displayAvailabilityTone,
+    displayIsOnline,
+    driverAvailability,
+    resolvedDriverStatusLabel,
+  ]);
 
   const shouldSyncDriverLocation =
     (shareLocationWhileOnline && displayIsOnline && !driverAvailability.syncing) ||
     activeRideSharesLocation;
+  const visibleError = getAvailabilityDisplayText(error);
   const visibleMessage = getVisibleAvailabilityMessage(message);
 
   const { sosActive, sosError, sosMessage, triggerSOS, cancelSOS } = useSOSAlert({
@@ -967,7 +993,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         setLocalTrackingOnline(false);
         setDriverLocation(null);
       }
-      setMessage(savedStatus ? '' : 'You are offline.');
+      setMessage(savedStatus ? '' : 'Paused new requests.');
     } catch (err) {
       if (isRetriableAvailabilityError(err)) {
         pendingAvailabilitySyncRef.current = {
@@ -979,7 +1005,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         availabilityLocalChangeAtRef.current = Date.now();
         setAvailabilityPendingDesired(!!pending.desired);
         setAvailabilitySyncPendingState(true);
-        setError(getAvailabilityErrorMessage(err));
+        setError(getAvailabilityDisplayText(getAvailabilityErrorMessage(err)));
         setMessage('Availability sync queued. Retrying automatically.');
       } else {
         pendingAvailabilitySyncRef.current = null;
@@ -987,7 +1013,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         setAvailabilitySyncPendingState(false);
         setServerIsOnline(serverIsOnline);
         setIsOnline(serverIsOnline);
-        setError(getAvailabilityErrorMessage(err));
+        setError(getAvailabilityDisplayText(getAvailabilityErrorMessage(err)));
         setMessage('');
       }
     } finally {
@@ -1638,7 +1664,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     setAvailabilityPendingDesired(next);
     setIsOnline(next);
     setError('');
-    setMessage('Updating availability...');
+    setMessage(next ? 'Going online...' : 'Pausing requests...');
 
     try {
       // If going online, ensure driver readiness first
@@ -1671,15 +1697,15 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       if (confirmedStatus !== next) {
         if (!next && confirmedStatus) {
           setError('');
-          setMessage('');
+          setMessage('Still accepting rides.');
           return;
         }
-        setError(next ? 'Server did not confirm online status.' : 'You are still online.');
+        setError(next ? 'Server did not confirm online status.' : 'You are still accepting rides.');
         setMessage('');
         return;
       }
 
-      setMessage(confirmedStatus ? '' : 'You are now offline.');
+      setMessage(confirmedStatus ? 'Ready for ride requests.' : 'Paused new requests.');
       if (confirmedStatus) {
         await pushDriverLocation({ silent: true });
       } else {
@@ -1689,7 +1715,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         setDriverLocation(null);
       }
     } catch (err) {
-      setError(getAvailabilityErrorMessage(err) || err?.message || 'Availability update failed');
+      setError(getAvailabilityDisplayText(getAvailabilityErrorMessage(err) || err?.message || 'Availability update failed'));
       setMessage('');
     } finally {
       availabilityToggleInFlightRef.current = null;
@@ -2180,7 +2206,9 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                 >
                   {resolvedDriverStatusLabel}
                 </Text>
-                <Text style={styles.statusSub}>{user?.name || 'Driver'} - Tap to toggle</Text>
+                <Text style={styles.statusSub}>
+                  {user?.name || 'Driver'} - {displayIsOnline ? 'Tap to pause requests' : 'Tap to go online'}
+                </Text>
               </View>
               {driverAvailability.syncing && <ActivityIndicator size="small" color="#FFA500" />}
             </TouchableOpacity>
@@ -2209,7 +2237,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
               Current location: {driverLocation.address || `${driverLocation.latitude}, ${driverLocation.longitude}`}
             </Text>
           )}
-          {!!error && <Text style={styles.error}>{error}</Text>}
+          {!!visibleError && <Text style={styles.error}>{visibleError}</Text>}
           {!!visibleMessage && <Text style={styles.message}>{visibleMessage}</Text>}
           {loading && <ActivityIndicator color={COLORS.primary} style={styles.loader} />}
 
@@ -2261,8 +2289,8 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                     </GlassCard>
                   </FadeSlideView>
                   <AvailabilityStatusCard
-                    availability={driverAvailability}
-                    error={error}
+                    availability={displayDriverAvailability}
+                    error={visibleError}
                     message={visibleMessage}
                     onToggle={toggleOnlineStatus}
                     loading={availabilityToggleInFlight}
@@ -2486,8 +2514,8 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                   )
                 ) : (
                   <PremiumEmptyState
-                    title="You are offline"
-                    subtitle="Switch online to receive nearby ride requests."
+                    title="Paused new requests"
+                    subtitle="Go online to receive nearby ride requests."
                     malayalam="Go online to receive requests."
                   />
                 )

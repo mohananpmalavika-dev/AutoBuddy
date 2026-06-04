@@ -26,13 +26,13 @@ export default function AvailabilityStatusCard({
     label = '',
     tone = '',
   } = availability;
-  const fallbackTone = syncing ? 'syncing' : isOnline ? 'online' : 'offline';
+  const fallbackTone = syncing ? 'syncing' : isOnline ? 'online' : 'paused';
   const resolvedTone = tone || fallbackTone;
   const labelIsOnline = syncing
     ? !!desiredIsOnline
     : resolvedTone === 'online'
       ? true
-      : resolvedTone === 'offline'
+      : resolvedTone === 'offline' || resolvedTone === 'paused'
         ? false
         : !!isOnline;
   // Prefer the label that reflects the user's desired/visible state (labelIsOnline)
@@ -48,10 +48,10 @@ export default function AvailabilityStatusCard({
   const fallbackLabel = syncing
     ? labelIsOnline
       ? 'GOING ONLINE...'
-      : 'GOING OFFLINE...'
+      : 'PAUSING REQUESTS...'
     : labelIsOnline
-      ? 'ONLINE — Receiving requests'
-      : 'OFFLINE — Tap to go online';
+      ? 'ACCEPTING RIDES'
+      : 'PAUSED — Tap to go online';
   const resolvedLabel = labelMatchesVisibleState ? label || fallbackLabel : fallbackLabel;
 
   // Determine colors based on tone
@@ -71,25 +71,32 @@ export default function AvailabilityStatusCard({
         text: '#B26A00',
         subText: '#FF9800',
       },
+      paused: {
+        background: '#F5F5F5',
+        border: '#8A8A8A',
+        dot: '#7C8780',
+        text: '#455A64',
+        subText: '#66796E',
+      },
       offline: {
-        background: '#FFEBEE',
-        border: '#F44336',
-        dot: '#D32F2F',
-        text: '#B71C1C',
-        subText: '#D32F2F',
+        background: '#F5F5F5',
+        border: '#8A8A8A',
+        dot: '#7C8780',
+        text: '#455A64',
+        subText: '#66796E',
       },
     }),
     [],
   );
 
-  const colors = colorMap[resolvedTone] || colorMap.offline;
+  const colors = colorMap[resolvedTone] || colorMap.paused;
 
   // Status details
   const statusDetails = useMemo(() => {
     if (syncing) {
       return {
         icon: '⟳',
-        detail: labelIsOnline ? 'Going online...' : 'Going offline...',
+        detail: labelIsOnline ? 'Going online...' : 'Pausing requests...',
         hint: 'Waiting for server confirmation',
       };
     }
@@ -103,7 +110,7 @@ export default function AvailabilityStatusCard({
     return {
       icon: '○',
       detail: 'Not accepting requests',
-      hint: 'You are currently offline',
+      hint: 'Go online when you are ready',
     };
   }, [labelIsOnline, syncing]);
 
@@ -183,7 +190,7 @@ export default function AvailabilityStatusCard({
           activeOpacity={0.7}
         >
           <Text style={[styles.toggleButtonText, { color: colors.text }]}>
-            {loading ? 'Updating...' : labelIsOnline ? 'Go Offline' : 'Go Online'}
+            {loading ? 'Updating...' : labelIsOnline ? 'Pause Requests' : 'Go Online'}
           </Text>
         </TouchableOpacity>
 
