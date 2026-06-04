@@ -380,10 +380,13 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     enabled: gpsTrackingEnabled,
     syncToBackend: false,
   });
+  const driverGPSLatitude = driverGPSLocation?.latitude ?? driverGPSLocation?.lat;
+  const driverGPSLongitude =
+    driverGPSLocation?.longitude ?? driverGPSLocation?.lng ?? driverGPSLocation?.lon;
   const gpsTrackingOnline =
     isTracking &&
-    Number.isFinite(Number(driverGPSLocation?.latitude)) &&
-    Number.isFinite(Number(driverGPSLocation?.longitude));
+    Number.isFinite(Number(driverGPSLatitude)) &&
+    Number.isFinite(Number(driverGPSLongitude));
   const driverAvailability = useMemo(() => buildDriverAvailabilityState({
     serverIsOnline,
     localIsOnline: isOnline || localTrackingOnline || gpsTrackingOnline || isTracking,
@@ -405,21 +408,19 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     localTrackingOnline,
     serverIsOnline,
   ]);
-  const visibleDriverLatitude =
-    driverGPSLocation?.latitude ??
-    driverGPSLocation?.lat ??
-    driverLocation?.latitude ??
-    driverLocation?.lat;
+  const visibleDriverLatitude = driverGPSLatitude ?? driverLocation?.latitude ?? driverLocation?.lat;
   const visibleDriverLongitude =
-    driverGPSLocation?.longitude ??
-    driverGPSLocation?.lng ??
-    driverGPSLocation?.lon ??
+    driverGPSLongitude ??
     driverLocation?.longitude ??
     driverLocation?.lng ??
     driverLocation?.lon;
   const hasVisibleDriverLocation =
-    Number.isFinite(Number(visibleDriverLatitude)) &&
-    Number.isFinite(Number(visibleDriverLongitude));
+    hasLiveLocationSignal(driverGPSLocation) ||
+    hasLiveLocationSignal(driverLocation) ||
+    (
+      Number.isFinite(Number(visibleDriverLatitude)) &&
+      Number.isFinite(Number(visibleDriverLongitude))
+    );
   const displayIsOnline =
     driverAvailability.tone === 'online' ||
     driverAvailability.isOnline ||

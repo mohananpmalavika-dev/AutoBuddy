@@ -51,6 +51,25 @@ describe('driverAvailabilityStatus', () => {
     });
   });
 
+  it('treats an address-only live location as an online signal', () => {
+    const liveLocation = {
+      address: 'Live location',
+    };
+
+    expect(hasLiveLocationSignal(liveLocation)).toBe(true);
+    expect(
+      buildDriverAvailabilityState({
+        serverIsOnline: false,
+        localIsOnline: false,
+        driverLocation: liveLocation,
+      }),
+    ).toMatchObject({
+      isOnline: true,
+      label: 'ONLINE & READY',
+      tone: 'online',
+    });
+  });
+
   it('stays offline when every signal is negative', () => {
     expect(
       buildDriverAvailabilityState({
