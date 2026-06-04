@@ -207,6 +207,28 @@ function defaultRolewiseUserReportState() {
   };
 }
 
+function toOverviewNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeAdminDashboardStats(payload) {
+  const source =
+    payload?.data && payload.data !== payload && typeof payload.data === 'object'
+      ? payload.data
+      : payload || {};
+  return {
+    total_users: toOverviewNumber(source.total_users),
+    total_drivers: toOverviewNumber(source.total_drivers),
+    total_passengers: toOverviewNumber(source.total_passengers),
+    total_operators: toOverviewNumber(source.total_operators),
+    total_bookings: toOverviewNumber(source.total_bookings),
+    completed_bookings: toOverviewNumber(source.completed_bookings),
+    active_bookings: toOverviewNumber(source.active_bookings),
+    total_revenue: toOverviewNumber(source.total_revenue),
+  };
+}
+
 function normalizeListResponse(payload, keys = []) {
   if (Array.isArray(payload)) {
     return payload;
@@ -533,6 +555,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
     const spinWinSettings = await adminAPI.getSpinWinConfig().catch(() => null);
     const spinWinWinnerRows = await adminAPI.getSpinWinWinners({ limit: 50 }).catch(() => []);
     const rideProductsDistrictSettings = await adminAPI.getRideProductsDistrictConfig().catch(() => null);
+    const dashboardStats = normalizeAdminDashboardStats(dashboard);
     
     // Emit real-time Socket.IO event for metrics updates
     const socket = getSocket();
@@ -542,7 +565,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
     });
 
     if (dashboard) {
-      setStats(dashboard);
+      setStats(dashboardStats);
     }
     if (pricingSettings) {
       setPricingRules({
@@ -618,6 +641,16 @@ export default function AdminDashboard({ token, user, onLogout }) {
       'operator',
     );
     const reportTotal = reportPassengers.length + reportDrivers.length + reportOperators.length;
+    const overviewStats = {
+      ...dashboardStats,
+      total_passengers: dashboardStats.total_passengers || reportPassengers.length,
+      total_drivers: dashboardStats.total_drivers || reportDrivers.length,
+      total_operators: dashboardStats.total_operators || reportOperators.length,
+      total_users: dashboardStats.total_users || reportTotal,
+    };
+    if (dashboard || reportTotal > 0) {
+      setStats(overviewStats);
+    }
     setRolewiseUserReport({
       passengers: reportPassengers,
       drivers: reportDrivers,

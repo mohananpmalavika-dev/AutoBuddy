@@ -2330,10 +2330,47 @@ def _safe_phone(value: Any) -> Optional[str]:
 
 
 def _normalize_role_text(value: Any) -> Optional[str]:
-    role = str(value or "").strip().lower()
+    role = str(getattr(value, "value", value) or "").strip().lower()
+    if "." in role:
+        role = role.split(".")[-1]
+    if role == "user":
+        role = UserRole.PASSENGER.value
     if role in {UserRole.PASSENGER.value, UserRole.DRIVER.value, UserRole.OPERATOR.value, UserRole.ADMIN.value}:
         return role
     return None
+
+
+def _role_query(*values: Any) -> Dict[str, Any]:
+    variants = set()
+    for value in values:
+        raw = str(getattr(value, "value", value) or "").strip()
+        normalized = _normalize_role_text(value)
+        for candidate in {raw, normalized or ""}:
+            candidate = str(candidate or "").strip()
+            if not candidate:
+                continue
+            variants.update(
+                {
+                    candidate,
+                    candidate.lower(),
+                    candidate.upper(),
+                    candidate.capitalize(),
+                    f"UserRole.{candidate.upper()}",
+                }
+            )
+    return {"$or": [{"role": {"$in": list(variants)}}, {"user_type": {"$in": list(variants)}}]}
+
+
+def _enum_query_values(*values: Any) -> List[Any]:
+    variants: List[Any] = []
+    for value in values:
+        if value not in variants:
+            variants.append(value)
+        raw = str(getattr(value, "value", value) or "").strip()
+        for candidate in {raw, raw.lower(), raw.upper()}:
+            if candidate and candidate not in variants:
+                variants.append(candidate)
+    return variants
 
 
 def _build_launch_identity(payload: Dict[str, Any], token_user: Optional[Dict[str, Any]]) -> Dict[str, Optional[str]]:
@@ -13563,18 +13600,30 @@ async def get_admin_dashboard(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Admin access required")
     
     total_users = await db.users.count_documents({})
-    total_drivers = await db.users.count_documents({"role": UserRole.DRIVER})
-    total_passengers = await db.users.count_documents({"role": UserRole.PASSENGER})
-    total_operators = await db.users.count_documents({"role": UserRole.OPERATOR})
+    total_drivers = await db.users.count_documents(_role_query(UserRole.DRIVER))
+    total_passengers = await db.users.count_documents(_role_query(UserRole.PASSENGER, "user"))
+    total_operators = await db.users.count_documents(_role_query(UserRole.OPERATOR))
+    driver_profiles = await db.drivers.count_documents({})
+    passenger_profiles = await db.passengers.count_documents({})
+    total_drivers = max(total_drivers, driver_profiles)
+    total_passengers = max(total_passengers, passenger_profiles)
+    total_users = max(total_users, total_drivers + total_passengers + total_operators)
     total_bookings = await db.bookings.count_documents({})
-    completed_bookings = await db.bookings.count_documents({"status": BookingStatus.COMPLETED})
+    completed_statuses = _enum_query_values(BookingStatus.COMPLETED)
+    active_statuses = _enum_query_values(
+        BookingStatus.PENDING,
+        BookingStatus.ACCEPTED,
+        BookingStatus.DRIVER_ARRIVED,
+        BookingStatus.IN_PROGRESS,
+    )
+    completed_bookings = await db.bookings.count_documents({"status": {"$in": completed_statuses}})
     active_bookings = await db.bookings.count_documents({
-        "status": {"$in": [BookingStatus.PENDING, BookingStatus.ACCEPTED, BookingStatus.DRIVER_ARRIVED, BookingStatus.IN_PROGRESS]}
+        "status": {"$in": active_statuses}
     })
     
     # Revenue - use aggregation pipeline for efficiency
     revenue_result = await db.bookings.aggregate([
-        {"$match": {"status": BookingStatus.COMPLETED}},
+        {"$match": {"status": {"$in": completed_statuses}}},
         {"$project": {"fare": {"$ifNull": ["$final_fare", "$estimated_fare"]}}},
         {"$group": {"_id": None, "total": {"$sum": "$fare"}}}
     ]).to_list(1)
@@ -13607,15 +13656,6 @@ async def get_admin_users_role_report(current_user: dict = Depends(get_current_u
         raise HTTPException(status_code=403, detail="Admin access required")
 
     role_keys = ["passenger", "driver", "operator"]
-    role_values = [
-        UserRole.PASSENGER,
-        UserRole.DRIVER,
-        UserRole.OPERATOR,
-        "passenger",
-        "driver",
-        "operator",
-        "user",
-    ]
     role_buckets: Dict[str, List[Dict[str, Any]]] = {
         "passengers": [],
         "drivers": [],
@@ -13623,7 +13663,7 @@ async def get_admin_users_role_report(current_user: dict = Depends(get_current_u
     }
 
     users = await db.users.find(
-        {"role": {"$in": role_values}},
+        _role_query(UserRole.PASSENGER, UserRole.DRIVER, UserRole.OPERATOR, "user"),
         {
             "_id": 0,
             "id": 1,
@@ -13631,6 +13671,7 @@ async def get_admin_users_role_report(current_user: dict = Depends(get_current_u
             "email": 1,
             "phone": 1,
             "role": 1,
+            "user_type": 1,
             "created_at": 1,
             "joined_at": 1,
             "createdAt": 1,
@@ -13640,10 +13681,7 @@ async def get_admin_users_role_report(current_user: dict = Depends(get_current_u
     ).sort("created_at", DESCENDING).to_list(10000)
 
     for user in users:
-        raw_role = user.get("role")
-        role = raw_role.value if hasattr(raw_role, "value") else str(raw_role or "").split(".")[-1].lower()
-        if role == "user":
-            role = "passenger"
+        role = _normalize_role_text(user.get("role") or user.get("user_type"))
         if role not in role_keys:
             continue
 
@@ -13682,7 +13720,7 @@ async def get_admin_users_live_status(current_user: dict = Depends(get_current_u
     if current_user["role"] != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    users = await db.users.find({"role": {"$in": [UserRole.DRIVER, UserRole.PASSENGER, UserRole.OPERATOR]}}).to_list(5000)
+    users = await db.users.find(_role_query(UserRole.DRIVER, UserRole.PASSENGER, UserRole.OPERATOR, "user")).to_list(5000)
     if not users:
         return {
             "drivers": [],
@@ -13692,8 +13730,8 @@ async def get_admin_users_live_status(current_user: dict = Depends(get_current_u
             "generated_at": get_ist_now(),
         }
 
-    driver_ids = [str(user.get("id") or "") for user in users if user.get("role") == UserRole.DRIVER and user.get("id")]
-    passenger_ids = [str(user.get("id") or "") for user in users if user.get("role") == UserRole.PASSENGER and user.get("id")]
+    driver_ids = [str(user.get("id") or "") for user in users if _normalize_role_text(user.get("role") or user.get("user_type")) == UserRole.DRIVER.value and user.get("id")]
+    passenger_ids = [str(user.get("id") or "") for user in users if _normalize_role_text(user.get("role") or user.get("user_type")) == UserRole.PASSENGER.value and user.get("id")]
 
     driver_profiles = await db.drivers.find({"user_id": {"$in": driver_ids}}).to_list(None) if driver_ids else []
     driver_profile_by_id = {str(profile.get("user_id")): profile for profile in driver_profiles if profile.get("user_id")}
@@ -13724,7 +13762,7 @@ async def get_admin_users_live_status(current_user: dict = Depends(get_current_u
 
     for user in users:
         user_id = str(user.get("id") or "")
-        role = user.get("role")
+        role = _normalize_role_text(user.get("role") or user.get("user_type"))
         base_payload = {
             "id": user_id,
             "name": user.get("name"),
@@ -13733,7 +13771,7 @@ async def get_admin_users_live_status(current_user: dict = Depends(get_current_u
             "created_at": user.get("created_at"),
         }
 
-        if role == UserRole.DRIVER:
+        if role == UserRole.DRIVER.value:
             profile = driver_profile_by_id.get(user_id, {})
             live_location = await get_effective_driver_location(profile)
             is_live = bool(live_location)
@@ -13752,7 +13790,7 @@ async def get_admin_users_live_status(current_user: dict = Depends(get_current_u
             )
             continue
 
-        if role == UserRole.PASSENGER:
+        if role == UserRole.PASSENGER.value:
             has_active_booking = user_id in active_booking_by_passenger_id
             is_live = bool(has_active_booking)
             if is_live:
@@ -13766,7 +13804,7 @@ async def get_admin_users_live_status(current_user: dict = Depends(get_current_u
             )
             continue
 
-        if role == UserRole.OPERATOR:
+        if role == UserRole.OPERATOR.value:
             operators.append(
                 {
                     **base_payload,
