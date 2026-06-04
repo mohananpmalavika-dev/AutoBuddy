@@ -27,6 +27,7 @@ describe('apiRequest integration', () => {
       saveSession: jest.fn(async () => undefined),
       clearSession: jest.fn(async () => undefined),
       extendSessionExpiry: jest.fn(async () => undefined),
+      isSessionValid: jest.fn(async () => false),
     }));
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     return require('./api') as typeof import('./api');
@@ -83,6 +84,7 @@ describe('apiRequest integration', () => {
       saveSession: jest.fn(async () => undefined),
       clearSession: jest.fn(async () => undefined),
       extendSessionExpiry,
+      isSessionValid: jest.fn(async () => false),
     }));
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -142,7 +144,48 @@ describe('apiRequest integration', () => {
     });
   });
 
-  it('clears all stored sessions when an expired token cannot be refreshed', async () => {
+  it('does not attach stale bearer tokens to Google auth requests', async () => {
+    const fetchMock = (global as unknown as { fetch: jest.Mock }).fetch;
+    fetchMock.mockResolvedValue({
+      ok: true,
+      text: async () => JSON.stringify({ ok: true }),
+    });
+
+    jest.doMock('expo-constants', () => ({
+      __esModule: true,
+      default: {},
+    }));
+    jest.doMock('react-native', () => ({
+      Platform: { OS: 'web' },
+    }));
+    jest.doMock('./session', () => ({
+      loadSession: jest.fn(async () => ({ token: 'old-token' })),
+      saveSession: jest.fn(async () => undefined),
+      clearSession: jest.fn(async () => undefined),
+    }));
+    jest.doMock('./persistentSessionManager', () => ({
+      loadSession: jest.fn(async () => ({ token: 'old-token' })),
+      saveSession: jest.fn(async () => undefined),
+      clearSession: jest.fn(async () => undefined),
+      extendSessionExpiry: jest.fn(async () => undefined),
+      isSessionValid: jest.fn(async () => true),
+    }));
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { apiRequest } = require('./api') as typeof import('./api');
+
+    await apiRequest('/auth/google', {
+      method: 'POST',
+      body: { google_id_token: 'new-google-token' },
+    });
+
+    const [, requestInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(requestInit.headers).not.toMatchObject({
+      Authorization: expect.any(String),
+    });
+  });
+
+  it('preserves stored sessions when a locally valid token cannot be refreshed', async () => {
     const fetchMock = (global as unknown as { fetch: jest.Mock }).fetch;
     fetchMock.mockResolvedValue({
       ok: false,
@@ -166,10 +209,57 @@ describe('apiRequest integration', () => {
       clearSession: clearLegacySession,
     }));
     jest.doMock('./persistentSessionManager', () => ({
+      loadSession: jest.fn(async () => ({ token: 'expired-access' })),
+      saveSession: jest.fn(async () => undefined),
+      clearSession: clearPersistentSession,
+      extendSessionExpiry: jest.fn(async () => undefined),
+      isSessionValid: jest.fn(async () => true),
+    }));
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { apiRequest } = require('./api') as typeof import('./api');
+
+    await expect(apiRequest('/drivers/profile', { token: 'expired-access' })).rejects.toMatchObject({
+      message: 'Could not confirm your login right now. Keeping your session active.',
+      status: 401,
+      code: 'AUTH_RETRY_REQUIRED',
+      authExpired: false,
+      sessionPreserved: true,
+    });
+    expect(clearLegacySession).not.toHaveBeenCalled();
+    expect(clearPersistentSession).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears stored sessions when no locally valid session can be preserved', async () => {
+    const fetchMock = (global as unknown as { fetch: jest.Mock }).fetch;
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 401,
+      text: async () => JSON.stringify({ detail: 'Invalid token' }),
+    });
+
+    const clearLegacySession = jest.fn(async () => undefined);
+    const clearPersistentSession = jest.fn(async () => undefined);
+
+    jest.doMock('expo-constants', () => ({
+      __esModule: true,
+      default: {},
+    }));
+    jest.doMock('react-native', () => ({
+      Platform: { OS: 'web' },
+    }));
+    jest.doMock('./session', () => ({
+      loadSession: jest.fn(async () => null),
+      saveSession: jest.fn(async () => undefined),
+      clearSession: clearLegacySession,
+    }));
+    jest.doMock('./persistentSessionManager', () => ({
       loadSession: jest.fn(async () => null),
       saveSession: jest.fn(async () => undefined),
       clearSession: clearPersistentSession,
       extendSessionExpiry: jest.fn(async () => undefined),
+      isSessionValid: jest.fn(async () => false),
     }));
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports

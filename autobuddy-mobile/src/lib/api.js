@@ -8,6 +8,7 @@ import {
 import {
   clearSession as clearPersistentSession,
   extendSessionExpiry,
+  isSessionValid,
   loadSession as loadPersistentSession,
   saveSession as savePersistentSession,
 } from './persistentSessionManager';
@@ -69,13 +70,24 @@ const SERVER_ERROR_THRESHOLD = 3;
 const OUTAGE_COOLDOWN_MS = 15000;
 const HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
 const SESSION_EXPIRED_MESSAGE = 'Session expired. Please log in again.';
+const SESSION_RECONNECT_MESSAGE = 'Could not confirm your login right now. Keeping your session active.';
 const AUTH_EXPIRED_CODE = 'AUTH_EXPIRED';
+const AUTH_RETRY_CODE = 'AUTH_RETRY_REQUIRED';
 
 function createAuthExpiredError(message = SESSION_EXPIRED_MESSAGE) {
   const error = new Error(message);
   error.status = 401;
   error.code = AUTH_EXPIRED_CODE;
   error.authExpired = true;
+  return error;
+}
+
+function createAuthRetryError(message = SESSION_RECONNECT_MESSAGE) {
+  const error = new Error(message);
+  error.status = 401;
+  error.code = AUTH_RETRY_CODE;
+  error.authExpired = false;
+  error.sessionPreserved = true;
   return error;
 }
 
@@ -89,6 +101,25 @@ async function safelyCall(fn) {
 
 async function clearAllSessions() {
   await Promise.allSettled([clearLegacySession(), clearPersistentSession()]);
+}
+
+async function shouldPreserveStoredSession() {
+  const persistentValid = await safelyCall(isSessionValid);
+  if (persistentValid) {
+    return true;
+  }
+
+  const legacy = normalizeStoredSession(await safelyCall(loadLegacySession));
+  return Boolean(legacy?.token);
+}
+
+async function failRefreshWithoutClearingValidSession() {
+  if (await shouldPreserveStoredSession()) {
+    throw createAuthRetryError();
+  }
+
+  await clearAllSessions();
+  throw createAuthExpiredError();
 }
 
 function normalizeStoredSession(session) {
@@ -176,8 +207,7 @@ function extractErrorMessage(data, status) {
 export async function refreshAccessToken() {
   const session = await loadBestSession();
   if (!session?.refresh_token) {
-    await clearAllSessions();
-    throw createAuthExpiredError();
+    await failRefreshWithoutClearingValidSession();
   }
   const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
     method: 'POST',
@@ -188,8 +218,7 @@ export async function refreshAccessToken() {
     body: JSON.stringify({ refresh_token: session.refresh_token }),
   });
   if (!response.ok) {
-    await clearAllSessions();
-    throw createAuthExpiredError();
+    await failRefreshWithoutClearingValidSession();
   }
   const payload = await response.json();
   const nextSession = {
@@ -268,8 +297,10 @@ export async function apiRequest(path, options = {}, legacyPath = undefined, leg
   const isAuthPath =
     normalizedPath.includes('/auth/login') ||
     normalizedPath.includes('/auth/register') ||
+    normalizedPath.includes('/auth/google') ||
     normalizedPath.includes('/auth/refresh') ||
-    normalizedPath.includes('/auth/_legacy/login');
+    normalizedPath.includes('/auth/_legacy/login') ||
+    normalizedPath.includes('/auth/_legacy/google');
   let effectiveToken = token ? String(token).trim() : '';
   if (effectiveToken || !isAuthPath) {
     try {

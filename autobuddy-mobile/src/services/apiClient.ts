@@ -14,6 +14,7 @@ import { Platform } from 'react-native';
 import {
   clearSession as clearPersistentSession,
   extendSessionExpiry,
+  isSessionValid,
   loadSession as loadPersistentSession,
 } from '../lib/persistentSessionManager';
 import {
@@ -31,6 +32,7 @@ const API_BASE_URL = (
   .replace(/\/$/, '')
   .replace(/\/api$/, '');
 const SESSION_STORAGE_KEY = 'autobuddy_session_v1';
+const SESSION_RECONNECT_MESSAGE = 'Could not confirm your login right now. Keeping your session active.';
 
 type BrowserStorage = {
   getItem: (key: string) => string | null;
@@ -136,6 +138,19 @@ const redirectToLoginIfWeb = () => {
   }
 };
 
+const shouldPreserveStoredAuth = async () => {
+  try {
+    if (await isSessionValid()) {
+      return true;
+    }
+
+    const legacySession = await loadLegacySession();
+    return Boolean(legacySession?.token || legacySession?.access_token || legacySession?.authToken);
+  } catch {
+    return false;
+  }
+};
+
 const attachLegacyDataAlias = <T>(payload: T): T => {
   if (
     payload &&
@@ -193,9 +208,25 @@ rawAxiosInstance.interceptors.response.use(
   async (error: AxiosError) => {
     // Handle 401 Unauthorized - token expired
     if (error.response?.status === 401) {
+      const errorData = error.response?.data as AnyRecord;
+      if (await shouldPreserveStoredAuth()) {
+        const backendMessage = String(errorData?.error?.message || errorData?.message || '').trim();
+        const message =
+          backendMessage && !backendMessage.toLowerCase().includes('session expired')
+            ? backendMessage
+            : SESSION_RECONNECT_MESSAGE;
+        return Promise.reject({
+          message,
+          code: 'AUTH_RETRY_REQUIRED',
+          authExpired: false,
+          sessionPreserved: true,
+          status: 401,
+          originalError: error,
+        });
+      }
+
       await clearStoredAuth();
       redirectToLoginIfWeb();
-      const errorData = error.response?.data as AnyRecord;
       return Promise.reject({
         message: errorData?.error?.message || 'Session expired. Please log in again.',
         code: 'AUTH_EXPIRED',

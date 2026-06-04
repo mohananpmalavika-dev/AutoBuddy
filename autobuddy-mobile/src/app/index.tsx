@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 
 import { SubscriptionGate } from '@/components/app/SubscriptionGate';
 import { WebSetupCard } from '@/components/app/WebSetupCard';
@@ -12,7 +13,7 @@ import type { ApiNotification, AppSession, PlanOption, SubscriptionConfigPayload
 import { resolveRoleScreenKey } from '../lib/navigation';
 import { getPlanOptions } from '../lib/subscriptions';
 import { clearSession, loadSession, saveSession } from '../lib/session';
-import { loadSession as loadPersistentSession, saveSession as savePersistentSession, clearSession as clearPersistentSession, subscribeSession as subscribePersistentSession, extendSessionExpiry } from '../lib/persistentSessionManager';
+import { loadSession as loadPersistentSession, saveSession as savePersistentSession, clearSession as clearPersistentSession, subscribeSession as subscribePersistentSession, extendSessionExpiry, isSessionValid } from '../lib/persistentSessionManager';
 import { initializeBackgroundNotifications } from '../lib/backgroundNotificationService';
 import { disconnectSocket } from '../services/socketClient';
 import '../services/driverBackgroundTracking';
@@ -74,6 +75,7 @@ export default function HomeScreen() {
   const [planOptions, setPlanOptions] = useState<PlanOption[]>([]);
   const [planSelectionError, setPlanSelectionError] = useState('');
   const [planSubmitting, setPlanSubmitting] = useState(false);
+  const [homeResetKey, setHomeResetKey] = useState(0);
   const [installPromptEvent, setInstallPromptEvent] = useState<BeforeInstallPromptEvent | null>(null);
   const [webSetupMessage, setWebSetupMessage] = useState('');
   const [webSetupDismissed, setWebSetupDismissed] = useState(() => {
@@ -280,6 +282,10 @@ export default function HomeScreen() {
           await extendSessionExpiry();
         } catch (err: unknown) {
           if (isAuthSessionInvalid(err)) {
+            const localSessionStillValid = await isSessionValid().catch(() => false);
+            if (localSessionStillValid) {
+              return;
+            }
             setSession(null);
             await clearPersistentSession();
             await clearSession();
@@ -345,6 +351,13 @@ export default function HomeScreen() {
     // Disconnect socket
     disconnectSocket();
   }, []);
+
+  const handleGoHome = useCallback(() => {
+    setHomeResetKey((current) => current + 1);
+    if (isWeb && typeof window !== 'undefined' && window.location.pathname !== '/app') {
+      window.history.replaceState(null, '', '/app');
+    }
+  }, [isWeb]);
 
   // Subscribe to persistent session changes for auto-restore functionality
   useEffect(() => {
@@ -595,6 +608,7 @@ export default function HomeScreen() {
     return {
       passenger: (
         <PassengerMap
+          key={`passenger-${homeResetKey}`}
           token={session.token}
           user={session.user}
           onLogout={handleLogout}
@@ -602,6 +616,7 @@ export default function HomeScreen() {
       ),
       driver: (
         <DriverDashboard
+          key={`driver-${homeResetKey}`}
           token={session.token}
           user={session.user}
           onLogout={handleLogout}
@@ -609,14 +624,15 @@ export default function HomeScreen() {
       ),
       operator: (
         <OperatorDashboard
+          key={`operator-${homeResetKey}`}
           token={session.token}
           user={session.user}
           onLogout={handleLogout}
         />
       ),
-      admin: <AdminDashboard token={session.token} user={session.user} onLogout={handleLogout} />,
+      admin: <AdminDashboard key={`admin-${homeResetKey}`} token={session.token} user={session.user} onLogout={handleLogout} />,
     };
-  }, [handleLogout, session]);
+  }, [handleLogout, homeResetKey, session]);
 
   if (booting) {
     return (
@@ -671,10 +687,30 @@ export default function HomeScreen() {
     );
   }
 
-  return roleScreens[resolveRoleScreenKey(session.user.role)] ?? roleScreens.passenger;
+  const activeRoleScreen = roleScreens[resolveRoleScreenKey(session.user.role)] ?? roleScreens.passenger;
+
+  return (
+    <View style={styles.appShell}>
+      {activeRoleScreen}
+      <View pointerEvents="box-none" style={styles.homeButtonWrap}>
+        <Pressable
+          accessibilityLabel="Go to home"
+          accessibilityRole="button"
+          onPress={handleGoHome}
+          style={({ pressed }) => [styles.homeButton, pressed && styles.homeButtonPressed]}>
+          <MaterialIcons name="home" size={20} color="#FFFFFF" />
+          <Text style={styles.homeButtonText}>Home</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
+  appShell: {
+    flex: 1,
+    backgroundColor: COLORS.bg,
+  },
   loader: {
     flex: 1,
     justifyContent: 'center',
@@ -683,4 +719,31 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   loaderText: { marginTop: 12, color: COLORS.muted, fontWeight: '700' },
+  homeButtonWrap: {
+    position: 'absolute',
+    left: 16,
+    bottom: 16,
+    zIndex: 100,
+  },
+  homeButton: {
+    minHeight: 46,
+    minWidth: 46,
+    borderRadius: 24,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: COLORS.primary,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
+  },
+  homeButtonPressed: {
+    opacity: 0.82,
+  },
+  homeButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 14,
+  },
 });

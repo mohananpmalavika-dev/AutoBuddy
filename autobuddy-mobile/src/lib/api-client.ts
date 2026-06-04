@@ -14,6 +14,7 @@ export interface ApiError extends Error {
   status?: number;
   code?: string;
   authExpired?: boolean;
+  sessionPreserved?: boolean;
   payload?: unknown;
 }
 

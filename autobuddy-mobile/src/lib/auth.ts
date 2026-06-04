@@ -1,4 +1,4 @@
-import { asApiError } from './api-client';
+import { asApiError, type ApiError } from './api-client';
 
 export function getErrorMessage(error: unknown, fallback: string): string {
   const apiError = asApiError(error);
@@ -10,6 +10,10 @@ export function isAuthSessionInvalid(error: unknown): boolean {
   const apiError = asApiError(error);
   const statusCode = Number(apiError?.status || 0);
   const code = String(apiError?.code || '').toUpperCase();
+  const sessionPreserved = Boolean((apiError as ApiError & { sessionPreserved?: boolean })?.sessionPreserved);
+  if (sessionPreserved || code === 'AUTH_RETRY_REQUIRED') {
+    return false;
+  }
   if (apiError?.authExpired || code === 'AUTH_EXPIRED') {
     return true;
   }
