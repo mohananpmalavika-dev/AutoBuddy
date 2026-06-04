@@ -16,6 +16,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
 
 import { apiRequest, API_BASE_URL } from '../lib/api';
+import { normalizeAuthSessionFromPayload } from '../lib/authSession';
 import { normalizeAdminPaymentOptions, requiresUtrForPaymentMethod } from '../lib/paymentOptions';
 import { COLORS } from '../theme';
 import PremiumCard from '../components/PremiumCard';
@@ -249,11 +250,11 @@ export default function AuthScreen({ onAuthenticated }) {
   }, []);
 
   const authenticateAndEnter = (data) => {
-    onAuthenticated?.({
-      token: data.access_token,
-      refresh_token: data.refresh_token,
-      user: data.user,
-    });
+    const session = normalizeAuthSessionFromPayload(data);
+    if (!session) {
+      throw new Error('Login succeeded but did not return a valid app session. Please try again.');
+    }
+    onAuthenticated?.(session);
   };
 
   const submitGoogleIdToken = async (googleIdToken, extraPayload = {}, options = {}) => {

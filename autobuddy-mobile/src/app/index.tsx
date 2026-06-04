@@ -7,6 +7,7 @@ import { WebSetupCard } from '@/components/app/WebSetupCard';
 import AutoBuddyBrand from '../components/AutoBuddyBrand';
 import { getErrorMessage, isAuthSessionInvalid } from '../lib/auth';
 import { apiRequest } from '../lib/api-client';
+import { normalizeAuthSessionFromPayload } from '../lib/authSession';
 import type { ApiNotification, AppSession, PlanOption, SubscriptionConfigPayload, SubscriptionStatusPayload, UserRole } from '../lib/models';
 import { resolveRoleScreenKey } from '../lib/navigation';
 import { getPlanOptions } from '../lib/subscriptions';
@@ -50,22 +51,7 @@ function getCurrentWebBundleIds(): string[] {
 }
 
 function normalizeStoredSession(candidate: StoredSessionCandidate | null | undefined): AppSession | null {
-  if (!candidate?.user) {
-    return null;
-  }
-
-  const token = String(candidate.token || candidate.access_token || candidate.accessToken || '').trim();
-  if (!token) {
-    return null;
-  }
-
-  const refreshToken = String(candidate.refresh_token || candidate.refreshToken || '').trim();
-  return {
-    ...candidate,
-    token,
-    refresh_token: refreshToken || undefined,
-    user: candidate.user,
-  };
+  return normalizeAuthSessionFromPayload(candidate);
 }
 
 function pickStoredSession(
