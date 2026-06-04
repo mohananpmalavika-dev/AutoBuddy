@@ -13,6 +13,7 @@ import {
   triggerSos,
   updateSafetyMode,
 } from '../lib/safetyApi';
+import { isWebGeolocationAvailable, requestWebCurrentPosition } from '../lib/webGeolocation';
 import { useRideAudioRecording } from './useRideAudioRecording';
 
 const SOS_PHRASES = [
@@ -53,22 +54,19 @@ function speakMalayalam(text) {
 
 async function getCurrentLocation() {
   if (Platform.OS === 'web') {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+    if (!isWebGeolocationAvailable()) {
       return null;
     }
-    return new Promise((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          resolve({
-            latitude: Number(position.coords.latitude.toFixed(6)),
-            longitude: Number(position.coords.longitude.toFixed(6)),
-            accuracy: Number(position.coords.accuracy || 0),
-          });
-        },
-        (error) => reject(error),
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
-      );
+    const position = await requestWebCurrentPosition({
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 30000,
     });
+    return {
+      latitude: Number(position.coords.latitude.toFixed(6)),
+      longitude: Number(position.coords.longitude.toFixed(6)),
+      accuracy: Number(position.coords.accuracy || 0),
+    };
   }
 
   let LocationModule = null;
