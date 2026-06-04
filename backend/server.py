@@ -13598,6 +13598,74 @@ async def get_all_users(current_user: dict = Depends(get_current_user)):
     users = await db.users.find({}).to_list(1000)
     return [{**u, "_id": str(u["_id"]), "password_hash": None} for u in users]
 
+@api_router.get("/admin/users/role-report")
+async def get_admin_users_role_report(current_user: dict = Depends(get_current_user)):
+    """Role-wise user report for passenger, driver, and operator accounts."""
+    if current_user["role"] != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    role_keys = ["passenger", "driver", "operator"]
+    role_buckets: Dict[str, List[Dict[str, Any]]] = {
+        "passengers": [],
+        "drivers": [],
+        "operators": [],
+    }
+
+    users = await db.users.find(
+        {"role": {"$in": [*role_keys, "user"]}},
+        {
+            "_id": 0,
+            "id": 1,
+            "name": 1,
+            "email": 1,
+            "phone": 1,
+            "role": 1,
+            "created_at": 1,
+            "joined_at": 1,
+            "createdAt": 1,
+            "account_status": 1,
+            "is_blocked": 1,
+        },
+    ).sort("created_at", DESCENDING).to_list(10000)
+
+    for user in users:
+        raw_role = user.get("role")
+        role = raw_role.value if hasattr(raw_role, "value") else str(raw_role or "").split(".")[-1].lower()
+        if role == "user":
+            role = "passenger"
+        if role not in role_keys:
+            continue
+
+        joining_date = user.get("created_at") or user.get("joined_at") or user.get("createdAt")
+        report_row = {
+            "id": str(user.get("id") or ""),
+            "role": role,
+            "name": user.get("name") or "Unknown User",
+            "email": user.get("email") or "",
+            "phone": user.get("phone") or "",
+            "joining_date": joining_date,
+            "created_at": joining_date,
+            "account_status": user.get("account_status") or ("blocked" if user.get("is_blocked") else "active"),
+        }
+        role_buckets[f"{role}s"].append(report_row)
+
+    for rows in role_buckets.values():
+        rows.sort(key=lambda item: str(item.get("joining_date") or ""), reverse=True)
+
+    counts = {
+        "passengers": len(role_buckets["passengers"]),
+        "drivers": len(role_buckets["drivers"]),
+        "operators": len(role_buckets["operators"]),
+    }
+    return {
+        **role_buckets,
+        "counts": {
+            **counts,
+            "total": counts["passengers"] + counts["drivers"] + counts["operators"],
+        },
+        "generated_at": get_ist_now(),
+    }
+
 @api_router.get("/admin/users/live-status")
 async def get_admin_users_live_status(current_user: dict = Depends(get_current_user)):
     if current_user["role"] != UserRole.ADMIN:

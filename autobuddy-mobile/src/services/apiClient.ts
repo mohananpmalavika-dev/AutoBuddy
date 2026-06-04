@@ -1170,6 +1170,9 @@ export const adminAPI = {
   getUsersLiveStatus: () =>
     axiosInstance.get('/api/admin/users/live-status'),
 
+  getRolewiseUserReport: () =>
+    axiosInstance.get('/api/admin/users/role-report'),
+
   // Launch Tracking
   getLaunchVisitReport: (options?: any) =>
     axiosInstance.get('/api/admin/launch-visits/report', { params: options }),

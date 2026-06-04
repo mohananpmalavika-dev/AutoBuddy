@@ -14,7 +14,6 @@ import { apiRequest } from '../lib/api';
 import { adminAPI } from '../services/apiClient';
 import { getSocket } from '../services/socketClient';
 import { COLORS, SHADOWS } from '../theme';
-import AutoBuddyBrand from '../components/AutoBuddyBrand';
 import AdminAnalyticsPanel from '../components/AdminAnalyticsPanel';
 import WebCommandBar from '../components/WebCommandBar';
 import VoiceTextInput from '../components/VoiceTextInput';
@@ -78,6 +77,7 @@ const ADMIN_MENU_OPTIONS = [
   { key: 'analytics', label: 'Overview' },
   { key: 'trips', label: 'Ongoing Trips' },
   { key: 'users', label: 'Users & Live' },
+  { key: 'role_report', label: 'Role Report' },
   { key: 'launch_visits', label: 'Launch Visitors' },
   { key: 'spin', label: 'Spin & Win' },
   { key: 'subscriptions', label: 'Subscriptions' },
@@ -189,6 +189,21 @@ function defaultLaunchVisitReportState() {
     daily: [],
     recent_clicks: [],
     visitors: [],
+  };
+}
+
+function defaultRolewiseUserReportState() {
+  return {
+    passengers: [],
+    drivers: [],
+    operators: [],
+    counts: {
+      passengers: 0,
+      drivers: 0,
+      operators: 0,
+      total: 0,
+    },
+    generated_at: null,
   };
 }
 
@@ -403,6 +418,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
     total_live: 0,
   });
   const [launchVisitReport, setLaunchVisitReport] = useState(defaultLaunchVisitReportState());
+  const [rolewiseUserReport, setRolewiseUserReport] = useState(defaultRolewiseUserReportState());
   const [spinWinConfig, setSpinWinConfig] = useState(defaultSpinWinConfigState());
   const [spinWinWinners, setSpinWinWinners] = useState([]);
   const [rideProductDistrictConfig, setRideProductDistrictConfig] = useState(
@@ -499,6 +515,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
     const approvedDriverFare = await adminAPI.getApprovedDriverFareConfigs().catch(() => []);
     const activeTrips = await adminAPI.getOngoingTrips().catch(() => []);
     const usersLiveStatus = await adminAPI.getUsersLiveStatus().catch(() => null);
+    const roleReport = await adminAPI.getRolewiseUserReport().catch(() => null);
     const launchVisits = await adminAPI.getLaunchVisitReport({ days: 30, limit: 120 }).catch(() => null);
     const spinWinSettings = await adminAPI.getSpinWinConfig().catch(() => null);
     const spinWinWinnerRows = await adminAPI.getSpinWinWinners({ limit: 50 }).catch(() => []);
@@ -568,6 +585,18 @@ export default function AdminDashboard({ token, user, onLogout }) {
       passengers_live: Number(usersLiveStatus?.live_counts?.passengers_live || 0),
       operators_total: Number(usersLiveStatus?.live_counts?.operators_total || 0),
       total_live: Number(usersLiveStatus?.live_counts?.total_live || 0),
+    });
+    setRolewiseUserReport({
+      passengers: normalizeListResponse(roleReport?.passengers),
+      drivers: normalizeListResponse(roleReport?.drivers),
+      operators: normalizeListResponse(roleReport?.operators),
+      counts: {
+        passengers: Number(roleReport?.counts?.passengers || 0),
+        drivers: Number(roleReport?.counts?.drivers || 0),
+        operators: Number(roleReport?.counts?.operators || 0),
+        total: Number(roleReport?.counts?.total || 0),
+      },
+      generated_at: roleReport?.generated_at || null,
     });
     if (launchVisits) {
       setLaunchVisitReport({
@@ -697,6 +726,29 @@ export default function AdminDashboard({ token, user, onLogout }) {
     const end = start + usersPageSize;
     return filtered.slice(start, end);
   }, [filterAndPaginateUsers, usersPage, usersPageSize]);
+
+  const filteredRoleReportSections = useMemo(() => {
+    const search = usersSearchTerm.toLowerCase().trim();
+    const sections = [
+      { key: 'passenger', title: 'Passengers', rows: rolewiseUserReport.passengers || [] },
+      { key: 'driver', title: 'Drivers', rows: rolewiseUserReport.drivers || [] },
+      { key: 'operator', title: 'Operators', rows: rolewiseUserReport.operators || [] },
+    ];
+
+    return sections
+      .filter((section) => usersFilterRole === 'all' || usersFilterRole === section.key)
+      .map((section) => ({
+        ...section,
+        rows: section.rows.filter((user) => {
+          if (!search) {
+            return true;
+          }
+          return [user.id, user.name, user.email, user.phone]
+            .filter(Boolean)
+            .some((value) => String(value).toLowerCase().includes(search));
+        }),
+      }));
+  }, [rolewiseUserReport, usersFilterRole, usersSearchTerm]);
 
   // Filter KYC (without pagination)
   const filterAndPaginateKyc = useCallback(() => {
@@ -1686,7 +1738,6 @@ export default function AdminDashboard({ token, user, onLogout }) {
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-        <AutoBuddyBrand compact subtitle="Admin Dashboard" />
         <WebCommandBar />
         <View style={styles.header}>
           <View>
@@ -1975,6 +2026,74 @@ export default function AdminDashboard({ token, user, onLogout }) {
                 disabled={loading}
               />
             </>
+          )}
+        </View>
+
+        <View style={[styles.section, activeAdminMenu !== 'role_report' && styles.hiddenSection]}>
+          <Text style={styles.sectionTitle}>Role-wise User Report</Text>
+          <Text style={styles.kycDate}>
+            Passenger, driver, and operator accounts with name, email, phone, and joining date.
+          </Text>
+          <Text style={styles.kycDate}>Generated: {formatDateTime(rolewiseUserReport.generated_at)}</Text>
+
+          <View style={styles.statsGrid}>
+            <View style={styles.statCard}>
+              <Text style={styles.statLabel}>Passengers</Text>
+              <Text style={styles.statValue}>{rolewiseUserReport.counts.passengers}</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statLabel}>Drivers</Text>
+              <Text style={styles.statValue}>{rolewiseUserReport.counts.drivers}</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statLabel}>Operators</Text>
+              <Text style={styles.statValue}>{rolewiseUserReport.counts.operators}</Text>
+            </View>
+            <View style={[styles.statCard, styles.fullWidthCard]}>
+              <Text style={styles.statLabel}>Total Report Users</Text>
+              <Text style={styles.statValue}>{rolewiseUserReport.counts.total}</Text>
+            </View>
+          </View>
+
+          <AdminSearchBar
+            placeholder="Search report by name, email, phone, or ID..."
+            value={usersSearchTerm}
+            onSearch={setUsersSearchTerm}
+            filterOptions={[
+              { label: 'All Roles', value: 'all' },
+              { label: 'Drivers', value: 'driver' },
+              { label: 'Passengers', value: 'passenger' },
+              { label: 'Operators', value: 'operator' },
+            ]}
+            selectedFilter={usersFilterRole}
+            onFilterChange={setUsersFilterRole}
+          />
+
+          {filteredRoleReportSections.every((section) => section.rows.length === 0) ? (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyText}>No report users match your search.</Text>
+            </View>
+          ) : (
+            filteredRoleReportSections.map((section) => (
+              <View key={section.key} style={styles.kycCard}>
+                <Text style={styles.sectionSubtitle}>
+                  {section.title} ({section.rows.length})
+                </Text>
+                {section.rows.length === 0 ? (
+                  <Text style={styles.kycDate}>No {section.title.toLowerCase()} found.</Text>
+                ) : (
+                  section.rows.map((reportUser) => (
+                    <View key={reportUser.id || `${section.key}-${reportUser.email}`} style={styles.roleReportRow}>
+                      <Text style={styles.driverName}>{reportUser.name || 'Unknown User'}</Text>
+                      <Text style={styles.kycDate}>Email: {reportUser.email || 'N/A'}</Text>
+                      <Text style={styles.kycDate}>Phone: {reportUser.phone || 'N/A'}</Text>
+                      <Text style={styles.kycDate}>Joining Date: {formatDateTime(reportUser.joining_date || reportUser.created_at)}</Text>
+                      <Text style={styles.kycDate}>User ID: {reportUser.id || 'N/A'}</Text>
+                    </View>
+                  ))
+                )}
+              </View>
+            ))
           )}
         </View>
 
@@ -3448,6 +3567,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#D7E2DA',
     ...SHADOWS.card,
+  },
+  roleReportRow: {
+    borderTopWidth: 1,
+    borderTopColor: '#E7EEE9',
+    paddingTop: 12,
+    marginTop: 12,
   },
   subscriptionPlanCard: {
     borderWidth: 1,
