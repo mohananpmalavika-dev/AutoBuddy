@@ -13605,6 +13605,15 @@ async def get_admin_users_role_report(current_user: dict = Depends(get_current_u
         raise HTTPException(status_code=403, detail="Admin access required")
 
     role_keys = ["passenger", "driver", "operator"]
+    role_values = [
+        UserRole.PASSENGER,
+        UserRole.DRIVER,
+        UserRole.OPERATOR,
+        "passenger",
+        "driver",
+        "operator",
+        "user",
+    ]
     role_buckets: Dict[str, List[Dict[str, Any]]] = {
         "passengers": [],
         "drivers": [],
@@ -13612,7 +13621,7 @@ async def get_admin_users_role_report(current_user: dict = Depends(get_current_u
     }
 
     users = await db.users.find(
-        {"role": {"$in": [*role_keys, "user"]}},
+        {"role": {"$in": role_values}},
         {
             "_id": 0,
             "id": 1,
@@ -13678,6 +13687,7 @@ async def get_admin_users_live_status(current_user: dict = Depends(get_current_u
             "passengers": [],
             "operators": [],
             "live_counts": {"drivers_live": 0, "passengers_live": 0, "operators_total": 0, "total_live": 0},
+            "generated_at": get_ist_now(),
         }
 
     driver_ids = [str(user.get("id") or "") for user in users if user.get("role") == UserRole.DRIVER and user.get("id")]
@@ -13775,6 +13785,7 @@ async def get_admin_users_live_status(current_user: dict = Depends(get_current_u
             "operators_total": len(operators),
             "total_live": drivers_live + passengers_live,
         },
+        "generated_at": get_ist_now(),
     }
 
 @api_router.get("/admin/bookings/ongoing")

@@ -231,6 +231,19 @@ function normalizeListResponse(payload, keys = []) {
   return [];
 }
 
+function normalizeRoleReportRows(primaryRows, fallbackRows, role) {
+  const rows = primaryRows.length > 0 ? primaryRows : fallbackRows;
+  return rows.map((user) => {
+    const joiningDate = user.joining_date || user.created_at || user.joined_at || user.createdAt || null;
+    return {
+      ...user,
+      role: user.role || role,
+      joining_date: joiningDate,
+      created_at: user.created_at || joiningDate,
+    };
+  });
+}
+
 function normalizeSpinWinConfig(config = null) {
   if (!config || typeof config !== 'object') {
     return defaultSpinWinConfigState();
@@ -577,26 +590,45 @@ export default function AdminDashboard({ token, user, onLogout }) {
     setPendingDriverFareRequests(normalizeListResponse(pendingDriverFare, ['requests', 'fare_requests']));
     setApprovedDriverFareConfigs(normalizeListResponse(approvedDriverFare, ['configs', 'fare_configs']));
     setOngoingTrips(normalizeListResponse(activeTrips, ['bookings', 'trips']));
-    setDriverUsers(normalizeListResponse(usersLiveStatus?.drivers));
-    setPassengerUsers(normalizeListResponse(usersLiveStatus?.passengers));
-    setOperatorUsers(normalizeListResponse(usersLiveStatus?.operators));
+    const liveDrivers = normalizeListResponse(usersLiveStatus?.drivers);
+    const livePassengers = normalizeListResponse(usersLiveStatus?.passengers);
+    const liveOperators = normalizeListResponse(usersLiveStatus?.operators);
+    setDriverUsers(liveDrivers);
+    setPassengerUsers(livePassengers);
+    setOperatorUsers(liveOperators);
     setLiveCounts({
       drivers_live: Number(usersLiveStatus?.live_counts?.drivers_live || 0),
       passengers_live: Number(usersLiveStatus?.live_counts?.passengers_live || 0),
       operators_total: Number(usersLiveStatus?.live_counts?.operators_total || 0),
       total_live: Number(usersLiveStatus?.live_counts?.total_live || 0),
     });
+    const reportPassengers = normalizeRoleReportRows(
+      normalizeListResponse(roleReport?.passengers),
+      livePassengers,
+      'passenger',
+    );
+    const reportDrivers = normalizeRoleReportRows(
+      normalizeListResponse(roleReport?.drivers),
+      liveDrivers,
+      'driver',
+    );
+    const reportOperators = normalizeRoleReportRows(
+      normalizeListResponse(roleReport?.operators),
+      liveOperators,
+      'operator',
+    );
+    const reportTotal = reportPassengers.length + reportDrivers.length + reportOperators.length;
     setRolewiseUserReport({
-      passengers: normalizeListResponse(roleReport?.passengers),
-      drivers: normalizeListResponse(roleReport?.drivers),
-      operators: normalizeListResponse(roleReport?.operators),
+      passengers: reportPassengers,
+      drivers: reportDrivers,
+      operators: reportOperators,
       counts: {
-        passengers: Number(roleReport?.counts?.passengers || 0),
-        drivers: Number(roleReport?.counts?.drivers || 0),
-        operators: Number(roleReport?.counts?.operators || 0),
-        total: Number(roleReport?.counts?.total || 0),
+        passengers: reportPassengers.length,
+        drivers: reportDrivers.length,
+        operators: reportOperators.length,
+        total: reportTotal,
       },
-      generated_at: roleReport?.generated_at || null,
+      generated_at: roleReport?.generated_at || usersLiveStatus?.generated_at || new Date().toISOString(),
     });
     if (launchVisits) {
       setLaunchVisitReport({
