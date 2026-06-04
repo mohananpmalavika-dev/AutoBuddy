@@ -72,6 +72,12 @@ import { validateScheduledPickup } from '../lib/scheduling';
 import { formatToIST } from '../utils/time';
 import { normalizeLanguageCode } from '../locales/indianLanguages';
 import { resolvePassengerLocale, getPassengerRideProductLabels } from '../locales/passengerDashboard';
+import {
+  formatWebGeolocationError,
+  getWebGeolocationPermissionState,
+  isWebGeolocationAvailable,
+  requestWebCurrentPosition,
+} from '../lib/webGeolocation';
 
 const LOGO_SOURCE = require('../../assets/images/autobuddy-logo.jpg');
 
@@ -193,6 +199,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [searchingDropoff, setSearchingDropoff] = useState(false);
   const [locatingPickup, setLocatingPickup] = useState(false);
   const [locationValidation, setLocationValidation] = useState({ pickup: false, dropoff: false });
+  const [locationPermissionState, setLocationPermissionState] = useState('prompt');
   
   const [pickupLocation, setPickupLocation] = useState(null);
   const [dropoffLocation, setDropoffLocation] = useState(null);
@@ -258,6 +265,18 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
 
     mediaQuery.addListener(updateMobileLayout);
     return () => mediaQuery.removeListener(updateMobileLayout);
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    getWebGeolocationPermissionState().then((state) => {
+      if (mounted) {
+        setLocationPermissionState(state);
+      }
+    });
+    return () => {
+      mounted = false;
+    };
   }, []);
   
   // Initialize notifications
@@ -1199,7 +1218,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   }, [resolveAddressForPoint]);
 
   const autofillPickupFromCurrentLocation = useCallback(async ({ silent = false } = {}) => {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+    if (!isWebGeolocationAvailable()) {
+      setLocationPermissionState('unsupported');
       if (!silent) {
         setError(t.currentLocationNotSupported);
       }
@@ -1209,14 +1229,15 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     try {
       setLocatingPickup(true);
       setError('');
+      const beforePermission = await getWebGeolocationPermissionState();
+      setLocationPermissionState(beforePermission);
 
-      const position = await new Promise((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          timeout: 15000,
-          maximumAge: 60000,
-        });
+      const position = await requestWebCurrentPosition({
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 60000,
       });
+      setLocationPermissionState('granted');
 
       const latitude = Number(position.coords.latitude.toFixed(6));
       const longitude = Number(position.coords.longitude.toFixed(6));
@@ -1239,9 +1260,12 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         setMessage(t.pickupAutofilled);
       }
     } catch (err) {
+      const nextPermission = await getWebGeolocationPermissionState();
+      setLocationPermissionState(nextPermission === 'prompt' && Number(err?.code) === 1 ? 'denied' : nextPermission);
       if (!silent) {
-        const messageFromBrowser = err?.message || t.couldNotFetchCurrentLocation;
-        setError(messageFromBrowser);
+        setError(formatWebGeolocationError(err, t.couldNotFetchCurrentLocation));
+      } else if (Number(err?.code) === 1) {
+        setError(formatWebGeolocationError(err, t.couldNotFetchCurrentLocation));
       }
     } finally {
       setLocatingPickup(false);
@@ -1952,6 +1976,11 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     setShowProfile(true);
   }, [onProfilePress]);
 
+  const shouldShowWebLocationPrompt =
+    activePassengerMenu === PRIMARY_PASSENGER_MENU_KEY &&
+    locationPermissionState !== 'granted' &&
+    locationPermissionState !== 'unsupported';
+
   if (showProfile) {
     return (
       <PassengerProfile
@@ -2037,6 +2066,25 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                 onDismiss={() => setBookingJustCreated(false)}
                 autoDismissMs={5000}
               />
+            )}
+
+            {shouldShowWebLocationPrompt && (
+              <View style={[styles.locationPermissionCard, isMobileWeb && styles.locationPermissionCardMobile]}>
+                <View style={styles.locationPermissionCopy}>
+                  <Text style={styles.locationPermissionTitle}>Current location access</Text>
+                  <Text style={styles.locationPermissionText}>
+                    Allow AutoBuddy to use your current location for pickup.
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={[styles.locationPermissionButton, locatingPickup && styles.locationPermissionButtonDisabled]}
+                  onPress={() => autofillPickupFromCurrentLocation({ silent: false })}
+                  disabled={locatingPickup}>
+                  <Text style={styles.locationPermissionButtonText}>
+                    {locatingPickup ? 'Opening...' : 'Allow Location'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             )}
 
             <View style={[styles.dashboardTopRow, isMobileWeb && styles.dashboardTopRowMobile]}>
@@ -3292,6 +3340,54 @@ const styles = StyleSheet.create({
   loader: { marginVertical: 8 },
   error: { color: COLORS.danger, marginTop: 8 },
   message: { color: '#1B5E20', marginTop: 8 },
+  locationPermissionCard: {
+    borderWidth: 1,
+    borderColor: '#B8D8C1',
+    borderRadius: 12,
+    backgroundColor: '#F3FAF5',
+    padding: 12,
+    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  locationPermissionCardMobile: {
+    alignItems: 'stretch',
+    flexDirection: 'column',
+    padding: 10,
+    gap: 8,
+  },
+  locationPermissionCopy: {
+    flex: 1,
+  },
+  locationPermissionTitle: {
+    color: COLORS.textMain,
+    fontSize: 14,
+    fontWeight: '900',
+    marginBottom: 2,
+  },
+  locationPermissionText: {
+    color: '#355243',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  locationPermissionButton: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  locationPermissionButtonDisabled: {
+    opacity: 0.7,
+  },
+  locationPermissionButtonText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+  },
   route: { color: '#666666', marginTop: 10, marginBottom: 10 },
   dashboardTopRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
   dashboardTopRowMobile: { gap: 6, marginBottom: 8 },

@@ -104,6 +104,11 @@ import {
   readDriverAvailability,
   toDriverLocationApiBody,
 } from '../lib/driverAvailabilityStatus';
+import {
+  formatWebGeolocationError,
+  isWebGeolocationAvailable,
+  requestWebCurrentPosition,
+} from '../lib/webGeolocation';
 
 const DEFAULT_CITY_LOCATION = {
   latitude: 13.0827,
@@ -594,23 +599,22 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   }, []);
 
   const readBrowserLocation = useCallback(async () => {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+    if (!isWebGeolocationAvailable()) {
       return null;
     }
     try {
-      const position = await new Promise((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 45000,
-        });
+      const position = await requestWebCurrentPosition({
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 45000,
       });
       return {
         latitude: Number(position.coords.latitude.toFixed(6)),
         longitude: Number(position.coords.longitude.toFixed(6)),
         address: 'Live location',
       };
-    } catch {
+    } catch (err) {
+      setError(formatWebGeolocationError(err, 'Location permission is required to share live driver location.'));
       return null;
     }
   }, []);
@@ -1603,51 +1607,81 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   }, [notifyWithVoice, pendingRequests]);
 
   useEffect(() => {
-    if (!shouldSyncDriverLocation || typeof navigator === 'undefined' || !navigator.geolocation) {
+    if (!shouldSyncDriverLocation || !isWebGeolocationAvailable()) {
       return undefined;
     }
 
+    let cancelled = false;
+    let watchId = null;
     const minDelta = 0.00003;
-    const watchId = navigator.geolocation.watchPosition(
-	      (position) => {
-	        const speedMps = Number(position?.coords?.speed ?? 0);
-	        const speedKmh = Number.isFinite(speedMps) && speedMps > 0 ? speedMps * 3.6 : 0;
-	        const nextLocation = normalizeLocation({
-	          latitude: position?.coords?.latitude,
-	          longitude: position?.coords?.longitude,
-	          address: 'Live location',
-	        });
-        if (!nextLocation) {
-          return;
-        }
+    const applyWatchedPosition = (position) => {
+      const speedMps = Number(position?.coords?.speed ?? 0);
+      const speedKmh = Number.isFinite(speedMps) && speedMps > 0 ? speedMps * 3.6 : 0;
+      const nextLocation = normalizeLocation({
+        latitude: position?.coords?.latitude,
+        longitude: position?.coords?.longitude,
+        address: 'Live location',
+      });
+      if (!nextLocation) {
+        return;
+      }
 
         const prev = lastWatchedLocationRef.current;
         const movedEnough =
           !prev ||
           Math.abs(prev.latitude - nextLocation.latitude) > minDelta ||
           Math.abs(prev.longitude - nextLocation.longitude) > minDelta;
-        if (!movedEnough) {
+      if (!movedEnough) {
+        return;
+      }
+
+      lastWatchedLocationRef.current = nextLocation;
+      setDriverLocation(nextLocation);
+      pushDriverLocation({
+        locationOverride: nextLocation,
+        speedKmhOverride: speedKmh,
+        silent: true,
+      }).catch(() => null);
+    };
+
+    const startWebLocationWatch = async () => {
+      try {
+        const currentPosition = await requestWebCurrentPosition({
+          enableHighAccuracy: true,
+          timeout: 15000,
+          maximumAge: 0,
+        });
+        if (cancelled) {
           return;
         }
+        applyWatchedPosition(currentPosition);
+        watchId = navigator.geolocation.watchPosition(
+          applyWatchedPosition,
+          (watchError) => {
+            if (Number(watchError?.code) === 1) {
+              setError(formatWebGeolocationError(watchError, 'Location permission is required to share live driver location.'));
+            }
+          },
+          {
+            enableHighAccuracy: true,
+            timeout: 15000,
+            maximumAge: 0,
+          },
+        );
+      } catch (err) {
+        if (!cancelled) {
+          setError(formatWebGeolocationError(err, 'Location permission is required to share live driver location.'));
+        }
+      }
+    };
 
-	        lastWatchedLocationRef.current = nextLocation;
-	        setDriverLocation(nextLocation);
-	        pushDriverLocation({
-	          locationOverride: nextLocation,
-	          speedKmhOverride: speedKmh,
-	          silent: true,
-	        }).catch(() => null);
-	      },
-      () => null,
-      {
-        enableHighAccuracy: true,
-        timeout: 15000,
-        maximumAge: 0,
-      },
-    );
+    startWebLocationWatch();
 
     return () => {
-      navigator.geolocation.clearWatch(watchId);
+      cancelled = true;
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+      }
     };
   }, [normalizeLocation, pushDriverLocation, shouldSyncDriverLocation]);
 

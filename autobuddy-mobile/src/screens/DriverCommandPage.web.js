@@ -38,6 +38,11 @@ import {
   formatDriverReadinessMessage,
   isDriverReadyToDrive,
 } from '../lib/driverReadiness';
+import {
+  formatWebGeolocationError,
+  isWebGeolocationAvailable,
+  requestWebCurrentPosition,
+} from '../lib/webGeolocation';
 import { COLORS, SHADOWS } from '../theme';
 
 const DEFAULT_CENTER = { latitude: 8.8932, longitude: 76.6141 };
@@ -540,11 +545,12 @@ export default function DriverCommandPage({
     setTrackingOnline(false);
   }, []);
 
-  const startLocationTracking = useCallback(() => {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+  const startLocationTracking = useCallback(async () => {
+    if (!isWebGeolocationAvailable()) {
       if (hasUsableLocation(driverLocation)) {
         setTrackingOnline(true);
       }
+      setError('Current location is not supported in this browser or webview.');
       return;
     }
 
@@ -552,19 +558,28 @@ export default function DriverCommandPage({
       return;
     }
 
-    navigator.geolocation.getCurrentPosition(
-      handlePosition,
-      () => {
-        if (hasUsableLocation(driverLocation)) {
-          setTrackingOnline(true);
-        }
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
-    );
+    try {
+      const currentPosition = await requestWebCurrentPosition({
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 0,
+      });
+      handlePosition(currentPosition);
+    } catch (err) {
+      if (hasUsableLocation(driverLocation)) {
+        setTrackingOnline(true);
+      }
+      setError(formatWebGeolocationError(err, 'Location permission is required to receive ride requests.'));
+      return;
+    }
 
     locationWatchIdRef.current = navigator.geolocation.watchPosition(
       handlePosition,
-      () => null,
+      (watchError) => {
+        if (Number(watchError?.code) === 1) {
+          setError(formatWebGeolocationError(watchError, 'Location permission is required to receive ride requests.'));
+        }
+      },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 },
     );
   }, [driverLocation, handlePosition]);
