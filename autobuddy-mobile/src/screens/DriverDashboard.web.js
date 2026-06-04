@@ -1669,7 +1669,12 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       applyAvailabilitySnapshot(confirmedSnapshot, confirmedStatus, { protect: true });
 
       if (confirmedStatus !== next) {
-        setError(next ? 'Server did not confirm online status.' : 'Server did not confirm offline status.');
+        if (!next && confirmedStatus) {
+          setError('');
+          setMessage('');
+          return;
+        }
+        setError(next ? 'Server did not confirm online status.' : 'You are still online.');
         setMessage('');
         return;
       }
