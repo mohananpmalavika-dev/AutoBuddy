@@ -542,17 +542,6 @@ async def _login_primary(
     runtime_state: RuntimeStateStore,
     user_agent: str,
 ) -> AuthResponse:
-    try:
-        await runtime_state.check_login_throttle(client_ip)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.exception(
-            "Login throttle check failed; continuing login without throttle enforcement for ip=%s",
-            client_ip,
-            exc_info=True,
-        )
-
     normalized_email = normalize_email(credentials.email)
     try:
         user = await db.users.find_one({"email": normalized_email})
@@ -587,10 +576,6 @@ async def _login_primary(
                 logger.warning("Legacy password migration failed for user_id=%s", user.get("id"))
 
     if not user or not password_ok:
-        try:
-            await runtime_state.register_login_attempt(client_ip)
-        except Exception:
-            logger.warning("Failed to register login attempt for ip=%s", client_ip)
         await _audit_auth_event(
             db=db,
             action="LOGIN_FAILED",
@@ -624,10 +609,6 @@ async def _login_primary(
             logger.warning("Failed to normalize missing/invalid role for user_id=%s", user.get("id"))
             user["role"] = normalized_role
 
-    try:
-        await runtime_state.clear_login_attempts(client_ip)
-    except Exception:
-        logger.warning("Failed to clear login attempts for ip=%s", client_ip)
     refresh_token = create_refresh_token(user_id, normalized_role, str(uuid.uuid4()), settings)
     try:
         await _store_refresh_token(
@@ -687,10 +668,6 @@ async def _login_compatibility_fallback(
             password_ok = True
 
     if not password_ok:
-        try:
-            await runtime_state.register_login_attempt(client_ip)
-        except Exception:
-            pass
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     user_id = _normalize_user_id(user.get("id"))
@@ -703,11 +680,6 @@ async def _login_compatibility_fallback(
         )
     elif role == "operator":
         await ensure_operator_profile(db, user_id, user)
-    try:
-        await runtime_state.clear_login_attempts(client_ip)
-    except Exception:
-        pass
-
     refresh_token: Optional[str] = None
     try:
         refresh_token = create_refresh_token(user_id, role, str(uuid.uuid4()), settings)

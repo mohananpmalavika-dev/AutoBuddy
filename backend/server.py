@@ -178,6 +178,7 @@ from app.utils.rate_limiting import (
     ensure_rate_limit_defaults,
     get_rate_limit_profile_rule,
     get_rate_limit_rule_for_path,
+    is_login_rate_limit_exempt_path,
 )
 from app.routers.rate_limit_config import (
     init_default_rate_limit_configs,
@@ -1208,6 +1209,7 @@ async def api_guardrails_middleware(request: Request, call_next):
     request_path = request.url.path
     path_template = request_path
     is_realtime_path = is_realtime_rate_limit_exempt_path(request_path)
+    is_login_rate_limit_exempt = is_login_rate_limit_exempt_path(request_path)
     status_code = 500
     response: Optional[Any] = None
     try:
@@ -1275,7 +1277,7 @@ async def api_guardrails_middleware(request: Request, call_next):
                 status_code = int(response.status_code)
                 return response
 
-        if not is_realtime_path and request_path not in {"/api/health", "/health"}:
+        if not is_realtime_path and not is_login_rate_limit_exempt and request_path not in {"/api/health", "/health"}:
             rate_limit_rule = await get_rate_limit_rule_for_path(request_path, db)
             try:
                 if rate_limit_rule:
@@ -1307,7 +1309,12 @@ async def api_guardrails_middleware(request: Request, call_next):
                 status_code = int(response.status_code)
                 return response
 
-        if not is_realtime_path and request_path.startswith("/api") and request_path != "/api/health":
+        if (
+            not is_realtime_path
+            and not is_login_rate_limit_exempt
+            and request_path.startswith("/api")
+            and request_path != "/api/health"
+        ):
             api_global_rule = await get_rate_limit_profile_rule(
                 "api_global",
                 db,
@@ -5231,9 +5238,6 @@ async def register(user_data: UserCreate, request: Request):
 
 @api_router.post("/auth/_legacy/login", response_model=AuthResponse)
 async def login(credentials: UserLogin, request: Request):
-    client_ip = get_request_ip(request)
-    await check_login_throttle(client_ip)
-
     try:
         user = await db.users.find_one({"email": credentials.email})
     except ServerSelectionTimeoutError:
@@ -5244,7 +5248,6 @@ async def login(credentials: UserLogin, request: Request):
         raise HTTPException(status_code=503, detail="Database unavailable. Please try again.")
 
     if not user or not verify_password(credentials.password, user["password_hash"]):
-        await register_login_attempt(client_ip)
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     if user.get("registration_payment_required") and user.get("registration_payment_status") != "verified":
@@ -5266,7 +5269,6 @@ async def login(credentials: UserLogin, request: Request):
         if active_blacklist:
             raise HTTPException(status_code=403, detail="Account permanently suspended. Contact support.")
 
-    await clear_login_attempts(client_ip)
     refresh_token = create_refresh_token_for_user(user["id"], user["role"])
     await store_refresh_token(user["id"], refresh_token, request)
     return auth_response_for_user(user, refresh_token=refresh_token)

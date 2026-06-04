@@ -12,6 +12,7 @@ from app.utils.rate_limiting import (
     get_rate_limiter,
     get_rate_limit_key,
     get_rate_limit_rule_for_path,
+    is_login_rate_limit_exempt_path,
 )
 
 logger = logging.getLogger(__name__)
@@ -40,7 +41,7 @@ class RateLimitingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         # Skip rate limiting for excluded paths
         path = request.url.path
-        if any(path.startswith(excluded) for excluded in self.excluded_paths):
+        if any(path.startswith(excluded) for excluded in self.excluded_paths) or is_login_rate_limit_exempt_path(path):
             return await call_next(request)
         
         # Get DB-backed rate limit for this endpoint.

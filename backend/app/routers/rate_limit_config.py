@@ -106,12 +106,14 @@ DEFAULT_RATE_LIMIT_PROFILES = {
 }
 
 # Default endpoint-specific rate limits
+LOGIN_RATE_LIMIT_EXEMPT_PATHS = (
+    "/api/auth/login",
+    "/api/auth/google",
+    "/api/auth/_legacy/login",
+    "/api/auth/_legacy/google",
+)
+
 DEFAULT_ENDPOINT_RATE_LIMITS = [
-    {
-        "endpoint_path": "/api/auth/login",
-        "limit_type": "strict",
-        "description": "Login endpoint",
-    },
     {
         "endpoint_path": "/api/auth/register",
         "limit_type": "strict",
@@ -374,9 +376,30 @@ async def init_default_rate_limit_configs(db: AsyncIOMotorDatabase) -> None:
         return
     
     try:
+        now = get_ist_now()
         # Create indexes
         await db.rate_limit_profiles.create_index("limit_type", unique=True)
         await db.endpoint_rate_limits.create_index("endpoint_path", unique=True)
+        await db.endpoint_rate_limits.update_many(
+            {"endpoint_path": {"$in": list(LOGIN_RATE_LIMIT_EXEMPT_PATHS)}},
+            {
+                "$set": {
+                    "enabled": False,
+                    "description": "Login endpoint rate limiting disabled",
+                    "updated_at": now,
+                }
+            },
+        )
+        await db.endpoint_rate_limits.update_many(
+            {"endpoint": {"$in": list(LOGIN_RATE_LIMIT_EXEMPT_PATHS)}},
+            {
+                "$set": {
+                    "enabled": False,
+                    "description": "Login endpoint rate limiting disabled",
+                    "updated_at": now,
+                }
+            },
+        )
         
         # Initialize profiles if they don't exist
         for limit_type, config in DEFAULT_RATE_LIMIT_PROFILES.items():
@@ -388,8 +411,8 @@ async def init_default_rate_limit_configs(db: AsyncIOMotorDatabase) -> None:
                     "window_seconds": config["window_seconds"],
                     "description": config["description"],
                     "enabled": True,
-                    "created_at": get_ist_now(),
-                    "updated_at": get_ist_now(),
+                    "created_at": now,
+                    "updated_at": now,
                     "created_by": "system_init",
                 })
         
@@ -406,8 +429,8 @@ async def init_default_rate_limit_configs(db: AsyncIOMotorDatabase) -> None:
                     "window_seconds": None,
                     "description": endpoint_config.get("description"),
                     "enabled": True,
-                    "created_at": get_ist_now(),
-                    "updated_at": get_ist_now(),
+                    "created_at": now,
+                    "updated_at": now,
                     "created_by": "system_init",
                 })
     except Exception as e:

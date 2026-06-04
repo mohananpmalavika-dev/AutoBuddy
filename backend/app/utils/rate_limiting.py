@@ -49,8 +49,14 @@ DEFAULT_RATE_LIMIT_CONFIGS: Dict[str, Dict[str, Any]] = {
 VALID_RATE_LIMIT_TYPES = tuple(DEFAULT_RATE_LIMIT_CONFIGS.keys())
 ENDPOINT_RATE_LIMIT_TYPES = ("strict", "moderate", "normal")
 
-STRICT_ENDPOINT_PATHS = (
+LOGIN_RATE_LIMIT_EXEMPT_PATHS = (
     "/api/auth/login",
+    "/api/auth/google",
+    "/api/auth/_legacy/login",
+    "/api/auth/_legacy/google",
+)
+
+STRICT_ENDPOINT_PATHS = (
     "/api/auth/register",
     "/api/payments/order",
     "/api/payments/verify",
@@ -258,6 +264,10 @@ def normalize_endpoint_path(endpoint: str) -> str:
     return path.lower()
 
 
+def is_login_rate_limit_exempt_path(endpoint: str) -> bool:
+    return normalize_endpoint_path(endpoint) in LOGIN_RATE_LIMIT_EXEMPT_PATHS
+
+
 def _coerce_positive_int(value: Any, fallback: int) -> int:
     try:
         parsed = int(value)
@@ -411,6 +421,28 @@ async def ensure_rate_limit_defaults(db) -> None:
             upsert=True,
         )
 
+    login_endpoints = [normalize_endpoint_path(path) for path in LOGIN_RATE_LIMIT_EXEMPT_PATHS]
+    await db.endpoint_rate_limits.update_many(
+        {"endpoint": {"$in": login_endpoints}},
+        {
+            "$set": {
+                "enabled": False,
+                "description": "Login endpoint rate limiting disabled",
+                "updated_at": now,
+            }
+        },
+    )
+    await db.endpoint_rate_limits.update_many(
+        {"endpoint_path": {"$in": login_endpoints}},
+        {
+            "$set": {
+                "enabled": False,
+                "description": "Login endpoint rate limiting disabled",
+                "updated_at": now,
+            }
+        },
+    )
+
 
 async def get_rate_limit_settings(db) -> Dict[str, Any]:
     """Load rate-limit profiles and endpoint overrides from MongoDB with fallback defaults."""
@@ -510,6 +542,8 @@ async def get_rate_limit_rule_for_path(
     """Resolve the active rate-limit rule for a request path."""
     settings = await get_rate_limit_settings(db)
     normalized_endpoint = normalize_endpoint_path(endpoint)
+    if is_login_rate_limit_exempt_path(normalized_endpoint):
+        return None
     endpoint_config = _find_endpoint_rule(normalized_endpoint, settings["endpoints"])
 
     if endpoint_config:
