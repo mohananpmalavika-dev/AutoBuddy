@@ -421,9 +421,11 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     driverLocation?.longitude ??
     driverLocation?.lng ??
     driverLocation?.lon;
+  const visibleDriverAddress = String(driverGPSLocation?.address || driverLocation?.address || '').trim();
   const hasVisibleDriverLocation =
     hasLiveLocationSignal(driverGPSLocation) ||
     hasLiveLocationSignal(driverLocation) ||
+    !!visibleDriverAddress ||
     (
       Number.isFinite(Number(visibleDriverLatitude)) &&
       Number.isFinite(Number(visibleDriverLongitude))
@@ -2422,7 +2424,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                   pendingRequests.length === 0 ? (
                     <PremiumEmptyState
                       title="No pending requests"
-                      subtitle="You are online. New bookings will appear shortly."
+                      subtitle="You are accepting rides. New bookings will appear shortly."
                       malayalam="New requests will appear here shortly."
                     />
                   ) : (
@@ -2515,7 +2517,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
                 ) : (
                   <PremiumEmptyState
                     title="Paused new requests"
-                    subtitle="Go online to receive nearby ride requests."
+                    subtitle="Go online to accept nearby ride requests."
                     malayalam="Go online to receive requests."
                   />
                 )
