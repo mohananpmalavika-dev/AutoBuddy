@@ -232,10 +232,33 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [passengerAccessibility, setPassengerAccessibility] = useState(null);
   const [showNotificationCenter, setShowNotificationCenter] = useState(false);
   const [showInteractiveMap, setShowInteractiveMap] = useState(true);
+  const [isMobileWeb, setIsMobileWeb] = useState(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) {
+      return false;
+    }
+    return window.matchMedia('(max-width: 720px)').matches;
+  });
   const [selectingPoint, setSelectingPoint] = useState('pickup');
   const [showRatingModal, setShowRatingModal] = useState(false);
   const [justCompletedBooking, setJustCompletedBooking] = useState(null);
   const [showBookingFlow, setShowBookingFlow] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) {
+      return undefined;
+    }
+    const mediaQuery = window.matchMedia('(max-width: 720px)');
+    const updateMobileLayout = () => setIsMobileWeb(mediaQuery.matches);
+    updateMobileLayout();
+
+    if (mediaQuery.addEventListener) {
+      mediaQuery.addEventListener('change', updateMobileLayout);
+      return () => mediaQuery.removeEventListener('change', updateMobileLayout);
+    }
+
+    mediaQuery.addListener(updateMobileLayout);
+    return () => mediaQuery.removeListener(updateMobileLayout);
+  }, []);
   
   // Initialize notifications
   const passengerNotificationSettings = useMemo(
@@ -964,24 +987,25 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           style={[
             styles.menuChip,
             variant === 'pinned' && styles.pinnedMenuChip,
+            variant === 'pinned' && isMobileWeb && styles.pinnedMenuChipMobile,
             selected && styles.menuChipActive,
           ]}
           onPress={() => handleMenuSelection(menu.key, label)}
           accessibilityRole="tab"
           accessibilityLabel={label}
           accessibilityState={{ selected }}>
-          <View style={[styles.menuIconBadge, selected && styles.menuIconBadgeActive]}>
+          <View style={[styles.menuIconBadge, isMobileWeb && styles.menuIconBadgeMobile, selected && styles.menuIconBadgeActive]}>
             <PassengerMenuIcon symbol={menu.symbol} selected={selected} />
           </View>
           <Text
-            style={[styles.menuChipText, selected && styles.menuChipTextActive]}
+            style={[styles.menuChipText, isMobileWeb && styles.menuChipTextMobile, selected && styles.menuChipTextActive]}
             numberOfLines={1}>
             {label}
           </Text>
         </TouchableOpacity>
       );
     },
-    [activePassengerMenu, getMenuLabel, handleMenuSelection],
+    [activePassengerMenu, getMenuLabel, handleMenuSelection, isMobileWeb],
   );
 
   const openRideEmergencyPanel = useCallback(() => {
@@ -1942,14 +1966,14 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   return (
     <AccessibilityProvider settings={passengerAccessibility}>
       <SafeAreaView style={styles.safeArea}>
-        <View style={styles.container}>
-          <WebCommandBar />
-        <View style={styles.mapContainer}>
+        <View style={[styles.container, isMobileWeb && styles.containerMobile]}>
+          {!isMobileWeb && <WebCommandBar />}
+        <View style={[styles.mapContainer, isMobileWeb && styles.mapContainerMobile]}>
           <WebGoogleLiveMap
             apiKey={googleMapsWebKey}
             title={t.passengerMapTitle}
             fallbackUrl={mapState.fallbackUrl}
-            mapStyle={styles.mapIframe}
+            mapStyle={[styles.mapIframe, isMobileWeb && styles.mapIframeMobile]}
             defaultCenter={DEFAULT_CITY_LOCATION}
             pickupLocation={mapState.origin}
             dropoffLocation={mapState.destination}
@@ -1960,42 +1984,45 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             onMapPress={handleMapPress}
             onMarkerDragEnd={handleMarkerDragEnd}
             selectingPoint={selectingPoint}
+            showStatusOverlay={!isMobileWeb}
           />
-          <View style={styles.mapOverlayWrap}>
+          {!isMobileWeb && <View style={styles.mapOverlayWrap} pointerEvents="none">
             <GlassCard style={styles.mapOverlayCard}>
               <Text style={[styles.mapOverlayTitle, accessibilityUi.textStyle]}>{t.mapTitle}</Text>
               <Text style={[styles.mapOverlayMalayalam, accessibilityUi.textStyle]}>{t.mapSubtitle}</Text>
             </GlassCard>
-          </View>
+          </View>}
         </View>
 
-        <View style={[styles.panel, accessibilityUi.panelStyle]}>
-          <View style={styles.headerRow}>
-            <View style={styles.headerUserBlock}>
-              <Text style={[styles.hello, accessibilityUi.headingStyle]}>{t.hi}, {user?.name || t.passengerFallbackName}</Text>
-              <Text style={[styles.sub, accessibilityUi.textStyle]}>{t.passengerCenter}</Text>
+        <View style={[styles.panel, isMobileWeb && styles.panelMobile, accessibilityUi.panelStyle]}>
+          <View style={[styles.headerRow, isMobileWeb && styles.headerRowMobile]}>
+            <View style={[styles.headerUserBlock, isMobileWeb && styles.headerUserBlockMobile]}>
+              <Text style={[styles.hello, isMobileWeb && styles.helloMobile, accessibilityUi.headingStyle]}>{t.hi}, {user?.name || t.passengerFallbackName}</Text>
+              {!isMobileWeb && <Text style={[styles.sub, accessibilityUi.textStyle]}>{t.passengerCenter}</Text>}
             </View>
-            <Image source={LOGO_SOURCE} style={styles.headerLogo} resizeMode="contain" />
+            {!isMobileWeb && <Image source={LOGO_SOURCE} style={styles.headerLogo} resizeMode="contain" />}
             <NotificationBell
               onPress={() => setShowNotificationCenter(true)}
               unreadCount={unreadCount}
-              style={styles.headerButton}
+              style={[styles.headerButton, isMobileWeb && styles.headerButtonMobile]}
             />
-            <AccessibilityQuickAccess
-              token={token}
-              onSettingsChange={handleAccessibilityChange}
-            />
-            <TouchableOpacity onPress={handleProfilePress} style={styles.profileButton}>
+            {!isMobileWeb && (
+              <AccessibilityQuickAccess
+                token={token}
+                onSettingsChange={handleAccessibilityChange}
+              />
+            )}
+            <TouchableOpacity onPress={handleProfilePress} style={[styles.profileButton, isMobileWeb && styles.profileButtonMobile]}>
               <Text style={styles.profileText}>{t.profile}</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={onLogout} style={styles.logoutButton}>
+            <TouchableOpacity onPress={onLogout} style={[styles.logoutButton, isMobileWeb && styles.logoutButtonMobile]}>
               <Text style={styles.logoutText}>{t.logout}</Text>
             </TouchableOpacity>
           </View>
 
           <ScrollView
-            style={styles.panelScroll}
-            contentContainerStyle={styles.panelScrollContent}
+            style={[styles.panelScroll, isMobileWeb && styles.panelScrollMobile]}
+            contentContainerStyle={[styles.panelScrollContent, isMobileWeb && styles.panelScrollContentMobile]}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled">
             {loading && <ActivityIndicator color={COLORS.primary} style={styles.loader} />}
@@ -2012,10 +2039,11 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               />
             )}
 
-            <View style={styles.dashboardTopRow}>
+            <View style={[styles.dashboardTopRow, isMobileWeb && styles.dashboardTopRowMobile]}>
               <TouchableOpacity
                 style={[
                   styles.primaryMenuButton,
+                  isMobileWeb && styles.primaryMenuButtonMobile,
                   activePassengerMenu === PRIMARY_PASSENGER_MENU_KEY && styles.primaryMenuButtonActive,
                 ]}
                 accessibilityRole="tab"
@@ -2037,7 +2065,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                 </View>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.menuToggleButton}
+                style={[styles.menuToggleButton, isMobileWeb && styles.menuToggleButtonMobile]}
                 accessibilityRole="button"
                 accessibilityLabel={showPassengerMenus ? t.hideMenus : t.otherMenus}
                 accessibilityState={{ expanded: showPassengerMenus }}
@@ -2054,7 +2082,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               </TouchableOpacity>
             </View>
 
-            <View style={styles.pinnedMenuRow}>
+            <View style={[styles.pinnedMenuRow, isMobileWeb && styles.pinnedMenuRowMobile]}>
               {pinnedPassengerMenuOptions.map((menu) => renderPassengerMenuChip(menu, 'pinned'))}
             </View>
 
@@ -2156,12 +2184,13 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
 
             {activePassengerMenu === 'ride' && (
               <>
-                <View style={styles.infoBlock}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                    <Text style={styles.infoTitle}>{showInteractiveMap ? 'Interactive Map' : 'Search Location'}</Text>
+                <View style={[styles.infoBlock, isMobileWeb && styles.infoBlockMobile]}>
+                  <View style={[styles.rideModeRow, isMobileWeb && styles.rideModeRowMobile]}>
+                    <Text style={[styles.infoTitle, isMobileWeb && styles.infoTitleMobile]}>{showInteractiveMap ? 'Interactive Map' : 'Search Location'}</Text>
                     <TouchableOpacity
                       style={[
                         styles.button,
+                        isMobileWeb && styles.mapToggleButtonMobile,
                         {
                           paddingVertical: 8,
                           paddingHorizontal: 16,
@@ -2175,17 +2204,27 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                     </TouchableOpacity>
                   </View>
                   {showInteractiveMap && (
-                    <Text style={[styles.hint, { marginBottom: 12, fontWeight: '500', color: COLORS.primary }]}> 
+                    <Text style={[styles.hint, { marginBottom: 12, fontWeight: '500', color: COLORS.primary }, isMobileWeb && styles.mapPickHintMobile]}> 
                       {t.tapMapToSelect || `Tap map to pick ${selectingPoint}`}
                     </Text>
                   )}
+                  {isMobileWeb && (
+                    <View style={styles.mobileRideSummary}>
+                      <Text style={styles.mobileRideSummaryText} numberOfLines={1}>
+                        {t.pickupSearch}: {pickupLocation?.address || pickupQuery || 'Not selected'}
+                      </Text>
+                      <Text style={styles.mobileRideSummaryText} numberOfLines={1}>
+                        {t.dropSearch}: {dropoffLocation?.address || dropoffQuery || 'Not selected'}
+                      </Text>
+                    </View>
+                  )}
                 </View>
 
-                <View style={styles.selectedBlock}>
+                <View style={[styles.selectedBlock, isMobileWeb && styles.selectedBlockMobile]}>
                   <View style={styles.pickupLabelRow}>
-                    <Text style={styles.infoTitle}>{t.pickupSearch}</Text>
+                    <Text style={[styles.infoTitle, isMobileWeb && styles.infoTitleMobile]}>{t.pickupSearch}</Text>
                     <TouchableOpacity
-                      style={styles.currentLocationInlineButton}
+                      style={[styles.currentLocationInlineButton, isMobileWeb && styles.currentLocationInlineButtonMobile]}
                       onPress={() => autofillPickupFromCurrentLocation({ silent: false })}
                       disabled={loading || locatingPickup}>
                       <Text style={styles.currentLocationInlineText}>
@@ -2206,7 +2245,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                     }}
                   />
                   <VoiceTextInput
-                    style={styles.input}
+                    style={[styles.input, isMobileWeb && styles.inputMobile]}
                     value={pickupQuery}
                     onChangeText={(text) => handleSearchTextChange('pickup', text)}
                     placeholder={t.pickupPlaceholder}
@@ -2226,8 +2265,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                   )}
                 </View>
 
-                <View style={styles.selectedBlock}>
-                  <Text style={styles.infoTitle}>{t.dropSearch}</Text>
+                <View style={[styles.selectedBlock, isMobileWeb && styles.selectedBlockMobile]}>
+                  <Text style={[styles.infoTitle, isMobileWeb && styles.infoTitleMobile]}>{t.dropSearch}</Text>
                   <SavedPlacesQuickSelect
                     token={token}
                     selectingFor="dropoff"
@@ -2241,7 +2280,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                     }}
                   />
                   <VoiceTextInput
-                    style={styles.input}
+                    style={[styles.input, isMobileWeb && styles.inputMobile]}
                     value={dropoffQuery}
                     onChangeText={(text) => handleSearchTextChange('dropoff', text)}
                     placeholder={t.dropPlaceholder}
@@ -2262,7 +2301,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                 </View>
 
                 <TouchableOpacity
-                  style={[styles.bookingButton, { backgroundColor: COLORS.primary, marginVertical: 12 }]}
+                  style={[styles.bookingButton, isMobileWeb && styles.bookingButtonMobile, { backgroundColor: COLORS.primary, marginVertical: 12 }]}
                   onPress={() => setShowBookingFlow(true)}
                   disabled={!pickupLocation || !dropoffLocation}>
                   <Text style={[styles.actionText, { color: 'white', fontSize: 16, fontWeight: '700' }]}> 
@@ -3126,6 +3165,11 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.background },
   container: { flex: 1, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 16 },
+  containerMobile: {
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    paddingBottom: 10,
+  },
   mapContainer: {
     height: 220,
     position: 'relative',
@@ -3135,6 +3179,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     overflow: 'hidden',
     ...SHADOWS.card,
+  },
+  mapContainerMobile: {
+    height: 205,
+    borderRadius: 14,
   },
   mapOverlayWrap: {
     position: 'absolute',
@@ -3161,6 +3209,9 @@ const styles = StyleSheet.create({
     height: '100%',
     borderWidth: 0,
   },
+  mapIframeMobile: {
+    borderRadius: 14,
+  },
   panel: {
     marginTop: 14,
     flex: 1,
@@ -3171,8 +3222,15 @@ const styles = StyleSheet.create({
     padding: 16,
     ...SHADOWS.card,
   },
+  panelMobile: {
+    marginTop: 10,
+    borderRadius: 14,
+    padding: 12,
+  },
   panelScroll: { flex: 1 },
+  panelScrollMobile: { flex: 1 },
   panelScrollContent: { paddingBottom: 22 },
+  panelScrollContentMobile: { paddingBottom: 120 },
   premiumCallout: { marginBottom: 10 },
   premiumTitle: {
     ...TYPOGRAPHY.title,
@@ -3190,9 +3248,16 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
   },
+  headerRowMobile: {
+    alignItems: 'flex-start',
+    gap: 6,
+    marginBottom: 2,
+  },
   headerUserBlock: { flex: 1, paddingRight: 8 },
+  headerUserBlockMobile: { flexBasis: '100%', paddingRight: 0 },
   headerLogo: { width: 80, height: 44, marginHorizontal: 8, borderRadius: 10 },
   hello: { color: COLORS.textMain, fontSize: 19, fontWeight: '900' },
+  helloMobile: { fontSize: 17 },
   sub: { color: COLORS.textMuted, fontSize: 12, marginTop: 2 },
   profileButton: {
     backgroundColor: '#E3F2E8',
@@ -3204,6 +3269,11 @@ const styles = StyleSheet.create({
     marginRight: 8,
     ...SHADOWS.soft,
   },
+  profileButtonMobile: {
+    marginRight: 0,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+  },
   profileText: { color: '#2E7D32', fontWeight: '700' },
   logoutButton: {
     backgroundColor: '#F8FBF9',
@@ -3214,12 +3284,17 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     ...SHADOWS.soft,
   },
+  logoutButtonMobile: {
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+  },
   logoutText: { color: COLORS.textMain, fontWeight: '700' },
   loader: { marginVertical: 8 },
   error: { color: COLORS.danger, marginTop: 8 },
   message: { color: '#1B5E20', marginTop: 8 },
   route: { color: '#666666', marginTop: 10, marginBottom: 10 },
   dashboardTopRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
+  dashboardTopRowMobile: { gap: 6, marginBottom: 8 },
   primaryMenuButton: {
     flex: 1,
     borderWidth: 1,
@@ -3229,6 +3304,11 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     backgroundColor: '#E8F5E9',
     ...SHADOWS.soft,
+  },
+  primaryMenuButtonMobile: {
+    borderRadius: 9,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
   },
   primaryMenuButtonActive: {
     borderColor: COLORS.primaryDark,
@@ -3249,12 +3329,21 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     backgroundColor: '#F6FAF7',
   },
+  menuToggleButtonMobile: {
+    borderRadius: 9,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
   menuToggleButtonText: { color: '#355243', fontWeight: '700' },
   pinnedMenuRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
     marginBottom: 10,
+  },
+  pinnedMenuRowMobile: {
+    gap: 6,
+    marginBottom: 8,
   },
   secondaryMenuPanel: {
     gap: 10,
@@ -3298,6 +3387,12 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     flexBasis: '45%',
   },
+  pinnedMenuChipMobile: {
+    flexBasis: '48%',
+    minHeight: 38,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
   menuChipActive: { borderColor: COLORS.primary, backgroundColor: '#E3F2E8' },
   menuIconBadge: {
     width: 24,
@@ -3306,6 +3401,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#EAF2ED',
+  },
+  menuIconBadgeMobile: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
   },
   menuIconBadgeActive: {
     backgroundColor: COLORS.primary,
@@ -3325,6 +3425,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
+  menuChipTextMobile: {
+    fontSize: 11,
+  },
   menuChipTextActive: { color: COLORS.primaryDark },
   pickupLabelRow: {
     flexDirection: 'row',
@@ -3341,6 +3444,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
+  currentLocationInlineButtonMobile: {
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
   currentLocationInlineText: { color: COLORS.primaryDark, fontWeight: '700', fontSize: 12 },
   input: {
     borderWidth: 1,
@@ -3351,6 +3458,11 @@ const styles = StyleSheet.create({
     color: COLORS.textMain,
     backgroundColor: COLORS.background,
     marginBottom: 8,
+  },
+  inputMobile: {
+    borderRadius: 9,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
   },
   hint: { color: '#666666', fontSize: 12, marginBottom: 8 },
   suggestion: {
@@ -3371,6 +3483,12 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     backgroundColor: '#FAFAFA',
     ...SHADOWS.soft,
+  },
+  selectedBlockMobile: {
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 8,
+    backgroundColor: '#FFFFFF',
   },
   tripSummaryCard: {
     borderWidth: 1,
@@ -3440,6 +3558,41 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     backgroundColor: '#FAFAFA',
     ...SHADOWS.soft,
+  },
+  infoBlockMobile: {
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 8,
+    backgroundColor: '#FFFFFF',
+  },
+  rideModeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  rideModeRowMobile: {
+    marginBottom: 8,
+  },
+  mapToggleButtonMobile: {
+    borderRadius: 999,
+  },
+  mapPickHintMobile: {
+    marginBottom: 8,
+  },
+  mobileRideSummary: {
+    borderWidth: 1,
+    borderColor: '#D7E2DA',
+    borderRadius: 10,
+    backgroundColor: '#F3FAF5',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 4,
+  },
+  mobileRideSummaryText: {
+    color: '#355243',
+    fontSize: 12,
+    fontWeight: '700',
   },
   subscriptionPlanRow: {
     marginTop: 8,
@@ -3555,6 +3708,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#D5ECD8',
   },
   infoTitle: { color: '#202020', fontWeight: '700', marginBottom: 4 },
+  infoTitleMobile: { fontSize: 14 },
   infoText: { color: '#666666', marginBottom: 2 },
   otpShareText: {
     color: '#1B5E20',
@@ -3683,6 +3837,9 @@ const styles = StyleSheet.create({
   headerButton: {
     marginRight: 8,
   },
+  headerButtonMobile: {
+    marginRight: 0,
+  },
   vehicleTypeChip: {
     borderWidth: 1,
     borderColor: '#CBD9D0',
@@ -3719,6 +3876,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     ...SHADOWS.soft,
+  },
+  bookingButtonMobile: {
+    borderRadius: 12,
+    paddingVertical: 14,
   },
 });
 

@@ -96,6 +96,7 @@ export default function WebGoogleLiveMap({
     origin: null,
     destination: null,
   });
+  const mapClickListenerRef = useRef(null);
   const [mapReady, setMapReady] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
 
@@ -105,7 +106,7 @@ export default function WebGoogleLiveMap({
   const driverPoint = useMemo(() => normalizeCoords(driverLocation), [driverLocation]);
   const routeOriginPoint = useMemo(() => normalizeCoords(routeOrigin), [routeOrigin]);
   const routeDestinationPoint = useMemo(() => normalizeCoords(routeDestination), [routeDestination]);
-  const showEmbedFallback = !!fallbackUrl && (!apiKey || loadFailed || !mapReady);
+  const showEmbedFallback = !!fallbackUrl && (!apiKey || loadFailed);
 
   useEffect(() => {
     if (!apiKey || typeof window === 'undefined' || !mapContainerRef.current) {
@@ -126,18 +127,6 @@ export default function WebGoogleLiveMap({
           streetViewControl: false,
           fullscreenControl: false,
         });
-        
-        // Add click listener for interactive mode (click to place markers)
-        if (isInteractiveMode && onMapPress) {
-          mapRef.current.addListener('click', (event) => {
-            const coordinate = {
-              latitude: event.latLng.lat(),
-              longitude: event.latLng.lng(),
-            };
-            onMapPress(coordinate);
-          });
-        }
-        
         directionsServiceRef.current = new googleMaps.DirectionsService();
         directionsRendererRef.current = new googleMaps.DirectionsRenderer({
           suppressMarkers: true,
@@ -160,7 +149,42 @@ export default function WebGoogleLiveMap({
     return () => {
       cancelled = true;
     };
-  }, [apiKey, defaultCenterPoint, isInteractiveMode, onMapPress]);
+  }, [apiKey, defaultCenterPoint]);
+
+  useEffect(() => {
+    if (mapClickListenerRef.current) {
+      mapClickListenerRef.current.remove();
+      mapClickListenerRef.current = null;
+    }
+
+    if (
+      !mapReady ||
+      !isInteractiveMode ||
+      !onMapPress ||
+      typeof window === 'undefined' ||
+      !mapRef.current ||
+      !window.google?.maps
+    ) {
+      return undefined;
+    }
+
+    mapClickListenerRef.current = mapRef.current.addListener('click', (event) => {
+      if (!event?.latLng) {
+        return;
+      }
+      onMapPress({
+        latitude: event.latLng.lat(),
+        longitude: event.latLng.lng(),
+      });
+    });
+
+    return () => {
+      if (mapClickListenerRef.current) {
+        mapClickListenerRef.current.remove();
+        mapClickListenerRef.current = null;
+      }
+    };
+  }, [mapReady, isInteractiveMode, onMapPress]);
 
   useEffect(() => {
     if (!mapReady || typeof window === 'undefined' || !mapRef.current || !window.google?.maps) {
@@ -311,10 +335,10 @@ export default function WebGoogleLiveMap({
           loading="lazy"
         />
       )}
-      <View ref={mapContainerRef} style={[MAP_CONTAINER_STYLE, !mapReady && styles.hiddenMapLayer]} />
+      <View ref={mapContainerRef} style={[MAP_CONTAINER_STYLE, styles.mapLayer, !mapReady && styles.mapLayerBooting]} />
       {!mapReady && !showEmbedFallback && (
         <View style={styles.mapLoadingPlaceholder} pointerEvents="none">
-          <Text style={styles.loadingSpinner}>◐</Text>
+          <Text style={styles.loadingSpinner}>Loading</Text>
           <Text style={styles.loadingText}>Loading map...</Text>
         </View>
       )}
@@ -344,8 +368,12 @@ const styles = StyleSheet.create({
     height: '100%',
     borderWidth: 0,
   },
-  hiddenMapLayer: {
-    display: 'none',
+  mapLayer: {
+    position: 'relative',
+    zIndex: 0,
+  },
+  mapLayerBooting: {
+    opacity: 0.01,
   },
   mapLoadingPlaceholder: {
     position: 'absolute',
@@ -359,9 +387,10 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   loadingSpinner: {
-    fontSize: 48,
+    fontSize: 16,
     color: '#0F2F1E',
     marginBottom: 8,
+    fontWeight: '800',
   },
   loadingText: {
     marginTop: 8,

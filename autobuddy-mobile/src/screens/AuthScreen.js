@@ -70,6 +70,26 @@ function shouldFallbackGoogleRequest(error) {
   );
 }
 
+function isGoogleAuthSessionRecoveryError(error) {
+  const message = String(
+    error?.message ||
+      error?.description ||
+      error?.error ||
+      error?.errorCode ||
+      error?.params?.error_description ||
+      error?.params?.error ||
+      '',
+  ).toLowerCase();
+  return (
+    message.includes('session expired') ||
+    message.includes('auth session') ||
+    message.includes('state mismatch') ||
+    message.includes('pkce') ||
+    message.includes('csrf') ||
+    message.includes('redirect')
+  );
+}
+
 function isOperatorRoleSchemaMismatch(error, attemptedRole) {
   const status = Number(error?.status || 0);
   const message = String(error?.message || '').toLowerCase();
@@ -249,12 +269,12 @@ export default function AuthScreen({ onAuthenticated }) {
     };
   }, []);
 
-  const authenticateAndEnter = (data) => {
+  const authenticateAndEnter = async (data) => {
     const session = normalizeAuthSessionFromPayload(data);
     if (!session) {
       throw new Error('Login succeeded but did not return a valid app session. Please try again.');
     }
-    onAuthenticated?.(session);
+    await onAuthenticated?.(session);
   };
 
   const submitGoogleIdToken = async (googleIdToken, extraPayload = {}, options = {}) => {
@@ -284,7 +304,7 @@ export default function AuthScreen({ onAuthenticated }) {
           throw primaryError;
         }
       }
-      authenticateAndEnter(data);
+      await authenticateAndEnter(data);
       return data;
     } catch (err) {
       if (!preserveFeedback) {
@@ -402,7 +422,7 @@ export default function AuthScreen({ onAuthenticated }) {
           throw primaryError;
         }
       }
-      authenticateAndEnter(data);
+      await authenticateAndEnter(data);
     } catch (err) {
       setError(err.message || 'Something went wrong.');
     } finally {
@@ -482,11 +502,24 @@ export default function AuthScreen({ onAuthenticated }) {
 
     try {
       resetFeedback();
-      const result = await promptGoogleAsync(
+      const promptOptions =
         Platform.OS === 'web'
           ? { windowFeatures: { width: 520, height: 680 } }
-          : undefined,
-      );
+          : undefined;
+      let result = null;
+      try {
+        result = await promptGoogleAsync(promptOptions);
+      } catch (promptError) {
+        if (Platform.OS !== 'web' || !isGoogleAuthSessionRecoveryError(promptError)) {
+          throw promptError;
+        }
+        try {
+          WebBrowser.maybeCompleteAuthSession({ skipRedirectCheck: true });
+        } catch {
+          // The retry below is enough if the browser has already cleaned up the old auth window.
+        }
+        result = await promptGoogleAsync(promptOptions);
+      }
 
       if (result.type === 'success') {
         const tokenFromParams = result.params?.id_token;
@@ -553,6 +586,10 @@ export default function AuthScreen({ onAuthenticated }) {
           result?.params?.error ||
           result?.errorCode ||
           'Google authentication returned an error.';
+        if (isGoogleAuthSessionRecoveryError({ message: providerError })) {
+          setError('Google sign-in window timed out. Please tap Google again; your app login was kept active.');
+          return;
+        }
         setError(String(providerError));
         return;
       }
@@ -562,6 +599,10 @@ export default function AuthScreen({ onAuthenticated }) {
       const raw = String(err?.message || '').toLowerCase();
       if (raw.includes('popup') || raw.includes('closed') || raw.includes('dismiss')) {
         setError('Google popup was blocked or closed. Please allow popups and try again.');
+        return;
+      }
+      if (isGoogleAuthSessionRecoveryError(err)) {
+        setError('Google sign-in window timed out. Please tap Google again; your app login was kept active.');
         return;
       }
       setError(err.message || 'Google login failed.');
