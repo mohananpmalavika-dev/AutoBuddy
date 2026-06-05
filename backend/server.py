@@ -2942,11 +2942,43 @@ async def get_cached_driver_live_location(
     )
     return normalize_tracking_location(raw)
 
+def is_recent_driver_location(profile: Optional[Dict[str, Any]], max_age_seconds: Optional[int] = None) -> bool:
+    if not isinstance(profile, dict):
+        return False
+    timestamp = (
+        profile.get("last_location_at")
+        or profile.get("last_heartbeat_at")
+        or profile.get("last_online_at")
+        or profile.get("updated_at")
+    )
+    timestamp_utc = as_utc_naive(timestamp)
+    now_utc = as_utc_naive(get_ist_now())
+    if not timestamp_utc or not now_utc:
+        return False
+    max_age = max(
+        int(max_age_seconds or 0),
+        int(DRIVER_LIVE_LOCATION_TTL_SECONDS),
+        int(REALTIME_OFFLINE_SECONDS * 4),
+    )
+    age_seconds = (now_utc - timestamp_utc).total_seconds()
+    return -60 <= age_seconds <= max_age
+
 async def get_effective_driver_location(driver_profile: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     if not isinstance(driver_profile, dict):
         return None
     driver_id = str(driver_profile.get("user_id") or "").strip()
-    return await get_cached_driver_live_location(driver_id)
+    live_location = await get_cached_driver_live_location(
+        driver_id,
+        max_age_seconds=DRIVER_LIVE_LOCATION_TTL_SECONDS,
+    )
+    if live_location:
+        return live_location
+
+    if not bool(driver_profile.get("is_available")):
+        return None
+    if not is_recent_driver_location(driver_profile, DRIVER_LIVE_LOCATION_TTL_SECONDS):
+        return None
+    return normalize_tracking_location(driver_profile.get("current_location"))
 
 
 async def cache_get(key: str):

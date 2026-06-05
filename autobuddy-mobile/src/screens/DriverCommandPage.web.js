@@ -13,12 +13,27 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import DriverTabBar from '../components/DriverTabBar';
+import AnalyticsDashboardAdvanced from '../components/AnalyticsDashboardAdvanced';
+import DocumentExpiryAlertsPanel from '../components/DocumentExpiryAlertsPanel';
+import DocumentUploadPanel from '../components/DocumentUploadPanel';
+import DriverFareDisplay from '../components/DriverFareDisplay';
+import DriverFareProposal from '../components/DriverFareProposal';
+import DriverKycPanel from '../components/DriverKycPanel';
+import DriverReferralPanel from '../components/DriverReferralPanel';
+import DriverReviewsPanel from '../components/DriverReviewsPanel';
+import DriverSuspensionAppealPanel from '../components/DriverSuspensionAppealPanel';
+import DriverTierBenefitsPanel from '../components/DriverTierBenefitsPanel';
+import DriverTrustCard from '../components/DriverTrustCard';
 import EarningsPanel from '../components/EarningsPanel';
 import EnhancedSettingsPanel from '../components/EnhancedSettingsPanel';
+import NotificationCenter from '../components/NotificationCenter';
 import ProfileManagementPanel from '../components/ProfileManagementPanel';
 import RideCommunicationCard from '../components/RideCommunicationCard';
+import RideHistoryPanel from '../components/RideHistoryPanel';
 import ScheduledRidesPanel from '../components/ScheduledRidesPanel';
+import SubscriptionPanel from '../components/SubscriptionPanel';
 import SupportTicketPanel from '../components/SupportTicketPanel';
+import VehicleManagementPanel from '../components/VehicleManagementPanel';
 import WebGoogleLiveMap from '../components/WebGoogleLiveMap';
 import { useDriverRideQueueSocket } from '../hooks/useDriverRideQueueSocket';
 import { apiRequest } from '../lib/api';
@@ -452,7 +467,7 @@ export default function DriverCommandPage({
 
   const activeRideId = String(activeRide?.id || '').trim();
   const activeRideStatus = String(activeRide?.status || '').toLowerCase();
-  const displayIsAccepting = isAccepting || trackingOnline || Boolean(activeRideId);
+  const displayIsAccepting = isAccepting || Boolean(activeRideId);
   const googleMapsWebKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
   const compactLayout = width < 760;
 
@@ -1049,6 +1064,26 @@ export default function DriverCommandPage({
     />
   );
 
+  const refreshDriverMenuBadges = useCallback(
+    () => refreshDriverData({ silent: true }).catch(() => null),
+    [refreshDriverData],
+  );
+
+  const renderLinkedToolPanel = ({ title, description, primaryTab = 'requests', primaryLabel = 'Ride Flow' }) => (
+    <View style={styles.simplePanel}>
+      <Text style={styles.simpleTitle}>{title}</Text>
+      <Text style={styles.simpleText}>{description}</Text>
+      <View style={styles.actionRow}>
+        <TouchableOpacity style={styles.secondaryAction} onPress={() => setActiveTab(primaryTab)}>
+          <Text style={styles.secondaryActionText}>{primaryLabel}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.secondaryAction} onPress={() => setActiveTab('support')}>
+          <Text style={styles.secondaryActionText}>Support</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
   const renderTabContent = () => {
     switch (activeTab) {
       case 'requests':
@@ -1071,9 +1106,131 @@ export default function DriverCommandPage({
       case 'earnings':
         return renderEarningsTab();
       case 'support':
-        return <SupportTicketPanel token={token} loading={loading} initialAction="help" />;
+        return <SupportTicketPanel token={token} loading={loading} initialAction="help" onDataChanged={refreshDriverMenuBadges} />;
       case 'profile':
         return <ProfileManagementPanel token={token} loading={loading} />;
+      case 'documents':
+        return <DocumentUploadPanel token={token} loading={loading} onDataChanged={refreshDriverMenuBadges} />;
+      case 'vehicle':
+        return <VehicleManagementPanel token={token} loading={loading} />;
+      case 'trust':
+        return (
+          <View style={styles.stackedPanels}>
+            <DriverKycPanel token={token} onDataChanged={refreshDriverMenuBadges} />
+            <DriverTrustCard token={token} />
+          </View>
+        );
+      case 'subscription':
+        return <SubscriptionPanel token={token} audience="driver" />;
+      case 'history':
+        return (
+          <RideHistoryPanel
+            token={token}
+            viewerRole="driver"
+            onSupportRequested={(booking) => {
+              setActiveTab('support');
+              setMessage(`Support opened for booking ${String(booking?.id || '').slice(0, 12) || 'ride'}.`);
+            }}
+          />
+        );
+      case 'notifications':
+        return (
+          <NotificationCenter
+            token={token}
+            onClose={() => setActiveTab('requests')}
+            onNotificationPress={(notification) => {
+              const target = String(notification?.screen || notification?.target || notification?.type || '').toLowerCase();
+              if (target.includes('earning')) {
+                setActiveTab('earnings');
+              } else if (target.includes('support')) {
+                setActiveTab('support');
+              } else if (target.includes('document')) {
+                setActiveTab('documents');
+              }
+            }}
+          />
+        );
+      case 'fare':
+        return (
+          <View style={styles.stackedPanels}>
+            <DriverFareDisplay />
+            <DriverFareProposal />
+          </View>
+        );
+      case 'analytics':
+        return (
+          <AnalyticsDashboardAdvanced
+            driverId={user?.id}
+            token={token}
+            currentMetrics={{
+              totalRides: Number(earnings?.total_rides || earnings?.rides_completed || 0),
+              todayEarnings: Number(earnings?.today_earnings || 0),
+              walletBalance: Number(earnings?.wallet_balance || 0),
+            }}
+            historicalData={[]}
+            isLoading={loading}
+          />
+        );
+      case 'reviews':
+        return (
+          <DriverReviewsPanel
+            token={token}
+            onAppealReview={(review) => {
+              setActiveTab('support');
+              setMessage(`Support opened for review ${String(review?.id || review?.booking_id || '').slice(0, 12) || 'ride'}.`);
+            }}
+          />
+        );
+      case 'tier':
+        return <DriverTierBenefitsPanel token={token} onTierUpgrade={() => setActiveTab('subscription')} />;
+      case 'expiry':
+        return (
+          <DocumentExpiryAlertsPanel
+            token={token}
+            onDocumentExpiring={(data) => {
+              const critical = Number(data?.critical || 0);
+              const warning = Number(data?.warning || 0);
+              setMessage(`Document alerts: ${critical} critical, ${warning} warnings`);
+            }}
+          />
+        );
+      case 'appeals':
+        return (
+          <DriverSuspensionAppealPanel
+            token={token}
+            onAppealSubmitted={() => setMessage('Appeal submitted successfully. You will receive a response within 48 hours.')}
+          />
+        );
+      case 'referral':
+        return (
+          <DriverReferralPanel
+            token={token}
+            driverId={user?.id}
+            onReferralShare={(code) => setMessage(`Referral code ${code} shared successfully.`)}
+          />
+        );
+      case 'maintenance':
+        return (
+          <View style={styles.stackedPanels}>
+            <VehicleManagementPanel token={token} loading={loading} />
+            <DocumentExpiryAlertsPanel token={token} />
+          </View>
+        );
+      case 'targets':
+        return renderLinkedToolPanel({
+          title: 'Earning Targets',
+          description: 'Daily earnings, reports, and withdrawal actions are available from the Earnings tab.',
+          primaryTab: 'earnings',
+          primaryLabel: 'Open Earnings',
+        });
+      case 'payout':
+      case 'paymethods':
+        return renderLinkedToolPanel({
+          title: formatStatus(activeTab),
+          description: 'Manage payout details and withdrawals from Earnings or Profile.',
+          primaryTab: 'earnings',
+          primaryLabel: 'Open Earnings',
+        });
       case 'settings':
         return (
           <EnhancedSettingsPanel
@@ -1085,23 +1242,10 @@ export default function DriverCommandPage({
           />
         );
       default:
-        return (
-          <View style={styles.simplePanel}>
-            <Text style={styles.simpleTitle}>{formatStatus(activeTab)}</Text>
-            <Text style={styles.simpleText}>
-              This section is available from the driver tools menu. Ride accepting, online status,
-              location, earnings, profile, support, and scheduled rides are live on this new page.
-            </Text>
-            <View style={styles.actionRow}>
-              <TouchableOpacity style={styles.secondaryAction} onPress={() => setActiveTab('requests')}>
-                <Text style={styles.secondaryActionText}>Ride Flow</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.secondaryAction} onPress={() => setActiveTab('support')}>
-                <Text style={styles.secondaryActionText}>Support</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        );
+        return renderLinkedToolPanel({
+          title: formatStatus(activeTab),
+          description: 'This driver tool is connected to the live command center. Use Ride Flow for bookings or Support for help.',
+        });
     }
   };
 
@@ -1380,6 +1524,9 @@ const styles = StyleSheet.create({
   },
   tabPanel: {
     minHeight: 280,
+  },
+  stackedPanels: {
+    gap: 14,
   },
   requestList: {
     gap: 12,
