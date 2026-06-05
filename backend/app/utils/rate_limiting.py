@@ -20,17 +20,17 @@ DEFAULT_RATE_LIMIT_CONFIGS: Dict[str, Dict[str, Any]] = {
         "description": "Global per-IP API guardrail",
     },
     "strict": {
-        "max_requests": 25,
+        "max_requests": 250,
         "window_seconds": 60,
         "description": "Strict limit for sensitive endpoints",
     },
     "moderate": {
-        "max_requests": 30,
+        "max_requests": 300,
         "window_seconds": 60,
         "description": "Moderate limit for common endpoints",
     },
     "normal": {
-        "max_requests": 100,
+        "max_requests": 500,
         "window_seconds": 60,
         "description": "Normal limit for general endpoints",
     },
