@@ -1,4 +1,5 @@
 import json
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -11,6 +12,8 @@ try:
     import redis.asyncio as redis_async
 except Exception:  # pragma: no cover - dependency may not exist in local setup
     redis_async = None
+
+logger = logging.getLogger("autobuddy.runtime_state")
 
 
 @dataclass(frozen=True)
@@ -25,6 +28,9 @@ class RuntimeStateConfig:
     api_rate_limit_max_requests: int
     driver_live_location_ttl_seconds: int
     socket_state_ttl_seconds: int = 24 * 60 * 60
+    redis_max_connections: int = 6
+    redis_socket_timeout_seconds: float = 2.0
+    redis_degrade_seconds: int = 60
 
 
 class RuntimeStateStore:
@@ -32,6 +38,9 @@ class RuntimeStateStore:
         self.config = config
         self._redis = None
         self._enabled = bool(config.redis_url.strip()) and redis_async is not None
+        self._redis_error_count = 0
+        self._redis_disabled_until_ts = 0.0
+        self._next_redis_error_log_ts = 0.0
 
         # Fallback memory store for non-production usage when Redis is not configured.
         self._mem_phone_otp: Dict[str, Dict[str, Any]] = {}
@@ -49,7 +58,7 @@ class RuntimeStateStore:
 
     @property
     def is_redis_enabled(self) -> bool:
-        return self._enabled and self._redis is not None
+        return self._enabled and self._redis is not None and self._now_ts() >= self._redis_disabled_until_ts
 
     async def connect(self) -> None:
         if not self._enabled:
@@ -58,6 +67,11 @@ class RuntimeStateStore:
             self.config.redis_url,
             decode_responses=True,
             encoding="utf-8",
+            max_connections=max(2, int(self.config.redis_max_connections or 2)),
+            socket_connect_timeout=max(0.25, float(self.config.redis_socket_timeout_seconds or 2.0)),
+            socket_timeout=max(0.25, float(self.config.redis_socket_timeout_seconds or 2.0)),
+            retry_on_timeout=True,
+            health_check_interval=30,
         )
         try:
             await client.ping()
@@ -66,6 +80,8 @@ class RuntimeStateStore:
             self._redis = None
             raise
         self._redis = client
+        self._redis_error_count = 0
+        self._redis_disabled_until_ts = 0.0
 
     async def close(self) -> None:
         if self._redis is not None:
@@ -75,6 +91,26 @@ class RuntimeStateStore:
     def _key(self, *parts: str) -> str:
         prefix = str(self.config.key_prefix or "autobuddy").strip(":")
         return ":".join([prefix, *[str(part).strip(":") for part in parts]])
+
+    async def _degrade_redis(self, operation: str, exc: Exception) -> None:
+        self._redis_error_count += 1
+        now_ts = self._now_ts()
+        cooldown = max(5, int(self.config.redis_degrade_seconds or 60))
+        self._redis_disabled_until_ts = now_ts + cooldown
+        if now_ts >= self._next_redis_error_log_ts:
+            logger.warning(
+                "Redis runtime state unavailable during %s; using in-process fallback for %ss: %s",
+                operation,
+                cooldown,
+                exc,
+            )
+            self._next_redis_error_log_ts = now_ts + 30
+        if self._redis is not None:
+            try:
+                await self._redis.close()
+            except Exception:
+                pass
+            self._redis = None
 
     @staticmethod
     def _now_ts(now: Optional[datetime] = None) -> float:
@@ -177,19 +213,24 @@ class RuntimeStateStore:
         max_attempts = max(1, int(self.config.login_throttle_max_attempts or 1))
 
         if self.is_redis_enabled:
-            key = self._key("login_attempts", ip_address)
-            window_start = now_ts - window_seconds
-            pipe = self._redis.pipeline()
-            pipe.zremrangebyscore(key, 0, window_start)
-            pipe.zcard(key)
-            pipe.expire(key, window_seconds + 60)
-            _, attempts_count, _ = await pipe.execute()
-            if int(attempts_count or 0) >= max_attempts:
-                raise HTTPException(
-                    status_code=429,
-                    detail="Too many login attempts. Please wait and try again.",
-                )
-            return
+            try:
+                key = self._key("login_attempts", ip_address)
+                window_start = now_ts - window_seconds
+                pipe = self._redis.pipeline()
+                pipe.zremrangebyscore(key, 0, window_start)
+                pipe.zcard(key)
+                pipe.expire(key, window_seconds + 60)
+                _, attempts_count, _ = await pipe.execute()
+                if int(attempts_count or 0) >= max_attempts:
+                    raise HTTPException(
+                        status_code=429,
+                        detail="Too many login attempts. Please wait and try again.",
+                    )
+                return
+            except HTTPException:
+                raise
+            except Exception as exc:
+                await self._degrade_redis("check_login_throttle", exc)
 
         attempts = self._mem_login_attempts_by_ip.get(ip_address, [])
         attempts = [attempt for attempt in attempts if attempt >= (now_ts - window_seconds)]
@@ -206,21 +247,26 @@ class RuntimeStateStore:
         max_requests = max(1, int(self.config.api_rate_limit_max_requests or 1))
 
         if self.is_redis_enabled:
-            key = self._key("api_requests", ip_address)
-            window_start = now_ts - window_seconds
-            member = f"{now_ts}:{uuid.uuid4().hex}"
-            pipe = self._redis.pipeline()
-            pipe.zremrangebyscore(key, 0, window_start)
-            pipe.zadd(key, {member: now_ts})
-            pipe.zcard(key)
-            pipe.expire(key, window_seconds + 60)
-            _, _, request_count, _ = await pipe.execute()
-            if int(request_count or 0) > max_requests:
-                raise HTTPException(
-                    status_code=429,
-                    detail="Too many requests. Please slow down and try again.",
-                )
-            return
+            try:
+                key = self._key("api_requests", ip_address)
+                window_start = now_ts - window_seconds
+                member = f"{now_ts}:{uuid.uuid4().hex}"
+                pipe = self._redis.pipeline()
+                pipe.zremrangebyscore(key, 0, window_start)
+                pipe.zadd(key, {member: now_ts})
+                pipe.zcard(key)
+                pipe.expire(key, window_seconds + 60)
+                _, _, request_count, _ = await pipe.execute()
+                if int(request_count or 0) > max_requests:
+                    raise HTTPException(
+                        status_code=429,
+                        detail="Too many requests. Please slow down and try again.",
+                    )
+                return
+            except HTTPException:
+                raise
+            except Exception as exc:
+                await self._degrade_redis("check_api_rate_limit", exc)
 
         requests = self._mem_api_requests_by_ip.get(ip_address, [])
         requests = [request_time for request_time in requests if request_time >= (now_ts - window_seconds)]
@@ -237,31 +283,40 @@ class RuntimeStateStore:
         window_seconds = max(60, int(self.config.login_throttle_window_minutes or 1) * 60)
 
         if self.is_redis_enabled:
-            key = self._key("login_attempts", ip_address)
-            member = f"{now_ts}:{uuid.uuid4().hex}"
-            pipe = self._redis.pipeline()
-            pipe.zadd(key, {member: now_ts})
-            pipe.expire(key, window_seconds + 60)
-            await pipe.execute()
-            return
+            try:
+                key = self._key("login_attempts", ip_address)
+                member = f"{now_ts}:{uuid.uuid4().hex}"
+                pipe = self._redis.pipeline()
+                pipe.zadd(key, {member: now_ts})
+                pipe.expire(key, window_seconds + 60)
+                await pipe.execute()
+                return
+            except Exception as exc:
+                await self._degrade_redis("register_login_attempt", exc)
 
         self._mem_login_attempts_by_ip.setdefault(ip_address, []).append(now_ts)
 
     async def clear_login_attempts(self, ip_address: str) -> None:
         if self.is_redis_enabled:
-            await self._redis.delete(self._key("login_attempts", ip_address))
-            return
+            try:
+                await self._redis.delete(self._key("login_attempts", ip_address))
+                return
+            except Exception as exc:
+                await self._degrade_redis("clear_login_attempts", exc)
         self._mem_login_attempts_by_ip.pop(ip_address, None)
 
     async def increment_ip_risk(self, ip_address: str, ttl_seconds: int = 3600) -> int:
         ttl = max(60, int(ttl_seconds or 60))
         now_ts = self._now_ts()
         if self.is_redis_enabled:
-            key = self._key("ip_risk", ip_address)
-            count = await self._redis.incr(key)
-            if int(count or 0) == 1:
-                await self._redis.expire(key, ttl)
-            return int(count or 0)
+            try:
+                key = self._key("ip_risk", ip_address)
+                count = await self._redis.incr(key)
+                if int(count or 0) == 1:
+                    await self._redis.expire(key, ttl)
+                return int(count or 0)
+            except Exception as exc:
+                await self._degrade_redis("increment_ip_risk", exc)
 
         record = self._mem_ip_risk_hits.get(ip_address)
         if not record or self._safe_float(record.get("expires_at_ts")) <= now_ts:
@@ -275,15 +330,21 @@ class RuntimeStateStore:
         ttl = max(60, int(ttl_seconds or 60))
         now_ts = self._now_ts()
         if self.is_redis_enabled:
-            await self._redis.set(self._key("blocked_ip", ip_address), "1", ex=ttl)
-            return
+            try:
+                await self._redis.set(self._key("blocked_ip", ip_address), "1", ex=ttl)
+                return
+            except Exception as exc:
+                await self._degrade_redis("block_ip", exc)
         self._mem_blocked_ips[ip_address] = now_ts + ttl
 
     async def is_ip_blocked(self, ip_address: str) -> bool:
         now_ts = self._now_ts()
         if self.is_redis_enabled:
-            value = await self._redis.get(self._key("blocked_ip", ip_address))
-            return bool(value)
+            try:
+                value = await self._redis.get(self._key("blocked_ip", ip_address))
+                return bool(value)
+            except Exception as exc:
+                await self._degrade_redis("is_ip_blocked", exc)
         expires_at_ts = self._safe_float(self._mem_blocked_ips.get(ip_address))
         if expires_at_ts <= 0:
             return False
@@ -307,12 +368,17 @@ class RuntimeStateStore:
         key = self._key("bucket", bucket, ip_address, str(now_ts // window))
 
         if self.is_redis_enabled:
-            count = await self._redis.incr(key)
-            if int(count or 0) == 1:
-                await self._redis.expire(key, window + 2)
-            if int(count or 0) > limit:
-                raise HTTPException(status_code=429, detail="Too many requests. Please try again later.")
-            return int(count or 0)
+            try:
+                count = await self._redis.incr(key)
+                if int(count or 0) == 1:
+                    await self._redis.expire(key, window + 2)
+                if int(count or 0) > limit:
+                    raise HTTPException(status_code=429, detail="Too many requests. Please try again later.")
+                return int(count or 0)
+            except HTTPException:
+                raise
+            except Exception as exc:
+                await self._degrade_redis("check_bucket_rate_limit", exc)
 
         record = self._mem_bucket_counts.get(key)
         now_float = float(now_ts)

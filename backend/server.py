@@ -305,6 +305,13 @@ DRIVER_LIVE_LOCATION_TTL_SECONDS = int(os.environ.get("DRIVER_LIVE_LOCATION_TTL_
 REDIS_URL_RAW = os.environ.get("REDIS_URL", "")
 REDIS_URL, REDIS_URL_INVALID = _normalize_redis_url(REDIS_URL_RAW)
 REDIS_KEY_PREFIX = os.environ.get("REDIS_KEY_PREFIX", "autobuddy").strip()
+REDIS_MAX_CONNECTIONS = max(2, min(50, int(os.environ.get("REDIS_MAX_CONNECTIONS", "8"))))
+REDIS_RUNTIME_MAX_CONNECTIONS = max(
+    2,
+    min(50, int(os.environ.get("REDIS_RUNTIME_MAX_CONNECTIONS", "6"))),
+)
+REDIS_SOCKET_TIMEOUT_SECONDS = max(0.25, float(os.environ.get("REDIS_SOCKET_TIMEOUT_SECONDS", "2.0")))
+REDIS_RUNTIME_DEGRADE_SECONDS = max(5, int(os.environ.get("REDIS_RUNTIME_DEGRADE_SECONDS", "60")))
 SOCKETIO_REDIS_CHANNEL = os.environ.get(
     "SOCKETIO_REDIS_CHANNEL",
     os.environ.get("SOCKET_REDIS_CHANNEL", "autobuddy-socketio"),
@@ -374,6 +381,11 @@ if REDIS_URL and redis_async:
             REDIS_URL,
             encoding="utf-8",
             decode_responses=True,
+            max_connections=REDIS_MAX_CONNECTIONS,
+            socket_connect_timeout=REDIS_SOCKET_TIMEOUT_SECONDS,
+            socket_timeout=REDIS_SOCKET_TIMEOUT_SECONDS,
+            retry_on_timeout=True,
+            health_check_interval=30,
         )
     except Exception:
         # Defer user-facing warning to startup logger.
@@ -405,6 +417,9 @@ runtime_state = RuntimeStateStore(
         api_rate_limit_window_seconds=API_RATE_LIMIT_WINDOW_SECONDS,
         api_rate_limit_max_requests=API_RATE_LIMIT_MAX_REQUESTS,
         driver_live_location_ttl_seconds=DRIVER_LIVE_LOCATION_TTL_SECONDS,
+        redis_max_connections=REDIS_RUNTIME_MAX_CONNECTIONS,
+        redis_socket_timeout_seconds=REDIS_SOCKET_TIMEOUT_SECONDS,
+        redis_degrade_seconds=REDIS_RUNTIME_DEGRADE_SECONDS,
     )
 )
 app.state.runtime_state = runtime_state
