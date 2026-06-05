@@ -102,6 +102,55 @@ function unwrapObject(payload, keys = []) {
   return payload;
 }
 
+const STRICT_ACCEPTING_KEYS = ['is_available', 'isAvailable', 'available'];
+
+function readBooleanLike(value) {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value !== 0;
+  }
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'y', 'on', 'available', 'accepting'].includes(normalized)) {
+    return true;
+  }
+  if (['0', 'false', 'no', 'n', 'off', 'unavailable', 'offline', 'paused'].includes(normalized)) {
+    return false;
+  }
+  return null;
+}
+
+function readDriverAccepting(payload, fallback = false) {
+  const candidates = [
+    payload,
+    payload?.data,
+    payload?.result,
+    payload?.availability,
+    payload?.driver,
+    payload?.profile,
+    payload?.data?.availability,
+    payload?.data?.driver,
+    payload?.data?.profile,
+  ].filter((item) => item && typeof item === 'object' && !Array.isArray(item));
+
+  for (const candidate of candidates) {
+    for (const key of STRICT_ACCEPTING_KEYS) {
+      if (Object.prototype.hasOwnProperty.call(candidate, key)) {
+        const explicit = readBooleanLike(candidate[key]);
+        if (explicit !== null) {
+          return explicit;
+        }
+      }
+    }
+  }
+
+  return readDriverAvailability(payload, fallback);
+}
+
 function toNumber(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
@@ -519,7 +568,7 @@ export default function DriverCommandPageNative({
   }, [activeRideId]);
 
   const applyAvailabilitySnapshot = useCallback((payload, fallback = false) => {
-    const next = readDriverAvailability(payload, fallback);
+    const next = readDriverAccepting(payload, fallback);
     setIsAccepting(next);
     return next;
   }, []);
@@ -784,7 +833,7 @@ export default function DriverCommandPageNative({
         body: { is_available: next },
       });
       const snapshot = await safeRequest('/drivers/availability', response);
-      const confirmed = readDriverAvailability(snapshot, next);
+      const confirmed = readDriverAccepting(snapshot, next);
       setIsAccepting(confirmed);
 
       if (confirmed) {
