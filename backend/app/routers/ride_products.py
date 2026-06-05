@@ -66,6 +66,7 @@ class AdvancedBookingRequest(BaseModel):
     promo_discount_value: Optional[float] = Field(default=None, ge=0)
     promo_max_discount: Optional[float] = Field(default=None, ge=0)
     vehicle_type_id: Optional[str] = Field(default=None, max_length=50)
+    vehicle_model: Optional[str] = Field(default=None, max_length=120)
 
 
 class DistrictRideProductRule(BaseModel):
@@ -812,6 +813,7 @@ async def create_advanced_booking(
         "safe_ride_priority": payload.safe_ride_priority,
         "notes": payload.notes,
         "selected_driver_id": payload.selected_driver_id,
+        "vehicle_model": payload.vehicle_model,
         "payment_method": normalized_payment_method,
         "payment_method_id": payment_method_id,
         "payment_channel": payment_channel,
