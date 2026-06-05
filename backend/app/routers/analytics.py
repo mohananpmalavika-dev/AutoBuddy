@@ -1,6 +1,7 @@
+import logging
 from datetime import datetime, timedelta
 from app.utils.time_helpers import get_ist_now
-from typing import Any, Dict, List
+from typing import Any, Awaitable, Callable, Dict, List
 
 from fastapi import APIRouter, Depends
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -9,6 +10,7 @@ from app.db.deps import get_db
 from app.utils.rbac import require_roles
 
 router = APIRouter(prefix="/api/admin/analytics", tags=["analytics"])
+logger = logging.getLogger("autobuddy.analytics")
 
 
 def _utc_now() -> datetime:
@@ -43,6 +45,25 @@ def _start_date(days: int) -> datetime:
 
 def _text(value: Any, default: str = "") -> str:
     return str(value or default).strip()
+
+
+async def _safe_live_section(
+    name: str,
+    fallback: Any,
+    section_errors: List[Dict[str, str]],
+    producer: Callable[[], Awaitable[Any]],
+) -> Any:
+    try:
+        return await producer()
+    except Exception as exc:
+        logger.exception("Admin live analytics section failed: %s", name)
+        section_errors.append(
+            {
+                "section": name,
+                "error": str(exc) or exc.__class__.__name__,
+            }
+        )
+        return fallback
 
 
 @router.get("/overview")
@@ -621,25 +642,118 @@ async def live_admin_analytics(
     admin_user: dict = Depends(require_roles("admin")),
 ):
     _ = admin_user
-    overview = await analytics_overview(days=days, db=db, admin_user=admin_user)
-    demand = await demand_analytics(days=days, db=db, admin_user=admin_user)
-    heatmap = await demand_heatmap(days=days, db=db, admin_user=admin_user)
-    city_traffic = await city_traffic_analytics(days=days, db=db, admin_user=admin_user)
-    driver_performance = await driver_performance_analytics(days=days, db=db, admin_user=admin_user)
-    revenue_forecast = await revenue_forecasting(
-        days=days,
-        forecast_days=forecast_days,
-        db=db,
-        admin_user=admin_user,
+    safe_days = max(1, min(int(days or 30), 365))
+    safe_forecast_days = max(1, min(int(forecast_days or 7), 30))
+    generated_at = _utc_now().isoformat() + "Z"
+    section_errors: List[Dict[str, str]] = []
+
+    overview = await _safe_live_section(
+        "overview",
+        {
+            "period_days": safe_days,
+            "total_bookings": 0,
+            "completed": 0,
+            "cancelled": 0,
+            "active_drivers": 0,
+            "conversion_rate": 0.0,
+            "revenue": 0.0,
+        },
+        section_errors,
+        lambda: analytics_overview(days=safe_days, db=db, admin_user=admin_user),
     )
-    cancellation_reasons = await cancellation_reasons_analytics(days=days, db=db, admin_user=admin_user)
-    idle_heatmap = await driver_idle_heatmap(db=db, admin_user=admin_user)
-    peak_prediction = await peak_hour_prediction(days=days, db=db, admin_user=admin_user)
-    earnings_leaderboard = await driver_earnings_leaderboard(days=days, db=db, admin_user=admin_user)
-    retention = await customer_retention_chart(days=max(days, 30), db=db, admin_user=admin_user)
-    surge_by_zone = await zone_wise_surge_pricing(days=days, db=db, admin_user=admin_user)
-    fraud_alerts = await fraud_risk_alerts(days=days, db=db, admin_user=admin_user)
-    investor_kpi = await investor_kpi_dashboard(days=days, db=db, admin_user=admin_user)
+    demand = await _safe_live_section(
+        "demand",
+        [],
+        section_errors,
+        lambda: demand_analytics(days=safe_days, db=db, admin_user=admin_user),
+    )
+    heatmap = await _safe_live_section(
+        "heatmap",
+        [],
+        section_errors,
+        lambda: demand_heatmap(days=safe_days, db=db, admin_user=admin_user),
+    )
+    city_traffic = await _safe_live_section(
+        "city_traffic",
+        [],
+        section_errors,
+        lambda: city_traffic_analytics(days=safe_days, db=db, admin_user=admin_user),
+    )
+    driver_performance = await _safe_live_section(
+        "driver_performance",
+        [],
+        section_errors,
+        lambda: driver_performance_analytics(days=safe_days, db=db, admin_user=admin_user),
+    )
+    revenue_forecast = await _safe_live_section(
+        "revenue_forecast",
+        {"history": [], "forecast": [], "avg_daily_revenue": 0.0},
+        section_errors,
+        lambda: revenue_forecasting(
+            days=safe_days,
+            forecast_days=safe_forecast_days,
+            db=db,
+            admin_user=admin_user,
+        ),
+    )
+    cancellation_reasons = await _safe_live_section(
+        "cancellation_reasons",
+        [],
+        section_errors,
+        lambda: cancellation_reasons_analytics(days=safe_days, db=db, admin_user=admin_user),
+    )
+    idle_heatmap = await _safe_live_section(
+        "driver_idle_heatmap",
+        [],
+        section_errors,
+        lambda: driver_idle_heatmap(db=db, admin_user=admin_user),
+    )
+    peak_prediction = await _safe_live_section(
+        "peak_hour_prediction",
+        {"predicted_peak_hours": [], "generated_at": generated_at},
+        section_errors,
+        lambda: peak_hour_prediction(days=safe_days, db=db, admin_user=admin_user),
+    )
+    earnings_leaderboard = await _safe_live_section(
+        "driver_earnings_leaderboard",
+        [],
+        section_errors,
+        lambda: driver_earnings_leaderboard(days=safe_days, db=db, admin_user=admin_user),
+    )
+    retention = await _safe_live_section(
+        "customer_retention_chart",
+        {"total_customers": 0, "segments": []},
+        section_errors,
+        lambda: customer_retention_chart(days=max(safe_days, 30), db=db, admin_user=admin_user),
+    )
+    surge_by_zone = await _safe_live_section(
+        "zone_wise_surge_pricing",
+        [],
+        section_errors,
+        lambda: zone_wise_surge_pricing(days=safe_days, db=db, admin_user=admin_user),
+    )
+    fraud_alerts = await _safe_live_section(
+        "fraud_risk_alerts",
+        {"high_risk_count": 0, "alerts": []},
+        section_errors,
+        lambda: fraud_risk_alerts(days=safe_days, db=db, admin_user=admin_user),
+    )
+    investor_kpi = await _safe_live_section(
+        "investor_kpi_dashboard",
+        {
+            "period_days": safe_days,
+            "gmv": 0.0,
+            "completed_rides": 0,
+            "bookings": 0,
+            "completion_rate": 0.0,
+            "cancel_rate": 0.0,
+            "avg_order_value": 0.0,
+            "repeat_customer_rate": 0.0,
+            "active_drivers": 0,
+        },
+        section_errors,
+        lambda: investor_kpi_dashboard(days=safe_days, db=db, admin_user=admin_user),
+    )
     return {
         "overview": overview,
         "demand": demand,
@@ -656,5 +770,6 @@ async def live_admin_analytics(
         "zone_wise_surge_pricing": surge_by_zone,
         "fraud_risk_alerts": fraud_alerts,
         "investor_kpi_dashboard": investor_kpi,
-        "generated_at": _utc_now().isoformat() + "Z",
+        "section_errors": section_errors,
+        "generated_at": generated_at,
     }

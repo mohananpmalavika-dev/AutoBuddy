@@ -13727,7 +13727,7 @@ async def get_admin_users_role_report(current_user: dict = Depends(get_current_u
             "account_status": 1,
             "is_blocked": 1,
         },
-    ).sort("created_at", DESCENDING).to_list(10000)
+    ).sort("created_at", -1).to_list(10000)
 
     for user in users:
         role = _normalize_role_text(user.get("role") or user.get("user_type"))
@@ -13785,12 +13785,12 @@ async def get_admin_users_live_status(current_user: dict = Depends(get_current_u
     driver_profiles = await db.drivers.find({"user_id": {"$in": driver_ids}}).to_list(None) if driver_ids else []
     driver_profile_by_id = {str(profile.get("user_id")): profile for profile in driver_profiles if profile.get("user_id")}
 
-    active_statuses = [
+    active_statuses = _enum_query_values(
         BookingStatus.PENDING,
         BookingStatus.ACCEPTED,
         BookingStatus.DRIVER_ARRIVED,
         BookingStatus.IN_PROGRESS,
-    ]
+    )
     active_bookings = await db.bookings.find({"status": {"$in": active_statuses}}).to_list(5000)
     active_booking_by_passenger_id: Dict[str, str] = {}
     active_booking_by_driver_id: Dict[str, str] = {}

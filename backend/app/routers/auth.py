@@ -216,13 +216,22 @@ async def refresh_access_token(
     db: AsyncIOMotorDatabase = Depends(get_db),
     settings: Settings = Depends(get_settings_from_app),
 ):
-    return await auth_service.refresh_access_token(
-        db=db,
-        settings=settings,
-        refresh_token=payload.refresh_token,
-        request_ip=get_request_ip(request),
-        user_agent=str(request.headers.get("user-agent") or ""),
-    )
+    try:
+        return await auth_service.refresh_access_token(
+            db=db,
+            settings=settings,
+            refresh_token=payload.refresh_token,
+            request_ip=get_request_ip(request),
+            user_agent=str(request.headers.get("user-agent") or ""),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Unexpected refresh token error for ip=%s", get_request_ip(request))
+        raise HTTPException(
+            status_code=503,
+            detail="Session refresh service temporarily unavailable. Please try again.",
+        ) from exc
 
 
 @router.post("/auth/logout")
