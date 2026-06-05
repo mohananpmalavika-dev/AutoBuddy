@@ -12,7 +12,7 @@ from datetime import datetime
 from app.utils.time_helpers import get_ist_now
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from math import radians, cos, sin, asin, sqrt
-from app.db.database import get_db
+from app.db.deps import get_db
 from app.models.canonical_vehicle_model import CANONICAL_VEHICLES_COLLECTION
 from app.models.enhanced_booking_models import (
     EnhancedBookingRequest,
@@ -36,6 +36,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/bookings", tags=["bookings"])
+
+ACTIVE_BOOKING_STATUSES = ("pending", "accepted", "driver_arrived", "in_progress")
 
 
 def _vehicle_catalog(db: AsyncIOMotorDatabase):
@@ -139,6 +141,19 @@ def _as_plain_dict(value):
     if isinstance(value, dict):
         return value
     return value
+
+
+def _serialize_booking(booking: dict) -> dict:
+    payload = dict(booking or {})
+    raw_id = payload.get("_id")
+    if raw_id is not None:
+        payload["_id"] = str(raw_id)
+    payload["id"] = str(payload.get("id") or raw_id or "")
+    for key in ("created_at", "updated_at", "completed_at", "scheduled_datetime"):
+        if isinstance(payload.get(key), datetime):
+            payload[key] = payload[key].isoformat()
+    return payload
+
 
 # Models - Using enhanced booking models
 class LegacyFareEstimateRequest(BaseModel):
@@ -470,6 +485,41 @@ async def create_booking(
     except Exception as e:
         logger.error(f"Booking creation error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Booking creation failed: {str(e)}")
+
+
+@router.get("/active")
+async def get_active_booking(
+    current_user: dict = Depends(get_current_user_secure),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    """Get the current passenger/driver active booking."""
+    try:
+        role = str(current_user.get("role") or "").split(".")[-1].lower()
+        user_id = str(current_user.get("id") or "").strip()
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid user session")
+
+        query = {"status": {"$in": list(ACTIVE_BOOKING_STATUSES)}}
+        if role == "passenger":
+            query["passenger_id"] = user_id
+        elif role == "driver":
+            query["driver_id"] = user_id
+
+        booking = await db["bookings"].find_one(query, sort=[("created_at", -1)])
+        if not booking:
+            return None
+
+        payload = _serialize_booking(booking)
+        if role != "passenger":
+            payload.pop("ride_start_otp", None)
+            payload.pop("ride_end_otp", None)
+        return payload
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Active booking lookup error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve active booking")
+
 
 @router.get("/{booking_id}")
 async def get_booking(
