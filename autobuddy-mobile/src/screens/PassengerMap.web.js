@@ -156,6 +156,8 @@ const PASSENGER_MENU_BY_KEY = PASSENGER_MENU_OPTIONS.reduce(
   (acc, menu) => ({ ...acc, [menu.key]: menu }),
   {},
 );
+const LIVE_DRIVER_TRACKING_STATUSES = new Set(['accepted', 'driver_arrived', 'in_progress']);
+const CLOSED_BOOKING_STATUSES = new Set(['completed', 'cancelled', 'rejected', 'no_driver_found', 'booking_failed']);
 
 function resolvePassengerMenuSymbol(symbol) {
   if (typeof symbol === 'string') {
@@ -507,7 +509,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   });
   const placesConfigured = isPlacesConfigured();
   const googleMapsWebKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
-  const liveTrackStatuses = useMemo(() => new Set(['searching', 'accepted', 'driver_arrived', 'in_progress']), []);
+  const liveTrackStatuses = useMemo(() => LIVE_DRIVER_TRACKING_STATUSES, []);
   const t = useMemo(() => resolvePassengerLocale(languageCode), [languageCode]);
   const rideProductLabels = useMemo(() => getPassengerRideProductLabels(t), [t]);
   const menuLabels = useMemo(
@@ -644,7 +646,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const canCancelActiveBooking = activeBookingStatus === 'pending';
   const hasLiveRide = Boolean(
     activeBooking?.id &&
-      !['completed', 'cancelled', 'rejected', 'no_driver_found', 'booking_failed'].includes(activeBookingStatus),
+      !CLOSED_BOOKING_STATUSES.has(activeBookingStatus),
   );
   const pinnedPassengerMenuOptions = useMemo(
     () => (
@@ -743,7 +745,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const mapState = useMemo(() => {
     const origin = selectedPickupLocation;
     const destination = selectedDropoffLocation;
-    const driverLiveLocation = liveDriverLocation;
+    const driverLiveLocation = isDriverLiveSharing ? liveDriverLocation : null;
     const liveTarget = activeBookingStatus === 'in_progress' ? (destination || origin) : (origin || destination);
     const usingBasicEmbed = !googleMapsWebKey;
     let fallbackUrl = '';
@@ -1753,29 +1755,42 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         };
       });
     };
-
-    const handleDriverLocation = (payload) => {
-      if (!payload || String(payload.booking_id || '') !== bookingId) {
-        return;
-      }
-      const source = payload.location || payload;
+    const normalizeDriverLocationPayload = (payload) => {
+      const source = payload?.location || payload?.driver_live_location || payload?.driver_location || payload;
       const latitude = Number(source?.latitude ?? source?.lat);
       const longitude = Number(source?.longitude ?? source?.lng);
       if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-        return;
+        return null;
       }
-      const nextLocation = {
+      return {
         latitude: Number(latitude.toFixed(6)),
         longitude: Number(longitude.toFixed(6)),
         address:
           String(source?.address || '').trim() ||
           `Lat ${Number(latitude).toFixed(6)}, Lng ${Number(longitude).toFixed(6)}`,
       };
+    };
+
+    const handleDriverLocation = (payload) => {
+      if (!payload || String(payload.booking_id || '') !== bookingId) {
+        return;
+      }
+      const nextLocation = normalizeDriverLocationPayload(payload);
+      if (!nextLocation) {
+        return;
+      }
       setActiveBooking((prev) => {
         if (!prev || String(prev.id || '') !== bookingId) {
           return prev;
         }
-        return { ...prev, driver_location: nextLocation };
+        if (CLOSED_BOOKING_STATUSES.has(normalizeBookingStatus(prev.status))) {
+          return prev;
+        }
+        return {
+          ...prev,
+          driver_live_location: nextLocation,
+          driver_location: nextLocation,
+        };
       });
       applyRealtimePatch({
         etaToPickup: payload.eta_to_pickup_min ?? null,
@@ -1790,9 +1805,14 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       applyRealtimePatch({
         status: nextStatus || payload.status || null,
       });
-      applyBookingPatch({
+      const nextPatch = {
         status: nextStatus || payload.status,
-      });
+      };
+      if (CLOSED_BOOKING_STATUSES.has(nextStatus)) {
+        nextPatch.driver_live_location = null;
+        nextPatch.driver_location = null;
+      }
+      applyBookingPatch(nextPatch);
     };
     const handleRideStateSync = (payload) => {
       if (!payload || String(payload.booking_id || '') !== bookingId) {
@@ -1803,23 +1823,20 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       if (nextStatus) {
         nextPatch.status = nextStatus;
       }
+      if (CLOSED_BOOKING_STATUSES.has(nextStatus)) {
+        nextPatch.driver_live_location = null;
+        nextPatch.driver_location = null;
+      }
       applyRealtimePatch({
         status: nextStatus || payload.status || null,
         etaToPickup: payload.eta_to_pickup_min ?? null,
         etaToDrop: payload.eta_to_drop_min ?? null,
       });
       if (payload.driver_live_location || payload.driver_location) {
-        const source = payload.driver_live_location || payload.driver_location;
-        const latitude = Number(source?.latitude ?? source?.lat);
-        const longitude = Number(source?.longitude ?? source?.lng);
-        if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
-          nextPatch.driver_location = {
-            latitude: Number(latitude.toFixed(6)),
-            longitude: Number(longitude.toFixed(6)),
-            address:
-              String(source?.address || '').trim() ||
-              `Lat ${Number(latitude).toFixed(6)}, Lng ${Number(longitude).toFixed(6)}`,
-          };
+        const nextLocation = normalizeDriverLocationPayload(payload);
+        if (nextLocation && !CLOSED_BOOKING_STATUSES.has(nextStatus)) {
+          nextPatch.driver_live_location = nextLocation;
+          nextPatch.driver_location = nextLocation;
         }
       }
       if (payload.ride_start_otp) {
@@ -1844,6 +1861,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     socket.on('connect', joinBookingRoom);
     socket.on('driver_location_changed', handleDriverLocation);
     socket.on('driver_location', handleDriverLocation);
+    socket.on('driver_location_updated', handleDriverLocation);
     socket.on('booking_status_changed', handleBookingStatusChanged);
     socket.on('ride_state_sync', handleRideStateSync);
     socket.on('booking_completed', handleBookingCompleted);
@@ -1855,6 +1873,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       socket.off('connect', joinBookingRoom);
       socket.off('driver_location_changed', handleDriverLocation);
       socket.off('driver_location', handleDriverLocation);
+      socket.off('driver_location_updated', handleDriverLocation);
       socket.off('booking_status_changed', handleBookingStatusChanged);
       socket.off('ride_state_sync', handleRideStateSync);
       socket.off('booking_completed', handleBookingCompleted);

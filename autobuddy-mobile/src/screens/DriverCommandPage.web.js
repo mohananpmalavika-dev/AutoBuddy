@@ -290,9 +290,21 @@ function formatStatus(value) {
   return String(value || 'active').replace(/_/g, ' ');
 }
 
-function buildMapFallbackUrl(location) {
-  const point = normalizeLocation(location);
-  if (!point?.latitude || !point?.longitude) {
+function hasMapPoint(point) {
+  return Number.isFinite(point?.latitude) && Number.isFinite(point?.longitude);
+}
+
+function buildMapFallbackUrl({ center, origin, destination } = {}) {
+  const originPoint = normalizeLocation(origin);
+  const destinationPoint = normalizeLocation(destination);
+  if (hasMapPoint(originPoint) && hasMapPoint(destinationPoint)) {
+    const source = `${originPoint.latitude},${originPoint.longitude}`;
+    const target = `${destinationPoint.latitude},${destinationPoint.longitude}`;
+    return `https://www.google.com/maps?saddr=${encodeURIComponent(source)}&daddr=${encodeURIComponent(target)}&dirflg=d&output=embed`;
+  }
+
+  const point = normalizeLocation(center || destination || origin);
+  if (!hasMapPoint(point)) {
     return '';
   }
   return `https://www.google.com/maps?q=${encodeURIComponent(`${point.latitude},${point.longitude}`)}&z=15&output=embed`;
@@ -798,13 +810,30 @@ export default function DriverCommandPage({
           applyAvailabilitySnapshot(profile, false);
         }
 
+        const nextActiveRide = getActiveRideFromPayload(active);
         const profileLocation = normalizeLocation(profile?.current_location);
-        if (profileLocation) {
-          setDriverLocation((current) => current || profileLocation);
+        const activeRideDriverLocation = normalizeLocation(
+          nextActiveRide?.driver_live_location || nextActiveRide?.driver_location,
+        );
+        const fallbackDriverLocation = activeRideDriverLocation || profileLocation;
+        if (fallbackDriverLocation) {
+          setDriverLocation((current) => {
+            const currentLocation = normalizeLocation(current);
+            if (!hasUsableLocation(currentLocation)) {
+              return fallbackDriverLocation;
+            }
+            if (activeRideDriverLocation && !currentLocation?.is_live_location) {
+              return activeRideDriverLocation;
+            }
+            return current;
+          });
+        }
+        if (activeRideDriverLocation) {
+          setTrackingOnline(true);
         }
 
         setPendingRequests(unwrapArray(requests, ['requests', 'pending_requests', 'bookings']));
-        setActiveRide(getActiveRideFromPayload(active));
+        setActiveRide(nextActiveRide);
         setUpcomingRides(upcoming || EMPTY_UPCOMING);
         setEarnings(earningsSummary || null);
         setPricingRules(pricing || fareCalc?.default_pricing || fareCalc?.effective_pricing || null);
@@ -1288,7 +1317,12 @@ export default function DriverCommandPage({
     ? activeRideNavigation.drop
     : activeRideNavigation.pickup || activeRideNavigation.drop;
   const mapCenter = normalizeLocation(driverLocation) || mapDestination || DEFAULT_CENTER;
-  const fallbackUrl = buildMapFallbackUrl(mapCenter);
+  const mapOrigin = normalizeLocation(driverLocation);
+  const fallbackUrl = buildMapFallbackUrl({
+    center: mapCenter,
+    origin: mapOrigin,
+    destination: mapDestination,
+  });
 
   const renderRequestsTab = () => {
     if (activeRide) {
@@ -1840,7 +1874,7 @@ export default function DriverCommandPage({
             pickupLocation={activeRideNavigation.pickup}
             dropoffLocation={activeRideNavigation.drop}
             driverLocation={driverLocation}
-            routeOrigin={normalizeLocation(driverLocation)}
+            routeOrigin={mapOrigin}
             routeDestination={mapDestination}
             showStatusOverlay={false}
           />

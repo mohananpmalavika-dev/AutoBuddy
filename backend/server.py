@@ -7993,16 +7993,38 @@ async def update_driver_location(location_update: DriverLocationUpdate, current_
     active_booking = await _db_get_active_booking(current_user["id"])
     
     if active_booking:
-        await emit_to_user(
-            active_booking["passenger_id"],
-            "driver_location",
+        booking_id = str(active_booking.get("id") or "")
+        passenger_id = str(active_booking.get("passenger_id") or "")
+        pickup = active_booking.get("pickup_location")
+        drop = active_booking.get("drop_location") or active_booking.get("dropoff_location")
+        payload = {
+            "booking_id": booking_id,
+            "driver_id": current_user["id"],
+            "location": cached_location,
+            "latitude": cached_location.get("latitude"),
+            "longitude": cached_location.get("longitude"),
+            "eta_to_pickup_min": calculate_eta_minutes(cached_location, pickup),
+            "eta_to_drop_min": calculate_eta_minutes(cached_location, drop),
+            "timestamp": now_utc.isoformat(),
+        }
+        await runtime_state.set_driver_active_booking(str(current_user["id"]), booking_id)
+        await db.bookings.update_one(
+            {"id": booking_id},
             {
-                "booking_id": active_booking["id"],
-                "driver_id": current_user["id"],
-                "location": cached_location,
-                "timestamp": now_utc.isoformat(),
+                "$set": {
+                    "driver_live_location": cached_location,
+                    "driver_location": cached_location,
+                    "driver_eta_to_pickup_min": payload["eta_to_pickup_min"],
+                    "driver_eta_to_drop_min": payload["eta_to_drop_min"],
+                    "updated_at": now_utc,
+                }
             },
         )
+        await clear_active_ride_cache(str(current_user["id"]), passenger_id)
+        for event_name in ("driver_location_changed", "driver_location", "driver_location_updated"):
+            await sio.emit(event_name, payload, room=ride_room(booking_id))
+            await sio.emit(event_name, payload, room=f"booking:{booking_id}")
+            await emit_to_user(passenger_id, event_name, payload)
 
     return {"message": "Location updated"}
 
@@ -10395,6 +10417,7 @@ async def get_active_booking(current_user: dict = Depends(get_current_user)):
             "driver_name": driver.get("name") if driver else None,
             "driver_phone": driver.get("phone") if driver else None,
             "vehicle_info": driver_profile.get("vehicle_info") if driver_profile and driver_profile.get("vehicle_info") else None,
+            "driver_live_location": driver_live_location,
             "driver_location": driver_live_location,
             "route_polyline": booking.get("route_polyline")
         }
@@ -10695,6 +10718,16 @@ async def accept_booking(booking_id: str, current_user: dict = Depends(get_curre
                 "pickup_surcharge": float(pickup_charge["pickup_surcharge"]),
                 "extra_pickup_distance_km": float(pickup_charge["extra_pickup_distance_km"]),
                 "driver_to_pickup_distance_km": float(pickup_charge["driver_distance_km"]),
+                "driver_live_location": driver_live_location,
+                "driver_location": driver_live_location,
+                "driver_eta_to_pickup_min": calculate_eta_minutes(
+                    driver_live_location,
+                    booking.get("pickup_location"),
+                ),
+                "driver_eta_to_drop_min": calculate_eta_minutes(
+                    driver_live_location,
+                    booking.get("drop_location") or booking.get("dropoff_location"),
+                ),
                 "dispatch_status": "accepted",
                 "accepted_driver_score_updated_at": get_ist_now(),
                 "updated_at": get_ist_now()
@@ -10706,6 +10739,7 @@ async def accept_booking(booking_id: str, current_user: dict = Depends(get_curre
     await clear_driver_pending_request_cache(
         list(set((booking.get("candidate_driver_ids") or []) + [current_user["id"]]))
     )
+    await runtime_state.set_driver_active_booking(str(current_user["id"]), booking_id)
     await clear_active_ride_cache(current_user["id"], booking.get("passenger_id"))
     await write_analytics_event(
         "BOOKING_ACCEPTED",
@@ -10723,26 +10757,35 @@ async def accept_booking(booking_id: str, current_user: dict = Depends(get_curre
     )
     await cache_delete(f"driver_profile:{current_user['id']}")
 
-    await emit_to_user(
-        booking["passenger_id"],
-        "booking_status_changed",
-        {
-            "booking_id": booking_id,
-            "status": BookingStatus.ACCEPTED,
-            "timestamp": get_ist_now().isoformat(),
-        },
-    )
+    status_payload = {
+        "booking_id": booking_id,
+        "status": BookingStatus.ACCEPTED,
+        "timestamp": get_ist_now().isoformat(),
+    }
+    await sio.emit("booking_status_changed", status_payload, room=ride_room(booking_id))
+    await sio.emit("booking_status_changed", status_payload, room=f"booking:{booking_id}")
+    await emit_to_user(booking["passenger_id"], "booking_status_changed", status_payload)
+    await emit_to_user(current_user["id"], "booking_status_changed", status_payload)
     if driver_live_location:
-        await emit_to_user(
-            booking["passenger_id"],
-            "driver_location",
-            {
-                "booking_id": booking_id,
-                "driver_id": current_user["id"],
-                "location": driver_live_location,
-                "timestamp": get_ist_now().isoformat(),
-            },
-        )
+        location_payload = {
+            "booking_id": booking_id,
+            "driver_id": current_user["id"],
+            "location": driver_live_location,
+            "latitude": driver_live_location.get("latitude"),
+            "longitude": driver_live_location.get("longitude"),
+            "eta_to_pickup_min": calculate_eta_minutes(driver_live_location, booking.get("pickup_location")),
+            "eta_to_drop_min": calculate_eta_minutes(
+                driver_live_location,
+                booking.get("drop_location") or booking.get("dropoff_location"),
+            ),
+            "timestamp": get_ist_now().isoformat(),
+        }
+        for event_name in ("driver_location_changed", "driver_location", "driver_location_updated"):
+            await sio.emit(event_name, location_payload, room=ride_room(booking_id))
+            await sio.emit(event_name, location_payload, room=f"booking:{booking_id}")
+            await emit_to_user(booking["passenger_id"], event_name, location_payload)
+            await emit_to_user(current_user["id"], event_name, location_payload)
+    await emit_ride_sync_state(booking_id)
     await notify_user(
         booking["passenger_id"],
         title="Ride Accepted",
@@ -15512,20 +15555,19 @@ async def driver_location_update(sid, data):
                 },
             )
 
-        await sio.emit("driver_location_changed", payload, room=ride_room(booking_id))
-        await sio.emit("driver_location", payload, room=ride_room(booking_id))
-        await sio.emit("driver_location_changed", payload, room=f"booking:{booking_id}")
-        await sio.emit("driver_location", payload, room=f"booking:{booking_id}")
+        for event_name in ("driver_location_changed", "driver_location", "driver_location_updated"):
+            await sio.emit(event_name, payload, room=ride_room(booking_id))
+            await sio.emit(event_name, payload, room=f"booking:{booking_id}")
 
         if booking:
             passenger_id = str(booking.get("passenger_id") or "")
             driver_user_id = str(booking.get("driver_id") or "")
             if passenger_id:
-                await emit_to_user(passenger_id, "driver_location_changed", payload)
-                await emit_to_user(passenger_id, "driver_location", payload)
+                for event_name in ("driver_location_changed", "driver_location", "driver_location_updated"):
+                    await emit_to_user(passenger_id, event_name, payload)
             if driver_user_id:
-                await emit_to_user(driver_user_id, "driver_location_changed", payload)
-                await emit_to_user(driver_user_id, "driver_location", payload)
+                for event_name in ("driver_location_changed", "driver_location", "driver_location_updated"):
+                    await emit_to_user(driver_user_id, event_name, payload)
 
     return {"ok": True}
 

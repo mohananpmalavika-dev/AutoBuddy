@@ -66,6 +66,18 @@ const loadGoogleMapsScript = (apiKey) => {
 const createLatLng = (googleMaps, location) =>
   new googleMaps.LatLng(location.latitude, location.longitude);
 
+const fitBoundsToPoints = (googleMaps, map, points) => {
+  const validPoints = points.filter(Boolean);
+  if (validPoints.length < 2) {
+    return;
+  }
+  const bounds = new googleMaps.LatLngBounds();
+  validPoints.forEach((point) => {
+    bounds.extend(createLatLng(googleMaps, point));
+  });
+  map.fitBounds(bounds, 56);
+};
+
 export default function WebGoogleLiveMap({
   apiKey,
   title,
@@ -87,6 +99,7 @@ export default function WebGoogleLiveMap({
   const mapRef = useRef(null);
   const directionsServiceRef = useRef(null);
   const directionsRendererRef = useRef(null);
+  const routeFallbackPolylineRef = useRef(null);
   const markersRef = useRef({
     pickup: null,
     dropoff: null,
@@ -193,6 +206,32 @@ export default function WebGoogleLiveMap({
     const googleMaps = window.google.maps;
     const map = mapRef.current;
 
+    const clearFallbackRoute = () => {
+      if (routeFallbackPolylineRef.current) {
+        routeFallbackPolylineRef.current.setMap(null);
+        routeFallbackPolylineRef.current = null;
+      }
+    };
+
+    const showFallbackRoute = () => {
+      clearFallbackRoute();
+      if (!routeOriginPoint || !routeDestinationPoint) {
+        return;
+      }
+      routeFallbackPolylineRef.current = new googleMaps.Polyline({
+        map,
+        path: [
+          createLatLng(googleMaps, routeOriginPoint),
+          createLatLng(googleMaps, routeDestinationPoint),
+        ],
+        geodesic: true,
+        strokeColor: '#1E88E5',
+        strokeOpacity: 0.75,
+        strokeWeight: 5,
+      });
+      fitBoundsToPoints(googleMaps, map, [routeOriginPoint, routeDestinationPoint]);
+    };
+
     const syncMarker = (markerKey, point, titleText, labelText) => {
       const currentMarker = markersRef.current[markerKey];
       if (!point) {
@@ -255,6 +294,10 @@ export default function WebGoogleLiveMap({
           origin: routeOriginPoint,
           destination: routeDestinationPoint,
         };
+        if (!directionsServiceRef.current || !directionsRendererRef.current) {
+          showFallbackRoute();
+          return;
+        }
         directionsServiceRef.current.route(
           {
             origin: createLatLng(googleMaps, routeOriginPoint),
@@ -265,10 +308,13 @@ export default function WebGoogleLiveMap({
           },
           (result, status) => {
             if (status === googleMaps.DirectionsStatus.OK && result) {
+              clearFallbackRoute();
               directionsRendererRef.current.setDirections(result);
+              fitBoundsToPoints(googleMaps, map, [routeOriginPoint, routeDestinationPoint]);
               return;
             }
             directionsRendererRef.current.setDirections({ routes: [] });
+            showFallbackRoute();
           },
         );
       }
@@ -280,6 +326,7 @@ export default function WebGoogleLiveMap({
       destination: null,
     };
     directionsRendererRef.current.setDirections({ routes: [] });
+    clearFallbackRoute();
 
     const focusPoint = driverPoint || pickupPoint || dropoffPoint || defaultCenterPoint;
     if (focusPoint) {
