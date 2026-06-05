@@ -83,6 +83,7 @@
       "<rootDir>/jest.setup.ts"
     ],
     "moduleNameMapper": {
+      "\\.(css)$": "<rootDir>/test/styleMock.js",
       "^@/(.*)$": "<rootDir>/src/$1"
     },
     "testPathIgnorePatterns": [
