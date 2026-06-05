@@ -189,12 +189,64 @@ function normalizeDriverSettings(rawSettings = {}) {
   };
 }
 
+function unwrapVehicles(payload) {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  if (Array.isArray(payload?.vehicles)) {
+    return payload.vehicles;
+  }
+  if (Array.isArray(payload?.data?.vehicles)) {
+    return payload.data.vehicles;
+  }
+  return [];
+}
+
+function getVehicleId(vehicle) {
+  return String(vehicle?.id || vehicle?.vehicle_id || '').trim();
+}
+
 function resolveActiveVehicleId(payload) {
-  const vehicles = Array.isArray(payload) ? payload : payload?.vehicles;
-  if (!Array.isArray(vehicles) || vehicles.length === 0) {
+  const vehicles = unwrapVehicles(payload);
+  if (!vehicles.length) {
     return null;
   }
-  return String((vehicles.find((vehicle) => vehicle?.is_active) || vehicles[0])?.id || '').trim() || null;
+  return getVehicleId(vehicles.find((vehicle) => vehicle?.is_active) || vehicles[0]) || null;
+}
+
+function formatOnlineVehicleOption(vehicle, index) {
+  const plate = String(vehicle?.license_plate || vehicle?.vehicle_number || vehicle?.registration_number || '').trim();
+  const type = String(vehicle?.vehicle_type_name || vehicle?.vehicle_type || vehicle?.vehicle_type_id || '').trim();
+  const model = [vehicle?.make, vehicle?.model].filter(Boolean).join(' ').trim();
+  return `${index + 1}. ${[plate || 'Vehicle', model, type].filter(Boolean).join(' - ')}`;
+}
+
+function chooseVehicleIdForOnline(vehicles, preferredVehicleId = '') {
+  if (!vehicles.length) {
+    throw new Error('Add a vehicle before going online.');
+  }
+  if (vehicles.length === 1) {
+    return getVehicleId(vehicles[0]);
+  }
+  const preferredIndex = Math.max(
+    0,
+    vehicles.findIndex((vehicle) => getVehicleId(vehicle) === preferredVehicleId || vehicle?.is_active),
+  );
+  if (typeof window === 'undefined' || typeof window.prompt !== 'function') {
+    return getVehicleId(vehicles[preferredIndex]);
+  }
+  const answer = window.prompt(
+    `Which vehicle should go online?\n${vehicles.map(formatOnlineVehicleOption).join('\n')}`,
+    String(preferredIndex + 1),
+  );
+  if (answer === null) {
+    throw new Error('Going online cancelled.');
+  }
+  const selectedIndex = Number.parseInt(String(answer).trim(), 10) - 1;
+  if (!Number.isInteger(selectedIndex) || selectedIndex < 0 || selectedIndex >= vehicles.length) {
+    throw new Error('Select a valid vehicle number.');
+  }
+  return getVehicleId(vehicles[selectedIndex]);
 }
 
 function isRetriableAvailabilityError(err) {
@@ -285,6 +337,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   const [blockedPassengerSearch, setBlockedPassengerSearch] = useState('');
   const [activeRide, setActiveRide] = useState(null);
   const [activeVehicleId, setActiveVehicleId] = useState(null);
+  const [driverVehicles, setDriverVehicles] = useState([]);
   const [earnings, setEarnings] = useState(null);
   const [pricingRules, setPricingRules] = useState(null);
   const [driverFareConfig, setDriverFareConfig] = useState({
@@ -1118,7 +1171,9 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     if (menuBadgePayload) {
       setMenuBadges(menuBadgePayload);
     }
-    setActiveVehicleId(resolveActiveVehicleId(vehiclesPayload));
+    const nextVehicles = unwrapVehicles(vehiclesPayload);
+    setDriverVehicles(nextVehicles);
+    setActiveVehicleId(resolveActiveVehicleId(nextVehicles));
     setMessage('Driver dashboard refreshed.');
   }, [
     attachReadableAddress,
@@ -1207,7 +1262,11 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       if (menuBadgePayload) {
         setMenuBadges(menuBadgePayload);
       }
-      setActiveVehicleId(resolveActiveVehicleId(vehiclesPayload));
+      const nextVehicles = unwrapVehicles(vehiclesPayload);
+      if (nextVehicles.length > 0) {
+        setDriverVehicles(nextVehicles);
+        setActiveVehicleId(resolveActiveVehicleId(nextVehicles));
+      }
       if (includeMeta) {
         setEarnings(earningsSummary || null);
         setPricingRules(pricing || fareCalc?.default_pricing || null);
@@ -1228,6 +1287,19 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     normalizeLocation,
     requestDriverData,
   ]);
+
+  const getOnlineVehicleIdForToggle = useCallback(async () => {
+    const payload = await requestDriverData('/drivers/vehicles', { vehicles: driverVehicles });
+    const vehicles = unwrapVehicles(payload);
+    const selectableVehicles = vehicles.length > 0 ? vehicles : driverVehicles;
+    setDriverVehicles(selectableVehicles);
+    const selectedVehicleId = chooseVehicleIdForOnline(
+      selectableVehicles,
+      activeVehicleId || resolveActiveVehicleId(selectableVehicles),
+    );
+    setActiveVehicleId(selectedVehicleId);
+    return selectedVehicleId;
+  }, [activeVehicleId, driverVehicles, requestDriverData]);
 
   const refreshRideStageValidation = useCallback(async ({ force = false } = {}) => {
     if (!force && Date.now() < driverPollCooldownUntilRef.current) {
@@ -1699,6 +1771,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     setMessage(next ? 'Going online...' : 'Pausing requests...');
 
     try {
+      let selectedOnlineVehicleId = '';
       // If going online, ensure driver readiness first
       if (next) {
         const readiness = await apiRequest('/drivers/readiness', { token, timeoutMs: 8000 });
@@ -1707,6 +1780,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
           setMessage('Complete Ready to Drive before going online.');
           return;
         }
+        selectedOnlineVehicleId = await getOnlineVehicleIdForToggle();
       }
 
       // Ask server to change availability
@@ -1714,7 +1788,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         method: 'PUT',
         token,
         timeoutMs: 10000,
-        body: { is_available: next },
+        body: { is_available: next, vehicle_id: selectedOnlineVehicleId || undefined },
       });
 
       // Confirm via server snapshot (preferred) or response
@@ -1723,6 +1797,15 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         ? availabilitySnapshot
         : response;
       const confirmedStatus = readDriverAvailability(confirmedSnapshot, next);
+      const confirmedVehicleId = String(
+        confirmedSnapshot?.online_vehicle_id ||
+          response?.online_vehicle_id ||
+          selectedOnlineVehicleId ||
+          '',
+      ).trim();
+      if (confirmedVehicleId) {
+        setActiveVehicleId(confirmedVehicleId);
+      }
 
       applyAvailabilitySnapshot(confirmedSnapshot, confirmedStatus, { protect: true });
 
@@ -1757,6 +1840,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     }
   }, [
     displayIsOnline,
+    getOnlineVehicleIdForToggle,
     token,
     requestDriverData,
     applyAvailabilitySnapshot,

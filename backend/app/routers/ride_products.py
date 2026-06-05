@@ -1,4 +1,5 @@
 import asyncio
+import math
 import os
 import uuid
 from datetime import datetime, timedelta
@@ -16,6 +17,8 @@ from app.db.models_features import PaymentMethod as PassengerPaymentMethod
 from app.db.models_features import PromoCode, PromoCodeUsage
 from app.db.database import SessionLocal
 from app.models.document_catalog import effective_is_mandatory, ensure_default_document_requirements
+from app.models.canonical_vehicle_model import get_vehicle_multiplier
+from app.models.ride_type_compatibility import is_vehicle_compatible_with_ride_type
 from app.utils.rbac import get_current_user_secure
 
 router = APIRouter(prefix="/api", tags=["ride_products"])
@@ -81,6 +84,15 @@ class RideProductDistrictConfigUpdate(BaseModel):
 
 
 ALL_RIDE_PRODUCT_KEYS: List[str] = [item.value for item in RideProduct]
+RIDE_TYPE_COMPATIBILITY_ALIASES = {
+    RideProduct.NORMAL.value: "instant",
+    RideProduct.POOL.value: "instant",
+    RideProduct.EV_AUTO.value: "instant",
+    RideProduct.WOMEN_ONLY.value: "instant",
+    RideProduct.SCHOOL_ELDERLY_SAFE.value: "instant",
+    RideProduct.INTERCITY.value: "instant",
+    RideProduct.RENTAL_HOURLY.value: "rental",
+}
 DISTRICT_ALIASES: Dict[str, str] = {
     "trivandrum": "thiruvananthapuram",
     "thiruvananthapuram": "thiruvananthapuram",
@@ -115,6 +127,18 @@ def _as_dict(value: Any) -> Dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _vehicle_multiplier(vehicle_type_id: Optional[str], subtype_id: Optional[str] = None) -> float:
+    key = str(vehicle_type_id or "").strip().lower()
+    subtype_key = str(subtype_id or "").strip() or None
+    if not key:
+        return 1.0
+    try:
+        multiplier = float(get_vehicle_multiplier(key, subtype_key))
+        return multiplier if math.isfinite(multiplier) and multiplier > 0 else 1.0
+    except Exception:
+        return 1.0
+
+
 def _product_multiplier(product: RideProduct) -> float:
     return {
         RideProduct.NORMAL: 1.00,
@@ -129,6 +153,85 @@ def _product_multiplier(product: RideProduct) -> float:
         RideProduct.RENTAL_HOURLY: 2.10,
         RideProduct.SCHOOL_ELDERLY_SAFE: 1.12,
     }.get(product, 1.00)
+
+
+def _location_distance_km(origin: Dict[str, Any], target: Dict[str, Any]) -> float:
+    origin_lat = _to_float(origin.get("latitude"), math.nan)
+    origin_lng = _to_float(origin.get("longitude"), math.nan)
+    target_lat = _to_float(target.get("latitude"), math.nan)
+    target_lng = _to_float(target.get("longitude"), math.nan)
+    if any(not math.isfinite(value) for value in [origin_lat, origin_lng, target_lat, target_lng]):
+        return math.inf
+    radius_km = 6371.0
+    lat1 = math.radians(origin_lat)
+    lat2 = math.radians(target_lat)
+    delta_lat = math.radians(target_lat - origin_lat)
+    delta_lng = math.radians(target_lng - origin_lng)
+    hav = (
+        math.sin(delta_lat / 2) ** 2
+        + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lng / 2) ** 2
+    )
+    return radius_km * 2 * math.atan2(math.sqrt(hav), math.sqrt(max(0.0, 1 - hav)))
+
+
+def _driver_matches_service(
+    driver: Dict[str, Any],
+    vehicle_type_id: Optional[str],
+    vehicle_subtype_id: Optional[str],
+    ride_product: RideProduct,
+) -> bool:
+    raw_vehicle = _as_dict(driver.get("vehicle_info"))
+    driver_vehicle_type = str(
+        raw_vehicle.get("vehicle_type_id")
+        or raw_vehicle.get("vehicle_type")
+        or driver.get("vehicle_type_id")
+        or driver.get("vehicle_type")
+        or "auto"
+    ).strip().lower()
+    driver_vehicle_subtype = str(
+        raw_vehicle.get("vehicle_subtype_id")
+        or driver.get("vehicle_subtype_id")
+        or ""
+    ).strip().lower()
+    requested_vehicle_type = str(vehicle_type_id or "").strip().lower()
+    requested_vehicle_subtype = str(vehicle_subtype_id or "").strip().lower()
+    if requested_vehicle_type and driver_vehicle_type != requested_vehicle_type:
+        return False
+    if requested_vehicle_subtype and driver_vehicle_subtype and driver_vehicle_subtype != requested_vehicle_subtype:
+        return False
+    compatibility_key = RIDE_TYPE_COMPATIBILITY_ALIASES.get(ride_product.value, ride_product.value)
+    return is_vehicle_compatible_with_ride_type(driver_vehicle_type, compatibility_key)
+
+
+async def _find_matching_driver_ids(
+    db: AsyncIOMotorDatabase,
+    pickup: Dict[str, Any],
+    vehicle_type_id: Optional[str],
+    vehicle_subtype_id: Optional[str],
+    ride_product: RideProduct,
+    *,
+    radius_km: float = 2.0,
+    limit: int = 5,
+) -> List[str]:
+    drivers = await db.drivers.find(
+        {
+            "is_available": True,
+            "vehicle_info": {"$ne": None},
+            "kyc_status": "approved",
+        },
+        {"_id": 0, "user_id": 1, "current_location": 1, "vehicle_info": 1, "rating": 1},
+    ).to_list(250)
+    scored: List[Dict[str, Any]] = []
+    for driver in drivers:
+        if not _driver_matches_service(driver, vehicle_type_id, vehicle_subtype_id, ride_product):
+            continue
+        location = _as_dict(driver.get("current_location"))
+        distance = _location_distance_km(pickup, location)
+        if math.isfinite(distance) and distance <= radius_km:
+            scored.append({"driver_id": str(driver.get("user_id") or ""), "distance_km": distance})
+    scored.sort(key=lambda item: item["distance_km"])
+    return [item["driver_id"] for item in scored[: max(1, int(limit or 1))] if item["driver_id"]]
+
 
 
 def _product_label(product: RideProduct) -> str:
@@ -760,7 +863,9 @@ async def create_advanced_booking(
     distance_km = max(0.5, _to_float(drop.get("distance_km"), _to_float(pickup.get("distance_km"), 5.0)))
     base_fare = 60.0
     per_km = 18.0
-    raw_estimated_fare = round((base_fare + (distance_km * per_km)) * _product_multiplier(payload.ride_product), 2)
+    ride_type_multiplier = _product_multiplier(payload.ride_product)
+    vehicle_type_multiplier = _vehicle_multiplier(payload.vehicle_type_id, payload.vehicle_subtype_id)
+    raw_estimated_fare = round((base_fare + (distance_km * per_km)) * ride_type_multiplier * vehicle_type_multiplier, 2)
     payment_method_id = str(payload.payment_method_id or "").strip() or None
     payment_channel = str(payload.payment_channel or "").strip().lower() or None
     if payment_method_id:
@@ -792,6 +897,17 @@ async def create_advanced_booking(
     now = get_ist_now()
     is_scheduled = payload.ride_product == RideProduct.SCHEDULED or payload.scheduled_for is not None
     booking_id = str(uuid.uuid4())
+    candidate_driver_ids = []
+    if not is_scheduled and not payload.selected_driver_id:
+        candidate_driver_ids = await _find_matching_driver_ids(
+            db,
+            pickup,
+            payload.vehicle_type_id,
+            payload.vehicle_subtype_id,
+            payload.ride_product,
+            radius_km=2.0,
+            limit=5,
+        )
     booking = {
         "id": booking_id,
         "passenger_id": current_user_id,
@@ -826,10 +942,12 @@ async def create_advanced_booking(
         "promo_max_discount": promo_max_discount,
         "promo_discount_amount": promo_discount_amount,
         "fare_before_discount": raw_estimated_fare,
+        "ride_type_multiplier": ride_type_multiplier,
+        "vehicle_type_multiplier": vehicle_type_multiplier,
         "status": "scheduled" if is_scheduled else "pending",
         "dispatch_status": "scheduled" if is_scheduled else "searching",
         "dispatch_algorithm": "advanced_product_pool_v1",
-        "candidate_driver_ids": [],
+        "candidate_driver_ids": [payload.selected_driver_id] if payload.selected_driver_id else candidate_driver_ids,
         "progress_handoff": {
             "active_booking_endpoint": "/api/bookings/active",
             "booking_status_event": "booking_status_changed",

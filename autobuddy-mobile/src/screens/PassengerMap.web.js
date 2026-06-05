@@ -1290,8 +1290,26 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     const normalized = text || '';
     if (point === 'pickup') {
       setPickupQuery(normalized);
+      setLocationValidation((prev) => ({ ...prev, pickup: false }));
+      if (pickupLocation && normalized.trim() !== String(pickupLocation.address || '').trim()) {
+        setPickupLocation(null);
+        setFare(null);
+        setNearbyDrivers([]);
+        setOptedOutDriverIds([]);
+        driverDiscoveryRequestRef.current = { signature: '', request: null, completedAt: 0 };
+        driverDiscoveryCooldownUntilRef.current = 0;
+      }
     } else {
       setDropoffQuery(normalized);
+      setLocationValidation((prev) => ({ ...prev, dropoff: false }));
+      if (dropoffLocation && normalized.trim() !== String(dropoffLocation.address || '').trim()) {
+        setDropoffLocation(null);
+        setFare(null);
+        setNearbyDrivers([]);
+        setOptedOutDriverIds([]);
+        driverDiscoveryRequestRef.current = { signature: '', request: null, completedAt: 0 };
+        driverDiscoveryCooldownUntilRef.current = 0;
+      }
     }
 
     if (normalized.trim().length < 3) {
@@ -1978,6 +1996,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             body: {
               pickup_location: pickupLocation,
               drop_location: dropoffLocation,
+              vehicle_type_id: effectiveSelectedVehicleTypeId || undefined,
+              vehicle_subtype_id: selectedVehicleModelId || undefined,
+              ride_type: effectiveRideProduct || undefined,
             },
           }),
           apiRequest('/drivers/nearby', {
@@ -1987,7 +2008,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               longitude: pickupLocation.longitude,
               drop_latitude: dropoffLocation.latitude,
               drop_longitude: dropoffLocation.longitude,
-              radius_km: 6,
+              radius_km: 2,
               vehicle_type_id: effectiveSelectedVehicleTypeId || undefined,
               vehicle_subtype_id: selectedVehicleModelId || undefined,
               ride_type: effectiveRideProduct || undefined,
@@ -2015,12 +2036,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           is_favorite: favoriteIds.includes(driver.driver_id),
           source: 'nearby',
         })).filter((driver) => !blockedIds.includes(driver.driver_id));
-        const nearbyIds = new Set(nearbyList.map((item) => item.driver_id));
-        const favoriteFallback = favoritesList
-          .filter((driver) => driver?.driver_id && !nearbyIds.has(driver.driver_id) && !blockedIds.includes(driver.driver_id))
-          .map((driver) => ({ ...driver, source: 'favorite_fallback', is_favorite: true }));
-
-        const merged = [...nearbyList, ...favoriteFallback];
+        const merged = nearbyList.slice(0, 5);
         setNearbyDrivers(merged);
         setSelectedDriverId((prev) =>
           prev && !merged.some((item) => item.driver_id === prev)
@@ -2215,7 +2231,13 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         token,
         body: {
           pickup_location: locations.pickup,
-          drop_location: locations.dropoff,
+          drop_location: {
+            ...locations.dropoff,
+            distance_km:
+              Number(fare?.distance_km || 0) > 0
+                ? Number(fare.distance_km)
+                : locations.dropoff?.distance_km,
+          },
           payment_method: selectedPaymentMethod,
           payment_method_id: selectedPaymentMethodId || undefined,
           payment_channel: selectedPaymentChannel || undefined,
@@ -2361,9 +2383,22 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       .slice(0, 3);
   }, [passengerBookings]);
   const quickFareValue = Number(fare?.total_fare || 0);
-  const quickFareLabel = quickFareValue > 0 ? `Rs. ${quickFareValue.toFixed(0)}` : 'Fare ready soon';
+  const visibleDriverFareValues = visibleDrivers
+    .slice(0, 5)
+    .map((driver) => estimateDriverFare(driver))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  const quickDriverFareMin = visibleDriverFareValues.length > 0 ? Math.min(...visibleDriverFareValues) : 0;
+  const quickDriverFareMax = visibleDriverFareValues.length > 0 ? Math.max(...visibleDriverFareValues) : 0;
+  const quickDriverFareRange =
+    quickDriverFareMin > 0 && quickDriverFareMax > 0
+      ? quickDriverFareMin === quickDriverFareMax
+        ? `Rs. ${quickDriverFareMin.toFixed(0)}`
+        : `Rs. ${quickDriverFareMin.toFixed(0)}-${quickDriverFareMax.toFixed(0)}`
+      : '';
+  const quickFareLabel =
+    quickDriverFareRange || (quickFareValue > 0 ? `Rs. ${quickFareValue.toFixed(0)}` : 'Fare ready soon');
   const quickDistanceLabel = Number(fare?.distance_km || 0) > 0 ? `${Number(fare.distance_km).toFixed(1)} km` : 'Distance calculating';
-  const quickEtaLabel = visibleDrivers.length > 0 ? `${visibleDrivers.length} nearby` : autoFetchingTripData ? 'Finding drivers' : 'Driver search live';
+  const quickEtaLabel = visibleDrivers.length > 0 ? `${Math.min(visibleDrivers.length, 5)} within 2 km` : autoFetchingTripData ? 'Finding drivers' : 'Driver search live';
   const quickBookingReady = Boolean(pickupLocation && dropoffLocation);
   const quickBookingStep = !dropoffLocation ? 1 : quickBookingReady && !fare && autoFetchingTripData ? 2 : 3;
   const quickDestinationText = dropoffLocation?.address || dropoffQuery || '';
@@ -2371,6 +2406,11 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
 
   const handleQuickConfirmRide = async () => {
     if (!pickupLocation) {
+      if (pickupQuery.trim()) {
+        setLocationValidation((prev) => ({ ...prev, pickup: true }));
+        setError('Select pickup from the search results or use current location.');
+        return;
+      }
       await autofillPickupFromCurrentLocation({ silent: false });
       if (!dropoffLocation) {
         setError('Select your destination to continue.');
@@ -2578,7 +2618,16 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                 <Text style={styles.quickUseLocationText}>{locatingPickup ? 'Locating' : 'Use current'}</Text>
               </TouchableOpacity>
             </View>
-            <Text style={styles.quickRouteValue} numberOfLines={1}>{quickPickupText}</Text>
+            <VoiceTextInput
+              style={[styles.quickDestinationInput, locationValidation.pickup && styles.quickDestinationInputError]}
+              containerStyle={styles.quickDestinationInputContainer}
+              value={pickupQuery}
+              onFocus={() => setSelectingPoint('pickup')}
+              onChangeText={(text) => handleSearchTextChange('pickup', text)}
+              placeholder={quickPickupText}
+              placeholderTextColor="#7A8A80"
+              returnKeyType="search"
+            />
           </View>
         </View>
 
@@ -2601,6 +2650,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           </View>
         </View>
       </View>
+
+      {searchingPickup && <Text style={styles.quickHint}>Searching pickup...</Text>}
+      {pickupSuggestions.slice(0, 4).map((item) => renderQuickSuggestion(item, 'pickup'))}
 
       {searchingDropoff && <Text style={styles.quickHint}>Searching places...</Text>}
       {dropoffSuggestions.slice(0, 4).map((item) => renderQuickSuggestion(item, 'dropoff'))}

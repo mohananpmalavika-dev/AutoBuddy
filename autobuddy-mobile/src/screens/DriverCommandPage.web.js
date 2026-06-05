@@ -128,6 +128,57 @@ function unwrapObject(payload, keys = []) {
   return payload;
 }
 
+function unwrapVehicles(payload) {
+  return unwrapArray(payload, ['vehicles', 'driver_vehicles']);
+}
+
+function getVehicleId(vehicle) {
+  return String(vehicle?.id || vehicle?.vehicle_id || '').trim();
+}
+
+function resolveActiveVehicleId(payload) {
+  const vehicles = Array.isArray(payload) ? payload : unwrapVehicles(payload);
+  if (!vehicles.length) {
+    return '';
+  }
+  return getVehicleId(vehicles.find((vehicle) => vehicle?.is_active) || vehicles[0]);
+}
+
+function formatOnlineVehicleOption(vehicle, index) {
+  const plate = String(vehicle?.license_plate || vehicle?.vehicle_number || vehicle?.registration_number || '').trim();
+  const type = String(vehicle?.vehicle_type_name || vehicle?.vehicle_type || vehicle?.vehicle_type_id || '').trim();
+  const model = [vehicle?.make, vehicle?.model].filter(Boolean).join(' ').trim();
+  return `${index + 1}. ${[plate || 'Vehicle', model, type].filter(Boolean).join(' - ')}`;
+}
+
+function chooseVehicleIdForOnline(vehicles, preferredVehicleId = '') {
+  if (!vehicles.length) {
+    throw new Error('Add a vehicle before going online.');
+  }
+  if (vehicles.length === 1) {
+    return getVehicleId(vehicles[0]);
+  }
+  const preferredIndex = Math.max(
+    0,
+    vehicles.findIndex((vehicle) => getVehicleId(vehicle) === preferredVehicleId || vehicle?.is_active),
+  );
+  if (typeof window === 'undefined' || typeof window.prompt !== 'function') {
+    return getVehicleId(vehicles[preferredIndex]);
+  }
+  const answer = window.prompt(
+    `Which vehicle should go online?\n${vehicles.map(formatOnlineVehicleOption).join('\n')}`,
+    String(preferredIndex + 1),
+  );
+  if (answer === null) {
+    throw new Error('Going online cancelled.');
+  }
+  const selectedIndex = Number.parseInt(String(answer).trim(), 10) - 1;
+  if (!Number.isInteger(selectedIndex) || selectedIndex < 0 || selectedIndex >= vehicles.length) {
+    throw new Error('Select a valid vehicle number.');
+  }
+  return getVehicleId(vehicles[selectedIndex]);
+}
+
 const STRICT_ACCEPTING_KEYS = ['is_available', 'isAvailable', 'available'];
 
 function readBooleanLike(value) {
@@ -560,6 +611,8 @@ export default function DriverCommandPage({
   const [driverLocation, setDriverLocation] = useState(null);
   const [pendingRequests, setPendingRequests] = useState([]);
   const [activeRide, setActiveRide] = useState(null);
+  const [driverVehicles, setDriverVehicles] = useState([]);
+  const [onlineVehicleId, setOnlineVehicleId] = useState('');
   const [upcomingRides, setUpcomingRides] = useState(EMPTY_UPCOMING);
   const [earnings, setEarnings] = useState(null);
   const [pricingRules, setPricingRules] = useState(null);
@@ -790,6 +843,7 @@ export default function DriverCommandPage({
           badges,
           blockedPassengersPayload,
           spinStatusPayload,
+          vehiclesPayload,
         ] = await Promise.all([
           safeRequest('/drivers/profile', null),
           safeRequest('/drivers/availability', null),
@@ -802,6 +856,7 @@ export default function DriverCommandPage({
           safeRequest('/drivers/menu-badges', {}),
           safeRequest('/drivers/blocked-passengers', { passenger_ids: [], passengers: [] }),
           safeRequest('/spin-win/config', null),
+          safeRequest('/drivers/vehicles', { vehicles: [] }),
         ]);
 
         if (availability) {
@@ -841,6 +896,17 @@ export default function DriverCommandPage({
         setMenuBadges(badges || {});
         setBlockedPassengers(normalizeBlockedPassengerRows(blockedPassengersPayload));
         setSpinWinStatus(spinStatusPayload || null);
+        const nextVehicles = unwrapVehicles(vehiclesPayload);
+        setDriverVehicles(nextVehicles);
+        const nextOnlineVehicleId = String(
+          availability?.online_vehicle_id ||
+            profile?.online_vehicle_id ||
+            resolveActiveVehicleId(nextVehicles) ||
+            '',
+        ).trim();
+        if (nextOnlineVehicleId) {
+          setOnlineVehicleId(nextOnlineVehicleId);
+        }
         if (!silent) {
           setMessage('Driver page refreshed.');
         }
@@ -913,6 +979,17 @@ export default function DriverCommandPage({
     }
   }, []);
 
+  const getOnlineVehicleIdForToggle = useCallback(async () => {
+    const payload = await apiRequest('/drivers/vehicles', { token, timeoutMs: 8000 });
+    const vehicles = unwrapVehicles(payload);
+    const selectableVehicles = vehicles.length > 0 ? vehicles : driverVehicles;
+    setDriverVehicles(selectableVehicles);
+    const preferredVehicleId = onlineVehicleId || resolveActiveVehicleId(selectableVehicles);
+    const selectedVehicleId = chooseVehicleIdForOnline(selectableVehicles, preferredVehicleId);
+    setOnlineVehicleId(selectedVehicleId);
+    return selectedVehicleId;
+  }, [driverVehicles, onlineVehicleId, token]);
+
   const toggleOnlineStatus = useCallback(async () => {
     if (availabilityLoading || loading) {
       return;
@@ -925,6 +1002,7 @@ export default function DriverCommandPage({
     setIsAccepting(next);
 
     try {
+      let selectedOnlineVehicleId = '';
       if (next) {
         const readiness = await apiRequest('/drivers/readiness', { token, timeoutMs: 8000 });
         if (!isDriverReadyToDrive(readiness)) {
@@ -933,16 +1011,26 @@ export default function DriverCommandPage({
           setMessage('');
           return;
         }
+        selectedOnlineVehicleId = await getOnlineVehicleIdForToggle();
       }
 
       const response = await apiRequest('/drivers/availability', {
         method: 'PUT',
         token,
         timeoutMs: 10000,
-        body: { is_available: next },
+        body: { is_available: next, vehicle_id: selectedOnlineVehicleId || undefined },
       });
       const snapshot = await safeRequest('/drivers/availability', response);
       const confirmed = readDriverAccepting(snapshot, next);
+      const confirmedVehicleId = String(
+        snapshot?.online_vehicle_id ||
+          response?.online_vehicle_id ||
+          selectedOnlineVehicleId ||
+          '',
+      ).trim();
+      if (confirmedVehicleId) {
+        setOnlineVehicleId(confirmedVehicleId);
+      }
       setIsAccepting(confirmed);
 
       if (confirmed) {
@@ -963,6 +1051,7 @@ export default function DriverCommandPage({
   }, [
     availabilityLoading,
     displayIsAccepting,
+    getOnlineVehicleIdForToggle,
     loading,
     refreshDriverData,
     safeRequest,

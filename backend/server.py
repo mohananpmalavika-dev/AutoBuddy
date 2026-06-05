@@ -100,7 +100,7 @@ from app.routers.operator_portal import (
     router as modular_operator_portal_router,
 )
 from app.services.email_delivery import send_otp_email_message
-from app.models.canonical_vehicle_model import CANONICAL_VEHICLES_COLLECTION, get_vehicle_by_id
+from app.models.canonical_vehicle_model import CANONICAL_VEHICLES_COLLECTION, get_vehicle_by_id, get_vehicle_multiplier
 from app.models.document_catalog import (
     document_mandatory_pause_active,
     effective_is_mandatory,
@@ -1872,6 +1872,7 @@ class DriverTelemetryUpdate(BaseModel):
 
 class DriverAvailabilityUpdate(BaseModel):
     is_available: bool
+    vehicle_id: Optional[str] = Field(default=None, max_length=120)
 
 class DriverFareUpdate(BaseModel):
     fare_multiplier: float = Field(ge=0.8, le=2.0)  # 0.8x to 2x
@@ -1975,6 +1976,9 @@ class BookingCreate(BaseModel):
     scheduled_for: Optional[datetime] = None
     allow_parallel: bool = False
     selected_driver_id: Optional[str] = None
+    vehicle_type_id: Optional[str] = Field(default=None, max_length=50)
+    vehicle_subtype_id: Optional[str] = Field(default=None, max_length=80)
+    ride_type: Optional[str] = Field(default="normal", max_length=50)
 
 class BookingResponse(BaseModel):
     id: str
@@ -2012,6 +2016,9 @@ class AdminBookingCancelRequest(BaseModel):
 class FareEstimateRequest(BaseModel):
     pickup_location: Location
     drop_location: Location
+    vehicle_type_id: Optional[str] = Field(default=None, max_length=50)
+    vehicle_subtype_id: Optional[str] = Field(default=None, max_length=80)
+    ride_type: Optional[str] = Field(default=None, max_length=50)
 
 class FareEstimateResponse(BaseModel):
     base_fare: float
@@ -2755,6 +2762,62 @@ async def sync_driver_primary_vehicle(driver_id: str, vehicle: Optional[Dict[str
         )
     await cache_delete(f"driver_profile:{driver_id}")
 
+
+async def resolve_driver_online_vehicle_for_availability(
+    driver_id: str,
+    requested_vehicle_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    vehicles = await db.driver_vehicles.find({"driver_id": driver_id}, {"_id": 0}).to_list(50)
+    if not vehicles:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Add and verify a vehicle before going online.",
+                "vehicles": [],
+            },
+        )
+
+    requested_id = str(requested_vehicle_id or "").strip()
+    selected_vehicle: Optional[Dict[str, Any]] = None
+    if requested_id:
+        selected_vehicle = next((vehicle for vehicle in vehicles if str(vehicle.get("id") or "") == requested_id), None)
+        if not selected_vehicle:
+            raise HTTPException(status_code=400, detail="Selected vehicle was not found.")
+    elif len(vehicles) == 1:
+        selected_vehicle = vehicles[0]
+    else:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Select which vehicle will be online.",
+                "vehicles": [build_driver_vehicle_response(vehicle) for vehicle in vehicles],
+            },
+        )
+
+    if not is_driver_vehicle_ready(selected_vehicle):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Selected vehicle must have vehicle number, model, color, and type before going online.",
+                "vehicle": build_driver_vehicle_response(selected_vehicle),
+            },
+        )
+
+    now = get_ist_now()
+    await db.driver_vehicles.update_many(
+        {"driver_id": driver_id},
+        {"$set": {"is_active": False, "updated_at": now}},
+    )
+    await db.driver_vehicles.update_one(
+        {"driver_id": driver_id, "id": str(selected_vehicle.get("id") or "")},
+        {"$set": {"is_active": True, "updated_at": now}},
+    )
+    refreshed = await db.driver_vehicles.find_one(
+        {"driver_id": driver_id, "id": str(selected_vehicle.get("id") or "")},
+        {"_id": 0},
+    )
+    return refreshed or selected_vehicle
+
 def mask_bank_account(account_number: str) -> str:
     cleaned = re.sub(r"\D+", "", str(account_number or ""))
     if not cleaned:
@@ -2780,6 +2843,12 @@ def build_driver_availability_response(
     live_location_online = bool(location_online)
     is_online = is_available or presence_online or live_location_online
     availability_status = "online" if is_online else "offline"
+    online_vehicle = (profile or {}).get("online_vehicle")
+    online_vehicle_id = str(
+        (profile or {}).get("online_vehicle_id")
+        or (online_vehicle or {}).get("id")
+        or ""
+    ).strip() or None
     return {
         "is_available": is_available,
         # Dashboard compatibility: show a driver as online when either the
@@ -2790,6 +2859,9 @@ def build_driver_availability_response(
         "availability_status": availability_status,
         "online_status": availability_status,
         "current_location": resolved_current_location,
+        "vehicle_info": (profile or {}).get("vehicle_info"),
+        "online_vehicle_id": online_vehicle_id,
+        "online_vehicle": online_vehicle,
     }
 
 def build_driver_profile_response(user: Dict[str, Any], profile: Dict[str, Any]) -> Dict[str, Any]:
@@ -3107,6 +3179,7 @@ async def clear_driver_pending_request_cache(driver_ids: Optional[List[str]]) ->
     for driver_id in list(set(driver_ids or [])):
         if driver_id:
             await cache_delete(f"driver_pending_requests:{driver_id}")
+            await cache_delete_pattern(f"driver_pending_requests:{driver_id}:*")
 
 
 async def clear_active_ride_cache(driver_id: Optional[str], passenger_id: Optional[str]) -> None:
@@ -3339,12 +3412,23 @@ async def find_nearest_drivers_mongo_geo(
     pickup_location: Dict[str, Any],
     limit: int = 5,
     max_distance_km: float = 8.0,
+    vehicle_type_id: Optional[str] = None,
+    vehicle_subtype_id: Optional[str] = None,
+    ride_type: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
+    service_filter = {
+        "vehicle_type_id": str(vehicle_type_id or "").strip().lower(),
+        "vehicle_subtype_id": str(vehicle_subtype_id or "").strip().lower(),
+        "ride_product": str(ride_type or "").strip().lower(),
+    }
+
     async def filter_matchable_drivers(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         ordered: List[Dict[str, Any]] = []
         for candidate in candidates:
             driver_id = str(candidate.get("user_id") or "").strip()
             if not driver_id:
+                continue
+            if not driver_matches_booking_service(candidate, service_filter):
                 continue
             effective_location = await get_effective_driver_location(candidate)
             if not effective_location:
@@ -3354,6 +3438,7 @@ async def find_nearest_drivers_mongo_geo(
                     "user_id": driver_id,
                     "name": candidate.get("name"),
                     "rating": candidate.get("rating"),
+                    "vehicle_info": candidate.get("vehicle_info"),
                     "current_location": effective_location,
                     "distance_km": safe_float(candidate.get("distance_km"), 9999.0),
                 }
@@ -3381,6 +3466,7 @@ async def find_nearest_drivers_mongo_geo(
                     "user_id": 1,
                     "name": 1,
                     "rating": 1,
+                    "vehicle_info": 1,
                     "current_location": 1,
                     "is_available": 1,
                     "last_location_at": 1,
@@ -3422,6 +3508,7 @@ async def find_nearest_drivers_mongo_geo(
                 "query": {
                     "is_available": True,
                     "kyc_status": KYCStatus.APPROVED,
+                    "vehicle_info": {"$ne": None},
                 },
             }
         },
@@ -3432,6 +3519,7 @@ async def find_nearest_drivers_mongo_geo(
                 "user_id": 1,
                 "name": 1,
                 "rating": 1,
+                "vehicle_info": 1,
                 "current_location": 1,
                 "is_available": 1,
                 "last_location_at": 1,
@@ -4656,6 +4744,9 @@ async def find_candidate_drivers_for_scheduled_booking(
     pickup: Location,
     max_search_radius_km: float,
     excluded_driver_ids: Optional[List[str]] = None,
+    vehicle_type_id: Optional[str] = None,
+    vehicle_subtype_id: Optional[str] = None,
+    ride_type: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Return all candidate drivers in radius, including drivers currently on another ride."""
     max_radius = max(0.5, float(max_search_radius_km or 10.0))
@@ -4670,7 +4761,14 @@ async def find_candidate_drivers_for_scheduled_booking(
     candidates = await db.drivers.find(query).to_list(500)
 
     scored: List[Dict[str, Any]] = []
+    service_filter = {
+        "vehicle_type_id": vehicle_type_id,
+        "vehicle_subtype_id": vehicle_subtype_id,
+        "ride_product": ride_type,
+    }
     for driver in candidates:
+        if not driver_matches_booking_service(driver, service_filter):
+            continue
         live_location = await get_effective_driver_location(driver)
         if not live_location:
             continue
@@ -4692,6 +4790,107 @@ def safe_float(value: Any, default: float = 0.0) -> float:
         return float(value if value is not None else default)
     except Exception:
         return default
+
+
+RIDE_TYPE_FARE_MULTIPLIERS = {
+    "normal": 1.00,
+    "pool": 0.78,
+    "scheduled": 1.10,
+    "corporate": 1.20,
+    "airport": 1.35,
+    "intercity": 1.60,
+    "ev_auto": 1.05,
+    "tourism": 1.85,
+    "women_only": 1.15,
+    "rental_hourly": 2.10,
+    "school_elderly_safe": 1.12,
+}
+
+RIDE_TYPE_COMPATIBILITY_ALIASES = {
+    "normal": "instant",
+    "pool": "instant",
+    "ev_auto": "instant",
+    "women_only": "instant",
+    "school_elderly_safe": "instant",
+    "intercity": "instant",
+    "rental_hourly": "rental",
+}
+
+
+def get_ride_type_fare_multiplier(ride_type: Optional[str]) -> float:
+    key = str(ride_type or "normal").strip().lower() or "normal"
+    return float(RIDE_TYPE_FARE_MULTIPLIERS.get(key, 1.0))
+
+
+def get_ride_type_compatibility_key(ride_type: Optional[str]) -> str:
+    key = str(ride_type or "").strip().lower()
+    return RIDE_TYPE_COMPATIBILITY_ALIASES.get(key, key)
+
+
+def vehicle_supports_requested_ride_type(vehicle_type_id: str, ride_type: Optional[str]) -> bool:
+    compatibility_key = get_ride_type_compatibility_key(ride_type)
+    if not compatibility_key:
+        return True
+    return is_vehicle_compatible_with_ride_type(vehicle_type_id, compatibility_key)
+
+
+def get_vehicle_type_fare_multiplier(vehicle_type_id: Optional[str], subtype_id: Optional[str] = None) -> float:
+    key = str(vehicle_type_id or "").strip().lower()
+    subtype_key = str(subtype_id or "").strip() or None
+    if not key:
+        return 1.0
+    try:
+        multiplier = float(get_vehicle_multiplier(key, subtype_key))
+        if math.isfinite(multiplier) and multiplier > 0:
+            return multiplier
+    except Exception:
+        logger.warning("Could not resolve vehicle fare multiplier for type=%s subtype=%s", key, subtype_key)
+    return 1.0
+
+
+def get_driver_online_vehicle_type(driver: Optional[Dict[str, Any]]) -> str:
+    raw_vehicle = (driver or {}).get("vehicle_info") or {}
+    return str(
+        raw_vehicle.get("vehicle_type_id")
+        or raw_vehicle.get("vehicle_type")
+        or (driver or {}).get("vehicle_type_id")
+        or (driver or {}).get("vehicle_type")
+        or "auto"
+    ).strip().lower()
+
+
+def get_driver_online_vehicle_subtype(driver: Optional[Dict[str, Any]]) -> str:
+    raw_vehicle = (driver or {}).get("vehicle_info") or {}
+    return str(
+        raw_vehicle.get("vehicle_subtype_id")
+        or (driver or {}).get("vehicle_subtype_id")
+        or ""
+    ).strip().lower()
+
+
+def driver_matches_booking_service(driver: Optional[Dict[str, Any]], booking: Optional[Dict[str, Any]]) -> bool:
+    booking_doc = booking or {}
+    requested_vehicle_type = str(
+        booking_doc.get("vehicle_type_id")
+        or booking_doc.get("vehicle_type")
+        or ""
+    ).strip().lower()
+    requested_vehicle_subtype = str(booking_doc.get("vehicle_subtype_id") or "").strip().lower()
+    requested_ride_type = str(
+        booking_doc.get("ride_product")
+        or booking_doc.get("ride_type")
+        or ""
+    ).strip().lower()
+
+    driver_vehicle_type = get_driver_online_vehicle_type(driver)
+    driver_vehicle_subtype = get_driver_online_vehicle_subtype(driver)
+    if requested_vehicle_type and driver_vehicle_type != requested_vehicle_type:
+        return False
+    if requested_vehicle_subtype and driver_vehicle_subtype and driver_vehicle_subtype != requested_vehicle_subtype:
+        return False
+    if requested_ride_type and not vehicle_supports_requested_ride_type(driver_vehicle_type, requested_ride_type):
+        return False
+    return True
 
 
 def km_between(a: Dict[str, Any], b: Dict[str, Any]) -> float:
@@ -5138,6 +5337,9 @@ async def intelligent_find_drivers_for_booking(
     for driver in drivers:
         driver_id = str(driver.get("user_id") or "").strip()
         if not driver_id or driver_id in blocked_set:
+            continue
+        if not driver_matches_booking_service(driver, booking):
+            filtered_out.append({"driver_id": driver_id, "reasons": ["vehicle_or_ride_type_mismatch"]})
             continue
         if await is_driver_busy(driver_id):
             continue
@@ -8090,6 +8292,7 @@ async def _db_update_driver_availability(
     is_available: bool,
     now_utc,
     driver_insert_defaults: dict,
+    online_vehicle: Optional[Dict[str, Any]] = None,
 ):
     """Database operations for availability update with retry support."""
     set_fields = {
@@ -8103,6 +8306,23 @@ async def _db_update_driver_availability(
     if not is_available:
         set_fields["current_location"] = None
         set_fields["current_location_geo"] = None
+        set_fields["online_vehicle_id"] = None
+        set_fields["online_vehicle"] = None
+    elif online_vehicle:
+        vehicle_info = build_driver_vehicle_info(online_vehicle)
+        set_fields.update(
+            {
+                "online_vehicle_id": str(online_vehicle.get("id") or ""),
+                "online_vehicle": build_driver_vehicle_response(online_vehicle),
+                "vehicle_info": vehicle_info,
+                "auto_number": vehicle_info.get("vehicle_number"),
+                "auto_registration_number": str(
+                    online_vehicle.get("registration_number") or vehicle_info.get("vehicle_number") or ""
+                ),
+                "auto_model": vehicle_info.get("vehicle_model"),
+                "auto_color": vehicle_info.get("vehicle_color"),
+            }
+        )
 
     await db.drivers.update_one(
         {"user_id": driver_id},
@@ -8119,6 +8339,7 @@ async def _db_update_driver_availability(
                 "driver_id": driver_id,
                 "is_available": bool(is_available),
                 "is_online": bool(is_available),
+                "online_vehicle_id": str((online_vehicle or {}).get("id") or "") or None,
                 "created_at": now_utc,
             }
         )
@@ -8163,6 +8384,13 @@ async def update_driver_availability(
     driver_insert_defaults.pop("current_location", None)
     driver_insert_defaults.pop("current_location_geo", None)
 
+    online_vehicle = None
+    if availability.is_available:
+        online_vehicle = await resolve_driver_online_vehicle_for_availability(
+            current_user["id"],
+            availability.vehicle_id,
+        )
+
     try:
         # Update availability with retries
         await _db_update_driver_availability(
@@ -8170,6 +8398,7 @@ async def update_driver_availability(
             availability.is_available,
             now_utc,
             driver_insert_defaults,
+            online_vehicle,
         )
 
         if availability.is_available:
@@ -8199,6 +8428,7 @@ async def update_driver_availability(
                 availability.is_available,
                 now_utc,
                 driver_insert_defaults,
+                online_vehicle,
             )
             confirmed_profile = await db.drivers.find_one({"user_id": current_user["id"]}) or {}
         if not confirmed_profile:
@@ -8215,6 +8445,8 @@ async def update_driver_availability(
             "online": bool(availability.is_available),
             "is_available": bool(availability.is_available),
             "location": confirmed_location or None,
+            "online_vehicle_id": confirmed_profile.get("online_vehicle_id"),
+            "online_vehicle": confirmed_profile.get("online_vehicle"),
             "timestamp": now_utc.isoformat(),
         }
         try:
@@ -8902,7 +9134,7 @@ async def places_reverse_geocode(latitude: float, longitude: float, language: st
 async def get_nearby_drivers(
     latitude: float,
     longitude: float,
-    radius_km: float = 5.0,
+    radius_km: Optional[float] = Query(default=None),
     drop_latitude: Optional[float] = None,
     drop_longitude: Optional[float] = None,
     vehicle_type_id: Optional[str] = Query(default=None),
@@ -8915,9 +9147,10 @@ async def get_nearby_drivers(
     radius_cfg = get_driver_search_radius_config(pricing)
     base_radius_km = float(radius_cfg["base_radius_km"])
     long_radius_km = float(radius_cfg["long_radius_km"])
-    requested_radius_km = max(0.5, float(radius_km or base_radius_km))
+    strict_radius_requested = radius_km is not None
+    requested_radius_km = max(0.5, float(radius_km if radius_km is not None else base_radius_km))
     primary_radius_km = min(requested_radius_km, base_radius_km)
-    fallback_radius_km = long_radius_km
+    fallback_radius_km = primary_radius_km if strict_radius_requested else long_radius_km
     blocked_driver_ids: set = set()
     if credentials:
         try:
@@ -8969,7 +9202,7 @@ async def get_nearby_drivers(
             return False
         if requested_vehicle_subtype and driver_vehicle_subtype and driver_vehicle_subtype != requested_vehicle_subtype:
             return False
-        if requested_ride_type and not is_vehicle_compatible_with_ride_type(driver_vehicle_type, requested_ride_type):
+        if requested_ride_type and not vehicle_supports_requested_ride_type(driver_vehicle_type, requested_ride_type):
             return False
         return True
 
@@ -8997,7 +9230,7 @@ async def get_nearby_drivers(
 
     if primary_scored_drivers:
         nearby_drivers = primary_scored_drivers
-    elif fallback_scored_drivers:
+    elif fallback_scored_drivers and not strict_radius_requested:
         fallback_scored_drivers.sort(key=lambda item: item["distance"])
         nearby_drivers = fallback_scored_drivers[:12]
 
@@ -9021,13 +9254,17 @@ async def get_nearby_drivers(
             surcharge_payload = compute_pickup_surcharge_for_driver_distance(driver["distance"], effective_pricing)
             projected_fare = None
             if projected_distance_km is not None and projected_distance_km > 0:
+                selected_vehicle_type = requested_vehicle_type or get_driver_online_vehicle_type(driver)
+                selected_vehicle_subtype = requested_vehicle_subtype or get_driver_online_vehicle_subtype(driver)
+                vehicle_multiplier = get_vehicle_type_fare_multiplier(selected_vehicle_type, selected_vehicle_subtype)
+                ride_type_multiplier = get_ride_type_fare_multiplier(requested_ride_type)
                 base_route_fare = (
                     (effective_pricing.base_fare + (projected_distance_km * effective_pricing.per_km_rate))
                     * projected_time_multiplier
                 )
                 base_route_fare = max(base_route_fare, effective_pricing.minimum_fare)
                 projected_fare = round(
-                    (base_route_fare * float(driver.get("fare_multiplier", 1.0) or 1.0))
+                    (base_route_fare * vehicle_multiplier * ride_type_multiplier * float(driver.get("fare_multiplier", 1.0) or 1.0))
                     + float(surcharge_payload["pickup_surcharge"]),
                     2,
                 )
@@ -9046,7 +9283,7 @@ async def get_nearby_drivers(
             ))
 
     nearby.sort(key=lambda x: x.distance_km)
-    return nearby
+    return nearby[:5]
 
 @api_router.put("/passengers/favorite-drivers/{driver_id}")
 async def toggle_favorite_driver(
@@ -9352,7 +9589,16 @@ async def get_pending_requests(current_user: dict = Depends(get_current_user)):
     """Get pending booking requests for driver"""
     if current_user["role"] != UserRole.DRIVER:
         raise HTTPException(status_code=403, detail="Only drivers can access this")
-    cache_key = f"driver_pending_requests:{current_user['id']}"
+    driver_service_profile = await db.drivers.find_one(
+        {"user_id": current_user["id"]},
+        {"_id": 0, "vehicle_info": 1, "online_vehicle_id": 1},
+    ) or {}
+    cache_vehicle_key = str(
+        driver_service_profile.get("online_vehicle_id")
+        or get_driver_online_vehicle_type(driver_service_profile)
+        or "none"
+    ).strip()
+    cache_key = f"driver_pending_requests:{current_user['id']}:{cache_vehicle_key}"
     cached = await cache_get(cache_key)
     if cached is not None:
         return [
@@ -9387,6 +9633,12 @@ async def get_pending_requests(current_user: dict = Depends(get_current_user)):
         booking
         for booking in pending
         if (not bool(booking.get("women_only_required"))) or driver_gender == "female"
+    ]
+
+    pending = [
+        booking
+        for booking in pending
+        if driver_matches_booking_service(driver_service_profile, booking)
     ]
 
     filter_preferences = load_driver_ride_filter_preferences([current_user["id"]]).get(current_user["id"])
@@ -10072,6 +10324,13 @@ async def create_booking(
         selected_driver_profile = await db.drivers.find_one(selected_driver_query)
         if not selected_driver_profile:
             raise HTTPException(status_code=400, detail="Selected driver is unavailable right now")
+        selected_service = {
+            "vehicle_type_id": booking.vehicle_type_id,
+            "vehicle_subtype_id": booking.vehicle_subtype_id,
+            "ride_product": booking.ride_type or "normal",
+        }
+        if not driver_matches_booking_service(selected_driver_profile, selected_service):
+            raise HTTPException(status_code=400, detail="Selected driver does not match the requested vehicle or ride type")
         selected_driver_live_location = await get_effective_driver_location(selected_driver_profile)
         if not selected_driver_live_location:
             raise HTTPException(status_code=400, detail="Selected driver has no active live location")
@@ -10101,6 +10360,9 @@ async def create_booking(
             "pickup_location": booking.pickup_location.dict(),
             "drop_location": booking.drop_location.dict(),
             "estimated_fare": round(route_fare, 2),
+            "vehicle_type_id": booking.vehicle_type_id,
+            "vehicle_subtype_id": booking.vehicle_subtype_id,
+            "ride_product": booking.ride_type or "normal",
             "created_at": now,
         }
         ranked_drivers = await intelligent_find_drivers_for_booking(
@@ -10136,6 +10398,9 @@ async def create_booking(
             booking.pickup_location,
             max_search_radius_km=scheduled_radius_km,
             excluded_driver_ids=list(excluded_driver_ids),
+            vehicle_type_id=booking.vehicle_type_id,
+            vehicle_subtype_id=booking.vehicle_subtype_id,
+            ride_type=booking.ride_type or "normal",
         )
         candidate_driver_ids = [item["user_id"] for item in scheduled_candidates]
 
@@ -10146,16 +10411,9 @@ async def create_booking(
     if (not selected_driver_id) and (not is_scheduled):
         estimated_fare = round(estimated_fare * surge_multiplier, 2)
     
-    # Apply vehicle type multiplier if provided
-    vehicle_type_multiplier = 1.0
-    if booking.vehicle_type_id:
-        try:
-            vehicle_type = await db.vehicle_types.find_one({'vehicle_type_id': booking.vehicle_type_id})
-            if vehicle_type:
-                vehicle_type_multiplier = float(vehicle_type.get('base_multiplier', 1.0))
-                estimated_fare = round(estimated_fare * vehicle_type_multiplier, 2)
-        except Exception as e:
-            logger.warning(f"Failed to fetch vehicle type {booking.vehicle_type_id}: {str(e)}")
+    vehicle_type_multiplier = get_vehicle_type_fare_multiplier(booking.vehicle_type_id, booking.vehicle_subtype_id)
+    ride_type_multiplier = get_ride_type_fare_multiplier(booking.ride_type)
+    estimated_fare = round(estimated_fare * vehicle_type_multiplier * ride_type_multiplier, 2)
 
     booking_dict = {
         "id": booking_id,
@@ -10178,6 +10436,9 @@ async def create_booking(
         "surge_multiplier": surge_multiplier,
         "vehicle_type_multiplier": vehicle_type_multiplier,
         "vehicle_type_id": booking.vehicle_type_id,
+        "vehicle_subtype_id": booking.vehicle_subtype_id,
+        "ride_type": booking.ride_type or "normal",
+        "ride_type_multiplier": ride_type_multiplier,
         "dispatch_algorithm": dispatch_algorithm,
         "dispatch_status": dispatch_status,
         "dispatch_attempt_count": 0,
@@ -13220,10 +13481,13 @@ async def estimate_fare(request: FareEstimateRequest):
     route_metrics = await get_route_metrics(request.pickup_location, request.drop_location)
     distance = float(route_metrics["distance_km"])
     time_multiplier = get_time_multiplier()
+    vehicle_multiplier = get_vehicle_type_fare_multiplier(request.vehicle_type_id, request.vehicle_subtype_id)
+    ride_type_multiplier = get_ride_type_fare_multiplier(request.ride_type)
     
     distance_fare = distance * pricing.per_km_rate
     subtotal = pricing.base_fare + distance_fare
-    total_fare = subtotal * time_multiplier
+    route_fare = subtotal * time_multiplier
+    total_fare = route_fare * vehicle_multiplier * ride_type_multiplier
     total_fare = max(total_fare, pricing.minimum_fare)
     
     return FareEstimateResponse(
@@ -13238,6 +13502,12 @@ async def estimate_fare(request: FareEstimateRequest):
             "per_km_rate": pricing.per_km_rate,
             "distance_fare": round(distance_fare, 2),
             "surge_multiplier": time_multiplier,
+            "vehicle_type_id": request.vehicle_type_id,
+            "vehicle_subtype_id": request.vehicle_subtype_id,
+            "vehicle_multiplier": vehicle_multiplier,
+            "ride_type": request.ride_type or "normal",
+            "ride_type_multiplier": ride_type_multiplier,
+            "route_fare_before_multipliers": round(route_fare, 2),
             "minimum_fare": pricing.minimum_fare,
             "driver_base_search_radius_km": radius_cfg["base_radius_km"],
             "driver_long_distance_search_radius_km": radius_cfg["long_radius_km"],
@@ -15773,6 +16043,9 @@ async def ride_dispatch_worker():
                 booking.get("pickup_location") or {},
                 limit=5,
                 max_distance_km=8,
+                vehicle_type_id=booking.get("vehicle_type_id"),
+                vehicle_subtype_id=booking.get("vehicle_subtype_id"),
+                ride_type=booking.get("ride_product") or booking.get("ride_type"),
             )
             candidate_driver_ids = [str(item.get("user_id") or "").strip() for item in drivers if item.get("user_id")]
             if bool(booking.get("women_only_required")) and candidate_driver_ids:
