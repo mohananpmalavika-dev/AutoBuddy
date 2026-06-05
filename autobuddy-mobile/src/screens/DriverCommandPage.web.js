@@ -36,6 +36,7 @@ import RideHistoryPanel from '../components/RideHistoryPanel';
 import ScheduledRidesPanel from '../components/ScheduledRidesPanel';
 import SubscriptionPanel from '../components/SubscriptionPanel';
 import SupportTicketPanel from '../components/SupportTicketPanel';
+import { TaxReportWidget } from '../components/TaxReportWidget';
 import VehicleManagementPanel from '../components/VehicleManagementPanel';
 import WebGoogleLiveMap from '../components/WebGoogleLiveMap';
 import { useDriverRideQueueSocket } from '../hooks/useDriverRideQueueSocket';
@@ -1446,6 +1447,15 @@ export default function DriverCommandPage({
             token={token}
             driverId={user?.id}
             onReferralShare={(code) => setMessage(`Referral code ${code} shared successfully.`)}
+          />
+        );
+      case 'taxreports':
+        return (
+          <TaxReportWidget
+            isVisible
+            onClose={() => setActiveTab('earnings')}
+            token={token}
+            driverId={user?.id}
           />
         );
       case 'maintenance':
