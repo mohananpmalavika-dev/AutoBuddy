@@ -474,6 +474,7 @@ root_socket_app = socketio.ASGIApp(sio, socketio_path=None)
 driver_health_monitor_task: Optional[asyncio.Task] = None
 ride_dispatch_worker_task: Optional[asyncio.Task] = None
 analytics_warehouse_worker_task: Optional[asyncio.Task] = None
+startup_bootstrap_task: Optional[asyncio.Task] = None
 
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
@@ -972,9 +973,87 @@ async def seed_admin():
         import traceback
         traceback.print_exc()
 
+async def run_post_startup_bootstrap() -> None:
+    """Run slow, non-port-critical startup work after Uvicorn has bound the port."""
+    if db is None:
+        logger.warning("Skipping post-startup bootstrap because primary database is unavailable.")
+        return
+
+    logger.info("Post-startup bootstrap started")
+    try:
+        await seed_admin()
+        try:
+            await init_default_vehicle_types(db)
+        except Exception:
+            logger.exception("Vehicle types initialization failed during post-startup bootstrap")
+        try:
+            await init_default_vehicle_types_extended(db)
+        except Exception:
+            logger.exception("Extended vehicle types initialization failed during post-startup bootstrap")
+        try:
+            await init_default_ride_types(db)
+        except Exception:
+            logger.exception("Ride types initialization failed during post-startup bootstrap")
+        try:
+            await init_canonical_vehicles(db)
+        except Exception:
+            logger.exception("Canonical vehicles initialization failed during post-startup bootstrap")
+        try:
+            await init_default_rate_limit_configs(db)
+        except Exception:
+            logger.exception("Rate limit configuration initialization failed during post-startup bootstrap")
+        try:
+            await ensure_rate_limit_defaults(db)
+        except Exception:
+            logger.exception("Rate limit defaults initialization failed during post-startup bootstrap")
+        try:
+            from app.db.migration_fleet_advanced import create_fleet_advanced_indexes
+            await create_fleet_advanced_indexes(db)
+        except Exception:
+            logger.exception("Fleet Advanced features initialization failed during post-startup bootstrap")
+        try:
+            from app.db.migration_operations_center import create_operations_center_indexes
+            await create_operations_center_indexes(db)
+        except Exception:
+            logger.exception("Operations Center initialization failed during post-startup bootstrap")
+        try:
+            from app.db.migration_corporate_portal import create_corporate_portal_indexes
+            await create_corporate_portal_indexes(db)
+        except Exception:
+            logger.exception("Corporate Portal initialization failed during post-startup bootstrap")
+        try:
+            from app.db.migration_airport import create_airport_indexes
+            await create_airport_indexes(db)
+        except Exception:
+            logger.exception("Airport Ride System initialization failed during post-startup bootstrap")
+        try:
+            from app.db.migration_heatmaps import create_heatmap_indexes
+            await create_heatmap_indexes(db)
+        except Exception:
+            logger.exception("Driver Heatmaps initialization failed during post-startup bootstrap")
+        try:
+            from app.db.migration_fleet_profitability import create_fleet_profitability_indexes
+            await create_fleet_profitability_indexes(db)
+        except Exception:
+            logger.exception("Fleet Profitability initialization failed during post-startup bootstrap")
+        try:
+            referral_backfill = await backfill_referrals_for_existing_users(db)
+            if referral_backfill.get("ran"):
+                logger.info("Referral code backfill completed for %s users.", referral_backfill.get("processed", 0))
+        except Exception:
+            logger.exception("Referral code backfill failed during post-startup bootstrap")
+    except asyncio.CancelledError:
+        logger.warning("Post-startup bootstrap cancelled")
+        raise
+    except Exception:
+        logger.exception("Post-startup bootstrap failed")
+    else:
+        logger.info("Post-startup bootstrap completed")
+
+
 @app.on_event("startup")
 async def on_startup():
-    global driver_health_monitor_task, ride_dispatch_worker_task, analytics_warehouse_worker_task, redis_client, db, analytics_db
+    global driver_health_monitor_task, ride_dispatch_worker_task, analytics_warehouse_worker_task, startup_bootstrap_task, redis_client, db, analytics_db
     if not settings.mongo_url:
         error_msg = (
             "MONGO_URL must be configured via environment. "
@@ -1101,85 +1180,16 @@ async def on_startup():
         app.state.db = None
         app.state.analytics_db = None
     
-    await seed_admin()
-    # Initialize default vehicle types
-    try:
-        await init_default_vehicle_types(db)
-    except Exception:
-        logger.exception("Vehicle types initialization failed during startup")
-    # Initialize default extended vehicle types
-    try:
-        await init_default_vehicle_types_extended(db)
-    except Exception:
-        logger.exception("Extended vehicle types initialization failed during startup")
-    # Initialize default ride types
-    try:
-        await init_default_ride_types(db)
-    except Exception:
-        logger.exception("Ride types initialization failed during startup")
-    # Initialize canonical vehicles (single source of truth)
-    try:
-        await init_canonical_vehicles(db)
-    except Exception:
-        logger.exception("Canonical vehicles initialization failed during startup")
-    # Initialize database-driven rate limit configuration
-    try:
-        await init_default_rate_limit_configs(db)
-    except Exception:
-        logger.exception("Rate limit configuration initialization failed during startup")
-    # Keep legacy rate limit defaults for backward compatibility
-    try:
-        await ensure_rate_limit_defaults(db)
-    except Exception:
-        logger.exception("Rate limit defaults initialization failed during startup")
-    # Initialize Fleet Advanced features database indexes
-    try:
-        from app.db.migration_fleet_advanced import create_fleet_advanced_indexes
-        await create_fleet_advanced_indexes(db)
-    except Exception:
-        logger.exception("Fleet Advanced features initialization failed during startup")
-    
-    # Initialize Operations Center database indexes
-    try:
-        from app.db.migration_operations_center import create_operations_center_indexes
-        await create_operations_center_indexes(db)
-    except Exception:
-        logger.exception("Operations Center initialization failed during startup")
-    
-    # Initialize Corporate Portal database indexes
-    try:
-        from app.db.migration_corporate_portal import create_corporate_portal_indexes
-        await create_corporate_portal_indexes(db)
-    except Exception:
-        logger.exception("Corporate Portal initialization failed during startup")
-    
-    # Initialize Airport Ride System database indexes
-    try:
-        from app.db.migration_airport import create_airport_indexes
-        await create_airport_indexes(db)
-    except Exception:
-        logger.exception("Airport Ride System initialization failed during startup")
-    
-    # Initialize Driver Heatmaps database indexes
-    try:
-        from app.db.migration_heatmaps import create_heatmap_indexes
-        await create_heatmap_indexes(db)
-    except Exception:
-        logger.exception("Driver Heatmaps initialization failed during startup")
-    
-    # Initialize Fleet Profitability database indexes
-    try:
-        from app.db.migration_fleet_profitability import create_fleet_profitability_indexes
-        await create_fleet_profitability_indexes(db)
-    except Exception:
-        logger.exception("Fleet Profitability initialization failed during startup")
-    
-    try:
-        referral_backfill = await backfill_referrals_for_existing_users(db)
-        if referral_backfill.get("ran"):
-            logger.info("Referral code backfill completed for %s users.", referral_backfill.get("processed", 0))
-    except Exception:
-        logger.exception("Referral code backfill failed during startup")
+    if db is not None:
+        startup_bootstrap_task = asyncio.create_task(
+            run_post_startup_bootstrap(),
+            name="post_startup_bootstrap",
+        )
+        app.state.startup_bootstrap_task = startup_bootstrap_task
+        logger.info("Post-startup bootstrap scheduled")
+    else:
+        startup_bootstrap_task = None
+        app.state.startup_bootstrap_task = None
     
     # Initialize dependencies for critical routers
     try:
@@ -16048,7 +16058,10 @@ app.mount("/ws", socket_app)
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
-    global driver_health_monitor_task, ride_dispatch_worker_task, analytics_warehouse_worker_task
+    global driver_health_monitor_task, ride_dispatch_worker_task, analytics_warehouse_worker_task, startup_bootstrap_task
+    if startup_bootstrap_task and not startup_bootstrap_task.done():
+        startup_bootstrap_task.cancel()
+    startup_bootstrap_task = None
     if driver_health_monitor_task and not driver_health_monitor_task.done():
         driver_health_monitor_task.cancel()
     driver_health_monitor_task = None
