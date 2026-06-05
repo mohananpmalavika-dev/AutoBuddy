@@ -1,6 +1,6 @@
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 
 import { SubscriptionGate } from '@/components/app/SubscriptionGate';
@@ -67,6 +67,8 @@ function pickStoredSession(
 
 export default function HomeScreen() {
   const isWeb = Platform.OS === 'web';
+  const { width, height } = useWindowDimensions();
+  const isCompactWeb = isWeb && (width < 640 || height < 720);
   const [booting, setBooting] = useState(true);
   const [session, setSession] = useState<AppSession | null>(null);
   const [checkingSubscriptionGate, setCheckingSubscriptionGate] = useState(false);
@@ -634,13 +636,23 @@ export default function HomeScreen() {
     };
   }, [handleLogout, homeResetKey, session]);
 
+  const renderCenteredShell = (subtitle: string, children: ReactNode) => (
+    <ScrollView
+      style={styles.launchScroll}
+      contentContainerStyle={[styles.loader, isCompactWeb && styles.loaderCompact]}
+      keyboardShouldPersistTaps="handled">
+      <AutoBuddyBrand subtitle={subtitle} compact={isCompactWeb} />
+      {children}
+    </ScrollView>
+  );
+
   if (booting) {
-    return (
-      <View style={styles.loader}>
-        <AutoBuddyBrand subtitle="Loading AutoBuddy..." />
+    return renderCenteredShell(
+      'Loading AutoBuddy...',
+      <>
         <ActivityIndicator size="large" color={COLORS.primary} />
         <Text style={styles.loaderText}>Preparing secure ride experience</Text>
-      </View>
+      </>,
     );
   }
 
@@ -649,18 +661,13 @@ export default function HomeScreen() {
   }
 
   if (checkingSubscriptionGate) {
-    return (
-      <View style={styles.loader}>
-        <AutoBuddyBrand subtitle="Checking subscription..." />
-        <ActivityIndicator size="large" color={COLORS.primary} />
-      </View>
-    );
+    return renderCenteredShell('Checking subscription...', <ActivityIndicator size="large" color={COLORS.primary} />);
   }
 
   if (showPlanGate && ['driver', 'operator', 'passenger'].includes(session.user.role)) {
-    return (
-      <View style={styles.loader}>
-        <AutoBuddyBrand subtitle="Choose Subscription Plan" />
+    return renderCenteredShell(
+      'Choose Subscription Plan',
+      <View style={[styles.shellCardWrap, isCompactWeb && styles.shellCardWrapCompact]}>
         <SubscriptionGate
           role={gateRole || 'passenger'}
           planOptions={planOptions}
@@ -668,14 +675,14 @@ export default function HomeScreen() {
           isSubmitting={planSubmitting}
           onSelectPlan={handlePlanSelection}
         />
-      </View>
+      </View>,
     );
   }
 
   if (session && showWebSetupCard) {
-    return (
-      <View style={styles.loader}>
-        <AutoBuddyBrand subtitle="Set Up Web Alerts" />
+    return renderCenteredShell(
+      'Set Up Web Alerts',
+      <View style={[styles.shellCardWrap, isCompactWeb && styles.shellCardWrapCompact]}>
         <WebSetupCard
           notificationPermission={notificationPermission}
           message={webSetupMessage}
@@ -683,7 +690,7 @@ export default function HomeScreen() {
           onInstallShortcut={installWebShortcut}
           onContinue={dismissWebSetup}
         />
-      </View>
+      </View>,
     );
   }
 
@@ -692,12 +699,12 @@ export default function HomeScreen() {
   return (
     <View style={styles.appShell}>
       {activeRoleScreen}
-      <View pointerEvents="box-none" style={styles.homeButtonWrap}>
+      <View pointerEvents="box-none" style={[styles.homeButtonWrap, isCompactWeb && styles.homeButtonWrapCompact]}>
         <Pressable
           accessibilityLabel="Go to home"
           accessibilityRole="button"
           onPress={handleGoHome}
-          style={({ pressed }) => [styles.homeButton, pressed && styles.homeButtonPressed]}>
+          style={({ pressed }) => [styles.homeButton, isCompactWeb && styles.homeButtonCompact, pressed && styles.homeButtonPressed]}>
           <MaterialIcons name="home" size={20} color="#FFFFFF" />
           <Text style={styles.homeButtonText}>Home</Text>
         </Pressable>
@@ -711,19 +718,40 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.bg,
   },
-  loader: {
+  launchScroll: {
     flex: 1,
+    backgroundColor: COLORS.bg,
+  },
+  loader: {
+    flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: COLORS.bg,
     paddingHorizontal: 20,
+    paddingVertical: 24,
+  },
+  loaderCompact: {
+    justifyContent: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 12,
   },
   loaderText: { marginTop: 12, color: COLORS.muted, fontWeight: '700' },
+  shellCardWrap: {
+    width: '100%',
+    maxWidth: 520,
+  },
+  shellCardWrapCompact: {
+    maxWidth: '100%',
+  },
   homeButtonWrap: {
     position: 'absolute',
     left: 16,
     bottom: 16,
     zIndex: 100,
+  },
+  homeButtonWrapCompact: {
+    left: 10,
+    bottom: 10,
   },
   homeButton: {
     minHeight: 46,
@@ -737,6 +765,11 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.35)',
+  },
+  homeButtonCompact: {
+    minHeight: 42,
+    minWidth: 42,
+    paddingHorizontal: 12,
   },
   homeButtonPressed: {
     opacity: 0.82,

@@ -9,6 +9,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import * as AuthSession from 'expo-auth-session';
@@ -127,6 +128,7 @@ function isRegistrationPendingVerification(error) {
 }
 
 export default function AuthScreen({ onAuthenticated }) {
+  const { width, height } = useWindowDimensions();
   const [authMethod, setAuthMethod] = useState('password');
   const [mode, setMode] = useState('login');
   const [loading, setLoading] = useState(false);
@@ -214,6 +216,8 @@ export default function AuthScreen({ onAuthenticated }) {
   const [googleRequest, , promptGoogleAsync] = Google.useIdTokenAuthRequest(googleConfig);
 
   const isLogin = mode === 'login';
+  const isCompactWeb = Platform.OS === 'web' && width < 520;
+  const isShortWeb = Platform.OS === 'web' && height < 720;
   const authMethodsForMode = isLogin ? AUTH_METHODS : REGISTER_AUTH_METHODS;
   const selectedRegistrationFee = useMemo(() => {
     if (!role) {
@@ -638,7 +642,7 @@ export default function AuthScreen({ onAuthenticated }) {
         ) : (
           <>
             <Text style={styles.inputLabel}>Payment Method</Text>
-            <View style={styles.paymentMethodRow}>
+            <View style={[styles.paymentMethodRow, isCompactWeb && styles.paymentMethodRowCompact]}>
               {registrationPaymentConfig.methods.map((method) => (
                 <TouchableOpacity
                   key={method.key}
@@ -667,7 +671,7 @@ export default function AuthScreen({ onAuthenticated }) {
                 {!!registrationPaymentConfig.qrCodeUrl && (
                   <Image
                     source={{ uri: registrationPaymentConfig.qrCodeUrl }}
-                    style={styles.registrationQrImage}
+                    style={[styles.registrationQrImage, isCompactWeb && styles.registrationQrImageCompact]}
                     resizeMode="contain"
                   />
                 )}
@@ -715,21 +719,31 @@ export default function AuthScreen({ onAuthenticated }) {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <PremiumCard style={styles.card}>
+      <ScrollView
+        contentContainerStyle={[styles.container, isCompactWeb && styles.containerCompact]}
+        keyboardShouldPersistTaps="handled">
+        <PremiumCard style={[styles.card, isCompactWeb && styles.cardCompact]}>
           <WebCommandBar showLanguageSelector />
           <View style={styles.brandHeader}>
             <Image
               source={LAUNCH_BANNER_SOURCE}
-              style={[styles.launchBanner, Platform.OS === 'web' && styles.launchBannerWeb]}
+              style={[
+                styles.launchBanner,
+                Platform.OS === 'web' && styles.launchBannerWeb,
+                (isCompactWeb || isShortWeb) && styles.launchBannerCompact,
+              ]}
               resizeMode="contain"
             />
             <View style={styles.brandCopy}>
-              <Text style={styles.title}>{isLogin ? 'Welcome' : 'Create Account'}</Text>
-              <Text style={styles.tagline}>Book your auto quickly, safely and easily</Text>
+              <Text style={[styles.title, isCompactWeb && styles.titleCompact]}>{isLogin ? 'Welcome' : 'Create Account'}</Text>
+              <Text style={[styles.tagline, isCompactWeb && styles.taglineCompact]}>
+                Book your auto quickly, safely and easily
+              </Text>
             </View>
           </View>
-          <Text style={styles.subtitle}>Choose login or register, then select a method</Text>
+          <Text style={[styles.subtitle, isCompactWeb && styles.subtitleCompact]}>
+            Choose login or register, then select a method
+          </Text>
 
           <View style={styles.modeRow}>
             <TouchableOpacity
@@ -803,7 +817,7 @@ export default function AuthScreen({ onAuthenticated }) {
                   <VoiceTextInput style={styles.input} value={name} onChangeText={setName} placeholder="Enter full name" placeholderTextColor={COLORS.textMuted} />
                   <Text style={styles.inputLabel}>Phone Number</Text>
                   <VoiceTextInput style={styles.input} value={phone} onChangeText={setPhone} placeholder="Enter phone number" keyboardType="phone-pad" placeholderTextColor={COLORS.textMuted} />
-                  <View style={styles.roleRow}>
+                  <View style={[styles.roleRow, isCompactWeb && styles.roleRowCompact]}>
                     {ROLE_OPTIONS.map((candidate) => (
                       <TouchableOpacity
                         key={candidate}
@@ -821,7 +835,7 @@ export default function AuthScreen({ onAuthenticated }) {
                     ))}
                   </View>
                   <Text style={styles.inputLabel}>Gender</Text>
-                  <View style={styles.roleRow}>
+                  <View style={[styles.roleRow, isCompactWeb && styles.roleRowCompact]}>
                     {GENDER_OPTIONS.map((candidate) => (
                       <TouchableOpacity
                         key={candidate}
@@ -916,7 +930,7 @@ export default function AuthScreen({ onAuthenticated }) {
                   <VoiceTextInput style={styles.input} value={name} onChangeText={setName} placeholder="Enter full name" placeholderTextColor={COLORS.textMuted} />
                   <Text style={styles.inputLabel}>Phone Number</Text>
                   <VoiceTextInput style={styles.input} value={phone} onChangeText={setPhone} placeholder="Enter phone number" keyboardType="phone-pad" placeholderTextColor={COLORS.textMuted} />
-                  <View style={styles.roleRow}>
+                  <View style={[styles.roleRow, isCompactWeb && styles.roleRowCompact]}>
                     {ROLE_OPTIONS.map((candidate) => (
                       <TouchableOpacity
                         key={candidate}
@@ -934,7 +948,7 @@ export default function AuthScreen({ onAuthenticated }) {
                     ))}
                   </View>
                   <Text style={styles.inputLabel}>Gender</Text>
-                  <View style={styles.roleRow}>
+                  <View style={[styles.roleRow, isCompactWeb && styles.roleRowCompact]}>
                     {GENDER_OPTIONS.map((candidate) => (
                       <TouchableOpacity
                         key={candidate}
@@ -994,6 +1008,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 20,
   },
+  containerCompact: {
+    justifyContent: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+  },
   card: {
     width: '100%',
     maxWidth: 440,
@@ -1008,6 +1027,14 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 10 },
     elevation: 8,
   },
+  cardCompact: {
+    maxWidth: '100%',
+    padding: 12,
+    borderRadius: 12,
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+  },
   brandHeader: {
     flexDirection: 'column',
     alignItems: 'center',
@@ -1019,6 +1046,10 @@ const styles = StyleSheet.create({
     height: 260,
     borderRadius: 18,
     backgroundColor: '#FFFFFF',
+  },
+  launchBannerCompact: {
+    height: 126,
+    borderRadius: 10,
   },
   launchBannerWeb: {
     objectPosition: 'center top',
@@ -1032,12 +1063,20 @@ const styles = StyleSheet.create({
     lineHeight: 34,
     fontWeight: '900',
   },
+  titleCompact: {
+    fontSize: 24,
+    lineHeight: 28,
+  },
   tagline: {
     marginTop: 4,
     color: '#6B7B70',
     fontSize: 15,
     lineHeight: 19,
     textAlign: 'center',
+  },
+  taglineCompact: {
+    fontSize: 13,
+    lineHeight: 17,
   },
   subtitle: {
     color: '#617368',
@@ -1046,6 +1085,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     textAlign: 'center',
+  },
+  subtitleCompact: {
+    marginBottom: 10,
+    fontSize: 12,
+    lineHeight: 16,
   },
   methodRow: {
     flexDirection: 'row',
@@ -1123,6 +1167,9 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 12,
   },
+  roleRowCompact: {
+    flexWrap: 'wrap',
+  },
   roleChip: {
     flex: 1,
     alignItems: 'center',
@@ -1162,6 +1209,9 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 10,
   },
+  paymentMethodRowCompact: {
+    flexWrap: 'wrap',
+  },
   paymentMethodChip: {
     flex: 1,
     borderWidth: 1,
@@ -1188,6 +1238,9 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginBottom: 8,
     backgroundColor: '#FFFFFF',
+  },
+  registrationQrImageCompact: {
+    height: 136,
   },
   feeConfirmedBtn: {
     backgroundColor: '#E3F2E8',
