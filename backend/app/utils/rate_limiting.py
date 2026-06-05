@@ -26,7 +26,7 @@ DEFAULT_RATE_LIMIT_CONFIGS: Dict[str, Dict[str, Any]] = {
         "description": "Strict limit for sensitive endpoints",
     },
     "moderate": {
-        "max_requests": 300,
+        "max_requests": 600,
         "window_seconds": 60,
         "description": "Moderate limit for common endpoints",
     },
@@ -39,6 +39,11 @@ DEFAULT_RATE_LIMIT_CONFIGS: Dict[str, Dict[str, Any]] = {
         "max_requests": 1200,
         "window_seconds": 60,
         "description": "High-frequency passenger map and trip preview reads",
+    },
+    "driver_realtime": {
+        "max_requests": 1200,
+        "window_seconds": 60,
+        "description": "High-frequency driver dashboard, queue, and location sync",
     },
     "authenticated": {
         "max_requests": 3000,
@@ -53,7 +58,7 @@ DEFAULT_RATE_LIMIT_CONFIGS: Dict[str, Dict[str, Any]] = {
 }
 
 VALID_RATE_LIMIT_TYPES = tuple(DEFAULT_RATE_LIMIT_CONFIGS.keys())
-ENDPOINT_RATE_LIMIT_TYPES = ("strict", "moderate", "normal", "passenger_realtime")
+ENDPOINT_RATE_LIMIT_TYPES = ("strict", "moderate", "normal", "passenger_realtime", "driver_realtime")
 
 LOGIN_RATE_LIMIT_EXEMPT_PATHS = (
     "/api/auth/login",
@@ -87,6 +92,23 @@ PASSENGER_REALTIME_ENDPOINT_PATHS = (
     "/api/spin-win/config",
 )
 
+DRIVER_REALTIME_ENDPOINT_PATHS = (
+    "/api/drivers/profile",
+    "/api/drivers/availability",
+    "/api/drivers/readiness",
+    "/api/drivers/pending-requests",
+    "/api/drivers/active-ride",
+    "/api/drivers/upcoming-rides",
+    "/api/drivers/location",
+    "/api/drivers/menu-badges",
+    "/api/drivers/blocked-passengers",
+    "/api/drivers/settings",
+    "/api/drivers/vehicles",
+    "/api/drivers/earnings",
+    "/api/drivers/fare-calculator",
+    "/api/pricing/rules",
+)
+
 NORMAL_ENDPOINT_PATHS = (
     "/api/vehicle-types",
     "/api/vehicles/types",
@@ -108,6 +130,14 @@ DEFAULT_ENDPOINT_RATE_LIMITS = tuple(
             "description": "Default live passenger map and trip preview limit",
         }
         for endpoint in PASSENGER_REALTIME_ENDPOINT_PATHS
+    ]
+    + [
+        {
+            "endpoint": endpoint,
+            "limit_type": "driver_realtime",
+            "description": "Default live driver dashboard and ride queue limit",
+        }
+        for endpoint in DRIVER_REALTIME_ENDPOINT_PATHS
     ]
     + [
         {
@@ -268,6 +298,10 @@ class RateLimitConfig:
     # High-frequency passenger map reads
     PASSENGER_REALTIME_LIMIT = DEFAULT_RATE_LIMIT_CONFIGS["passenger_realtime"]["max_requests"]
     PASSENGER_REALTIME_ENDPOINTS = set(PASSENGER_REALTIME_ENDPOINT_PATHS)
+
+    # High-frequency driver dashboard reads and location sync
+    DRIVER_REALTIME_LIMIT = DEFAULT_RATE_LIMIT_CONFIGS["driver_realtime"]["max_requests"]
+    DRIVER_REALTIME_ENDPOINTS = set(DRIVER_REALTIME_ENDPOINT_PATHS)
     
     # Per-user limits
     AUTHENTICATED_LIMIT = DEFAULT_RATE_LIMIT_CONFIGS["authenticated"]["max_requests"]
@@ -341,6 +375,8 @@ def get_default_limit_type_for_endpoint(endpoint: str) -> str:
         return "strict"
     if normalized in RateLimitConfig.PASSENGER_REALTIME_ENDPOINTS:
         return "passenger_realtime"
+    if normalized in RateLimitConfig.DRIVER_REALTIME_ENDPOINTS:
+        return "driver_realtime"
     if normalized in RateLimitConfig.MODERATE_ENDPOINTS:
         return "moderate"
     return "normal"

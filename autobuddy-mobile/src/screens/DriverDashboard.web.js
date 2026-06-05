@@ -131,6 +131,7 @@ const AVAILABILITY_RETRY_WINDOW_MS = 300000;
 const AVAILABILITY_CONFIRMED_OVERRIDE_MS = 90000;
 const DRIVER_DASHBOARD_RATE_LIMIT_COOLDOWN_MS = 60000;
 const DRIVER_DASHBOARD_POLL_INTERVAL_MS = 60000;
+const DRIVER_ACTION_REFRESH_PAUSE_MS = 8000;
 const AVAILABILITY_TRANSIENT_MESSAGE_PARTS = [
   'checking ready to drive',
   'going online',
@@ -1228,8 +1229,8 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     requestDriverData,
   ]);
 
-  const refreshRideStageValidation = useCallback(async () => {
-    if (Date.now() < driverPollCooldownUntilRef.current) {
+  const refreshRideStageValidation = useCallback(async ({ force = false } = {}) => {
+    if (!force && Date.now() < driverPollCooldownUntilRef.current) {
       return;
     }
     const [ride, requests, scheduledPayload] = await Promise.all([
@@ -1764,6 +1765,13 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   ]);
 
   const acceptRequest = async (bookingId) => {
+    if (!bookingId) {
+      return;
+    }
+    driverPollCooldownUntilRef.current = Math.max(
+      driverPollCooldownUntilRef.current,
+      Date.now() + DRIVER_ACTION_REFRESH_PAUSE_MS,
+    );
     const accepted = await runAction(() =>
       apiRequest(`/bookings/${bookingId}/accept`, {
         method: 'PUT',
@@ -1773,11 +1781,18 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     if (accepted) {
       setPendingRequests((prev) => (Array.isArray(prev) ? prev.filter((item) => item?.id !== bookingId) : prev));
       await pushDriverLocation({ fallbackLocation: driverLocation, silent: true });
-      await refreshRideStageValidation();
+      await refreshRideStageValidation({ force: true });
     }
   };
 
   const rejectRequest = async (bookingId) => {
+    if (!bookingId) {
+      return;
+    }
+    driverPollCooldownUntilRef.current = Math.max(
+      driverPollCooldownUntilRef.current,
+      Date.now() + DRIVER_ACTION_REFRESH_PAUSE_MS,
+    );
     const rejected = await runAction(
       () =>
         apiRequest(`/bookings/${bookingId}/reject`, {

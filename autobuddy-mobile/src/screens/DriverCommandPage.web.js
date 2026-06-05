@@ -86,7 +86,9 @@ const EMPTY_UPCOMING = {
   scheduled_requests: [],
   assigned_rides: [],
 };
-const REFRESH_INTERVAL_MS = 12000;
+const REFRESH_INTERVAL_MS = 60000;
+const DRIVER_COMMAND_RATE_LIMIT_COOLDOWN_MS = 60000;
+const DRIVER_ACTION_REFRESH_PAUSE_MS = 8000;
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
@@ -260,6 +262,18 @@ function getAvailabilityErrorMessage(err) {
     return `Server error (${status}). Please retry.`;
   }
   return err?.message || 'Request failed. Please retry.';
+}
+
+function getDriverCommandCooldownMs(err) {
+  const status = Number(err?.status || 0);
+  const retryAfterMs = Number(err?.retryAfterMs || 0);
+  if (status === 429 || err?.rateLimitCooldown) {
+    return Math.max(5000, Math.min(120000, retryAfterMs || DRIVER_COMMAND_RATE_LIMIT_COOLDOWN_MS));
+  }
+  if (status === 503 || err?.backendOutage) {
+    return Math.max(15000, Math.min(60000, retryAfterMs || 30000));
+  }
+  return 0;
 }
 
 function formatMoney(value) {
@@ -519,6 +533,10 @@ export default function DriverCommandPage({
   const refreshInFlightRef = useRef(false);
   const locationWatchIdRef = useRef(null);
   const activeRideIdRef = useRef(null);
+  const driverPollCooldownUntilRef = useRef(0);
+  const locationSyncCooldownUntilRef = useRef(0);
+  const lastRateLimitNoticeAtRef = useRef(0);
+  const lastLocationPauseNoticeAtRef = useRef(0);
   const [activeTab, setActiveTab] = useState('requests');
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -590,7 +608,19 @@ export default function DriverCommandPage({
     async (path, fallbackValue, options = {}) => {
       try {
         return await apiRequest(path, { token, ...options });
-      } catch {
+      } catch (err) {
+        const cooldownMs = getDriverCommandCooldownMs(err);
+        if (cooldownMs > 0) {
+          const now = Date.now();
+          driverPollCooldownUntilRef.current = Math.max(
+            driverPollCooldownUntilRef.current,
+            now + cooldownMs,
+          );
+          if (Number(err?.status || 0) === 429 && now - lastRateLimitNoticeAtRef.current > 15000) {
+            setMessage(`Server is busy. Slowing driver sync for ${Math.ceil(cooldownMs / 1000)} seconds.`);
+            lastRateLimitNoticeAtRef.current = now;
+          }
+        }
         return fallbackValue;
       }
     },
@@ -599,6 +629,11 @@ export default function DriverCommandPage({
 
   const pushDriverLocation = useCallback(
     async (location) => {
+      const now = Date.now();
+      if (now < locationSyncCooldownUntilRef.current) {
+        return null;
+      }
+
       const normalized = normalizeLocation(location);
       const body = toDriverLocationApiBody({
         ...(normalized || {}),
@@ -609,22 +644,36 @@ export default function DriverCommandPage({
         return null;
       }
 
-      const payload = await apiRequest('/drivers/location', {
-        method: 'POST',
-        token,
-        timeoutMs: 8000,
-        body: {
-          ...body,
-          booking_id: activeRideIdRef.current || undefined,
-        },
-      });
-      setTrackingOnline(true);
-      setDriverLocation({
-        ...normalized,
-        timestamp: new Date().toISOString(),
-        is_live_location: true,
-      });
-      return payload;
+      try {
+        const payload = await apiRequest('/drivers/location', {
+          method: 'POST',
+          token,
+          timeoutMs: 8000,
+          body: {
+            ...body,
+            booking_id: activeRideIdRef.current || undefined,
+          },
+        });
+        setTrackingOnline(true);
+        setDriverLocation({
+          ...normalized,
+          timestamp: new Date().toISOString(),
+          is_live_location: true,
+        });
+        return payload;
+      } catch (err) {
+        const cooldownMs = getDriverCommandCooldownMs(err);
+        if (cooldownMs > 0) {
+          const pausedUntil = Date.now() + cooldownMs;
+          locationSyncCooldownUntilRef.current = Math.max(locationSyncCooldownUntilRef.current, pausedUntil);
+          driverPollCooldownUntilRef.current = Math.max(driverPollCooldownUntilRef.current, pausedUntil);
+          if (Number(err?.status || 0) === 429 && Date.now() - lastLocationPauseNoticeAtRef.current > 15000) {
+            setMessage(`Server is busy. Live location sync will retry in ${Math.ceil(cooldownMs / 1000)} seconds.`);
+            lastLocationPauseNoticeAtRef.current = Date.now();
+          }
+        }
+        return null;
+      }
     },
     [token],
   );
@@ -705,7 +754,10 @@ export default function DriverCommandPage({
   }, [driverLocation, handlePosition]);
 
   const refreshDriverData = useCallback(
-    async ({ silent = false } = {}) => {
+    async ({ silent = false, force = false } = {}) => {
+      if (!force && silent && Date.now() < driverPollCooldownUntilRef.current) {
+        return;
+      }
       if (refreshInFlightRef.current) {
         return;
       }
@@ -895,6 +947,10 @@ export default function DriverCommandPage({
       if (!bookingId) {
         return;
       }
+      driverPollCooldownUntilRef.current = Math.max(
+        driverPollCooldownUntilRef.current,
+        Date.now() + DRIVER_ACTION_REFRESH_PAUSE_MS,
+      );
       const accepted = await runAction(
         () => apiRequest(`/bookings/${bookingId}/accept`, { method: 'PUT', token }),
         'Ride accepted.',
@@ -905,7 +961,7 @@ export default function DriverCommandPage({
       setPendingRequests((current) => current.filter((item) => item?.id !== bookingId));
       setIsAccepting(true);
       startLocationTracking();
-      await refreshDriverData({ silent: true });
+      await refreshDriverData({ silent: true, force: true });
     },
     [refreshDriverData, runAction, startLocationTracking, token],
   );
@@ -915,13 +971,17 @@ export default function DriverCommandPage({
       if (!bookingId) {
         return;
       }
+      driverPollCooldownUntilRef.current = Math.max(
+        driverPollCooldownUntilRef.current,
+        Date.now() + DRIVER_ACTION_REFRESH_PAUSE_MS,
+      );
       const rejected = await runAction(
         () => apiRequest(`/bookings/${bookingId}/reject`, { method: 'PUT', token }),
         'Ride request declined.',
       );
       if (rejected) {
         setPendingRequests((current) => current.filter((item) => item?.id !== bookingId));
-        await refreshDriverData({ silent: true });
+        await refreshDriverData({ silent: true, force: true });
       }
     },
     [refreshDriverData, runAction, token],

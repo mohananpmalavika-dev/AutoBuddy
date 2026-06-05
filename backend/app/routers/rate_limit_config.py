@@ -27,7 +27,7 @@ router = APIRouter(prefix="/api/admin/rate-limit-config", tags=["Rate Limit Conf
 class RateLimitProfileCreate(BaseModel):
     """Create/Update rate limit profile"""
     model_config = ConfigDict(extra="forbid")
-    limit_type: str = Field(..., min_length=1, max_length=50)  # api_global, strict, moderate, normal, authenticated, anonymous
+    limit_type: str = Field(..., min_length=1, max_length=50)
     max_requests: int = Field(..., ge=1, le=100000)
     window_seconds: int = Field(..., ge=10, le=86400)
     description: Optional[str] = Field(default=None, max_length=500)
@@ -84,9 +84,9 @@ DEFAULT_RATE_LIMIT_PROFILES = {
         "description": "Strict limit for sensitive endpoints (auth, payments, admin)",
     },
     "moderate": {
-        "max_requests": 300,
+        "max_requests": 600,
         "window_seconds": 60,
-        "description": "Moderate limit for common endpoints (bookings, support)",
+        "description": "Moderate limit for booking actions and support endpoints",
     },
     "normal": {
         "max_requests": 500,
@@ -97,6 +97,11 @@ DEFAULT_RATE_LIMIT_PROFILES = {
         "max_requests": 1200,
         "window_seconds": 60,
         "description": "High-frequency passenger map and trip preview reads",
+    },
+    "driver_realtime": {
+        "max_requests": 1200,
+        "window_seconds": 60,
+        "description": "High-frequency driver dashboard, queue, and location sync",
     },
     "authenticated": {
         "max_requests": 3000,
@@ -188,6 +193,76 @@ DEFAULT_ENDPOINT_RATE_LIMITS = [
         "endpoint_path": "/api/spin-win/config",
         "limit_type": "passenger_realtime",
         "description": "Passenger spin status polling",
+    },
+    {
+        "endpoint_path": "/api/drivers/profile",
+        "limit_type": "driver_realtime",
+        "description": "Driver profile sync",
+    },
+    {
+        "endpoint_path": "/api/drivers/availability",
+        "limit_type": "driver_realtime",
+        "description": "Driver availability checks and toggles",
+    },
+    {
+        "endpoint_path": "/api/drivers/readiness",
+        "limit_type": "driver_realtime",
+        "description": "Driver readiness checks",
+    },
+    {
+        "endpoint_path": "/api/drivers/pending-requests",
+        "limit_type": "driver_realtime",
+        "description": "Driver pending request polling",
+    },
+    {
+        "endpoint_path": "/api/drivers/active-ride",
+        "limit_type": "driver_realtime",
+        "description": "Driver active ride polling",
+    },
+    {
+        "endpoint_path": "/api/drivers/upcoming-rides",
+        "limit_type": "driver_realtime",
+        "description": "Driver upcoming ride polling",
+    },
+    {
+        "endpoint_path": "/api/drivers/location",
+        "limit_type": "driver_realtime",
+        "description": "Driver live location sync",
+    },
+    {
+        "endpoint_path": "/api/drivers/menu-badges",
+        "limit_type": "driver_realtime",
+        "description": "Driver menu badge polling",
+    },
+    {
+        "endpoint_path": "/api/drivers/blocked-passengers",
+        "limit_type": "driver_realtime",
+        "description": "Driver blocked passenger sync",
+    },
+    {
+        "endpoint_path": "/api/drivers/settings",
+        "limit_type": "driver_realtime",
+        "description": "Driver settings sync",
+    },
+    {
+        "endpoint_path": "/api/drivers/vehicles",
+        "limit_type": "driver_realtime",
+        "description": "Driver vehicle sync",
+    },
+    {
+        "endpoint_path": "/api/drivers/earnings",
+        "limit_type": "driver_realtime",
+        "description": "Driver earnings polling",
+    },
+    {
+        "endpoint_path": "/api/drivers/fare-calculator",
+        "limit_type": "driver_realtime",
+        "description": "Driver fare calculator sync",
+    },
+    {
+        "endpoint_path": "/api/pricing/rules",
+        "limit_type": "driver_realtime",
+        "description": "Driver pricing rules polling",
     },
     {
         "endpoint_path": "/api/bookings",
@@ -474,6 +549,21 @@ async def init_default_rate_limit_configs(db: AsyncIOMotorDatabase) -> None:
                     "updated_at": now,
                     "created_by": "system_init",
                 })
+            elif (
+                str(existing.get("created_by") or "").strip().lower() == "system_init"
+                and int(existing.get("max_requests") or 0) < int(config["max_requests"])
+            ):
+                await db.rate_limit_profiles.update_one(
+                    {"limit_type": limit_type},
+                    {
+                        "$set": {
+                            "max_requests": int(config["max_requests"]),
+                            "window_seconds": int(config["window_seconds"]),
+                            "description": config["description"],
+                            "updated_at": now,
+                        }
+                    },
+                )
         
         # Initialize endpoint configs if they don't exist
         for endpoint_config in DEFAULT_ENDPOINT_RATE_LIMITS:
