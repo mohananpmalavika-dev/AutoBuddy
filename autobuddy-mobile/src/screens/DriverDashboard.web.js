@@ -922,6 +922,8 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         fallbackUrl = `https://maps.google.com/maps?saddr=${routeOrigin.latitude},${routeOrigin.longitude}&daddr=${routeDestination.latitude},${routeDestination.longitude}&output=embed`;
       } else if (pickup && drop) {
         fallbackUrl = `https://maps.google.com/maps?saddr=${pickup.latitude},${pickup.longitude}&daddr=${drop.latitude},${drop.longitude}&output=embed`;
+      } else if (driverPlace && !pickup && !drop) {
+        fallbackUrl = `https://maps.google.com/maps?ll=${driverPlace.latitude},${driverPlace.longitude}&z=14&output=embed`;
       } else if (place) {
         fallbackUrl = `https://maps.google.com/maps?q=${place.latitude},${place.longitude}&z=14&output=embed`;
       } else {
@@ -931,6 +933,10 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       fallbackUrl = `https://www.google.com/maps/embed/v1/directions?key=${encodeURIComponent(googleMapsWebKey)}&origin=${routeOrigin.latitude},${routeOrigin.longitude}&destination=${routeDestination.latitude},${routeDestination.longitude}&avoid=tolls|highways`;
     } else if (pickup && drop) {
       fallbackUrl = `https://www.google.com/maps/embed/v1/directions?key=${encodeURIComponent(googleMapsWebKey)}&origin=${pickup.latitude},${pickup.longitude}&destination=${drop.latitude},${drop.longitude}&avoid=tolls|highways`;
+    } else if (driverPlace && !pickup && !drop) {
+      fallbackUrl = `https://www.google.com/maps/embed/v1/view?key=${encodeURIComponent(
+        googleMapsWebKey,
+      )}&center=${driverPlace.latitude},${driverPlace.longitude}&zoom=14&maptype=roadmap`;
     } else if (place) {
       fallbackUrl = `https://www.google.com/maps/embed/v1/place?key=${encodeURIComponent(googleMapsWebKey)}&q=${place.latitude},${place.longitude}&zoom=14`;
     } else {

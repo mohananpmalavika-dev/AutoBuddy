@@ -76,14 +76,21 @@ const loadGoogleMapsScript = (apiKey) => {
 const createLatLng = (googleMaps, location) =>
   new googleMaps.LatLng(location.latitude, location.longitude);
 
-const createMarkerIcon = (googleMaps, markerKey) => ({
-  path: googleMaps.SymbolPath.CIRCLE,
-  fillColor: MARKER_COLORS[markerKey] || MARKER_COLORS.dropoff,
-  fillOpacity: 1,
-  scale: markerKey === 'driver' ? 10 : 11,
-  strokeColor: '#FFFFFF',
-  strokeWeight: 3,
-});
+const createMarkerIcon = (googleMaps, markerKey) => {
+  const fillColor = MARKER_COLORS[markerKey] || MARKER_COLORS.dropoff;
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="34" height="44" viewBox="0 0 34 44">
+      <path d="M17 42C14.2 37.9 3 25.8 3 15.9C3 7.7 9.3 2 17 2C24.7 2 31 7.7 31 15.9C31 25.8 19.8 37.9 17 42Z" fill="${fillColor}" stroke="#FFFFFF" stroke-width="3"/>
+      <circle cx="17" cy="16" r="6" fill="rgba(255,255,255,0.24)"/>
+    </svg>
+  `;
+  return {
+    url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+    scaledSize: new googleMaps.Size(34, 44),
+    anchor: new googleMaps.Point(17, 42),
+    labelOrigin: new googleMaps.Point(17, 16),
+  };
+};
 
 const createMarkerLabel = (labelText) => ({
   text: labelText,
@@ -146,6 +153,8 @@ export default function WebGoogleLiveMap({
   const routeOriginPoint = useMemo(() => normalizeCoords(routeOrigin), [routeOrigin]);
   const routeDestinationPoint = useMemo(() => normalizeCoords(routeDestination), [routeDestination]);
   const showEmbedFallback = !!fallbackUrl && (!apiKey || loadFailed);
+  const showFallbackDriverPointer =
+    showEmbedFallback && !!driverPoint && !pickupPoint && !dropoffPoint && !routeDestinationPoint;
 
   useEffect(() => {
     if (!apiKey || typeof window === 'undefined' || !mapContainerRef.current) {
@@ -390,6 +399,12 @@ export default function WebGoogleLiveMap({
             loading="lazy"
           />
         )}
+        {showFallbackDriverPointer && (
+          <View style={styles.fallbackDriverMarker} pointerEvents="none">
+            <View style={styles.fallbackDriverMarkerTail} />
+            <Text style={styles.fallbackDriverMarkerText}>D</Text>
+          </View>
+        )}
         {showStatusOverlay && (
           <View style={styles.statusOverlay} pointerEvents="none">
             <Text style={styles.statusTitle}>{fallbackUrl ? 'Live map fallback' : 'Live map unavailable'}</Text>
@@ -414,6 +429,12 @@ export default function WebGoogleLiveMap({
           allowFullScreen
           loading="lazy"
         />
+      )}
+      {showFallbackDriverPointer && (
+        <View style={styles.fallbackDriverMarker} pointerEvents="none">
+          <View style={styles.fallbackDriverMarkerTail} />
+          <Text style={styles.fallbackDriverMarkerText}>D</Text>
+        </View>
       )}
       <View ref={mapContainerRef} style={[MAP_CONTAINER_STYLE, styles.mapLayer, !mapReady && styles.mapLayerBooting]} />
       {!mapReady && !showEmbedFallback && (
@@ -447,6 +468,41 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     borderWidth: 0,
+  },
+  fallbackDriverMarker: {
+    position: 'absolute',
+    left: '50%',
+    top: '50%',
+    width: 32,
+    height: 32,
+    marginLeft: -16,
+    marginTop: -36,
+    borderRadius: 16,
+    borderWidth: 3,
+    borderColor: '#FFFFFF',
+    backgroundColor: '#0B8F3A',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 8,
+    boxShadow: '0 8px 18px rgba(15, 47, 30, 0.28)',
+  },
+  fallbackDriverMarkerTail: {
+    position: 'absolute',
+    width: 12,
+    height: 12,
+    left: 7,
+    bottom: -7,
+    borderRightWidth: 3,
+    borderBottomWidth: 3,
+    borderColor: '#FFFFFF',
+    backgroundColor: '#0B8F3A',
+    transform: [{ rotate: '45deg' }],
+  },
+  fallbackDriverMarkerText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '900',
+    zIndex: 1,
   },
   mapLayer: {
     position: 'relative',

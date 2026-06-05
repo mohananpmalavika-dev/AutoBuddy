@@ -358,7 +358,7 @@ function buildMapFallbackUrl({ center, origin, destination } = {}) {
   if (!hasMapPoint(point)) {
     return '';
   }
-  return `https://www.google.com/maps?q=${encodeURIComponent(`${point.latitude},${point.longitude}`)}&z=15&output=embed`;
+  return `https://www.google.com/maps?ll=${encodeURIComponent(`${point.latitude},${point.longitude}`)}&z=15&output=embed`;
 }
 
 function getUpcomingCount(payload) {
