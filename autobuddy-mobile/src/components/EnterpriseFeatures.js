@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, TextInput, StyleSheet, ActivityIndicator } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 
@@ -28,11 +28,7 @@ export const AirportBookingPanel = ({ token, onAirportBookingCreated }) => {
   const [loading, setLoading] = useState(false);
   const [showTerminalPicker, setShowTerminalPicker] = useState(false);
 
-  useEffect(() => {
-    fetchAirports();
-  }, []);
-
-  const fetchAirports = async () => {
+  const fetchAirports = useCallback(async () => {
     try {
       const response = await fetch('/api/enterprise/airports/list', {
         headers: { Authorization: `Bearer ${token}` }
@@ -42,7 +38,12 @@ export const AirportBookingPanel = ({ token, onAirportBookingCreated }) => {
     } catch (error) {
       console.error('Error fetching airports:', error);
     }
-  };
+  }, [token]);
+
+  useEffect(() => {
+    const timeout = setTimeout(fetchAirports, 0);
+    return () => clearTimeout(timeout);
+  }, [fetchAirports]);
 
   const handleBookAirportPickup = async () => {
     if (!selectedTerminal || !flightNumber) {
@@ -207,13 +208,9 @@ export const CorporateRidePanel = ({ token, employeeData }) => {
   const [projectCode, setProjectCode] = useState('');
   const [totalSpent, setTotalSpent] = useState('0');
   const [monthlyBudget, setMonthlyBudget] = useState('10000');
-  const [pendingApprovals, setPendingApprovals] = useState([]);
+  const [pendingApprovals] = useState([]);
 
-  useEffect(() => {
-    fetchCorporateData();
-  }, []);
-
-  const fetchCorporateData = async () => {
+  const fetchCorporateData = useCallback(async () => {
     try {
       // Fetch employee's corporate account details
       const response = await fetch('/api/enterprise/corporate/employee/info', {
@@ -226,7 +223,12 @@ export const CorporateRidePanel = ({ token, employeeData }) => {
     } catch (error) {
       console.error('Error fetching corporate data:', error);
     }
-  };
+  }, [token]);
+
+  useEffect(() => {
+    const timeout = setTimeout(fetchCorporateData, 0);
+    return () => clearTimeout(timeout);
+  }, [fetchCorporateData]);
 
   const spentPercent = (parseFloat(totalSpent) / parseFloat(monthlyBudget)) * 100;
   const remainingBudget = parseFloat(monthlyBudget) - parseFloat(totalSpent);
@@ -482,13 +484,7 @@ export const LiveDriverHeatmapPanel = ({ token }) => {
   const [recommendations, setRecommendations] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    fetchHeatmapData();
-    const interval = setInterval(fetchHeatmapData, 30000); // Update every 30 seconds
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchHeatmapData = async () => {
+  const fetchHeatmapData = useCallback(async () => {
     setLoading(true);
     try {
       const [heatmapRes, hotspotsRes, recommendationsRes] = await Promise.all([
@@ -509,7 +505,16 @@ export const LiveDriverHeatmapPanel = ({ token }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
+
+  useEffect(() => {
+    const timeout = setTimeout(fetchHeatmapData, 0);
+    const interval = setInterval(fetchHeatmapData, 30000); // Update every 30 seconds
+    return () => {
+      clearTimeout(timeout);
+      clearInterval(interval);
+    };
+  }, [fetchHeatmapData]);
 
   const getDemandColor = (demandLevel) => {
     switch (demandLevel) {

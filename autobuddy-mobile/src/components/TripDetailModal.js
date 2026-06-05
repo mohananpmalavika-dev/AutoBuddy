@@ -213,12 +213,14 @@ export default function TripDetailModal({
                           <Text style={styles.driverRating}>⭐ {booking.rating}/5 rating</Text>
                         )}
                       </View>
-                  {booking.rating && (
-                    <View style={styles.ratingBadge}>
-                      <Text style={styles.ratingValue}>{booking.rating}</Text>
+                      {booking.rating && (
+                        <View style={styles.ratingBadge}>
+                          <Text style={styles.ratingValue}>{booking.rating}</Text>
+                        </View>
+                      )}
                     </View>
-                  )}
-                </View>
+                  </View>
+                )}
               </View>
             )}
 

@@ -1,13 +1,13 @@
-"""
+/*
 Live Operations Center Frontend Components
 Real-time command center UI for monitoring city operations
 Location: autobuddy-mobile/src/screens/OperationsCenter.js
-"""
+*/
 
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, ScrollView, Text, StyleSheet, FlatList, TouchableOpacity,
-  Alert, ActivityIndicator, Modal, Dimensions, RefreshControl
+  Alert, ActivityIndicator, RefreshControl
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
@@ -58,13 +58,7 @@ const WarRoomDashboard = ({ cityId, adminToken }) => {
   const [warRoom, setWarRoom] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchWarRoom();
-    const interval = setInterval(fetchWarRoom, 30000); // 30s refresh
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchWarRoom = async () => {
+  const fetchWarRoom = useCallback(async () => {
     try {
       const res = await fetch(`/api/v1/operations/center/war-room/${cityId}`, {
         headers: { Authorization: `Bearer ${adminToken}` }
@@ -75,7 +69,16 @@ const WarRoomDashboard = ({ cityId, adminToken }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [adminToken, cityId]);
+
+  useEffect(() => {
+    const timeout = setTimeout(fetchWarRoom, 0);
+    const interval = setInterval(fetchWarRoom, 30000); // 30s refresh
+    return () => {
+      clearTimeout(timeout);
+      clearInterval(interval);
+    };
+  }, [fetchWarRoom]);
 
   if (loading) return <ActivityIndicator size="large" color={COLORS.primary} />;
   if (!warRoom?.data) return <Text>No data</Text>;
@@ -189,13 +192,7 @@ const IncidentsDashboard = ({ cityId, adminToken }) => {
   const [loading, setLoading] = useState(true);
   const [selectedIncident, setSelectedIncident] = useState(null);
 
-  useEffect(() => {
-    fetchIncidents();
-    const interval = setInterval(fetchIncidents, 15000); // 15s refresh
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchIncidents = async () => {
+  const fetchIncidents = useCallback(async () => {
     try {
       const res = await fetch(`/api/v1/operations/incidents/${cityId}`, {
         headers: { Authorization: `Bearer ${adminToken}` }
@@ -209,7 +206,16 @@ const IncidentsDashboard = ({ cityId, adminToken }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [adminToken, cityId]);
+
+  useEffect(() => {
+    const timeout = setTimeout(fetchIncidents, 0);
+    const interval = setInterval(fetchIncidents, 15000); // 15s refresh
+    return () => {
+      clearTimeout(timeout);
+      clearInterval(interval);
+    };
+  }, [fetchIncidents]);
 
   const handleAcknowledge = async (incidentId) => {
     try {
@@ -282,13 +288,7 @@ const DemandHeatmap = ({ cityId, adminToken }) => {
   const [zones, setZones] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchZones();
-    const interval = setInterval(fetchZones, 20000); // 20s refresh
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchZones = async () => {
+  const fetchZones = useCallback(async () => {
     try {
       const res = await fetch(`/api/v1/operations/zones/demand/${cityId}`, {
         headers: { Authorization: `Bearer ${adminToken}` }
@@ -302,7 +302,16 @@ const DemandHeatmap = ({ cityId, adminToken }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [adminToken, cityId]);
+
+  useEffect(() => {
+    const timeout = setTimeout(fetchZones, 0);
+    const interval = setInterval(fetchZones, 20000); // 20s refresh
+    return () => {
+      clearTimeout(timeout);
+      clearInterval(interval);
+    };
+  }, [fetchZones]);
 
   if (loading) return <ActivityIndicator size="large" color={COLORS.primary} />;
 
@@ -378,13 +387,7 @@ const ActiveRidesMonitor = ({ cityId, adminToken }) => {
   const [rides, setRides] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchRides();
-    const interval = setInterval(fetchRides, 10000); // 10s refresh
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchRides = async () => {
+  const fetchRides = useCallback(async () => {
     try {
       const res = await fetch(`/api/v1/operations/rides/active/${cityId}?limit=15`, {
         headers: { Authorization: `Bearer ${adminToken}` }
@@ -398,7 +401,16 @@ const ActiveRidesMonitor = ({ cityId, adminToken }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [adminToken, cityId]);
+
+  useEffect(() => {
+    const timeout = setTimeout(fetchRides, 0);
+    const interval = setInterval(fetchRides, 10000); // 10s refresh
+    return () => {
+      clearTimeout(timeout);
+      clearInterval(interval);
+    };
+  }, [fetchRides]);
 
   if (loading) return <ActivityIndicator size="large" color={COLORS.primary} />;
 
@@ -464,13 +476,7 @@ export const OperationsCenterScreen = ({ route, navigation }) => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [liveMetrics, setLiveMetrics] = useState(null);
 
-  useEffect(() => {
-    fetchLiveMetrics();
-    const interval = setInterval(fetchLiveMetrics, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchLiveMetrics = async () => {
+  const fetchLiveMetrics = useCallback(async () => {
     try {
       const res = await fetch(`/api/v1/operations/center/live-metrics/${cityId}`, {
         headers: { Authorization: `Bearer ${adminToken}` }
@@ -479,7 +485,16 @@ export const OperationsCenterScreen = ({ route, navigation }) => {
     } catch (e) {
       console.error('Error:', e);
     }
-  };
+  }, [adminToken, cityId]);
+
+  useEffect(() => {
+    const timeout = setTimeout(fetchLiveMetrics, 0);
+    const interval = setInterval(fetchLiveMetrics, 30000);
+    return () => {
+      clearTimeout(timeout);
+      clearInterval(interval);
+    };
+  }, [fetchLiveMetrics]);
 
   const renderTabContent = () => {
     switch (activeTab) {

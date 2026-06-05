@@ -178,7 +178,10 @@ export function useNotificationManager(token, userId, notificationSettings = EMP
   const settings = useMemo(() => normalizeSettings(notificationSettings), [notificationSettings]);
   const settingsKey = useMemo(() => settingsSignature(settings), [settings]);
   const settingsRef = useRef(settings);
-  settingsRef.current = settings;
+
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings, settingsKey]);
 
   useEffect(() => {
     if (!token || !userId || initializingRef.current) {

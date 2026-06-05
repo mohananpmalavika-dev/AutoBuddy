@@ -6,10 +6,10 @@
  * - Live Driver Heatmap with Positioning AI
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet, ActivityIndicator, FlatList } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { LineChart, BarChart, PieChart } from 'react-native-chart-kit';
+import { LineChart, PieChart } from 'react-native-chart-kit';
 
 const COLORS = {
   primary: '#2D4A7B',
@@ -30,13 +30,19 @@ const AdminDashboard = ({ token, userRole }) => {
   const [analytics, setAnalytics] = useState({});
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    fetchAllData();
-    const interval = setInterval(fetchAllData, 30000);
-    return () => clearInterval(interval);
+  const calculateAnalytics = useCallback((airport, corporate) => {
+    const airportRevenue = airport.bookings?.reduce((sum, b) => sum + parseFloat(b.total_fare), 0) || 0;
+    const corporateRevenue = corporate.accounts?.reduce((sum, a) => sum + parseFloat(a.current_month_spent), 0) || 0;
+    
+    setAnalytics({
+      totalAirportRevenue: airportRevenue,
+      totalCorporateRevenue: corporateRevenue,
+      activeAirportBookings: airport.bookings?.filter(b => b.status !== 'completed').length || 0,
+      activeCorporateAccounts: corporate.accounts?.filter(a => a.is_active).length || 0,
+    });
   }, []);
 
-  const fetchAllData = async () => {
+  const fetchAllData = useCallback(async () => {
     setLoading(true);
     try {
       const [airport, corporate, heatmap] = await Promise.all([
@@ -66,19 +72,16 @@ const AdminDashboard = ({ token, userRole }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [calculateAnalytics, token]);
 
-  const calculateAnalytics = (airport, corporate) => {
-    const airportRevenue = airport.bookings?.reduce((sum, b) => sum + parseFloat(b.total_fare), 0) || 0;
-    const corporateRevenue = corporate.accounts?.reduce((sum, a) => sum + parseFloat(a.current_month_spent), 0) || 0;
-    
-    setAnalytics({
-      totalAirportRevenue: airportRevenue,
-      totalCorporateRevenue: corporateRevenue,
-      activeAirportBookings: airport.bookings?.filter(b => b.status !== 'completed').length || 0,
-      activeCorporateAccounts: corporate.accounts?.filter(a => a.is_active).length || 0,
-    });
-  };
+  useEffect(() => {
+    const timeout = setTimeout(fetchAllData, 0);
+    const interval = setInterval(fetchAllData, 30000);
+    return () => {
+      clearTimeout(timeout);
+      clearInterval(interval);
+    };
+  }, [fetchAllData]);
 
   const renderOverview = () => (
     <ScrollView style={styles.tabContent}>

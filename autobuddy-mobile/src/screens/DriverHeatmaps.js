@@ -3,7 +3,7 @@
  * Real-time visualization of driver distribution, demand patterns, and AI-driven insights
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,13 +12,9 @@ import {
   ActivityIndicator,
   RefreshControl,
   TouchableOpacity,
-  Modal,
-  Dimensions,
   StyleSheet,
-  Alert,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useSocket } from '../integration/socket-service';
 
 const API_BASE_URL = (
   process.env.EXPO_PUBLIC_API_BASE_URL ||
@@ -64,7 +60,6 @@ const SHADOWS = {
 };
 
 const DriverHeatmapsScreen = () => {
-  const { socket, isConnected } = useSocket();
   const [activeTab, setActiveTab] = useState('heatmap');
   const [heatmapData, setHeatmapData] = useState(null);
   const [forecastData, setForecastData] = useState(null);

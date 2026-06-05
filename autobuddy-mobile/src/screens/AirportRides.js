@@ -1,10 +1,10 @@
-"""
+/*
 Airport Ride System Frontend Component
 Location: autobuddy-mobile/src/screens/AirportRides.js
 Real-time airport ride booking and flight tracking
-"""
+*/
 
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, ScrollView, Text, StyleSheet, FlatList, TouchableOpacity,
   Alert, ActivityIndicator, Modal, RefreshControl, TextInput
@@ -37,13 +37,7 @@ const TerminalsTab = ({ adminToken }) => {
   const [terminals, setTerminals] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchTerminals();
-    const interval = setInterval(fetchTerminals, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchTerminals = async () => {
+  const fetchTerminals = useCallback(async () => {
     try {
       const res = await fetch('/api/v1/airport/terminals', {
         headers: { Authorization: `Bearer ${adminToken}` }
@@ -57,7 +51,16 @@ const TerminalsTab = ({ adminToken }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [adminToken]);
+
+  useEffect(() => {
+    const timeout = setTimeout(fetchTerminals, 0);
+    const interval = setInterval(fetchTerminals, 30000);
+    return () => {
+      clearTimeout(timeout);
+      clearInterval(interval);
+    };
+  }, [fetchTerminals]);
 
   if (loading) return <ActivityIndicator size="large" color={COLORS.primary} />;
 
@@ -110,13 +113,7 @@ const FlightsTab = ({ adminToken }) => {
   const [loading, setLoading] = useState(true);
   const [selectedTerminal, setSelectedTerminal] = useState('term_BLR');
 
-  useEffect(() => {
-    fetchFlights();
-    const interval = setInterval(fetchFlights, 10000);
-    return () => clearInterval(interval);
-  }, [selectedTerminal]);
-
-  const fetchFlights = async () => {
+  const fetchFlights = useCallback(async () => {
     try {
       const res = await fetch(`/api/v1/airport/terminals/${selectedTerminal}/flights`, {
         headers: { Authorization: `Bearer ${adminToken}` }
@@ -130,7 +127,16 @@ const FlightsTab = ({ adminToken }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [adminToken, selectedTerminal]);
+
+  useEffect(() => {
+    const timeout = setTimeout(fetchFlights, 0);
+    const interval = setInterval(fetchFlights, 10000);
+    return () => {
+      clearTimeout(timeout);
+      clearInterval(interval);
+    };
+  }, [fetchFlights]);
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -217,13 +223,7 @@ const RidesTab = ({ adminToken }) => {
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [flightNumber, setFlightNumber] = useState('');
 
-  useEffect(() => {
-    fetchRides();
-    const interval = setInterval(fetchRides, 15000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchRides = async () => {
+  const fetchRides = useCallback(async () => {
     try {
       const res = await fetch('/api/v1/airport/terminals/term_BLR/rides', {
         headers: { Authorization: `Bearer ${adminToken}` }
@@ -237,7 +237,16 @@ const RidesTab = ({ adminToken }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [adminToken]);
+
+  useEffect(() => {
+    const timeout = setTimeout(fetchRides, 0);
+    const interval = setInterval(fetchRides, 15000);
+    return () => {
+      clearTimeout(timeout);
+      clearInterval(interval);
+    };
+  }, [fetchRides]);
 
   const getPhaseIcon = (phase) => {
     return phase === 'pre_flight' ? 'plus-circle' : 'minus-circle';
@@ -343,13 +352,7 @@ const ParkingTab = ({ adminToken }) => {
   const [parking, setParking] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchParking();
-    const interval = setInterval(fetchParking, 20000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchParking = async () => {
+  const fetchParking = useCallback(async () => {
     try {
       const res = await fetch('/api/v1/airport/terminals/term_BLR/parking/availability', {
         headers: { Authorization: `Bearer ${adminToken}` }
@@ -363,7 +366,16 @@ const ParkingTab = ({ adminToken }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [adminToken]);
+
+  useEffect(() => {
+    const timeout = setTimeout(fetchParking, 0);
+    const interval = setInterval(fetchParking, 20000);
+    return () => {
+      clearTimeout(timeout);
+      clearInterval(interval);
+    };
+  }, [fetchParking]);
 
   if (loading) return <ActivityIndicator size="large" color={COLORS.primary} />;
   if (!parking) return <Text style={styles.emptyText}>No parking data</Text>;
@@ -439,13 +451,7 @@ const DemandTab = ({ adminToken }) => {
   const [demand, setDemand] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchDemand();
-    const interval = setInterval(fetchDemand, 10000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchDemand = async () => {
+  const fetchDemand = useCallback(async () => {
     try {
       const res = await fetch('/api/v1/airport/terminals/term_BLR/demand', {
         headers: { Authorization: `Bearer ${adminToken}` }
@@ -459,7 +465,16 @@ const DemandTab = ({ adminToken }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [adminToken]);
+
+  useEffect(() => {
+    const timeout = setTimeout(fetchDemand, 0);
+    const interval = setInterval(fetchDemand, 10000);
+    return () => {
+      clearTimeout(timeout);
+      clearInterval(interval);
+    };
+  }, [fetchDemand]);
 
   if (loading) return <ActivityIndicator size="large" color={COLORS.primary} />;
 

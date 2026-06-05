@@ -4,7 +4,7 @@
  * Driver Earnings, Women Safety, Fleet Owner Portal
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Switch, Modal, TextInput, FlatList, ActivityIndicator } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 
@@ -31,13 +31,7 @@ export const DynamicSurgePricingPanel = ({ token, userLocation, onSurgeUpdate })
   });
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    fetchSurgeData();
-    const interval = setInterval(fetchSurgeData, 60000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchSurgeData = async () => {
+  const fetchSurgeData = useCallback(async () => {
     setLoading(true);
     try {
       // Check rain surge
@@ -67,7 +61,16 @@ export const DynamicSurgePricingPanel = ({ token, userLocation, onSurgeUpdate })
     } finally {
       setLoading(false);
     }
-  };
+  }, [onSurgeUpdate, token, userLocation]);
+
+  useEffect(() => {
+    const timeout = setTimeout(fetchSurgeData, 0);
+    const interval = setInterval(fetchSurgeData, 60000);
+    return () => {
+      clearTimeout(timeout);
+      clearInterval(interval);
+    };
+  }, [fetchSurgeData]);
 
   return (
     <View style={styles.panel}>
@@ -134,13 +137,10 @@ export const AIDispatchPanel = ({ token, booking, onDispatchComplete }) => {
   const [selectedDriver, setSelectedDriver] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    if (booking) {
-      findBestDriver();
+  const findBestDriver = useCallback(async () => {
+    if (!booking) {
+      return;
     }
-  }, [booking]);
-
-  const findBestDriver = async () => {
     setLoading(true);
     try {
       const res = await fetch('/api/advanced/dispatch/find-best-driver', {
@@ -160,7 +160,12 @@ export const AIDispatchPanel = ({ token, booking, onDispatchComplete }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [booking, token]);
+
+  useEffect(() => {
+    const timeout = setTimeout(findBestDriver, 0);
+    return () => clearTimeout(timeout);
+  }, [findBestDriver]);
 
   const selectDriver = async (driver) => {
     setSelectedDriver(driver);
@@ -265,13 +270,7 @@ export const FraudDetectionPanel = ({ token, onFraudDetected }) => {
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    fetchFraudCases();
-    const interval = setInterval(fetchFraudCases, 300000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchFraudCases = async () => {
+  const fetchFraudCases = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch('/api/advanced/fraud/open-cases', {
@@ -284,7 +283,16 @@ export const FraudDetectionPanel = ({ token, onFraudDetected }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
+
+  useEffect(() => {
+    const timeout = setTimeout(fetchFraudCases, 0);
+    const interval = setInterval(fetchFraudCases, 300000);
+    return () => {
+      clearTimeout(timeout);
+      clearInterval(interval);
+    };
+  }, [fetchFraudCases]);
 
   return (
     <View style={styles.panel}>
@@ -336,11 +344,7 @@ export const DriverEarningsPanel = ({ token, driverId }) => {
   const [peakHours, setPeakHours] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    fetchEarningsData();
-  }, []);
-
-  const fetchEarningsData = async () => {
+  const fetchEarningsData = useCallback(async () => {
     setLoading(true);
     try {
       const [earningsRes, peakRes] = await Promise.all([
@@ -360,7 +364,12 @@ export const DriverEarningsPanel = ({ token, driverId }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [driverId, token]);
+
+  useEffect(() => {
+    const timeout = setTimeout(fetchEarningsData, 0);
+    return () => clearTimeout(timeout);
+  }, [fetchEarningsData]);
 
   return (
     <View style={styles.panel}>
@@ -379,6 +388,15 @@ export const DriverEarningsPanel = ({ token, driverId }) => {
           </View>
 
           <Text style={styles.sectionTitle}>Recommended Zones</Text>
+          {peakHours.length > 0 && (
+            <View style={styles.peakHoursContainer}>
+              {peakHours.map((hour) => (
+                <View key={hour} style={styles.peakHourBadge}>
+                  <Text style={styles.peakHourText}>{hour}:00</Text>
+                </View>
+              ))}
+            </View>
+          )}
           {earnings.recommended_zones.map((zone, idx) => (
             <View key={idx} style={styles.zoneCard}>
               <View style={styles.zoneHeader}>
@@ -411,11 +429,7 @@ export const WomenSafetyPanel = ({ token, userId, onBookingUpdate }) => {
   const [showAddContact, setShowAddContact] = useState(false);
   const [newContact, setNewContact] = useState({ name: '', phone: '' });
 
-  useEffect(() => {
-    fetchTrustedContacts();
-  }, []);
-
-  const fetchTrustedContacts = async () => {
+  const fetchTrustedContacts = useCallback(async () => {
     try {
       const res = await fetch(`/api/advanced/safety/trusted-contacts/${userId}`, {
         headers: { Authorization: `Bearer ${token}` }
@@ -425,7 +439,12 @@ export const WomenSafetyPanel = ({ token, userId, onBookingUpdate }) => {
     } catch (error) {
       console.error('Trusted contacts fetch error:', error);
     }
-  };
+  }, [token, userId]);
+
+  useEffect(() => {
+    const timeout = setTimeout(fetchTrustedContacts, 0);
+    return () => clearTimeout(timeout);
+  }, [fetchTrustedContacts]);
 
   const addTrustedContact = async () => {
     if (newContact.name && newContact.phone) {
@@ -534,13 +553,7 @@ export const FleetOwnerPanel = ({ token, fleetId }) => {
   const [dashboard, setDashboard] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    fetchFleetDashboard();
-    const interval = setInterval(fetchFleetDashboard, 60000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchFleetDashboard = async () => {
+  const fetchFleetDashboard = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch(`/api/advanced/fleet/${fleetId}/dashboard`, {
@@ -553,7 +566,16 @@ export const FleetOwnerPanel = ({ token, fleetId }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [fleetId, token]);
+
+  useEffect(() => {
+    const timeout = setTimeout(fetchFleetDashboard, 0);
+    const interval = setInterval(fetchFleetDashboard, 60000);
+    return () => {
+      clearTimeout(timeout);
+      clearInterval(interval);
+    };
+  }, [fetchFleetDashboard]);
 
   return (
     <View style={styles.panel}>
@@ -578,7 +600,7 @@ export const FleetOwnerPanel = ({ token, fleetId }) => {
             <View style={styles.topPerformerCard}>
               <Text style={styles.topPerformerName}>{dashboard.top_driver.name}</Text>
               <Text style={styles.topPerformerEarnings}>₹{dashboard.top_driver.earnings_today.toFixed(0)}</Text>
-              <Text style={styles.topPerformerLabel}>Today's Earnings</Text>
+              <Text style={styles.topPerformerLabel}>Today&apos;s Earnings</Text>
             </View>
           </View>
 

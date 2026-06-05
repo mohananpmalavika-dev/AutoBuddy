@@ -1,13 +1,13 @@
-"""
+/*
 Corporate Ride Portal Frontend Component
 Location: autobuddy-mobile/src/screens/CorporatePortal.js
 B2B admin interface for managing employee ride programs
-"""
+*/
 
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, ScrollView, Text, StyleSheet, FlatList, TouchableOpacity,
-  Alert, ActivityIndicator, Modal, RefreshControl, Dimensions
+  Alert, ActivityIndicator, Modal, RefreshControl
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
@@ -36,13 +36,7 @@ const CorporateDashboard = ({ companyId, adminToken }) => {
   const [dashboard, setDashboard] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchDashboard();
-    const interval = setInterval(fetchDashboard, 60000); // 1 min refresh
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchDashboard = async () => {
+  const fetchDashboard = useCallback(async () => {
     try {
       const res = await fetch(`/api/v1/corporate/company/${companyId}/analytics/dashboard`, {
         headers: { Authorization: `Bearer ${adminToken}` }
@@ -53,7 +47,16 @@ const CorporateDashboard = ({ companyId, adminToken }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [adminToken, companyId]);
+
+  useEffect(() => {
+    const timeout = setTimeout(fetchDashboard, 0);
+    const interval = setInterval(fetchDashboard, 60000); // 1 min refresh
+    return () => {
+      clearTimeout(timeout);
+      clearInterval(interval);
+    };
+  }, [fetchDashboard]);
 
   if (loading) return <ActivityIndicator size="large" color={COLORS.primary} />;
   if (!dashboard?.data) return <Text>No data</Text>;
@@ -137,13 +140,7 @@ const EmployeesTab = ({ companyId, adminToken }) => {
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
 
-  useEffect(() => {
-    fetchEmployees();
-    const interval = setInterval(fetchEmployees, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchEmployees = async () => {
+  const fetchEmployees = useCallback(async () => {
     try {
       const res = await fetch(`/api/v1/corporate/company/${companyId}/employees`, {
         headers: { Authorization: `Bearer ${adminToken}` }
@@ -157,7 +154,16 @@ const EmployeesTab = ({ companyId, adminToken }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [adminToken, companyId]);
+
+  useEffect(() => {
+    const timeout = setTimeout(fetchEmployees, 0);
+    const interval = setInterval(fetchEmployees, 30000);
+    return () => {
+      clearTimeout(timeout);
+      clearInterval(interval);
+    };
+  }, [fetchEmployees]);
 
   if (loading) return <ActivityIndicator size="large" color={COLORS.primary} />;
 
@@ -248,13 +254,7 @@ const RideRequestsTab = ({ companyId, adminToken }) => {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchRequests();
-    const interval = setInterval(fetchRequests, 15000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchRequests = async () => {
+  const fetchRequests = useCallback(async () => {
     try {
       const res = await fetch(`/api/v1/corporate/ride-requests/${companyId}?status=pending`, {
         headers: { Authorization: `Bearer ${adminToken}` }
@@ -268,7 +268,16 @@ const RideRequestsTab = ({ companyId, adminToken }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [adminToken, companyId]);
+
+  useEffect(() => {
+    const timeout = setTimeout(fetchRequests, 0);
+    const interval = setInterval(fetchRequests, 15000);
+    return () => {
+      clearTimeout(timeout);
+      clearInterval(interval);
+    };
+  }, [fetchRequests]);
 
   const handleApprove = async (requestId) => {
     try {
@@ -351,11 +360,7 @@ const InvoicesTab = ({ companyId, adminToken }) => {
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchInvoices();
-  }, []);
-
-  const fetchInvoices = async () => {
+  const fetchInvoices = useCallback(async () => {
     try {
       const res = await fetch(`/api/v1/corporate/company/${companyId}/invoices`, {
         headers: { Authorization: `Bearer ${adminToken}` }
@@ -369,7 +374,12 @@ const InvoicesTab = ({ companyId, adminToken }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [adminToken, companyId]);
+
+  useEffect(() => {
+    const timeout = setTimeout(fetchInvoices, 0);
+    return () => clearTimeout(timeout);
+  }, [fetchInvoices]);
 
   if (loading) return <ActivityIndicator size="large" color={COLORS.primary} />;
 

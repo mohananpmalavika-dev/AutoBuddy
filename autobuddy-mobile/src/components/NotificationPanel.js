@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { View, ScrollView, TouchableOpacity, Text, StyleSheet, Animated, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { formatToIST } from '../utils/time';
 
 const ICON_LABELS = {
   'directions-car': 'CAR',
