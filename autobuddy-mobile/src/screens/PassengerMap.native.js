@@ -2241,7 +2241,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             coordinate={pickupLocation}
             title="Pickup"
             description={pickupLocation.address}
-            pinColor={COLORS.secondary}
+            pinColor="#E53935"
             draggable
             onDragEnd={handlePickupDrag}
           />
@@ -2251,7 +2251,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             coordinate={dropoffLocation}
             title="Dropoff"
             description={dropoffLocation.address}
-            pinColor={COLORS.primary}
+            pinColor="#1E88E5"
             draggable
             onDragEnd={handleDropoffDrag}
           />
@@ -2261,7 +2261,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             coordinate={liveDriverLocation}
             title="Driver Live Location"
             description={driverOnline ? 'Driver is online' : 'Driver reconnecting'}
-            pinColor="green"
+            pinColor="#0B8F3A"
           />
         )}
       </MapView>

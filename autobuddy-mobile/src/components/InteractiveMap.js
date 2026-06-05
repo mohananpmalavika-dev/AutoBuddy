@@ -12,7 +12,7 @@ const DEFAULT_ZOOM = 14;
 // Marker icons configuration
 const PICKUP_MARKER_ICON = {
   path: 'M12 0C5.383 0 0 5.383 0 12s5.383 12 12 12 12-5.383 12-12S18.617 0 12 0zm0 18c-3.314 0-6-2.686-6-6s2.686-6 6-6 6 2.686 6 6-2.686 6-6 6zm0-10c-2.208 0-4 1.792-4 4s1.792 4 4 4 4-1.792 4-4-1.792-4-4-4z',
-  fillColor: '#FF5252',
+  fillColor: '#E53935',
   fillOpacity: 1,
   scale: 1.5,
   strokeColor: '#FFFFFF',
@@ -22,7 +22,7 @@ const PICKUP_MARKER_ICON = {
 
 const DROPOFF_MARKER_ICON = {
   path: 'M12 0C5.383 0 0 5.383 0 12s5.383 12 12 12 12-5.383 12-12S18.617 0 12 0zm0 18c-3.314 0-6-2.686-6-6s2.686-6 6-6 6 2.686 6 6-2.686 6-6 6zm0-10c-2.208 0-4 1.792-4 4s1.792 4 4 4 4-1.792 4-4-1.792-4-4-4z',
-  fillColor: '#4CAF50',
+  fillColor: '#1E88E5',
   fillOpacity: 1,
   scale: 1.5,
   strokeColor: '#FFFFFF',

@@ -322,7 +322,7 @@ export default function InteractiveMap({
               description={pickupAddress}
               draggable={true}
               onDragEnd={(e) => handleMarkerDragEnd('pickup', e)}
-              pinColor="#FF5252"
+              pinColor="#E53935"
             />
           )}
 
@@ -333,7 +333,7 @@ export default function InteractiveMap({
               description={dropoffAddress}
               draggable={true}
               onDragEnd={(e) => handleMarkerDragEnd('dropoff', e)}
-              pinColor="#4CAF50"
+              pinColor="#1E88E5"
             />
           )}
         </MapView>

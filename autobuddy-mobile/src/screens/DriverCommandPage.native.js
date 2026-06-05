@@ -373,9 +373,9 @@ function NativeDriverMap({
         }}
         showsUserLocation={false}
         showsMyLocationButton={false}>
-        {driverPoint ? <Marker coordinate={driverPoint} title="Driver" pinColor={COLORS.primary} /> : null}
-        {pickupPoint ? <Marker coordinate={pickupPoint} title="Pickup" pinColor="#F9A825" /> : null}
-        {dropPoint ? <Marker coordinate={dropPoint} title="Drop" pinColor="#C62828" /> : null}
+        {driverPoint ? <Marker coordinate={driverPoint} title="Driver" pinColor="#0B8F3A" /> : null}
+        {pickupPoint ? <Marker coordinate={pickupPoint} title="Passenger / Pickup" pinColor="#E53935" /> : null}
+        {dropPoint ? <Marker coordinate={dropPoint} title="Destination" pinColor="#1E88E5" /> : null}
         {routePoints.length === 2 ? (
           <Polyline coordinates={routePoints} strokeColor={COLORS.primary} strokeWidth={4} />
         ) : null}

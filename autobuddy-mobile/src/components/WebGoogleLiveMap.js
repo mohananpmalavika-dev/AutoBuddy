@@ -4,6 +4,16 @@ import { StyleSheet, Text, View } from 'react-native';
 const DEFAULT_ZOOM = 14;
 const MAP_CONTAINER_STYLE = { width: '100%', height: '100%' };
 const ROUTE_REFRESH_DELTA = 0.0005;
+const MARKER_COLORS = {
+  pickup: '#E53935',
+  dropoff: '#1E88E5',
+  driver: '#0B8F3A',
+};
+const MARKER_Z_INDEX = {
+  pickup: 20,
+  dropoff: 10,
+  driver: 30,
+};
 
 let googleMapsLoaderPromise = null;
 
@@ -65,6 +75,22 @@ const loadGoogleMapsScript = (apiKey) => {
 
 const createLatLng = (googleMaps, location) =>
   new googleMaps.LatLng(location.latitude, location.longitude);
+
+const createMarkerIcon = (googleMaps, markerKey) => ({
+  path: googleMaps.SymbolPath.CIRCLE,
+  fillColor: MARKER_COLORS[markerKey] || MARKER_COLORS.dropoff,
+  fillOpacity: 1,
+  scale: markerKey === 'driver' ? 10 : 11,
+  strokeColor: '#FFFFFF',
+  strokeWeight: 3,
+});
+
+const createMarkerLabel = (labelText) => ({
+  text: labelText,
+  color: '#FFFFFF',
+  fontSize: '12px',
+  fontWeight: '800',
+});
 
 const fitBoundsToPoints = (googleMaps, map, points) => {
   const validPoints = points.filter(Boolean);
@@ -242,12 +268,17 @@ export default function WebGoogleLiveMap({
         return;
       }
       const nextPosition = createLatLng(googleMaps, point);
+      const markerIcon = createMarkerIcon(googleMaps, markerKey);
+      const markerLabel = createMarkerLabel(labelText);
+      const zIndex = MARKER_Z_INDEX[markerKey] || 1;
       if (!currentMarker) {
         const markerConfig = {
           map,
           position: nextPosition,
           title: titleText,
-          label: labelText,
+          icon: markerIcon,
+          label: markerLabel,
+          zIndex,
         };
         
         // Enable dragging for pickup/dropoff markers in interactive mode
@@ -271,7 +302,9 @@ export default function WebGoogleLiveMap({
       }
       currentMarker.setPosition(nextPosition);
       currentMarker.setTitle(titleText);
-      currentMarker.setLabel(labelText);
+      currentMarker.setIcon(markerIcon);
+      currentMarker.setLabel(markerLabel);
+      currentMarker.setZIndex(zIndex);
       
       // Update draggable state based on interactive mode
       if (isInteractiveMode && (markerKey === 'pickup' || markerKey === 'dropoff')) {
@@ -281,8 +314,8 @@ export default function WebGoogleLiveMap({
       }
     };
 
-    syncMarker('pickup', pickupPoint, 'Pickup', 'P');
-    syncMarker('dropoff', dropoffPoint, 'Dropoff', 'D');
+    syncMarker('pickup', pickupPoint, 'Passenger / Pickup', 'P');
+    syncMarker('dropoff', dropoffPoint, 'Destination', 'D');
     syncMarker('driver', driverPoint, 'Driver', 'R');
 
     const routeOriginChanged = hasMeaningfulMovement(lastRouteRef.current.origin, routeOriginPoint);

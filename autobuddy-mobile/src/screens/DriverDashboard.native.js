@@ -2233,8 +2233,8 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
             if (destination) routeCoords.push({ latitude: destination.latitude, longitude: destination.longitude });
             return (
               <>
-                {pickup && navigatingToPickup && <Marker coordinate={pickup} pinColor="green" />}
-                {drop && navigatingToDrop && <Marker coordinate={drop} pinColor="red" />}
+                {pickup && navigatingToPickup && <Marker coordinate={pickup} title="Passenger / Pickup" pinColor="#E53935" />}
+                {drop && navigatingToDrop && <Marker coordinate={drop} title="Destination" pinColor="#1E88E5" />}
                 {routeCoords.length >= 2 && (
                   <Polyline coordinates={routeCoords} strokeColor={COLORS.primary} strokeWidth={4} />
                 )}
@@ -3067,7 +3067,7 @@ const styles = StyleSheet.create({
   driverMarker: {
     width: 24,
     height: 24,
-    backgroundColor: COLORS.secondary,
+    backgroundColor: '#0B8F3A',
     borderRadius: 12,
     borderWidth: 3,
     borderColor: '#fff',

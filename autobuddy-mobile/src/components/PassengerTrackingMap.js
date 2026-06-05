@@ -256,12 +256,12 @@ const styles = {
     borderLeftWidth: 4,
   },
   driverCard: {
-    backgroundColor: '#E3F2FD',
-    borderLeftColor: '#2196F3',
+    backgroundColor: '#E8F5E9',
+    borderLeftColor: '#0B8F3A',
   },
   pickupCard: {
-    backgroundColor: '#F3E5F5',
-    borderLeftColor: '#9C27B0',
+    backgroundColor: '#FFEBEE',
+    borderLeftColor: '#E53935',
   },
   locationLabel: {
     fontSize: 11,
