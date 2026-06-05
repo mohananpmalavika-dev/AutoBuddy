@@ -233,6 +233,42 @@ async def _find_matching_driver_ids(
     return [item["driver_id"] for item in scored[: max(1, int(limit or 1))] if item["driver_id"]]
 
 
+async def _selected_driver_pickup_error(
+    db: AsyncIOMotorDatabase,
+    selected_driver_id: str,
+    pickup: Dict[str, Any],
+    vehicle_type_id: Optional[str],
+    vehicle_subtype_id: Optional[str],
+    ride_product: RideProduct,
+    *,
+    radius_km: float = 2.0,
+) -> Optional[str]:
+    driver_id = str(selected_driver_id or "").strip()
+    if not driver_id:
+        return "Selected driver is invalid."
+
+    driver = await db.drivers.find_one(
+        {
+            "user_id": driver_id,
+            "is_available": True,
+            "vehicle_info": {"$ne": None},
+            "kyc_status": "approved",
+        },
+        {"_id": 0, "user_id": 1, "current_location": 1, "vehicle_info": 1, "rating": 1},
+    )
+    if not driver:
+        return "Selected driver is unavailable right now."
+    if not _driver_matches_service(driver, vehicle_type_id, vehicle_subtype_id, ride_product):
+        return "Selected driver does not match the requested vehicle or ride type."
+
+    distance = _location_distance_km(pickup, _as_dict(driver.get("current_location")))
+    if not math.isfinite(distance):
+        return "Selected driver has no live location near the pickup point."
+    if distance > radius_km:
+        return f"Selected driver is outside the pickup search radius ({radius_km:g} km)."
+    return None
+
+
 
 def _product_label(product: RideProduct) -> str:
     return {
@@ -897,8 +933,23 @@ async def create_advanced_booking(
     now = get_ist_now()
     is_scheduled = payload.ride_product == RideProduct.SCHEDULED or payload.scheduled_for is not None
     booking_id = str(uuid.uuid4())
+    selected_driver_id = str(payload.selected_driver_id or "").strip() or None
     candidate_driver_ids = []
-    if not is_scheduled and not payload.selected_driver_id:
+    if selected_driver_id:
+        if not is_scheduled:
+            selected_driver_error = await _selected_driver_pickup_error(
+                db,
+                selected_driver_id,
+                pickup,
+                payload.vehicle_type_id,
+                payload.vehicle_subtype_id,
+                payload.ride_product,
+                radius_km=2.0,
+            )
+            if selected_driver_error:
+                raise HTTPException(status_code=400, detail=selected_driver_error)
+        candidate_driver_ids = [selected_driver_id]
+    elif not is_scheduled:
         candidate_driver_ids = await _find_matching_driver_ids(
             db,
             pickup,
@@ -929,7 +980,7 @@ async def create_advanced_booking(
         "rental_hours": payload.rental_hours,
         "safe_ride_priority": payload.safe_ride_priority,
         "notes": payload.notes,
-        "selected_driver_id": payload.selected_driver_id,
+        "selected_driver_id": selected_driver_id,
         "vehicle_type_id": payload.vehicle_type_id,
         "vehicle_subtype_id": payload.vehicle_subtype_id,
         "vehicle_model": payload.vehicle_model,
@@ -947,7 +998,7 @@ async def create_advanced_booking(
         "status": "scheduled" if is_scheduled else "pending",
         "dispatch_status": "scheduled" if is_scheduled else "searching",
         "dispatch_algorithm": "advanced_product_pool_v1",
-        "candidate_driver_ids": [payload.selected_driver_id] if payload.selected_driver_id else candidate_driver_ids,
+        "candidate_driver_ids": candidate_driver_ids,
         "progress_handoff": {
             "active_booking_endpoint": "/api/bookings/active",
             "booking_status_event": "booking_status_changed",

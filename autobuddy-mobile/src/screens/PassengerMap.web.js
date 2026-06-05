@@ -1016,6 +1016,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     setFare(null);
     setNearbyDrivers([]);
     setOptedOutDriverIds([]);
+    setSelectedDriverId('');
     driverDiscoveryRequestRef.current = { signature: '', request: null, completedAt: 0 };
     driverDiscoveryCooldownUntilRef.current = 0;
   };
@@ -1296,6 +1297,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         setFare(null);
         setNearbyDrivers([]);
         setOptedOutDriverIds([]);
+        setSelectedDriverId('');
         driverDiscoveryRequestRef.current = { signature: '', request: null, completedAt: 0 };
         driverDiscoveryCooldownUntilRef.current = 0;
       }
@@ -1307,6 +1309,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         setFare(null);
         setNearbyDrivers([]);
         setOptedOutDriverIds([]);
+        setSelectedDriverId('');
         driverDiscoveryRequestRef.current = { signature: '', request: null, completedAt: 0 };
         driverDiscoveryCooldownUntilRef.current = 0;
       }
@@ -2224,6 +2227,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     if (appliedPromo?.code) {
       rideNotes.push(`Promo requested: ${appliedPromo.code}`);
     }
+    const selectedDriverIdForPickup = visibleDrivers.some((driver) => driver.driver_id === selectedDriverId)
+      ? selectedDriverId
+      : '';
 
     const booking = await callApi(() =>
       apiRequest('/bookings/advanced', {
@@ -2256,7 +2262,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           ride_product: effectiveRideProduct,
           passenger_count: passengerCount,
           allow_parallel: allowParallel,
-          selected_driver_id: selectedDriverId || undefined,
+          selected_driver_id: selectedDriverIdForPickup || undefined,
           scheduled_for: scheduledForIso,
           corporate_code: effectiveRideProduct === 'corporate' ? corporateCode.trim() : undefined,
           airport_terminal: effectiveRideProduct === 'airport' ? airportTerminal.trim() : undefined,

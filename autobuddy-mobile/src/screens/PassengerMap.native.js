@@ -803,6 +803,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     setFare(null);
     setNearbyDrivers([]);
     setOptedOutDriverIds([]);
+    setSelectedDriverId('');
   };
 
   const handleUseSavedPlace = useCallback(
@@ -1296,8 +1297,24 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
 
     if (point === 'pickup') {
       setPickupQuery(normalized);
+      setLocationValidation((prev) => ({ ...prev, pickup: false }));
+      if (pickupLocation && normalized.trim() !== String(pickupLocation.address || '').trim()) {
+        setPickupLocation(null);
+        setFare(null);
+        setNearbyDrivers([]);
+        setOptedOutDriverIds([]);
+        setSelectedDriverId('');
+      }
     } else {
       setDropoffQuery(normalized);
+      setLocationValidation((prev) => ({ ...prev, dropoff: false }));
+      if (dropoffLocation && normalized.trim() !== String(dropoffLocation.address || '').trim()) {
+        setDropoffLocation(null);
+        setFare(null);
+        setNearbyDrivers([]);
+        setOptedOutDriverIds([]);
+        setSelectedDriverId('');
+      }
     }
 
     if (normalized.trim().length < 3) {
@@ -1457,7 +1474,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             longitude: pickupLocation.longitude,
             drop_latitude: dropoffLocation.latitude,
             drop_longitude: dropoffLocation.longitude,
-            radius_km: 6,
+            radius_km: 2,
           },
         }),
         apiRequest('/passengers/favorite-drivers', {
@@ -1482,12 +1499,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         is_favorite: favoriteIds.includes(driver.driver_id),
         source: 'nearby',
       })).filter((driver) => !blockedIds.includes(driver.driver_id));
-      const nearbyIds = new Set(nearbyList.map((item) => item.driver_id));
-      const favoriteFallback = favoritesList
-        .filter((driver) => driver?.driver_id && !nearbyIds.has(driver.driver_id) && !blockedIds.includes(driver.driver_id))
-        .map((driver) => ({ ...driver, source: 'favorite_fallback', is_favorite: true }));
-
-      const merged = [...nearbyList, ...favoriteFallback];
+      const merged = nearbyList.slice(0, 5);
       setNearbyDrivers(merged);
       setSelectedDriverId((previousSelectedId) =>
         previousSelectedId && !merged.some((item) => item.driver_id === previousSelectedId)
@@ -1746,6 +1758,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     if (appliedPromo?.code) {
       rideNotes.push(`Promo requested: ${appliedPromo.code}`);
     }
+    const selectedDriverIdForPickup = visibleDrivers.some((driver) => driver.driver_id === selectedDriverId)
+      ? selectedDriverId
+      : '';
     const booking = await callApi(() =>
       apiRequest('/bookings/advanced', {
         method: 'POST',
@@ -1771,7 +1786,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           ride_product: effectiveRideProduct,
           passenger_count: passengerCount,
           allow_parallel: allowParallel,
-          selected_driver_id: selectedDriverId || undefined,
+          selected_driver_id: selectedDriverIdForPickup || undefined,
           scheduled_for: scheduledForIso,
           corporate_code: effectiveRideProduct === 'corporate' ? corporateCode.trim() : undefined,
           airport_terminal: effectiveRideProduct === 'airport' ? airportTerminal.trim() : undefined,
@@ -1893,6 +1908,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     setSelectingPoint('pickup');
     setFare(null);
     setNearbyDrivers([]);
+    setSelectedDriverId('');
+    setOptedOutDriverIds([]);
     setLocationValidation({ pickup: false, dropoff: false });
     setMessage('Pickup and drop cleared.');
     setError('');
