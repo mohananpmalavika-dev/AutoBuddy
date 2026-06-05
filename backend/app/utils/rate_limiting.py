@@ -4,6 +4,8 @@ Rate limiting utilities for production
 import hashlib
 import time
 import logging
+import asyncio
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from app.utils.time_helpers import get_ist_now
@@ -11,7 +13,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-RATE_LIMIT_CONFIG_CACHE_SECONDS = 15
+RATE_LIMIT_CONFIG_CACHE_SECONDS = max(30, int(os.environ.get("RATE_LIMIT_CONFIG_CACHE_SECONDS", "120")))
+RATE_LIMIT_CONFIG_DB_TIMEOUT_SECONDS = max(
+    0.2,
+    min(5.0, float(os.environ.get("RATE_LIMIT_CONFIG_DB_TIMEOUT_SECONDS", "0.75"))),
+)
 RATE_LIMIT_DEFAULTS_SEEDED_KEY = "rate_limit_defaults_seeded"
 
 DEFAULT_RATE_LIMIT_CONFIGS: Dict[str, Dict[str, Any]] = {
@@ -578,10 +584,25 @@ async def get_rate_limit_settings(db) -> Dict[str, Any]:
         return cached_settings
 
     try:
-        await ensure_rate_limit_defaults(db)
-        config_docs = await db.rate_limit_configs.find({}).to_list(None)
-        endpoint_docs = await db.endpoint_rate_limits.find({}).to_list(None)
+        config_cursor = db.rate_limit_configs.find({})
+        endpoint_cursor = db.endpoint_rate_limits.find({})
+        try:
+            max_time_ms = int(RATE_LIMIT_CONFIG_DB_TIMEOUT_SECONDS * 1000)
+            config_cursor = config_cursor.max_time_ms(max_time_ms)
+            endpoint_cursor = endpoint_cursor.max_time_ms(max_time_ms)
+        except AttributeError:
+            pass
+        config_docs, endpoint_docs = await asyncio.wait_for(
+            asyncio.gather(
+                config_cursor.to_list(100),
+                endpoint_cursor.to_list(500),
+            ),
+            timeout=RATE_LIMIT_CONFIG_DB_TIMEOUT_SECONDS,
+        )
     except Exception as exc:
+        if cached_settings is not None and _rate_limit_config_cache.get("db_id") == cache_db_id:
+            logger.warning("Using stale cached rate-limit settings after DB lookup failed: %s", exc)
+            return cached_settings
         logger.warning("Falling back to default rate-limit settings: %s", exc)
         return _default_limit_settings()
 

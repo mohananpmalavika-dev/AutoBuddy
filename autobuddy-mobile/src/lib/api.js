@@ -348,6 +348,23 @@ function createBackendOutageError(cooldownUntilMs) {
   return error;
 }
 
+function getPayloadErrorCode(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return '';
+  }
+  return String(payload?.error?.code || payload?.code || payload?.detail?.code || '').trim();
+}
+
+function shouldTripBackendOutage(status, payload) {
+  if (status === 502 || status === 503) {
+    return true;
+  }
+  if (status === 504) {
+    return getPayloadErrorCode(payload) !== 'driver_dashboard_timeout';
+  }
+  return false;
+}
+
 async function performRefreshAccessToken() {
   if (Date.now() < refreshRetryBlockedUntilMs) {
     await failRefreshWithoutClearingValidSession();
@@ -382,7 +399,7 @@ async function performRefreshAccessToken() {
       await clearAllSessions();
       throw createAuthExpiredError(message);
     }
-    if (response.status >= 500) {
+    if (shouldTripBackendOutage(response.status, payload)) {
       backendOutageUntilMs = Math.max(backendOutageUntilMs, Date.now() + OUTAGE_COOLDOWN_MS);
     }
     pauseRefreshRetries(response.status);
@@ -584,7 +601,7 @@ export async function apiRequest(path, options = {}, legacyPath = undefined, leg
             getRateLimitCooldowns.set(requestDedupeKey, Date.now() + retryAfterMs);
           }
         }
-        if (response.status >= 500) {
+        if (shouldTripBackendOutage(response.status, data)) {
           consecutiveServerErrors += 1;
           if (consecutiveServerErrors >= SERVER_ERROR_THRESHOLD) {
             backendOutageUntilMs = Date.now() + OUTAGE_COOLDOWN_MS;
@@ -625,7 +642,7 @@ export async function apiRequest(path, options = {}, legacyPath = undefined, leg
           error.rateLimitCooldown = true;
           error.retryAfterMs = retryAfterMs;
         }
-        if (response.status >= 500 && backendOutageUntilMs > Date.now()) {
+        if (shouldTripBackendOutage(response.status, data) && backendOutageUntilMs > Date.now()) {
           error.backendOutage = true;
           error.retryAfterMs = Math.max(Number(error.retryAfterMs || 0), backendOutageUntilMs - Date.now());
         }

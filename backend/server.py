@@ -175,7 +175,6 @@ from app.utils.logging_config import (
     PerformanceMonitor
 )
 from app.utils.sentry_config import SentryConfig, set_sentry_context, clear_sentry_context
-from app.middleware.rate_limiting import RateLimitingMiddleware
 from app.utils.rate_limiting import (
     ensure_rate_limit_defaults,
     get_rate_limit_key,
@@ -423,9 +422,6 @@ if REDIS_URL and redis_async:
 app = FastAPI(title="AutoRickshaw Booking API")
 app.state.settings = settings
 app.state.redis_client = redis_client
-
-# Add rate limiting middleware (before Sentry to properly track rate-limited requests)
-app.add_middleware(RateLimitingMiddleware)
 
 if SENTRY_DSN and sentry_sdk:
     sentry_sdk.init(
