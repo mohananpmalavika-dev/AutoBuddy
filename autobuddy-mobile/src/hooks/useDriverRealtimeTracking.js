@@ -166,7 +166,7 @@ export function useDriverRealtimeTracking({
   }, [emitLocation, manageLocationWatch, trackingInterval]);
 
   const startBackgroundTracking = useCallback(async () => {
-    if (!manageBackgroundTracking || Platform.OS === 'web' || !token || !activeRideId || !enabled) {
+    if (!manageBackgroundTracking || Platform.OS === 'web' || !token || !enabled) {
       return;
     }
 
@@ -190,7 +190,7 @@ export function useDriverRealtimeTracking({
 
     await startBackgroundDriverTracking({
       token,
-      activeRideId,
+      activeRideId: activeRideId || '',
     });
   }, [activeRideId, enabled, manageBackgroundTracking, token]);
 
@@ -281,7 +281,7 @@ export function useDriverRealtimeTracking({
       return undefined;
     }
 
-    if (!token || !enabled || !activeRideId) {
+    if (!token || !enabled) {
       stopBackgroundDriverTracking().catch(() => null);
       return undefined;
     }

@@ -188,6 +188,15 @@ def test_driver_location_update_accepts_flat_and_nested_payloads():
     assert 'location_online=bool(live_location)' in server_source
 
 
+def test_driver_dispatch_uses_background_accepting_location_window():
+    server_source = (Path(__file__).resolve().parents[1] / 'server.py').read_text(encoding='utf-8')
+
+    assert 'DRIVER_ACCEPTING_BACKGROUND_SECONDS' in server_source
+    assert 'is_recent_driver_location(driver_profile, DRIVER_ACCEPTING_BACKGROUND_SECONDS)' in server_source
+    assert '"is_online": True' not in server_source[server_source.index('async def find_nearest_drivers_mongo_geo'):server_source.index('def calculate_tracking_segment_km')]
+    assert 'notify_driver_ride_request(driver_id, booking_id)' in server_source
+
+
 def test_full_server_smoke_requests_reach_real_app(monkeypatch):
     monkeypatch.setenv('MONGO_URL', os.getenv('MONGO_URL') or 'mongodb://localhost:27017/test')
     monkeypatch.setenv('JWT_SECRET', os.getenv('JWT_SECRET') or 'a' * 40)

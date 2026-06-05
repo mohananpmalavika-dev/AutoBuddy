@@ -484,7 +484,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     activeRideId,
     enabled: shouldSyncDriverLocation,
     manageLocationWatch: false,
-    manageBackgroundTracking: activeRideSharesLocation,
+    manageBackgroundTracking: shouldSyncDriverLocation,
   });
 
   const { sosActive, sosError, sosMessage, triggerSOS, cancelSOS } = useSOSAlert({

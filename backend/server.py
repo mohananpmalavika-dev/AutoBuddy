@@ -327,6 +327,11 @@ REALTIME_HEALTH_MONITOR_INTERVAL_SECONDS = max(
     5,
     int(os.environ.get("REALTIME_HEALTH_MONITOR_INTERVAL_SECONDS", "15")),
 )
+DRIVER_ACCEPTING_BACKGROUND_SECONDS = max(
+    DRIVER_LIVE_LOCATION_TTL_SECONDS,
+    REALTIME_OFFLINE_SECONDS * 4,
+    int(os.environ.get("DRIVER_ACCEPTING_BACKGROUND_SECONDS", str(4 * 60 * 60))),
+)
 IST_TZ = timezone(timedelta(hours=5, minutes=30))
 
 # Helper function to get current time in IST
@@ -3005,7 +3010,7 @@ async def get_effective_driver_location(driver_profile: Optional[Dict[str, Any]]
 
     if not bool(driver_profile.get("is_available")):
         return None
-    if not is_recent_driver_location(driver_profile, DRIVER_LIVE_LOCATION_TTL_SECONDS):
+    if not is_recent_driver_location(driver_profile, DRIVER_ACCEPTING_BACKGROUND_SECONDS):
         return None
     return normalize_tracking_location(driver_profile.get("current_location"))
 
@@ -3283,6 +3288,28 @@ async def find_nearest_drivers_mongo_geo(
     limit: int = 5,
     max_distance_km: float = 8.0,
 ) -> List[Dict[str, Any]]:
+    async def filter_matchable_drivers(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        ordered: List[Dict[str, Any]] = []
+        for candidate in candidates:
+            driver_id = str(candidate.get("user_id") or "").strip()
+            if not driver_id:
+                continue
+            effective_location = await get_effective_driver_location(candidate)
+            if not effective_location:
+                continue
+            ordered.append(
+                {
+                    "user_id": driver_id,
+                    "name": candidate.get("name"),
+                    "rating": candidate.get("rating"),
+                    "current_location": effective_location,
+                    "distance_km": safe_float(candidate.get("distance_km"), 9999.0),
+                }
+            )
+            if len(ordered) >= max(1, int(limit)):
+                break
+        return ordered
+
     redis_candidates = await find_nearest_drivers_redis_geo(
         pickup_location,
         limit=max(1, int(limit) * 4),
@@ -3294,30 +3321,31 @@ async def find_nearest_drivers_mongo_geo(
             profiles = await db.drivers.find(
                 {
                     "user_id": {"$in": list(set(candidate_ids))},
-                    "is_online": True,
                     "is_available": True,
                     "kyc_status": KYCStatus.APPROVED,
                 },
-                {"_id": 0, "user_id": 1, "name": 1, "rating": 1, "current_location": 1},
+                {
+                    "_id": 0,
+                    "user_id": 1,
+                    "name": 1,
+                    "rating": 1,
+                    "current_location": 1,
+                    "is_available": 1,
+                    "last_location_at": 1,
+                    "last_heartbeat_at": 1,
+                    "last_online_at": 1,
+                    "updated_at": 1,
+                },
             ).to_list(max(1, len(candidate_ids)))
             profile_map = {str(item.get("user_id") or "").strip(): item for item in profiles}
-            ordered: List[Dict[str, Any]] = []
+            ordered_candidates: List[Dict[str, Any]] = []
             for candidate in redis_candidates:
                 driver_id = str(candidate.get("user_id") or "").strip()
                 profile = profile_map.get(driver_id)
                 if not profile:
                     continue
-                ordered.append(
-                    {
-                        "user_id": driver_id,
-                        "name": profile.get("name"),
-                        "rating": profile.get("rating"),
-                        "current_location": profile.get("current_location"),
-                        "distance_km": safe_float(candidate.get("distance_km"), 9999.0),
-                    }
-                )
-                if len(ordered) >= max(1, int(limit)):
-                    break
+                ordered_candidates.append({**profile, "distance_km": safe_float(candidate.get("distance_km"), 9999.0)})
+            ordered = await filter_matchable_drivers(ordered_candidates)
             if ordered:
                 return ordered
 
@@ -3340,7 +3368,6 @@ async def find_nearest_drivers_mongo_geo(
                 "spherical": True,
                 "maxDistance": max(1000, int(float(max_distance_km) * 1000)),
                 "query": {
-                    "is_online": True,
                     "is_available": True,
                     "kyc_status": KYCStatus.APPROVED,
                 },
@@ -3354,12 +3381,18 @@ async def find_nearest_drivers_mongo_geo(
                 "name": 1,
                 "rating": 1,
                 "current_location": 1,
+                "is_available": 1,
+                "last_location_at": 1,
+                "last_heartbeat_at": 1,
+                "last_online_at": 1,
+                "updated_at": 1,
                 "distance_km": {"$divide": ["$distance_meters", 1000]},
             }
         },
     ]
     try:
-        return await db.drivers.aggregate(pipeline).to_list(max(1, int(limit)))
+        candidates = await db.drivers.aggregate(pipeline).to_list(max(1, int(limit) * 3))
+        return await filter_matchable_drivers(candidates)
     except Exception:
         logger.exception("find_nearest_drivers_mongo_geo failed")
         return []
@@ -15492,6 +15525,37 @@ async def emit_to_user(user_id: str, event: str, data: dict):
         return
     await sio.emit(event, data, room=user_room(normalized_user_id))
 
+
+async def notify_driver_ride_request(driver_id: str, booking_id: Optional[str]) -> None:
+    normalized_driver_id = str(driver_id or "").strip()
+    normalized_booking_id = str(booking_id or "").strip()
+    if not normalized_driver_id or not normalized_booking_id:
+        return
+
+    existing = await db.notifications.find_one(
+        {
+            "user_id": normalized_driver_id,
+            "type": "ride_request",
+            "data.booking_id": normalized_booking_id,
+        },
+        {"_id": 1},
+    )
+    if existing:
+        return
+
+    await notify_user(
+        normalized_driver_id,
+        title="New ride request",
+        body="A passenger is requesting a ride near you.",
+        data={
+            "type": "ride_request",
+            "booking_id": normalized_booking_id,
+            "severity": "high",
+            "screen": "driver_requests",
+        },
+    )
+
+
 async def emit_new_booking_to_drivers(
     booking_id: Optional[str] = None,
     target_driver_ids: Optional[List[str]] = None,
@@ -15538,6 +15602,7 @@ async def emit_new_booking_to_drivers(
             },
             room=user_room(driver_id),
         )
+        await notify_driver_ride_request(driver_id, booking_id)
 
 
 async def ride_dispatch_worker():

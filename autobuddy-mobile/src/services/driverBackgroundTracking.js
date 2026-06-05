@@ -241,7 +241,7 @@ export async function startBackgroundDriverTracking({ token, activeRideId }) {
     showsBackgroundLocationIndicator: true,
     foregroundService: {
       notificationTitle: 'AutoBuddy live tracking',
-      notificationBody: 'Tracking driver location for active ride updates.',
+      notificationBody: 'Keeping driver availability and ride location updated.',
       killServiceOnDestroy: false,
     },
   });
