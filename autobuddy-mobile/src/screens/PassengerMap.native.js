@@ -1752,6 +1752,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           rental_hours: effectiveRideProduct === 'rental_hourly' ? rentalHours : undefined,
           safe_ride_priority: effectiveRideProduct === 'school_elderly_safe' ? safeRidePriority : undefined,
           vehicle_type_id: effectiveSelectedVehicleTypeId || undefined,
+          vehicle_subtype_id: selectedVehicleModel?.id || undefined,
           vehicle_model: selectedVehicleModel?.name || undefined,
           notes: rideNotes.length ? rideNotes.join(' | ') : undefined,
         },

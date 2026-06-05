@@ -2094,6 +2094,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           safe_ride_priority:
             effectiveRideProduct === 'school_elderly_safe' ? safeRidePriority : undefined,
           vehicle_type_id: effectiveSelectedVehicleTypeId || undefined,
+          vehicle_subtype_id: selectedVehicleModel?.id || undefined,
           vehicle_model: selectedVehicleModel?.name || undefined,
           notes: rideNotes.length > 0 ? rideNotes.join(' | ') : undefined,
         },
