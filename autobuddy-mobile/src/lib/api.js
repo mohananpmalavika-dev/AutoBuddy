@@ -279,6 +279,16 @@ function createRateLimitCooldownError(cooldownUntilMs) {
   return error;
 }
 
+function createBackendOutageError(cooldownUntilMs) {
+  const retryAfterMs = Math.max(0, cooldownUntilMs - Date.now());
+  const seconds = Math.max(1, Math.ceil(retryAfterMs / 1000));
+  const error = new Error(`Backend temporarily unavailable. Retrying automatically in ${seconds}s.`);
+  error.status = 503;
+  error.backendOutage = true;
+  error.retryAfterMs = retryAfterMs;
+  return error;
+}
+
 async function performRefreshAccessToken() {
   if (Date.now() < refreshRetryBlockedUntilMs) {
     await failRefreshWithoutClearingValidSession();
@@ -392,10 +402,7 @@ export async function apiRequest(path, options = {}, legacyPath = undefined, leg
     !normalizedPath.includes('/auth/login') &&
     !normalizedPath.includes('/auth/_legacy/login')
   ) {
-    const seconds = Math.max(1, Math.ceil((backendOutageUntilMs - nowMs) / 1000));
-    const fastFailError = new Error(`Backend temporarily unavailable. Retrying automatically in ${seconds}s.`);
-    fastFailError.status = 503;
-    throw fastFailError;
+    throw createBackendOutageError(backendOutageUntilMs);
   }
 
   const url = new URL(`${API_BASE_URL}${normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`}`);

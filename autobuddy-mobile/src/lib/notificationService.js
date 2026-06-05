@@ -13,6 +13,7 @@ let fallbackPollTimer = null;
 let pollInFlight = false;
 let pollingPausedUntilMs = 0;
 let consecutivePollingFailures = 0;
+let lastTransientNotificationLogAtMs = 0;
 let activeToken = null;
 let activeOnNotification = null;
 let socketConnected = false;
@@ -22,6 +23,7 @@ const POLLING_AUTH_RETRY_COOLDOWN_MS = 60000;
 const POLLING_AUTH_EXPIRED_COOLDOWN_MS = 5 * 60 * 1000;
 const POLLING_ERROR_BASE_BACKOFF_MS = 30000;
 const POLLING_ERROR_MAX_BACKOFF_MS = 5 * 60 * 1000;
+const TRANSIENT_NOTIFICATION_LOG_COOLDOWN_MS = 60000;
 const USER_NOTIFICATIONS_PATH = '/users/notifications';
 
 function clearFallbackPollTimer() {
@@ -62,6 +64,48 @@ function getPollingErrorBackoffMs() {
 
 function getErrorCode(error) {
   return String(error?.code || '').toUpperCase();
+}
+
+function isTransientBackendError(error) {
+  const status = Number(error?.status || 0);
+  return Boolean(
+    error?.backendOutage ||
+      error?.rateLimitCooldown ||
+      status === 429 ||
+      status >= 500 ||
+      status === 0,
+  );
+}
+
+function getRetryAfterMs(error, fallbackMs = 0) {
+  const retryAfterMs = Number(error?.retryAfterMs);
+  if (Number.isFinite(retryAfterMs) && retryAfterMs > 0) {
+    return retryAfterMs;
+  }
+  return fallbackMs;
+}
+
+function formatRetryDelay(ms) {
+  const seconds = Math.max(1, Math.ceil(ms / 1000));
+  return `${seconds}s`;
+}
+
+function logTransientNotificationDelay(label, error, fallbackRetryMs = 0) {
+  const now = Date.now();
+  if (now - lastTransientNotificationLogAtMs < TRANSIENT_NOTIFICATION_LOG_COOLDOWN_MS) {
+    return;
+  }
+
+  lastTransientNotificationLogAtMs = now;
+  const status = Number(error?.status || 0);
+  const retryAfterMs = getRetryAfterMs(error, fallbackRetryMs);
+  const retryText = retryAfterMs > 0 ? ` Retrying automatically in ${formatRetryDelay(retryAfterMs)}.` : '';
+  const reason =
+    status === 429 || error?.rateLimitCooldown
+      ? 'server rate limiting'
+      : 'temporary backend availability';
+
+  console.warn(`${label} delayed due to ${reason}.${retryText}`);
 }
 
 export const notificationService = {
@@ -292,7 +336,11 @@ export const notificationService = {
         pausePollingFor(getPollingErrorBackoffMs());
       }
 
-      console.warn('Notification polling error:', error);
+      if (isTransientBackendError(error)) {
+        logTransientNotificationDelay('Notification polling', error, getPollingErrorBackoffMs());
+      } else {
+        console.warn('Notification polling error:', error);
+      }
     } finally {
       pollInFlight = false;
     }
@@ -316,6 +364,8 @@ export const notificationService = {
       const code = getErrorCode(error);
       if (code === 'AUTH_RETRY_REQUIRED' || error?.sessionPreserved) {
         console.warn('Notifications unavailable while login is being rechecked.');
+      } else if (isTransientBackendError(error)) {
+        logTransientNotificationDelay('Notifications', error, FALLBACK_POLL_DELAY_MS);
       } else {
         console.error('Error fetching notifications:', error);
       }
