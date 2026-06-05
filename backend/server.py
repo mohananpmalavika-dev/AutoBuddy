@@ -14984,16 +14984,36 @@ def calculate_eta_minutes(
 def _extract_socket_token(environ: Dict[str, Any], auth: Optional[Dict[str, Any]]) -> Optional[str]:
     token = None
     if isinstance(auth, dict):
-        token = auth.get("token")
+        token = (
+            auth.get("token")
+            or auth.get("access_token")
+            or auth.get("accessToken")
+            or auth.get("authorization")
+        )
+    elif isinstance(auth, str):
+        token = auth
+    if token and str(token).strip().lower().startswith("bearer "):
+        token = str(token).strip()[7:]
     if token:
         return str(token).strip()
+    auth_header = str((environ or {}).get("HTTP_AUTHORIZATION") or "").strip()
+    if auth_header.lower().startswith("bearer "):
+        return auth_header[7:].strip()
     query_string = str((environ or {}).get("QUERY_STRING") or "")
     if query_string:
         params = parse_qs(query_string, keep_blank_values=False)
-        query_token = (params.get("token") or [None])[0]
+        query_token = (params.get("token") or params.get("access_token") or [None])[0]
         if query_token:
             return str(query_token).strip()
     return None
+
+
+def _normalize_socket_role(raw_role: Any) -> str:
+    role = getattr(raw_role, "value", raw_role)
+    normalized = str(role or "").strip().lower()
+    if "." in normalized:
+        normalized = normalized.split(".")[-1]
+    return normalized
 
 async def _bind_socket_user(sid: str, user_id: str, role: Optional[str]) -> None:
     user_id = str(user_id or "").strip()
@@ -15021,15 +15041,40 @@ async def get_socket_session_user(sid: str) -> Optional[Dict[str, str]]:
 async def get_user_from_socket(environ: Dict[str, Any], auth: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     token = _extract_socket_token(environ or {}, auth or {})
     if not token:
+        logger.warning("Socket auth rejected: missing token")
         return None
     try:
         payload = decode_token(token)
-    except Exception:
+    except HTTPException as exc:
+        logger.warning("Socket auth rejected: %s", exc.detail)
         return None
-    user_id = str(payload.get("sub") or payload.get("id") or "").strip()
+    except Exception as exc:
+        logger.warning("Socket auth rejected: token decode failed: %s", exc)
+        return None
+    user_id = str(payload.get("sub") or payload.get("id") or payload.get("user_id") or "").strip()
     if not user_id:
+        logger.warning("Socket auth rejected: token missing subject")
         return None
-    return await db.users.find_one({"id": user_id}, {"_id": 0})
+    token_user = {"id": user_id, "role": _normalize_socket_role(payload.get("role")) or UserRole.PASSENGER.value}
+    if db is None:
+        logger.warning("Socket auth using token subject because primary DB is unavailable")
+        return token_user
+    try:
+        user = await db.users.find_one(
+            {"$or": [{"id": user_id}, {"user_id": user_id}]},
+            {"_id": 0},
+        )
+    except Exception as exc:
+        logger.warning("Socket auth user lookup failed; using token subject: %s", exc)
+        return token_user
+    if user:
+        if str(user.get("status") or "").strip().lower() == "blocked":
+            logger.warning("Socket auth rejected: blocked user_id=%s", user_id)
+            return None
+        user["role"] = _normalize_socket_role(user.get("role")) or token_user["role"]
+        return user
+    logger.warning("Socket auth token valid but user not found; using token subject user_id=%s", user_id)
+    return token_user
 
 
 async def emit_driver_connection_state(
