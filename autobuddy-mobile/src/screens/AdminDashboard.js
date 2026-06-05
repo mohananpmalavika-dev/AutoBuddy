@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 
@@ -387,6 +388,8 @@ function serializeDistrictRulesText(ruleMap) {
 }
 
 export default function AdminDashboard({ token, user, onLogout }) {
+  const { width } = useWindowDimensions();
+  const isCompactWeb = Platform.OS === 'web' && width < 640;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -1802,18 +1805,23 @@ export default function AdminDashboard({ token, user, onLogout }) {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      <ScrollView style={[styles.container, isCompactWeb && styles.containerCompact]} showsVerticalScrollIndicator={false}>
         <WebCommandBar />
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.headerTitle}>Admin Control</Text>
-            <Text style={styles.headerSub}>Welcome, {user?.name || 'Admin'}</Text>
+        <View style={[styles.header, isCompactWeb && styles.headerCompact]}>
+          <View style={isCompactWeb && styles.headerCopyCompact}>
+            <Text style={[styles.headerTitle, isCompactWeb && styles.headerTitleCompact]}>Admin Control</Text>
+            <Text style={[styles.headerSub, isCompactWeb && styles.headerSubCompact]}>
+              Welcome, {user?.name || 'Admin'}
+            </Text>
           </View>
-          <View style={styles.headerActions}>
-            <TouchableOpacity style={styles.headerBtn} onPress={refreshAdminData} disabled={loading}>
+          <View style={[styles.headerActions, isCompactWeb && styles.headerActionsCompact]}>
+            <TouchableOpacity
+              style={[styles.headerBtn, isCompactWeb && styles.headerBtnCompact]}
+              onPress={refreshAdminData}
+              disabled={loading}>
               <Text style={styles.headerBtnText}>Refresh</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.headerBtn} onPress={onLogout}>
+            <TouchableOpacity style={[styles.headerBtn, isCompactWeb && styles.headerBtnCompact]} onPress={onLogout}>
               <Text style={styles.headerBtnText}>Logout</Text>
             </TouchableOpacity>
           </View>
@@ -1823,11 +1831,12 @@ export default function AdminDashboard({ token, user, onLogout }) {
         {!!message && <Text style={styles.message}>{message}</Text>}
         {loading && <ActivityIndicator color={COLORS.primary} style={styles.loader} />}
 
-        <View style={styles.dashboardTopRow}>
+        <View style={[styles.dashboardTopRow, isCompactWeb && styles.dashboardTopRowCompact]}>
           <TouchableOpacity
             style={[
               styles.primaryMenuButton,
               activeAdminMenu === PRIMARY_ADMIN_MENU_KEY && styles.primaryMenuButtonActive,
+              isCompactWeb && styles.primaryMenuButtonCompact,
             ]}
             onPress={() => {
               setActiveAdminMenu(PRIMARY_ADMIN_MENU_KEY);
@@ -1836,7 +1845,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
             <Text style={styles.primaryMenuButtonText}>Overview</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={styles.menuToggleButton}
+            style={[styles.menuToggleButton, isCompactWeb && styles.menuToggleButtonCompact]}
             onPress={() => setShowAdminMenus((prev) => !prev)}>
             <Text style={styles.menuToggleButtonText}>{showAdminMenus ? 'Hide Menus' : 'Other Menus'}</Text>
           </TouchableOpacity>
@@ -1865,12 +1874,12 @@ export default function AdminDashboard({ token, user, onLogout }) {
         )}
 
         {activeAdminMenu !== PRIMARY_ADMIN_MENU_KEY && (
-          <View style={styles.activeMenuInfoRow}>
+          <View style={[styles.activeMenuInfoRow, isCompactWeb && styles.activeMenuInfoRowCompact]}>
             <Text style={styles.activeMenuInfoText}>
               {ADMIN_MENU_OPTIONS.find((menu) => menu.key === activeAdminMenu)?.label || 'Menu'}
             </Text>
             <TouchableOpacity
-              style={styles.menuToggleButton}
+              style={[styles.menuToggleButton, isCompactWeb && styles.menuToggleButtonCompact]}
               onPress={() => {
                 setActiveAdminMenu(PRIMARY_ADMIN_MENU_KEY);
                 setShowAdminMenus(false);
@@ -3452,15 +3461,25 @@ export default function AdminDashboard({ token, user, onLogout }) {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.background },
   container: { flex: 1, padding: 18 },
+  containerCompact: { padding: 10 },
   header: {
     marginBottom: 16,
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: 10,
   },
+  headerCompact: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    marginBottom: 12,
+  },
+  headerCopyCompact: { width: '100%' },
   headerTitle: { fontSize: 30, fontWeight: '900', color: COLORS.textMain },
+  headerTitleCompact: { fontSize: 24, lineHeight: 29 },
   headerSub: { fontSize: 15, color: COLORS.textMuted },
+  headerSubCompact: { fontSize: 13, lineHeight: 18 },
   headerActions: { flexDirection: 'row', gap: 8 },
+  headerActionsCompact: { width: '100%' },
   headerBtn: {
     alignSelf: 'flex-start',
     backgroundColor: '#F8FBF9',
@@ -3470,6 +3489,11 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 12,
     ...SHADOWS.soft,
+  },
+  headerBtnCompact: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 9,
   },
   headerBtnText: { color: COLORS.textMain, fontWeight: '700' },
   error: { color: COLORS.danger, marginBottom: 10 },
@@ -3485,6 +3509,7 @@ const styles = StyleSheet.create({
   menuBar: { marginBottom: 14 },
   menuBarContent: { gap: 8, paddingRight: 10 },
   dashboardTopRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
+  dashboardTopRowCompact: { flexDirection: 'column' },
   primaryMenuButton: {
     flex: 1,
     borderWidth: 1,
@@ -3495,6 +3520,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     ...SHADOWS.soft,
   },
+  primaryMenuButtonCompact: { width: '100%' },
   primaryMenuButtonActive: {
     borderColor: '#1B5E20',
     backgroundColor: '#D5ECD8',
@@ -3508,6 +3534,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
   },
+  menuToggleButtonCompact: {
+    alignItems: 'center',
+    width: '100%',
+  },
   menuToggleButtonText: { color: '#355243', fontWeight: '700' },
   activeMenuInfoRow: {
     flexDirection: 'row',
@@ -3515,6 +3545,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     marginBottom: 12,
+  },
+  activeMenuInfoRowCompact: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
   },
   activeMenuInfoText: { color: '#1E3126', fontWeight: '800', fontSize: 14 },
   menuChip: {
