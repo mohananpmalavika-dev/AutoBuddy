@@ -7,9 +7,62 @@ import { createAutoBuddySocket } from './socket';
  */
 
 let notificationSocket = null;
+let notificationSocketHandlers = [];
 let pollingInterval = null;
-const POLLING_INTERVAL = 10000; // 10 seconds fallback
+let fallbackPollTimer = null;
+let pollInFlight = false;
+let pollingPausedUntilMs = 0;
+let consecutivePollingFailures = 0;
+let activeToken = null;
+let activeOnNotification = null;
+let socketConnected = false;
+const POLLING_INTERVAL = 60000; // fallback only; WebSocket is preferred
+const FALLBACK_POLL_DELAY_MS = 15000;
+const POLLING_AUTH_RETRY_COOLDOWN_MS = 60000;
+const POLLING_AUTH_EXPIRED_COOLDOWN_MS = 5 * 60 * 1000;
+const POLLING_ERROR_BASE_BACKOFF_MS = 30000;
+const POLLING_ERROR_MAX_BACKOFF_MS = 5 * 60 * 1000;
 const USER_NOTIFICATIONS_PATH = '/users/notifications';
+
+function clearFallbackPollTimer() {
+  if (fallbackPollTimer) {
+    clearTimeout(fallbackPollTimer);
+    fallbackPollTimer = null;
+  }
+}
+
+function bindSocketHandler(eventName, handler) {
+  if (!notificationSocket) {
+    return;
+  }
+  notificationSocket.on(eventName, handler);
+  notificationSocketHandlers.push([eventName, handler]);
+}
+
+function unbindSocketHandlers() {
+  if (!notificationSocket || notificationSocketHandlers.length === 0) {
+    notificationSocketHandlers = [];
+    return;
+  }
+
+  notificationSocketHandlers.forEach(([eventName, handler]) => {
+    notificationSocket.off(eventName, handler);
+  });
+  notificationSocketHandlers = [];
+}
+
+function pausePollingFor(ms) {
+  pollingPausedUntilMs = Math.max(pollingPausedUntilMs, Date.now() + ms);
+}
+
+function getPollingErrorBackoffMs() {
+  const multiplier = Math.max(1, consecutivePollingFailures);
+  return Math.min(POLLING_ERROR_MAX_BACKOFF_MS, POLLING_ERROR_BASE_BACKOFF_MS * multiplier);
+}
+
+function getErrorCode(error) {
+  return String(error?.code || '').toUpperCase();
+}
 
 export const notificationService = {
   /**
@@ -20,16 +73,24 @@ export const notificationService = {
    */
   async initialize(token, onNotification) {
     try {
-      if (notificationSocket) {
-        notificationSocket.disconnect();
-        notificationSocket = null;
+      if (!token) {
+        this.cleanup();
+        return;
       }
+
+      if (activeToken === token && activeOnNotification === onNotification && (notificationSocket || pollingInterval)) {
+        return;
+      }
+
+      this.cleanup();
+      activeToken = token;
+      activeOnNotification = onNotification;
 
       // Try WebSocket first (real-time)
       this.setupWebSocket(token, onNotification);
 
-      // Also start polling as fallback
-      this.startPolling(token, onNotification);
+      // Poll only if the socket cannot connect quickly enough.
+      this.scheduleFallbackPolling(token, onNotification);
 
       console.log('Notification service initialized');
     } catch (error) {
@@ -53,11 +114,11 @@ export const notificationService = {
         }
       };
 
-      notificationSocket.on('notification', handleSocketNotification);
-      notificationSocket.on('in_app_notification', handleSocketNotification);
+      bindSocketHandler('notification', handleSocketNotification);
+      bindSocketHandler('in_app_notification', handleSocketNotification);
 
-      notificationSocket.on('booking_accepted', (data) => {
-        onNotification({
+      bindSocketHandler('booking_accepted', (data) => {
+        onNotification?.({
           type: 'booking_accepted',
           title: 'Driver Accepted',
           body: `${data.driver_name} accepted your ride`,
@@ -68,8 +129,8 @@ export const notificationService = {
         });
       });
 
-      notificationSocket.on('driver_arrived', (data) => {
-        onNotification({
+      bindSocketHandler('driver_arrived', (data) => {
+        onNotification?.({
           type: 'driver_arrived',
           title: 'Driver Arrived',
           body: `${data.driver_name} has arrived at pickup`,
@@ -80,8 +141,8 @@ export const notificationService = {
         });
       });
 
-      notificationSocket.on('trip_started', (data) => {
-        onNotification({
+      bindSocketHandler('trip_started', (data) => {
+        onNotification?.({
           type: 'trip_started',
           title: 'Trip Started',
           body: 'Your ride has started',
@@ -91,8 +152,8 @@ export const notificationService = {
         });
       });
 
-      notificationSocket.on('trip_completed', (data) => {
-        onNotification({
+      bindSocketHandler('trip_completed', (data) => {
+        onNotification?.({
           type: 'trip_completed',
           title: 'Trip Completed',
           body: `Fare: Rs. ${data.fare}. Please rate your driver.`,
@@ -103,8 +164,8 @@ export const notificationService = {
         });
       });
 
-      notificationSocket.on('driver_cancelled', (data) => {
-        onNotification({
+      bindSocketHandler('driver_cancelled', (data) => {
+        onNotification?.({
           type: 'driver_cancelled',
           title: 'Ride Cancelled',
           body: `Driver ${data.driver_name} cancelled the ride`,
@@ -114,57 +175,127 @@ export const notificationService = {
         });
       });
 
-      notificationSocket.on('connect', () => {
+      bindSocketHandler('connect', () => {
+        socketConnected = true;
+        consecutivePollingFailures = 0;
+        pollingPausedUntilMs = 0;
+        clearFallbackPollTimer();
+        this.stopPolling();
         console.log('WebSocket connected for notifications');
       });
 
-      notificationSocket.on('connect_error', (error) => {
+      bindSocketHandler('connect_error', (error) => {
+        socketConnected = false;
         console.error('WebSocket connect_error:', error);
+        this.scheduleFallbackPolling(token, onNotification);
       });
 
-      notificationSocket.on('connect_timeout', () => {
+      bindSocketHandler('connect_timeout', () => {
+        socketConnected = false;
         console.error('WebSocket connect_timeout');
+        this.scheduleFallbackPolling(token, onNotification);
       });
 
-      notificationSocket.on('disconnect', (reason) => {
+      bindSocketHandler('disconnect', (reason) => {
+        socketConnected = false;
         console.warn('WebSocket disconnected:', reason);
+        if (reason !== 'io client disconnect') {
+          this.scheduleFallbackPolling(token, onNotification);
+        }
       });
 
-      notificationSocket.on('error', (error) => {
+      bindSocketHandler('error', (error) => {
         console.error('WebSocket error:', error);
         // Continue with polling fallback
+        this.scheduleFallbackPolling(token, onNotification);
       });
     } catch (error) {
       console.warn('WebSocket setup failed, using polling:', error);
+      socketConnected = false;
+      this.scheduleFallbackPolling(token, onNotification);
     }
+  },
+
+  scheduleFallbackPolling(token, onNotification) {
+    if (!token || socketConnected || pollingInterval || fallbackPollTimer) {
+      return;
+    }
+
+    fallbackPollTimer = setTimeout(() => {
+      fallbackPollTimer = null;
+      if (!socketConnected) {
+        this.startPolling(token, onNotification);
+      }
+    }, FALLBACK_POLL_DELAY_MS);
   },
 
   /**
    * Start polling for notifications (fallback)
    */
   startPolling(token, onNotification) {
-    if (pollingInterval) {
-      clearInterval(pollingInterval);
+    if (!token) {
+      return;
     }
 
-    pollingInterval = setInterval(async () => {
-      try {
-        const response = await apiRequest(USER_NOTIFICATIONS_PATH, {
-          token,
-          query: { unread_only: true, limit: 40 },
-        });
+    if (pollingInterval) {
+      return;
+    }
 
-        if (Array.isArray(response)) {
-          response.forEach((notif) => {
-            if (typeof onNotification === 'function') {
-              onNotification(notif);
-            }
-          });
-        }
-      } catch (error) {
-        console.warn('Notification polling error:', error);
-      }
+    this.pollOnce(token, onNotification);
+    pollingInterval = setInterval(() => {
+      this.pollOnce(token, onNotification);
     }, POLLING_INTERVAL);
+  },
+
+  stopPolling() {
+    if (pollingInterval) {
+      clearInterval(pollingInterval);
+      pollingInterval = null;
+    }
+  },
+
+  async pollOnce(token, onNotification) {
+    if (pollInFlight || !token || Date.now() < pollingPausedUntilMs) {
+      return;
+    }
+
+    pollInFlight = true;
+    try {
+      const response = await apiRequest(USER_NOTIFICATIONS_PATH, {
+        token,
+        query: { unread_only: true, limit: 40 },
+      });
+
+      consecutivePollingFailures = 0;
+      pollingPausedUntilMs = 0;
+
+      if (Array.isArray(response)) {
+        response.forEach((notif) => {
+          if (typeof onNotification === 'function') {
+            onNotification(notif);
+          }
+        });
+      }
+    } catch (error) {
+      consecutivePollingFailures += 1;
+      const status = Number(error?.status || 0);
+      const code = getErrorCode(error);
+
+      if (code === 'AUTH_RETRY_REQUIRED' || error?.sessionPreserved) {
+        pausePollingFor(POLLING_AUTH_RETRY_COOLDOWN_MS);
+      } else if (code === 'AUTH_EXPIRED' || status === 401 || status === 403) {
+        pausePollingFor(POLLING_AUTH_EXPIRED_COOLDOWN_MS);
+        this.stopPolling();
+        console.warn('Notification polling paused until the user signs in again.');
+        return;
+      } else if (status === 429 || status >= 500 || status === 0) {
+        pausePollingFor(getPollingErrorBackoffMs());
+      }
+
+      console.warn('Notification polling error:', error);
+    } finally {
+      pollInFlight = false;
+    }
   },
 
   /**
@@ -182,7 +313,12 @@ export const notificationService = {
       });
       return Array.isArray(response) ? response : [];
     } catch (error) {
-      console.error('Error fetching notifications:', error);
+      const code = getErrorCode(error);
+      if (code === 'AUTH_RETRY_REQUIRED' || error?.sessionPreserved) {
+        console.warn('Notifications unavailable while login is being rechecked.');
+      } else {
+        console.error('Error fetching notifications:', error);
+      }
       return [];
     }
   },
@@ -255,14 +391,19 @@ export const notificationService = {
    * Cleanup notification service
    */
   cleanup() {
-    if (pollingInterval) {
-      clearInterval(pollingInterval);
-      pollingInterval = null;
-    }
+    clearFallbackPollTimer();
+    this.stopPolling();
+    unbindSocketHandlers();
     if (notificationSocket) {
       notificationSocket.disconnect();
       notificationSocket = null;
     }
+    pollInFlight = false;
+    pollingPausedUntilMs = 0;
+    consecutivePollingFailures = 0;
+    activeToken = null;
+    activeOnNotification = null;
+    socketConnected = false;
     console.log('Notification service cleaned up');
   },
 };

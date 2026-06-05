@@ -64,7 +64,7 @@ import SubscriptionPanel from '../components/SubscriptionPanel';
 import RideNotesPanel from '../components/RideNotesPanel';
 import LocationSharingPanel from '../components/LocationSharingPanel';
 import RideStatsPanel from '../components/RideStatsPanel';
-import { NotificationProvider, useNotifications } from '../contexts/NotificationContext';
+import { useNotifications } from '../contexts/NotificationContext';
 import { useNotificationManager } from '../hooks/useNotificationManager';
 import { useVehicleTypes } from '../hooks/useVehicleTypes';
 import { useKeralaSafety } from '../hooks/useKeralaSafety';
@@ -4638,9 +4638,5 @@ const styles = StyleSheet.create({
  * Wrapper component that provides NotificationContext to PassengerMapContent
  */
 export default function PassengerMap(props) {
-  return (
-    <NotificationProvider>
-      <PassengerMapContent {...props} />
-    </NotificationProvider>
-  );
+  return <PassengerMapContent {...props} />;
 }

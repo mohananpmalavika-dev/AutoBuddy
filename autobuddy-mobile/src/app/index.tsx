@@ -37,6 +37,10 @@ const WEB_ALERTS_ENABLED_KEY = 'autobuddy_web_alerts_enabled_v1';
 const WEB_SEEN_NOTIFICATION_KEY_PREFIX = 'autobuddy_seen_notifications_v1_';
 const WEB_APP_UPDATE_CHECK_MS = 60 * 1000;
 const WEB_APP_UPDATE_RELOAD_KEY = 'autobuddy_last_update_reload_at';
+const WEB_NOTIFICATION_POLL_MS = 60 * 1000;
+const WEB_NOTIFICATION_AUTH_RETRY_COOLDOWN_MS = 60 * 1000;
+const WEB_NOTIFICATION_AUTH_EXPIRED_COOLDOWN_MS = 5 * 60 * 1000;
+const WEB_NOTIFICATION_ERROR_COOLDOWN_MS = 2 * 60 * 1000;
 
 function extractWebBundleIds(source: string): string[] {
   return Array.from(new Set(source.match(/entry-[a-f0-9][^"']*\.js/g) || []));
@@ -95,6 +99,7 @@ export default function HomeScreen() {
   const swRegistrationRef = useRef<ServiceWorkerRegistration | null>(null);
   const seededNotificationsRef = useRef(false);
   const seenNotificationIdsRef = useRef<Set<string>>(new Set());
+  const webNotificationPollPausedUntilRef = useRef(0);
 
   const isStandaloneInstalled = useCallback(() => {
     if (!isWeb || typeof window === 'undefined') {
@@ -426,7 +431,12 @@ export default function HomeScreen() {
   }, [session]);
 
   useEffect(() => {
-    if (!isWeb || typeof window === 'undefined' || !session?.token) {
+    if (
+      !isWeb ||
+      typeof window === 'undefined' ||
+      !session?.token ||
+      notificationPermission !== 'granted'
+    ) {
       seededNotificationsRef.current = false;
       seenNotificationIdsRef.current.clear();
       return;
@@ -467,14 +477,20 @@ export default function HomeScreen() {
     };
 
     const pollNotifications = async () => {
+      if (Date.now() < webNotificationPollPausedUntilRef.current) {
+        return;
+      }
+
       try {
         const rows = await apiRequest<Record<string, unknown>[]>('/users/notifications', {
           token: session.token,
           timeoutMs: 10000,
+          query: { unread_only: true, limit: 40 },
         });
         if (stopped || !Array.isArray(rows)) {
           return;
         }
+        webNotificationPollPausedUntilRef.current = 0;
 
         const normalized: ApiNotification[] = rows
           .map((item) => ({
@@ -505,21 +521,30 @@ export default function HomeScreen() {
         if (incoming.length > 0) {
           persistSeenIds();
         }
-      } catch {
-        // Keep silent polling.
+      } catch (err: unknown) {
+        const apiError = err as { status?: number; code?: string; sessionPreserved?: boolean };
+        const status = Number(apiError?.status || 0);
+        const code = String(apiError?.code || '').toUpperCase();
+        if (code === 'AUTH_RETRY_REQUIRED' || apiError?.sessionPreserved) {
+          webNotificationPollPausedUntilRef.current = Date.now() + WEB_NOTIFICATION_AUTH_RETRY_COOLDOWN_MS;
+        } else if (code === 'AUTH_EXPIRED' || status === 401 || status === 403) {
+          webNotificationPollPausedUntilRef.current = Date.now() + WEB_NOTIFICATION_AUTH_EXPIRED_COOLDOWN_MS;
+        } else if (status === 429 || status >= 500 || status === 0) {
+          webNotificationPollPausedUntilRef.current = Date.now() + WEB_NOTIFICATION_ERROR_COOLDOWN_MS;
+        }
       }
     };
 
     void pollNotifications();
     const timer = window.setInterval(() => {
       void pollNotifications();
-    }, 15000);
+    }, WEB_NOTIFICATION_POLL_MS);
 
     return () => {
       stopped = true;
       window.clearInterval(timer);
     };
-  }, [isWeb, session, showSystemNotification]);
+  }, [isWeb, notificationPermission, session, showSystemNotification]);
 
   const handlePlanSelection = useCallback(
     async (planType: PlanOption['planType']) => {

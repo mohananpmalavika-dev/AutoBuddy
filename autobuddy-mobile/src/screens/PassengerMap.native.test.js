@@ -3,6 +3,7 @@ import { fireEvent, render, waitFor } from '@testing-library/react-native';
 
 import PassengerMap from './PassengerMap.native';
 import { apiRequest } from '../lib/api';
+import { NotificationProvider } from '../contexts/NotificationContext';
 
 function mockPanel(label) {
   const ReactNative = require('react-native');
@@ -90,6 +91,14 @@ jest.mock('../components/PassengerDocumentsPanel', () => mockPanel('PassengerDoc
 jest.mock('../components/ReceiptsPanel', () => mockPanel('ReceiptsPanel'));
 jest.mock('../components/SubscriptionPanel', () => mockPanel('SubscriptionPanel'));
 
+function renderPassengerMap(props) {
+  return render(
+    <NotificationProvider>
+      <PassengerMap {...props} />
+    </NotificationProvider>,
+  );
+}
+
 describe('PassengerMap native menu flow', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -127,13 +136,11 @@ describe('PassengerMap native menu flow', () => {
   });
 
   it('opens secondary menus and switches to spin and notifications tabs', async () => {
-    const { getAllByText, getByText, queryByText } = render(
-      <PassengerMap
-        token="token-1"
-        user={{ id: 'passenger-1', name: 'Alex' }}
-        onLogout={() => {}}
-      />,
-    );
+    const { getAllByText, getByText, queryByText } = renderPassengerMap({
+      token: 'token-1',
+      user: { id: 'passenger-1', name: 'Alex' },
+      onLogout: () => {},
+    });
 
     await waitFor(() => expect(getByText('Ride Flow')).toBeTruthy());
 
@@ -188,13 +195,11 @@ describe('PassengerMap native menu flow', () => {
       return [];
     });
 
-    const { getByText } = render(
-      <PassengerMap
-        token="token-1"
-        user={{ id: 'passenger-1', name: 'Alex' }}
-        onLogout={() => {}}
-      />,
-    );
+    const { getByText } = renderPassengerMap({
+      token: 'token-1',
+      user: { id: 'passenger-1', name: 'Alex' },
+      onLogout: () => {},
+    });
 
     await waitFor(() => expect(getByText('Live Ride')).toBeTruthy());
 

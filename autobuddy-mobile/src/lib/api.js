@@ -67,8 +67,12 @@ export const API_BASE_URL =
 
 let backendOutageUntilMs = 0;
 let consecutiveServerErrors = 0;
+let refreshInFlightPromise = null;
+let refreshRetryBlockedUntilMs = 0;
 const SERVER_ERROR_THRESHOLD = 3;
 const OUTAGE_COOLDOWN_MS = 15000;
+const REFRESH_FAILURE_COOLDOWN_MS = 60000;
+const REFRESH_RATE_LIMIT_COOLDOWN_MS = 120000;
 const HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
 const SESSION_EXPIRED_MESSAGE = 'Session expired. Please log in again.';
 const SESSION_RECONNECT_MESSAGE = 'Could not confirm your login right now. Keeping your session active.';
@@ -114,9 +118,9 @@ async function shouldPreserveStoredSession() {
   return Boolean(legacy?.token);
 }
 
-async function failRefreshWithoutClearingValidSession() {
+async function failRefreshWithoutClearingValidSession(message = SESSION_RECONNECT_MESSAGE) {
   if (await shouldPreserveStoredSession()) {
-    throw createAuthRetryError();
+    throw createAuthRetryError(message);
   }
 
   await clearAllSessions();
@@ -210,30 +214,97 @@ function extractErrorMessage(data, status) {
   return `Request failed (${status})`;
 }
 
-export async function refreshAccessToken() {
+async function readResponsePayload(response) {
+  const raw = await response.text();
+  if (!raw) {
+    return null;
+  }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw;
+  }
+}
+
+function getRefreshCooldownMs(status) {
+  if (status === 429) {
+    return REFRESH_RATE_LIMIT_COOLDOWN_MS;
+  }
+  if (status >= 500 || status === 0) {
+    return REFRESH_FAILURE_COOLDOWN_MS;
+  }
+  return 30000;
+}
+
+function pauseRefreshRetries(status) {
+  refreshRetryBlockedUntilMs = Math.max(
+    refreshRetryBlockedUntilMs,
+    Date.now() + getRefreshCooldownMs(Number(status || 0)),
+  );
+}
+
+async function performRefreshAccessToken() {
+  if (Date.now() < refreshRetryBlockedUntilMs) {
+    await failRefreshWithoutClearingValidSession();
+  }
+
   const session = await loadBestSession();
   if (!session?.refresh_token) {
+    pauseRefreshRetries(0);
     await failRefreshWithoutClearingValidSession();
   }
-  const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
-    method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ refresh_token: session.refresh_token }),
-  });
+
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ refresh_token: session.refresh_token }),
+    });
+  } catch {
+    pauseRefreshRetries(0);
+    await failRefreshWithoutClearingValidSession();
+  }
+
+  const payload = await readResponsePayload(response);
   if (!response.ok) {
+    const message = extractErrorMessage(payload, response.status);
+    if (response.status === 401 || response.status === 403) {
+      refreshRetryBlockedUntilMs = 0;
+      await clearAllSessions();
+      throw createAuthExpiredError(message);
+    }
+    if (response.status >= 500) {
+      backendOutageUntilMs = Math.max(backendOutageUntilMs, Date.now() + OUTAGE_COOLDOWN_MS);
+    }
+    pauseRefreshRetries(response.status);
+    await failRefreshWithoutClearingValidSession(message || SESSION_RECONNECT_MESSAGE);
+  }
+  if (!payload?.access_token) {
+    pauseRefreshRetries(0);
     await failRefreshWithoutClearingValidSession();
   }
-  const payload = await response.json();
   const nextSession = {
     ...session,
     token: payload.access_token,
     refresh_token: payload.refresh_token || session.refresh_token,
   };
   await saveAllSessions(nextSession);
+  refreshRetryBlockedUntilMs = 0;
   return payload.access_token;
+}
+
+export async function refreshAccessToken() {
+  if (!refreshInFlightPromise) {
+    refreshInFlightPromise = performRefreshAccessToken().finally(() => {
+      refreshInFlightPromise = null;
+    });
+  }
+
+  return refreshInFlightPromise;
 }
 
 export async function apiRequest(path, options = {}, legacyPath = undefined, legacyBody = undefined) {

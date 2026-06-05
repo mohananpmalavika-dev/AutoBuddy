@@ -47,6 +47,18 @@ function normalizeSettings(settings = {}) {
   };
 }
 
+function settingsSignature(settings = {}) {
+  const source = settings && typeof settings === 'object' ? settings : {};
+  return JSON.stringify(
+    Object.keys(source)
+      .sort()
+      .reduce((acc, key) => {
+        acc[key] = source[key];
+        return acc;
+      }, {}),
+  );
+}
+
 function parseTimeToMinutes(value) {
   const match = /^(\d{1,2}):(\d{2})$/.exec(String(value || '').trim());
   if (!match) {
@@ -164,6 +176,9 @@ export function useNotificationManager(token, userId, notificationSettings = EMP
   const { addNotification, setIsInitialized } = useNotifications();
   const initializingRef = useRef(false);
   const settings = useMemo(() => normalizeSettings(notificationSettings), [notificationSettings]);
+  const settingsKey = useMemo(() => settingsSignature(settings), [settings]);
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
 
   useEffect(() => {
     if (!token || !userId || initializingRef.current) {
@@ -171,7 +186,7 @@ export function useNotificationManager(token, userId, notificationSettings = EMP
     }
 
     initializingRef.current = true;
-    const activeSettings = settings;
+    const activeSettings = settingsRef.current;
 
     const handleIncomingNotification = (notificationData) => {
       const safeNotification =
@@ -296,7 +311,7 @@ export function useNotificationManager(token, userId, notificationSettings = EMP
     userId,
     addNotification,
     setIsInitialized,
-    settings,
+    settingsKey,
   ]);
 
   return { initialized: true };
