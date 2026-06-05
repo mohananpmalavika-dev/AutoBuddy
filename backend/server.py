@@ -280,7 +280,7 @@ LOGIN_THROTTLE_MAX_ATTEMPTS = settings.login_throttle_max_attempts
 OTP_EXPIRY_MINUTES = settings.otp_expiry_minutes
 OTP_RESEND_COOLDOWN_SECONDS = settings.otp_resend_cooldown_seconds
 PASSENGER_KYC_REQUIRED_FOR_BOOKING = (
-    os.environ.get("PASSENGER_KYC_REQUIRED_FOR_BOOKING", "true").strip().lower()
+    os.environ.get("PASSENGER_KYC_REQUIRED_FOR_BOOKING", "false").strip().lower()
     not in {"0", "false", "no", "off"}
 )
 GOOGLE_OAUTH_CLIENT_ID = os.environ.get(
@@ -1646,8 +1646,36 @@ class PassengerProfilePreferencesUpdate(BaseModel):
 
 class PassengerKYCVerifyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-    document_type: Literal["aadhar", "pan", "license", "passport"]
+    document_type: str = Field(min_length=2, max_length=40)
     document_number: str = Field(min_length=4, max_length=40)
+
+    @field_validator("document_type", mode="before")
+    @classmethod
+    def normalize_document_type(cls, value: Any) -> str:
+        normalized = re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().lower()).strip("_")
+        aliases = {
+            "aadhaar": "aadhar",
+            "aadhaar_card": "aadhar",
+            "aadhar_card": "aadhar",
+            "national_id": "aadhar",
+            "id_proof": "aadhar",
+            "pan_card": "pan",
+            "pan_id": "pan",
+            "driver_license": "license",
+            "drivers_license": "license",
+            "driving_license": "license",
+            "licence": "license",
+            "driving_licence": "license",
+        }
+        mapped = aliases.get(normalized, normalized)
+        if mapped not in {"aadhar", "pan", "license", "passport"}:
+            raise ValueError("document_type must be one of: aadhar, pan, license, passport")
+        return mapped
+
+    @field_validator("document_number", mode="before")
+    @classmethod
+    def normalize_document_number(cls, value: Any) -> str:
+        return str(value or "").strip().upper()
 
 class PassengerLostItemRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)

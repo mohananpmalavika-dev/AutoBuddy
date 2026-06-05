@@ -21,7 +21,7 @@ from app.utils.rbac import get_current_user_secure
 router = APIRouter(prefix="/api", tags=["ride_products"])
 PER_TRIP_BLOCK_GRACE_RIDES = 2
 PASSENGER_KYC_REQUIRED_FOR_BOOKING = (
-    os.environ.get("PASSENGER_KYC_REQUIRED_FOR_BOOKING", "true").strip().lower()
+    os.environ.get("PASSENGER_KYC_REQUIRED_FOR_BOOKING", "false").strip().lower()
     not in {"0", "false", "no", "off"}
 )
 

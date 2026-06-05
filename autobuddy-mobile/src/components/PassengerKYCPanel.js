@@ -45,7 +45,7 @@ export default function PassengerKYCPanel({ token }) {
       setError('');
       const data = await apiRequest('/passengers/kyc/status', { token });
       setKycStatus((prev) => data || prev);
-      setRejectionReason(data?.rejection_reason || '');
+      setRejectionReason(data?.reject_reason || data?.rejection_reason || '');
       
       // Check for expiry warnings
       if (data?.expiry_date) {
@@ -99,7 +99,8 @@ export default function PassengerKYCPanel({ token }) {
   }, [kycStatus.verification_level]);
 
   const handleSubmitKYC = async () => {
-    if (!kycForm.document_type || !kycForm.document_number) {
+    const documentNumber = kycForm.document_number.trim();
+    if (!kycForm.document_type || !documentNumber) {
       setError('Please select document type and enter document number');
       return;
     }
@@ -108,14 +109,25 @@ export default function PassengerKYCPanel({ token }) {
       setVerifying(true);
       setError('');
 
+      const payload = {
+        document_type: kycForm.document_type,
+        document_number: documentNumber,
+      };
+
       const response = await apiRequest('/passengers/kyc/verify', {
         token,
         method: 'POST',
-        body: kycForm,
+        body: payload,
       });
 
-      setKycStatus(response || kycForm);
-      setMessage('KYC verification submitted successfully. Please wait for confirmation.');
+      setKycStatus((prev) => ({ ...prev, ...(response || {}) }));
+      setRejectionReason(response?.reject_reason || response?.rejection_reason || '');
+      setKycForm((prev) => ({
+        ...prev,
+        document_type: response?.document_type || payload.document_type,
+        document_number: '',
+      }));
+      setMessage('KYC details updated successfully. Verification is optional and pending admin review.');
       setTimeout(() => setMessage(''), 4000);
     } catch (err) {
       setError(err.message || 'Failed to submit KYC');

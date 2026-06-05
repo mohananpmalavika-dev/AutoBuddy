@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/passenger/documents", tags=["passenger-documents"])
 PASSENGER_KYC_REQUIRED_FOR_BOOKING = (
-    os.environ.get("PASSENGER_KYC_REQUIRED_FOR_BOOKING", "true").strip().lower()
+    os.environ.get("PASSENGER_KYC_REQUIRED_FOR_BOOKING", "false").strip().lower()
     not in {"0", "false", "no", "off"}
 )
 
