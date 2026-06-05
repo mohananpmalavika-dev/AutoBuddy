@@ -9,7 +9,10 @@ from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 from app.utils.time_helpers import get_ist_now
+import asyncio
 import logging
+import os
+import time
 
 from app.db.deps import get_db
 from app.utils.rbac import require_roles, get_current_user_secure
@@ -26,6 +29,15 @@ from app.models.ride_type_compatibility import (
 
 router = APIRouter(prefix="/api/vehicles", tags=["canonical_vehicles"])
 logger = logging.getLogger(__name__)
+VEHICLE_CATALOG_DB_TIMEOUT_SECONDS = max(
+    0.5,
+    min(10.0, float(os.environ.get("VEHICLE_CATALOG_DB_TIMEOUT_SECONDS", "2.0"))),
+)
+VEHICLE_CATALOG_CACHE_TTL_SECONDS = max(
+    0,
+    min(300, int(os.environ.get("VEHICLE_CATALOG_CACHE_TTL_SECONDS", "60"))),
+)
+_vehicle_catalog_cache: Dict[str, Dict[str, Any]] = {}
 
 
 def _vehicle_collection(db: AsyncIOMotorDatabase):
@@ -87,6 +99,90 @@ def _availability_query(
             {"regions": {"$in": tokens}},
         ]
     return query
+
+
+def _catalog_cache_key(
+    active_only: bool = True,
+    region: Optional[str] = None,
+    district: Optional[str] = None,
+    pincode: Optional[str] = None,
+) -> str:
+    return "|".join([
+        "1" if active_only else "0",
+        str(region or "").strip().lower(),
+        str(district or "").strip().lower(),
+        str(pincode or "").strip().lower(),
+    ])
+
+
+def _clone_vehicle_rows(rows: List[dict]) -> List[dict]:
+    return [dict(row) for row in rows]
+
+
+def _get_cached_vehicle_catalog(cache_key: str) -> Optional[List[dict]]:
+    cached = _vehicle_catalog_cache.get(cache_key)
+    if not cached:
+        return None
+    if cached.get("expires_at", 0.0) <= time.monotonic():
+        _vehicle_catalog_cache.pop(cache_key, None)
+        return None
+    rows = cached.get("rows")
+    return _clone_vehicle_rows(rows) if isinstance(rows, list) else None
+
+
+def _set_cached_vehicle_catalog(cache_key: str, rows: List[dict]) -> None:
+    if VEHICLE_CATALOG_CACHE_TTL_SECONDS <= 0:
+        return
+    _vehicle_catalog_cache[cache_key] = {
+        "expires_at": time.monotonic() + VEHICLE_CATALOG_CACHE_TTL_SECONDS,
+        "rows": _clone_vehicle_rows(rows),
+    }
+
+
+def _clear_vehicle_catalog_cache() -> None:
+    _vehicle_catalog_cache.clear()
+
+
+def _matches_catalog_filters(
+    vehicle: dict,
+    active_only: bool = True,
+    region: Optional[str] = None,
+    district: Optional[str] = None,
+    pincode: Optional[str] = None,
+) -> bool:
+    if active_only and not bool(vehicle.get("active", True)):
+        return False
+    tokens = [str(token or "").strip().lower() for token in _coverage_tokens(region, district, pincode)]
+    tokens = [token for token in tokens if token]
+    if not tokens:
+        return True
+    regions = vehicle.get("regions") or []
+    region_values = {str(value or "").strip().lower() for value in regions if str(value or "").strip()}
+    return not region_values or "all" in region_values or any(token in region_values for token in tokens)
+
+
+def _default_vehicle_catalog(
+    active_only: bool = True,
+    region: Optional[str] = None,
+    district: Optional[str] = None,
+    pincode: Optional[str] = None,
+) -> List[dict]:
+    return [
+        _serialize_vehicle(_seed_vehicle_doc(vehicle_data))
+        for vehicle_data in CANONICAL_VEHICLE_TYPES
+        if _matches_catalog_filters(vehicle_data, active_only, region, district, pincode)
+    ]
+
+
+async def _load_vehicle_catalog_from_db(db: AsyncIOMotorDatabase, query: Dict[str, Any]) -> List[dict]:
+    if db is None:
+        raise RuntimeError("Database is unavailable")
+    cursor = _vehicle_collection(db).find(query)
+    try:
+        cursor = cursor.max_time_ms(int(VEHICLE_CATALOG_DB_TIMEOUT_SECONDS * 1000))
+    except AttributeError:
+        pass
+    return await cursor.to_list(100)
 
 
 def _serialize_vehicle(vehicle: dict) -> dict:
@@ -264,6 +360,11 @@ async def get_all_vehicles(
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
     """Get all vehicle types (public endpoint)"""
+    cache_key = _catalog_cache_key(active_only, region, district, pincode)
+    cached_rows = _get_cached_vehicle_catalog(cache_key)
+    if cached_rows is not None:
+        return cached_rows
+
     try:
         query = _availability_query(
             active_only=active_only,
@@ -271,12 +372,20 @@ async def get_all_vehicles(
             district=district,
             pincode=pincode,
         )
-        vehicles = await _vehicle_collection(db).find(query).to_list(None)
-        
-        return [_serialize_vehicle(v) for v in vehicles]
+        vehicles = await asyncio.wait_for(
+            _load_vehicle_catalog_from_db(db, query),
+            timeout=VEHICLE_CATALOG_DB_TIMEOUT_SECONDS,
+        )
+        rows = [_serialize_vehicle(v) for v in vehicles]
     except Exception as e:
-        logger.error(f"Error fetching vehicles: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.warning(
+            "Vehicle catalog DB lookup failed; returning canonical defaults: %s",
+            str(e),
+        )
+        rows = _default_vehicle_catalog(active_only, region, district, pincode)
+
+    _set_cached_vehicle_catalog(cache_key, rows)
+    return rows
 
 
 @router.get("/public/{vehicle_type_id}", response_model=VehicleTypeResponse)
@@ -546,6 +655,7 @@ async def create_vehicle(
         vehicle_data["updated_at"] = get_ist_now()
         
         await _vehicle_collection(db).insert_one(vehicle_data)
+        _clear_vehicle_catalog_cache()
         
         logger.info(f"Created vehicle type: {payload.vehicle_type_id}")
         return _serialize_vehicle(vehicle_data)
@@ -576,6 +686,7 @@ async def update_vehicle(
             {"vehicle_type_id": vehicle_type_id},
             {"$set": update_data}
         )
+        _clear_vehicle_catalog_cache()
         
         updated = await _vehicle_collection(db).find_one({"vehicle_type_id": vehicle_type_id})
         logger.info(f"Updated vehicle type: {vehicle_type_id}")
@@ -606,6 +717,7 @@ async def update_vehicle_fare_config(
             {"vehicle_type_id": vehicle_type_id},
             {"$set": {"fare_config": fare_config, "updated_at": get_ist_now()}},
         )
+        _clear_vehicle_catalog_cache()
 
         return {
             "status": "success",
@@ -636,6 +748,7 @@ async def delete_vehicle(
             {"vehicle_type_id": vehicle_type_id},
             {"$set": {"active": False, "updated_at": get_ist_now()}}
         )
+        _clear_vehicle_catalog_cache()
         
         logger.info(f"Disabled vehicle type: {vehicle_type_id}")
         return {"message": "Vehicle type disabled"}

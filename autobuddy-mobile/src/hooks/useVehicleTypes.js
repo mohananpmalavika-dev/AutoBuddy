@@ -2,6 +2,93 @@ import { useState, useEffect, useCallback } from 'react';
 import { apiRequest } from '../lib/api';
 import { getDisplayText } from '../lib/displayText';
 
+const FALLBACK_VEHICLE_TYPES = Object.freeze([
+  {
+    id: 'auto',
+    vehicle_type_id: 'auto',
+    name: 'Auto',
+    label: 'Auto',
+    description: 'Budget-friendly auto rickshaw',
+    capacity: 3,
+    capacity_unit: 'passengers',
+    base_multiplier: 0.75,
+    allowed_ride_types: ['instant', 'scheduled'],
+    passenger_supported: true,
+    goods_supported: false,
+    active: true,
+  },
+  {
+    id: 'taxi',
+    vehicle_type_id: 'taxi',
+    name: 'Taxi',
+    label: 'Taxi',
+    description: 'Comfortable sedan',
+    capacity: 4,
+    capacity_unit: 'passengers',
+    base_multiplier: 1,
+    allowed_ride_types: ['instant', 'scheduled', 'airport', 'corporate'],
+    passenger_supported: true,
+    goods_supported: false,
+    active: true,
+  },
+  {
+    id: 'xl',
+    vehicle_type_id: 'xl',
+    name: 'XL',
+    label: 'XL',
+    description: 'Larger passenger vehicle',
+    capacity: 6,
+    capacity_unit: 'passengers',
+    base_multiplier: 1.25,
+    allowed_ride_types: ['instant', 'scheduled', 'airport', 'corporate'],
+    passenger_supported: true,
+    goods_supported: false,
+    active: true,
+  },
+  {
+    id: 'traveller',
+    vehicle_type_id: 'traveller',
+    name: 'Traveller',
+    label: 'Traveller',
+    description: 'Group travel vehicle',
+    capacity: 8,
+    capacity_unit: 'passengers',
+    base_multiplier: 1.25,
+    allowed_ride_types: ['instant', 'scheduled', 'rental', 'tourism'],
+    passenger_supported: true,
+    goods_supported: false,
+    active: true,
+  },
+  {
+    id: 'minitruck',
+    vehicle_type_id: 'minitruck',
+    name: 'Mini Truck',
+    label: 'Mini Truck',
+    description: 'Small goods delivery',
+    capacity: 1000,
+    capacity_unit: 'kg',
+    base_multiplier: 1.5,
+    allowed_ride_types: ['instant', 'scheduled', 'goods'],
+    passenger_supported: false,
+    goods_supported: true,
+    active: true,
+  },
+  {
+    id: 'truck',
+    vehicle_type_id: 'truck',
+    name: 'Truck',
+    label: 'Truck',
+    description: 'Heavy goods vehicle',
+    capacity: 10000,
+    capacity_unit: 'kg',
+    base_multiplier: 1.8,
+    allowed_ride_types: ['instant', 'scheduled', 'goods'],
+    passenger_supported: false,
+    goods_supported: true,
+    active: true,
+  },
+]);
+
 /**
  * Hook for managing vehicle types from backend
  * Fetches available vehicle types for drivers and passengers
@@ -58,6 +145,15 @@ export function useVehicleTypes() {
       return nextVehicleTypes;
     } catch (err) {
       const errorMsg = err?.message || 'Failed to fetch vehicle types';
+      if (!token) {
+        const fallbackVehicleTypes = FALLBACK_VEHICLE_TYPES
+          .map(normalizeVehicleType)
+          .filter(Boolean);
+        setVehicleTypes(fallbackVehicleTypes);
+        setError('');
+        console.warn('Vehicle types API unavailable, using defaults:', errorMsg);
+        return fallbackVehicleTypes;
+      }
       setError(errorMsg);
       console.error('Error fetching vehicle types:', err);
       return [];
