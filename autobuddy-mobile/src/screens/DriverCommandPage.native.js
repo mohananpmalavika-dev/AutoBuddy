@@ -16,6 +16,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import DriverTabBar from '../components/DriverTabBar';
 import AnalyticsDashboardAdvanced from '../components/AnalyticsDashboardAdvanced';
+import { BadgesAchievementsWidget } from '../components/BadgesAchievementsWidget';
+import DemandHeatmapIntegration from '../components/DemandHeatmapIntegration';
 import DocumentExpiryAlertsPanel from '../components/DocumentExpiryAlertsPanel';
 import DocumentUploadPanel from '../components/DocumentUploadPanel';
 import DriverFareDisplay from '../components/DriverFareDisplay';
@@ -29,17 +31,23 @@ import DriverTierBenefitsPanel from '../components/DriverTierBenefitsPanel';
 import DriverTrustCard from '../components/DriverTrustCard';
 import EarningsPanel from '../components/EarningsPanel';
 import EnhancedSettingsPanel from '../components/EnhancedSettingsPanel';
+import { FavoritePassengersPanel } from '../components/FavoritePassengersPanel';
 import KeralaSafetyCard from '../components/KeralaSafetyCard';
 import NotificationCenter from '../components/NotificationCenter';
 import PassengerSafetyRatingsPanel from '../components/PassengerSafetyRatingsPanel';
 import ProfileManagementPanel from '../components/ProfileManagementPanel';
 import RideCommunicationCard from '../components/RideCommunicationCard';
+import RideFilterPanel from '../components/RideFilterPanel';
 import RideHistoryPanel from '../components/RideHistoryPanel';
+import { RidePoolingPanel } from '../components/RidePoolingPanel';
 import ScheduledRidesPanel from '../components/ScheduledRidesPanel';
+import { ShiftScheduleCalendar } from '../components/ShiftScheduleCalendar';
 import SubscriptionPanel from '../components/SubscriptionPanel';
 import SupportTicketPanel from '../components/SupportTicketPanel';
 import { TaxReportWidget } from '../components/TaxReportWidget';
+import TrafficAlerts from '../components/TrafficAlerts';
 import VehicleManagementPanel from '../components/VehicleManagementPanel';
+import { DRIVER_QUICK_ACTIONS } from '../constants/driverQuickActions';
 import { useDriverRideQueueSocket } from '../hooks/useDriverRideQueueSocket';
 import { useKeralaSafety } from '../hooks/useKeralaSafety';
 import { apiRequest } from '../lib/api';
@@ -60,6 +68,7 @@ import {
   getNextRideStatus,
   getRideNavigationTarget,
   getRideStatusMode,
+  runDriverQuickAction,
 } from '../lib/driverDashboardFlow';
 import {
   formatDriverReadinessMessage,
@@ -570,6 +579,9 @@ export default function DriverCommandPageNative({
   const [blockedPassengerSearch, setBlockedPassengerSearch] = useState('');
   const [rideStartOtp, setRideStartOtp] = useState('');
   const [rideEndOtp, setRideEndOtp] = useState('');
+  const [spinWinStatus, setSpinWinStatus] = useState(null);
+  const [spinWinLoading, setSpinWinLoading] = useState(false);
+  const [spinningNow, setSpinningNow] = useState(false);
 
   const activeRideId = String(activeRide?.id || '').trim();
   const activeRideStatus = String(activeRide?.status || '').toLowerCase();
@@ -743,6 +755,7 @@ export default function DriverCommandPageNative({
           fareCalc,
           badges,
           blockedPassengersPayload,
+          spinStatusPayload,
         ] = await Promise.all([
           safeRequest('/drivers/profile', null),
           safeRequest('/drivers/availability', null),
@@ -754,6 +767,7 @@ export default function DriverCommandPageNative({
           safeRequest('/drivers/fare-calculator', null),
           safeRequest('/drivers/menu-badges', {}),
           safeRequest('/drivers/blocked-passengers', { passenger_ids: [], passengers: [] }),
+          safeRequest('/spin-win/config', null),
         ]);
 
         if (availability) {
@@ -775,6 +789,7 @@ export default function DriverCommandPageNative({
         setDriverFareConfig(fareCalc?.request?.payload || fareCalc?.effective_pricing || null);
         setMenuBadges(badges || {});
         setBlockedPassengers(normalizeBlockedPassengerRows(blockedPassengersPayload));
+        setSpinWinStatus(spinStatusPayload || null);
         if (!silent) {
           setMessage('Driver page refreshed.');
         }
@@ -1047,6 +1062,48 @@ export default function DriverCommandPageNative({
     [refreshDriverData, runAction, token],
   );
 
+  const refreshSpinWinStatus = useCallback(
+    async ({ silent = false } = {}) => {
+      try {
+        if (!silent) {
+          setSpinWinLoading(true);
+        }
+        const status = await apiRequest('/spin-win/config', { token });
+        setSpinWinStatus(status || null);
+        return status;
+      } catch (err) {
+        if (!silent) {
+          setError(err.message || 'Could not load Spin & Win status.');
+        }
+        return null;
+      } finally {
+        if (!silent) {
+          setSpinWinLoading(false);
+        }
+      }
+    },
+    [token],
+  );
+
+  const spinNow = useCallback(async () => {
+    if (spinningNow) {
+      return;
+    }
+    try {
+      setSpinningNow(true);
+      setError('');
+      const result = await apiRequest('/spin-win/spin', { method: 'POST', token });
+      const rewardLabel = String(result?.reward?.label || 'reward');
+      const remaining = Number(result?.spins_left_today ?? 0);
+      setMessage(`Spin complete: ${rewardLabel}. Spins left today: ${remaining}.`);
+      await refreshSpinWinStatus({ silent: true });
+    } catch (err) {
+      setError(err.message || 'Spin failed. Please try again.');
+    } finally {
+      setSpinningNow(false);
+    }
+  }, [refreshSpinWinStatus, spinningNow, token]);
+
   const toggleBlockedPassenger = useCallback(
     async (passengerId, isBlocked) => {
       const normalizedPassengerId = String(passengerId || '').trim();
@@ -1121,6 +1178,68 @@ export default function DriverCommandPageNative({
       }
     },
     [runAction, token],
+  );
+
+  const openDemandHotspotNavigation = useCallback((hotspot) => {
+    const destination = normalizeLocation(hotspot);
+    const url = buildGoogleMapsDirectionsUrl({
+      origin: normalizeLocation(driverLocation),
+      destination,
+    });
+    if (url) {
+      Linking.openURL(url).catch(() => null);
+    }
+    setMessage(`Navigation opened to ${String(hotspot?.name || 'demand hotspot')}.`);
+  }, [driverLocation]);
+
+  const handleTrafficRouteChange = useCallback((route) => {
+    setMessage(`Route selected: ${String(route?.name || 'recommended route')}.`);
+  }, []);
+
+  const handleQuickActionPress = useCallback(
+    (action) => {
+      runDriverQuickAction(action, {
+        isOnline: displayIsAccepting,
+        hasActiveRide: Boolean(activeRideId),
+        setError,
+        setMessage,
+        goOnline: () => toggleOnlineStatus().catch(() => null),
+        openRequests: () => setActiveTab('requests'),
+        resumeActiveRide: () => {
+          setActiveTab('requests');
+          setMessage('Active ride controls opened.');
+        },
+        navigateActiveRide: openActiveRideMap,
+        callPassenger: () => openActiveRideCall().catch(() => null),
+        activateSos: () => {
+          setActiveTab('safety');
+          if (typeof keralaSafety?.activateSos === 'function') {
+            keralaSafety.activateSos('Driver quick action SOS', 'driver_quick_action').catch(() => null);
+          } else {
+            setMessage('Safety card opened.');
+          }
+        },
+        contactSupport: () => {
+          setActiveTab('support');
+          setMessage('Support ticket form opened.');
+        },
+        withdrawEarnings: () => {
+          setActiveTab('earnings');
+          setMessage('Open Earnings to submit a withdrawal request.');
+        },
+        earningsReport: () => requestDriverEarningsReport().catch(() => null),
+        openTab: setActiveTab,
+      });
+    },
+    [
+      activeRideId,
+      displayIsAccepting,
+      keralaSafety,
+      openActiveRideCall,
+      openActiveRideMap,
+      requestDriverEarningsReport,
+      toggleOnlineStatus,
+    ],
   );
 
   const activeRideNavigation = useMemo(
@@ -1317,6 +1436,65 @@ export default function DriverCommandPageNative({
     );
   };
 
+  const renderSpinWinTab = () => {
+    const spinEnabled = Boolean(spinWinStatus?.enabled ?? spinWinStatus?.is_enabled);
+    const spinEligible = Boolean(spinWinStatus?.eligible ?? spinWinStatus?.is_eligible);
+    const spinsLeft = Number(spinWinStatus?.spins_left_today ?? spinWinStatus?.spinsLeftToday ?? 0);
+    const dailyLimit = Number(
+      spinWinStatus?.daily_spin_limit ??
+        spinWinStatus?.dailySpinLimit ??
+        spinWinStatus?.max_spins_per_day ??
+        0,
+    );
+    const spinsUsed = Number(spinWinStatus?.spins_used_today ?? spinWinStatus?.spinsUsedToday ?? 0);
+    const spinDisabled = loading || spinWinLoading || spinningNow || !spinEligible || spinsLeft <= 0;
+
+    return (
+      <View style={styles.simplePanel}>
+        <Text style={styles.simpleTitle}>Spin & Win</Text>
+        <Text style={styles.simpleText}>
+          Status: {spinWinLoading ? 'Loading...' : spinWinStatus ? (spinEnabled ? 'Enabled' : 'Disabled') : 'Unavailable'}
+        </Text>
+        <Text style={styles.simpleText}>
+          Daily limit: {dailyLimit} | Used: {spinsUsed} | Left: {spinsLeft}
+        </Text>
+        {!!spinWinStatus?.eligibility_reason && (
+          <Text style={styles.simpleText}>{spinWinStatus.eligibility_reason}</Text>
+        )}
+        <View style={styles.actionRow}>
+          <TouchableOpacity
+            style={[styles.primaryAction, spinDisabled && styles.disabledAction]}
+            onPress={spinNow}
+            disabled={spinDisabled}>
+            <Text style={styles.primaryActionText}>{spinningNow ? 'Spinning...' : 'Spin Now'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.secondaryAction, spinWinLoading && styles.disabledAction]}
+            onPress={() => refreshSpinWinStatus({ silent: false })}
+            disabled={spinWinLoading}>
+            <Text style={styles.secondaryActionText}>{spinWinLoading ? 'Refreshing...' : 'Refresh'}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
+
+  const renderQuickActionsTab = () => (
+    <View style={styles.simplePanel}>
+      <Text style={styles.simpleTitle}>Quick Actions</Text>
+      <View style={styles.actionRow}>
+        {DRIVER_QUICK_ACTIONS.map((action) => (
+          <TouchableOpacity
+            key={action.key}
+            style={styles.secondaryAction}
+            onPress={() => handleQuickActionPress(action)}>
+            <Text style={styles.secondaryActionText}>{action.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
+
   const renderTabContent = () => {
     switch (activeTab) {
       case 'requests':
@@ -1414,6 +1592,43 @@ export default function DriverCommandPageNative({
             isLoading={loading}
           />
         );
+      case 'heatmap':
+        return (
+          <View style={styles.stackedPanels}>
+            <View style={styles.simplePanel}>
+              <Text style={styles.simpleTitle}>Demand Heatmap</Text>
+              <Text style={styles.simpleText}>
+                {normalizeLocation(driverLocation)
+                  ? 'Showing high-demand areas near your current position.'
+                  : 'Go online or refresh location to load nearby demand.'}
+              </Text>
+            </View>
+            <DemandHeatmapIntegration
+              currentLocation={normalizeLocation(driverLocation)}
+              disabled={loading}
+              onNavigateToHotspot={openDemandHotspotNavigation}
+            />
+          </View>
+        );
+      case 'traffic':
+        return (
+          <View style={styles.stackedPanels}>
+            <View style={styles.simplePanel}>
+              <Text style={styles.simpleTitle}>Traffic Alerts</Text>
+              <Text style={styles.simpleText}>
+                {mapDestination
+                  ? 'Live route alerts are based on your current ride destination.'
+                  : 'Accept or resume a ride to load route-specific traffic.'}
+              </Text>
+            </View>
+            <TrafficAlerts
+              currentLocation={normalizeLocation(driverLocation)}
+              destinationLocation={mapDestination}
+              disabled={loading}
+              onRouteChange={handleTrafficRouteChange}
+            />
+          </View>
+        );
       case 'reviews':
         return (
           <DriverReviewsPanel
@@ -1428,6 +1643,17 @@ export default function DriverCommandPageNative({
         return renderBlockedPassengersTab();
       case 'safety':
         return <KeralaSafetyCard safety={keralaSafety} />;
+      case 'spin':
+        return renderSpinWinTab();
+      case 'filters':
+        return (
+          <RideFilterPanel
+            isVisible
+            onClose={() => setActiveTab('requests')}
+            token={token}
+            driverId={user?.id}
+          />
+        );
       case 'photoVerification':
         return (
           <DriverPhotoVerificationPanel
@@ -1473,9 +1699,45 @@ export default function DriverCommandPageNative({
             onReferralShare={(code) => setMessage(`Referral code ${code} shared successfully.`)}
           />
         );
+      case 'pooling':
+        return (
+          <RidePoolingPanel
+            isVisible
+            onClose={() => setActiveTab('requests')}
+            token={token}
+            driverId={user?.id}
+          />
+        );
       case 'taxreports':
         return (
           <TaxReportWidget
+            isVisible
+            onClose={() => setActiveTab('earnings')}
+            token={token}
+            driverId={user?.id}
+          />
+        );
+      case 'favorites':
+        return (
+          <FavoritePassengersPanel
+            isVisible
+            onClose={() => setActiveTab('requests')}
+            token={token}
+            driverId={user?.id}
+          />
+        );
+      case 'shifts':
+        return (
+          <ShiftScheduleCalendar
+            isVisible
+            onClose={() => setActiveTab('earnings')}
+            token={token}
+            driverId={user?.id}
+          />
+        );
+      case 'badges':
+        return (
+          <BadgesAchievementsWidget
             isVisible
             onClose={() => setActiveTab('earnings')}
             token={token}
@@ -1504,6 +1766,8 @@ export default function DriverCommandPageNative({
           primaryTab: 'earnings',
           primaryLabel: 'Open Earnings',
         });
+      case 'actions':
+        return renderQuickActionsTab();
       case 'settings':
         return (
           <EnhancedSettingsPanel
