@@ -191,7 +191,12 @@ export default function OperatorDashboard({ token, user, onLogout }) {
   }, [token]);
 
   const handleAdvancedTabChange = useCallback((nextTab) => {
-    const mappedTab = nextTab === 'assignments' ? 'vehicles' : nextTab;
+    const targetMap = {
+      analytics: 'performance',
+      assignments: 'vehicles',
+      drivers: 'vehicles',
+    };
+    const mappedTab = targetMap[nextTab] || nextTab;
     setActiveTab(OPERATOR_TABS.some((tab) => tab.key === mappedTab) ? mappedTab : 'overview');
   }, []);
 
