@@ -78,6 +78,7 @@ const RATE_LIMIT_MIN_COOLDOWN_MS = 5000;
 const RATE_LIMIT_MAX_COOLDOWN_MS = 120000;
 const REFRESH_FAILURE_COOLDOWN_MS = 60000;
 const REFRESH_RATE_LIMIT_COOLDOWN_MS = 120000;
+const ACCESS_TOKEN_REFRESH_SKEW_MS = 60000;
 const HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
 const SESSION_EXPIRED_MESSAGE = 'Session expired. Please log in again.';
 const SESSION_RECONNECT_MESSAGE = 'Could not confirm your login right now. Keeping your session active.';
@@ -113,14 +114,72 @@ async function clearAllSessions() {
   await Promise.allSettled([clearLegacySession(), clearPersistentSession()]);
 }
 
+function decodeBase64UrlJson(value) {
+  const normalized = String(value || '').replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+
+  try {
+    if (typeof globalThis.atob === 'function') {
+      const binary = globalThis.atob(padded);
+      try {
+        return JSON.parse(
+          decodeURIComponent(
+            Array.from(binary, (char) => `%${char.charCodeAt(0).toString(16).padStart(2, '0')}`).join(''),
+          ),
+        );
+      } catch {
+        return JSON.parse(binary);
+      }
+    }
+
+    const bufferCtor = globalThis.Buffer;
+    if (typeof bufferCtor?.from === 'function') {
+      return JSON.parse(bufferCtor.from(padded, 'base64').toString('utf8'));
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function getJwtPayload(token) {
+  const parts = String(token || '').split('.');
+  if (parts.length !== 3) {
+    return null;
+  }
+  const payload = decodeBase64UrlJson(parts[1]);
+  return payload && typeof payload === 'object' ? payload : null;
+}
+
+export function getAccessTokenExpiryMs(token) {
+  const payload = getJwtPayload(token);
+  const exp = Number(payload?.exp || 0);
+  if (!Number.isFinite(exp) || exp <= 0) {
+    return null;
+  }
+  return exp * 1000;
+}
+
+export function isAccessTokenExpiringSoon(token, skewMs = ACCESS_TOKEN_REFRESH_SKEW_MS) {
+  const expiresAtMs = getAccessTokenExpiryMs(token);
+  if (!expiresAtMs) {
+    return false;
+  }
+  return expiresAtMs <= Date.now() + Math.max(0, Number(skewMs || 0));
+}
+
 async function shouldPreserveStoredSession() {
-  const persistentValid = await safelyCall(isSessionValid);
-  if (persistentValid) {
+  const session = await loadBestSession();
+  if (!session?.token) {
+    return false;
+  }
+
+  if (session.refresh_token && (await safelyCall(isSessionValid))) {
     return true;
   }
 
-  const legacy = normalizeStoredSession(await safelyCall(loadLegacySession));
-  return Boolean(legacy?.token);
+  return !isAccessTokenExpiringSoon(session.token, 0);
 }
 
 async function failRefreshWithoutClearingValidSession(message = SESSION_RECONNECT_MESSAGE) {
@@ -353,6 +412,31 @@ export async function refreshAccessToken() {
   return refreshInFlightPromise;
 }
 
+export async function getFreshAccessToken(preferredToken = '', options = {}) {
+  const refreshSkewMs = Number(options.refreshSkewMs ?? ACCESS_TOKEN_REFRESH_SKEW_MS);
+  let effectiveToken = String(preferredToken || '').trim();
+
+  try {
+    const latestSession = await loadBestSession();
+    const latestToken = String(latestSession?.token || '').trim();
+    if (latestToken) {
+      effectiveToken = latestToken;
+    }
+  } catch {
+    // Fall back to the caller-provided token.
+  }
+
+  if (!effectiveToken) {
+    return '';
+  }
+
+  if (!isAccessTokenExpiringSoon(effectiveToken, refreshSkewMs)) {
+    return effectiveToken;
+  }
+
+  return refreshAccessToken();
+}
+
 export async function apiRequest(path, options = {}, legacyPath = undefined, legacyBody = undefined) {
   const requestArgs = Array.from(arguments);
   let shouldWrapLegacyResponse = false;
@@ -433,6 +517,10 @@ export async function apiRequest(path, options = {}, legacyPath = undefined, leg
     } catch {
       // Ignore session read errors and continue with provided token.
     }
+  }
+
+  if (effectiveToken && !isAuthPath && !_retry && isAccessTokenExpiringSoon(effectiveToken)) {
+    effectiveToken = await getFreshAccessToken(effectiveToken);
   }
 
   const requestDedupeKey =

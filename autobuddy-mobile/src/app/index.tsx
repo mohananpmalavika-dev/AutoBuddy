@@ -267,6 +267,7 @@ export default function HomeScreen() {
           setSession(null);
           return;
         }
+        let activeSession: AppSession | null = stored;
 
         // Keep previously saved user for resilient sessions across restarts,
         // even when backend is temporarily unavailable at boot.
@@ -279,7 +280,9 @@ export default function HomeScreen() {
 
         try {
           const user = await apiRequest<AppSession['user']>('/auth/me', { token: stored.token });
-          const nextSession = { ...stored, token: stored.token, user };
+          const refreshedStored = pickStoredSession(await loadPersistentSession(), await loadSession()) || stored;
+          const nextSession = { ...stored, ...refreshedStored, token: refreshedStored.token || stored.token, user };
+          activeSession = nextSession;
           setSession(nextSession);
           
           // Save to both persistent and legacy session
@@ -306,7 +309,7 @@ export default function HomeScreen() {
         }
 
         // Initialize background services for persistent connectivity
-        if (stored?.token) {
+        if (activeSession?.token) {
           await initializeBackgroundNotifications();
         }
       } catch {

@@ -21,6 +21,7 @@ import {
   clearSession as clearLegacySession,
   loadSession as loadLegacySession,
 } from '../lib/session';
+import { getFreshAccessToken, isAccessTokenExpiringSoon } from '../lib/api';
 import { istISOString } from '../utils/time';
 
 // API Base URL - adjust based on environment
@@ -140,15 +141,30 @@ const redirectToLoginIfWeb = () => {
 
 const shouldPreserveStoredAuth = async () => {
   try {
+    const token = await getStoredAuthToken();
+    if (!token || isAccessTokenExpiringSoon(token, 0)) {
+      return false;
+    }
+
     if (await isSessionValid()) {
       return true;
     }
 
-    const legacySession = await loadLegacySession();
-    return Boolean(legacySession?.token || legacySession?.access_token || legacySession?.authToken);
+    return true;
   } catch {
     return false;
   }
+};
+
+const isAuthRequestUrl = (url?: string) => {
+  const value = String(url || '').toLowerCase();
+  return (
+    value.includes('/auth/login') ||
+    value.includes('/auth/register') ||
+    value.includes('/auth/google') ||
+    value.includes('/auth/refresh') ||
+    value.includes('/auth/_legacy/')
+  );
 };
 
 const attachLegacyDataAlias = <T>(payload: T): T => {
@@ -182,7 +198,10 @@ const rawAxiosInstance: AxiosInstance = create({
 // Add request interceptor to inject auth token
 rawAxiosInstance.interceptors.request.use(
   async (config) => {
-    const token = await getStoredAuthToken();
+    let token = await getStoredAuthToken();
+    if (token && !isAuthRequestUrl(config.url) && isAccessTokenExpiringSoon(token)) {
+      token = await getFreshAccessToken(token);
+    }
     if (token) {
       config.headers = config.headers || {};
       (config.headers as Record<string, string>).Authorization = `Bearer ${token}`;

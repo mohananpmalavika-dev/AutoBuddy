@@ -1,6 +1,6 @@
 import { io } from 'socket.io-client';
 
-import { API_BASE_URL } from './api';
+import { API_BASE_URL, getFreshAccessToken } from './api';
 
 const DEFAULT_SOCKET_PATH = '/socket.io';
 const DEFAULT_SOCKET_TRANSPORTS = ['websocket'];
@@ -8,6 +8,7 @@ const VALID_SOCKET_TRANSPORTS = new Set(['websocket', 'polling']);
 
 let sharedSocket = null;
 let sharedToken = null;
+let sharedRequestedToken = null;
 let sharedBaseUrl = null;
 let sharedRefCount = 0;
 
@@ -111,6 +112,7 @@ function releaseSharedSocket() {
 
   sharedSocket = null;
   sharedToken = null;
+  sharedRequestedToken = null;
   sharedBaseUrl = null;
 }
 
@@ -147,6 +149,7 @@ export function disconnectAutoBuddySocket() {
   if (!sharedSocket) {
     sharedRefCount = 0;
     sharedToken = null;
+    sharedRequestedToken = null;
     sharedBaseUrl = null;
     return;
   }
@@ -164,8 +167,44 @@ export function disconnectAutoBuddySocket() {
 
   sharedSocket = null;
   sharedToken = null;
+  sharedRequestedToken = null;
   sharedBaseUrl = null;
   sharedRefCount = 0;
+}
+
+async function connectWithFreshToken(socket, requestedToken) {
+  try {
+    const authToken = await getFreshAccessToken(requestedToken, { refreshSkewMs: 120000 });
+    if (!authToken) {
+      throw new Error('Socket token is unavailable.');
+    }
+    if (sharedSocket !== socket) {
+      return;
+    }
+    socket.auth = { token: authToken };
+    sharedToken = authToken;
+    socket.connect();
+  } catch (error) {
+    console.warn('Socket connection paused until the session is refreshed:', error?.message || error);
+    if (sharedSocket !== socket) {
+      return;
+    }
+    try {
+      const originalDisconnect = socket.__autoBuddyOriginalDisconnect;
+      if (typeof originalDisconnect === 'function') {
+        originalDisconnect();
+      } else {
+        socket.disconnect();
+      }
+    } catch {
+      // Ignore cleanup failures; the session layer will surface auth state.
+    }
+    sharedSocket = null;
+    sharedToken = null;
+    sharedRequestedToken = null;
+    sharedBaseUrl = null;
+    sharedRefCount = 0;
+  }
 }
 
 export function createAutoBuddySocket(token, baseUrl) {
@@ -178,7 +217,7 @@ export function createAutoBuddySocket(token, baseUrl) {
     throw new Error('Unable to resolve socket base URL.');
   }
 
-  if (sharedSocket && sharedToken === token && sharedBaseUrl === url) {
+  if (sharedSocket && sharedBaseUrl === url && (sharedToken === token || sharedRequestedToken === token)) {
     sharedRefCount += 1;
     return wrapSocketInstance(sharedSocket);
   }
@@ -195,6 +234,7 @@ export function createAutoBuddySocket(token, baseUrl) {
       console.error('Error disconnecting previous shared socket:', error);
     }
     sharedSocket = null;
+    sharedRequestedToken = null;
     sharedRefCount = 0;
   }
 
@@ -228,11 +268,13 @@ export function createAutoBuddySocket(token, baseUrl) {
     console.log('Socket.IO reconnect attempt', attempt);
   });
 
-  sharedSocket.connect();
-
   sharedToken = token;
+  sharedRequestedToken = token;
   sharedBaseUrl = url;
   sharedRefCount = 1;
 
-  return wrapSocketInstance(sharedSocket);
+  const socket = wrapSocketInstance(sharedSocket);
+  void connectWithFreshToken(sharedSocket, token);
+
+  return socket;
 }

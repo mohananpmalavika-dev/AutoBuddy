@@ -33,6 +33,11 @@ describe('apiRequest integration', () => {
     return require('./api') as typeof import('./api');
   }
 
+  function makeJwt(expSeconds: number) {
+    const encode = (payload: Record<string, unknown>) => Buffer.from(JSON.stringify(payload)).toString('base64url');
+    return `${encode({ alg: 'HS256', typ: 'JWT' })}.${encode({ exp: expSeconds, type: 'access' })}.signature`;
+  }
+
   it('sends auth header and query params', async () => {
     const fetchMock = (global as unknown as { fetch: jest.Mock }).fetch;
     fetchMock.mockResolvedValue({
@@ -232,6 +237,60 @@ describe('apiRequest integration', () => {
     expect(requestInit.headers).not.toMatchObject({
       Authorization: expect.any(String),
     });
+  });
+
+  it('refreshes an expired JWT before sending protected requests', async () => {
+    const fetchMock = (global as unknown as { fetch: jest.Mock }).fetch;
+    const expiredToken = makeJwt(Math.floor(Date.now() / 1000) - 60);
+    const freshToken = makeJwt(Math.floor(Date.now() / 1000) + 3600);
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => JSON.stringify({ access_token: freshToken }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => JSON.stringify({ ok: true }),
+      });
+
+    const savePersistentSession = jest.fn(async () => undefined);
+    const saveLegacySession = jest.fn(async () => undefined);
+
+    jest.doMock('expo-constants', () => ({
+      __esModule: true,
+      default: {},
+    }));
+    jest.doMock('react-native', () => ({
+      Platform: { OS: 'web' },
+    }));
+    jest.doMock('./session', () => ({
+      loadSession: jest.fn(async () => ({ token: expiredToken, refresh_token: 'refresh-token' })),
+      saveSession: saveLegacySession,
+      clearSession: jest.fn(async () => undefined),
+    }));
+    jest.doMock('./persistentSessionManager', () => ({
+      loadSession: jest.fn(async () => ({ token: expiredToken, refresh_token: 'refresh-token' })),
+      saveSession: savePersistentSession,
+      clearSession: jest.fn(async () => undefined),
+      extendSessionExpiry: jest.fn(async () => undefined),
+      isSessionValid: jest.fn(async () => true),
+    }));
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { apiRequest } = require('./api') as typeof import('./api');
+
+    await apiRequest('/drivers/profile', { token: expiredToken });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.example.test/api/auth/refresh');
+    expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))).toEqual({
+      refresh_token: 'refresh-token',
+    });
+    expect((fetchMock.mock.calls[1][1] as RequestInit).headers).toMatchObject({
+      Authorization: `Bearer ${freshToken}`,
+    });
+    expect(savePersistentSession).toHaveBeenCalledWith(expect.objectContaining({ token: freshToken }));
+    expect(saveLegacySession).toHaveBeenCalledWith(expect.objectContaining({ token: freshToken }));
   });
 
   it('preserves stored sessions when a locally valid token cannot be refreshed', async () => {
