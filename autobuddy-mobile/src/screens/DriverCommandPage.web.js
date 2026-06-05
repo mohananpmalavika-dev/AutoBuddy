@@ -19,6 +19,7 @@ import DocumentUploadPanel from '../components/DocumentUploadPanel';
 import DriverFareDisplay from '../components/DriverFareDisplay';
 import DriverFareProposal from '../components/DriverFareProposal';
 import DriverKycPanel from '../components/DriverKycPanel';
+import DriverPhotoVerificationPanel from '../components/DriverPhotoVerificationPanel';
 import DriverReferralPanel from '../components/DriverReferralPanel';
 import DriverReviewsPanel from '../components/DriverReviewsPanel';
 import DriverSuspensionAppealPanel from '../components/DriverSuspensionAppealPanel';
@@ -26,7 +27,9 @@ import DriverTierBenefitsPanel from '../components/DriverTierBenefitsPanel';
 import DriverTrustCard from '../components/DriverTrustCard';
 import EarningsPanel from '../components/EarningsPanel';
 import EnhancedSettingsPanel from '../components/EnhancedSettingsPanel';
+import KeralaSafetyCard from '../components/KeralaSafetyCard';
 import NotificationCenter from '../components/NotificationCenter';
+import PassengerSafetyRatingsPanel from '../components/PassengerSafetyRatingsPanel';
 import ProfileManagementPanel from '../components/ProfileManagementPanel';
 import RideCommunicationCard from '../components/RideCommunicationCard';
 import RideHistoryPanel from '../components/RideHistoryPanel';
@@ -36,7 +39,14 @@ import SupportTicketPanel from '../components/SupportTicketPanel';
 import VehicleManagementPanel from '../components/VehicleManagementPanel';
 import WebGoogleLiveMap from '../components/WebGoogleLiveMap';
 import { useDriverRideQueueSocket } from '../hooks/useDriverRideQueueSocket';
+import { useKeralaSafety } from '../hooks/useKeralaSafety';
 import { apiRequest } from '../lib/api';
+import {
+  filterBlockedPassengers,
+  formatBlockedPassengerDate,
+  getBlockedPassengerRideSummary,
+  normalizeBlockedPassengerRows,
+} from '../lib/driverBlockedPassengers';
 import {
   hasLiveLocationSignal,
   readDriverAvailability,
@@ -515,6 +525,8 @@ export default function DriverCommandPage({
   const [pricingRules, setPricingRules] = useState(null);
   const [driverFareConfig, setDriverFareConfig] = useState(null);
   const [menuBadges, setMenuBadges] = useState({});
+  const [blockedPassengers, setBlockedPassengers] = useState([]);
+  const [blockedPassengerSearch, setBlockedPassengerSearch] = useState('');
   const [rideStartOtp, setRideStartOtp] = useState('');
   const [rideEndOtp, setRideEndOtp] = useState('');
 
@@ -523,6 +535,33 @@ export default function DriverCommandPage({
   const displayIsAccepting = isAccepting || Boolean(activeRideId);
   const googleMapsWebKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
   const compactLayout = width < 760;
+  const keralaSafety = useKeralaSafety({
+    token,
+    userName: user?.name,
+    activeBooking: activeRide,
+  });
+  const visibleBlockedPassengers = useMemo(
+    () => filterBlockedPassengers(blockedPassengers, blockedPassengerSearch),
+    [blockedPassengerSearch, blockedPassengers],
+  );
+  const passengerSafetyTarget = useMemo(() => {
+    const upcomingCandidates = [
+      ...asArray(upcomingRides?.scheduled_requests),
+      ...asArray(upcomingRides?.assigned_rides),
+    ];
+    const candidate = [activeRide, ...asArray(pendingRequests), ...upcomingCandidates].find(
+      (item) => String(item?.passenger_id || item?.passenger?.id || '').trim(),
+    );
+    if (!candidate) {
+      return null;
+    }
+    const passengerId = String(candidate.passenger_id || candidate.passenger?.id || '').trim();
+    return {
+      id: passengerId,
+      name: String(candidate.passenger_name || candidate.passenger?.name || 'Passenger'),
+      rideId: String(candidate.id || candidate.booking_id || ''),
+    };
+  }, [activeRide, pendingRequests, upcomingRides]);
 
   useEffect(() => {
     activeRideIdRef.current = activeRideId;
@@ -672,6 +711,7 @@ export default function DriverCommandPage({
           pricing,
           fareCalc,
           badges,
+          blockedPassengersPayload,
         ] = await Promise.all([
           safeRequest('/drivers/profile', null),
           safeRequest('/drivers/availability', null),
@@ -682,6 +722,7 @@ export default function DriverCommandPage({
           safeRequest('/pricing/rules', null),
           safeRequest('/drivers/fare-calculator', null),
           safeRequest('/drivers/menu-badges', {}),
+          safeRequest('/drivers/blocked-passengers', { passenger_ids: [], passengers: [] }),
         ]);
 
         if (availability) {
@@ -702,6 +743,7 @@ export default function DriverCommandPage({
         setPricingRules(pricing || fareCalc?.default_pricing || fareCalc?.effective_pricing || null);
         setDriverFareConfig(fareCalc?.request?.payload || fareCalc?.effective_pricing || null);
         setMenuBadges(badges || {});
+        setBlockedPassengers(normalizeBlockedPassengerRows(blockedPassengersPayload));
         if (!silent) {
           setMessage('Driver page refreshed.');
         }
@@ -976,6 +1018,28 @@ export default function DriverCommandPage({
     [refreshDriverData, runAction, token],
   );
 
+  const toggleBlockedPassenger = useCallback(
+    async (passengerId, isBlocked) => {
+      const normalizedPassengerId = String(passengerId || '').trim();
+      if (!normalizedPassengerId) {
+        return;
+      }
+      const done = await runAction(
+        () =>
+          apiRequest(`/drivers/blocked-passengers/${normalizedPassengerId}`, {
+            method: 'PUT',
+            token,
+            body: { is_blocked: !isBlocked },
+          }),
+        isBlocked ? 'Passenger unblocked.' : 'Passenger blocked.',
+      );
+      if (done) {
+        await refreshDriverData({ silent: true });
+      }
+    },
+    [refreshDriverData, runAction, token],
+  );
+
   const resumeScheduledRide = useCallback((ride) => {
     if (ride?.id) {
       setActiveRide(ride);
@@ -1137,6 +1201,107 @@ export default function DriverCommandPage({
     </View>
   );
 
+  const renderBlockedPassengersTab = () => (
+    <View style={styles.simplePanel}>
+      <View style={styles.sectionHeader}>
+        <View>
+          <Text style={styles.sectionEyebrow}>Safety</Text>
+          <Text style={styles.sectionTitle}>Blocked Passengers</Text>
+        </View>
+        <TouchableOpacity style={styles.secondaryAction} onPress={() => refreshDriverData()} disabled={refreshing}>
+          <Text style={styles.secondaryActionText}>{refreshing ? 'Refreshing...' : 'Refresh'}</Text>
+        </TouchableOpacity>
+      </View>
+      <TextInput
+        style={styles.input}
+        value={blockedPassengerSearch}
+        onChangeText={setBlockedPassengerSearch}
+        placeholder="Search name, phone, reason, or ride"
+        placeholderTextColor={COLORS.textMuted}
+      />
+      {blockedPassengers.length === 0 ? (
+        <Text style={styles.simpleText}>No blocked passengers.</Text>
+      ) : visibleBlockedPassengers.length === 0 ? (
+        <Text style={styles.simpleText}>No blocked passengers match your search.</Text>
+      ) : (
+        <View style={styles.blockedPassengerList}>
+          {visibleBlockedPassengers.map((blockedPassenger) => {
+            const fareValue = Number(blockedPassenger.estimated_fare);
+            return (
+              <View key={blockedPassenger.passenger_id} style={styles.blockedPassengerCard}>
+                <View style={styles.blockedPassengerHeader}>
+                  <View style={styles.blockedPassengerTitleBlock}>
+                    <Text style={styles.blockedPassengerName}>{blockedPassenger.passenger_name}</Text>
+                    <Text style={styles.blockedPassengerMeta}>ID: {blockedPassenger.passenger_id}</Text>
+                    {!!blockedPassenger.passenger_phone && (
+                      <Text style={styles.blockedPassengerMeta}>Phone: {blockedPassenger.passenger_phone}</Text>
+                    )}
+                  </View>
+                  <TouchableOpacity
+                    style={styles.secondaryDangerAction}
+                    onPress={() => toggleBlockedPassenger(blockedPassenger.passenger_id, true)}
+                    disabled={loading}>
+                    <Text style={styles.secondaryDangerText}>Unblock</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.blockedReasonBox}>
+                  <Text style={styles.blockedSectionLabel}>Why blocked</Text>
+                  <Text style={styles.blockedReasonText}>{blockedPassenger.reason}</Text>
+                </View>
+                <Text style={styles.blockedContextText}>
+                  Blocked: {formatBlockedPassengerDate(blockedPassenger.blocked_at)}
+                </Text>
+                <Text style={styles.blockedContextText}>
+                  Ride: {getBlockedPassengerRideSummary(blockedPassenger)}
+                </Text>
+                {!!blockedPassenger.last_booking_status && (
+                  <Text style={styles.blockedContextText}>Status: {blockedPassenger.last_booking_status}</Text>
+                )}
+                {Number.isFinite(fareValue) && (
+                  <Text style={styles.blockedContextText}>Fare: Rs. {fareValue.toFixed(2)}</Text>
+                )}
+              </View>
+            );
+          })}
+        </View>
+      )}
+    </View>
+  );
+
+  const renderPassengerSafetyTab = () => {
+    if (!passengerSafetyTarget?.id) {
+      return (
+        <View style={styles.simplePanel}>
+          <Text style={styles.simpleTitle}>Passenger Safety</Text>
+          <Text style={styles.simpleText}>
+            Passenger safety ratings appear when you have an active ride, a pending request, or an upcoming passenger.
+          </Text>
+          <View style={styles.actionRow}>
+            <TouchableOpacity style={styles.secondaryAction} onPress={() => setActiveTab('requests')}>
+              <Text style={styles.secondaryActionText}>Ride Flow</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.secondaryAction} onPress={() => refreshDriverData()}>
+              <Text style={styles.secondaryActionText}>Refresh</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.stackedPanels}>
+        <View style={styles.simplePanel}>
+          <Text style={styles.simpleTitle}>Passenger Safety</Text>
+          <Text style={styles.simpleText}>
+            Reviewing {passengerSafetyTarget.name}
+            {passengerSafetyTarget.rideId ? ` for ride #${passengerSafetyTarget.rideId.slice(-6)}` : ''}.
+          </Text>
+        </View>
+        <PassengerSafetyRatingsPanel passengerId={passengerSafetyTarget.id} disabled={loading} />
+      </View>
+    );
+  };
+
   const renderTabContent = () => {
     switch (activeTab) {
       case 'requests':
@@ -1234,6 +1399,27 @@ export default function DriverCommandPage({
             }}
           />
         );
+      case 'blocked':
+        return renderBlockedPassengersTab();
+      case 'safety':
+        return <KeralaSafetyCard safety={keralaSafety} />;
+      case 'photoVerification':
+        return (
+          <DriverPhotoVerificationPanel
+            driverId={user?.id}
+            disabled={loading}
+            onVerificationComplete={(result) => {
+              setMessage(
+                result?.status === 'VERIFIED'
+                  ? 'Photo verification submitted.'
+                  : 'Photo verification needs another attempt.',
+              );
+              refreshDriverMenuBadges();
+            }}
+          />
+        );
+      case 'passengerSafety':
+        return renderPassengerSafetyTab();
       case 'tier':
         return <DriverTierBenefitsPanel token={token} onTierUpgrade={() => setActiveTab('subscription')} />;
       case 'expiry':
@@ -1655,6 +1841,64 @@ const styles = StyleSheet.create({
   },
   requestList: {
     gap: 12,
+  },
+  blockedPassengerList: {
+    gap: 10,
+  },
+  blockedPassengerCard: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: '#FFFFFF',
+    padding: 12,
+    gap: 8,
+  },
+  blockedPassengerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  blockedPassengerTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  blockedPassengerName: {
+    color: COLORS.textMain,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  blockedPassengerMeta: {
+    color: COLORS.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  blockedReasonBox: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: '#F8FBF9',
+    padding: 10,
+  },
+  blockedSectionLabel: {
+    color: COLORS.textMuted,
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    marginBottom: 3,
+  },
+  blockedReasonText: {
+    color: COLORS.textMain,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 19,
+  },
+  blockedContextText: {
+    color: COLORS.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 18,
   },
   requestCard: {
     borderRadius: 8,
