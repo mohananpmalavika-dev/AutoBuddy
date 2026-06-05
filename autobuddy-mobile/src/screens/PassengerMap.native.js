@@ -191,6 +191,10 @@ const RIDE_PRODUCT_LABEL_FALLBACKS = {
   school_elderly_safe: 'School/Elderly',
 };
 
+function setPassengerPollCooldown(ref, cooldownMs) {
+  ref.current = Date.now() + Math.max(0, Number(cooldownMs || 0));
+}
+
 function getApiErrorCode(error) {
   return String(error?.code || '').toUpperCase();
 }
@@ -701,14 +705,17 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     () => getVehicleModelOptions(selectedVehicleType),
     [selectedVehicleType],
   );
-  const effectiveSelectedVehicleModelId = selectedVehicleModelId || selectedVehicleModelOptions[0]?.id || '';
-  const selectedVehicleModel = useMemo(
+  const effectiveSelectedVehicleModelId = useMemo(
     () =>
-      selectedVehicleModelOptions.find((model) => model.id === effectiveSelectedVehicleModelId) ||
-      selectedVehicleModelOptions[0] ||
-      null,
-    [effectiveSelectedVehicleModelId, selectedVehicleModelOptions],
+      selectedVehicleModelOptions.some((model) => model.id === selectedVehicleModelId)
+        ? selectedVehicleModelId
+        : selectedVehicleModelOptions[0]?.id || '',
+    [selectedVehicleModelId, selectedVehicleModelOptions],
   );
+  const selectedVehicleModel =
+    selectedVehicleModelOptions.find((model) => model.id === effectiveSelectedVehicleModelId) ||
+    selectedVehicleModelOptions[0] ||
+    null;
   const selectedRideChoiceLabel = useMemo(
     () =>
       [
@@ -720,17 +727,6 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         .join(' / '),
     [effectiveRideProduct, selectedVehicleModel, selectedVehicleType],
   );
-  useEffect(() => {
-    if (selectedVehicleModelOptions.length === 0) {
-      if (selectedVehicleModelId) {
-        setSelectedVehicleModelId('');
-      }
-      return;
-    }
-    if (!selectedVehicleModelOptions.some((model) => model.id === selectedVehicleModelId)) {
-      setSelectedVehicleModelId(selectedVehicleModelOptions[0].id);
-    }
-  }, [selectedVehicleModelId, selectedVehicleModelOptions]);
   const recentDestinationOptions = useMemo(() => {
     const seen = new Set();
     return (passengerBookings || [])
@@ -1150,7 +1146,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         const cooldownMs = getPassengerPollBackoffMs(err);
         if (cooldownMs > 0) {
           backedOff = true;
-          passengerPollCooldownUntilRef.current = Date.now() + cooldownMs;
+          setPassengerPollCooldown(passengerPollCooldownUntilRef, cooldownMs);
           const now = Date.now();
           if (!unmounted && now - passengerPollNoticeAtRef.current > 15000) {
             setMessage(getPassengerSyncDelayMessage(err));
@@ -1709,7 +1705,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     } catch (err) {
       const cooldownMs = getPassengerPollBackoffMs(err);
       if (cooldownMs > 0) {
-        passengerPollCooldownUntilRef.current = Date.now() + cooldownMs;
+        setPassengerPollCooldown(passengerPollCooldownUntilRef, cooldownMs);
         setError(
           getPassengerSyncDelayMessage(err, 'Could not confirm active ride status. Please try again.'),
         );
