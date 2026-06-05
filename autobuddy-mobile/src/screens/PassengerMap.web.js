@@ -1980,6 +1980,243 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     activePassengerMenu === PRIMARY_PASSENGER_MENU_KEY &&
     locationPermissionState !== 'granted' &&
     locationPermissionState !== 'unsupported';
+  const shouldShowPassengerMenuRails =
+    !isMobileWeb ||
+    activePassengerMenu !== PRIMARY_PASSENGER_MENU_KEY ||
+    showPassengerMenus;
+  const selectedVehicleType = useMemo(
+    () => (availableVehicleTypes || []).find((type) => type.id === effectiveSelectedVehicleTypeId) || null,
+    [availableVehicleTypes, effectiveSelectedVehicleTypeId],
+  );
+  const recentDestinationOptions = useMemo(() => {
+    const seen = new Set();
+    return (passengerBookings || [])
+      .map((booking) => {
+        const location = normalizeLocation(booking.drop_location || booking.dropoff_location);
+        const address = String(location?.address || '').trim();
+        const key = address.toLowerCase();
+        if (!location || !address || seen.has(key)) {
+          return null;
+        }
+        seen.add(key);
+        return {
+          id: String(booking.id || key),
+          label: address.split(',')[0] || 'Recent destination',
+          address,
+          location,
+        };
+      })
+      .filter(Boolean)
+      .slice(0, 3);
+  }, [passengerBookings]);
+  const quickFareValue = Number(fare?.total_fare || 0);
+  const quickFareLabel = quickFareValue > 0 ? `Rs. ${quickFareValue.toFixed(0)}` : 'Fare ready soon';
+  const quickDistanceLabel = Number(fare?.distance_km || 0) > 0 ? `${Number(fare.distance_km).toFixed(1)} km` : 'Distance calculating';
+  const quickEtaLabel = visibleDrivers.length > 0 ? `${visibleDrivers.length} nearby` : autoFetchingTripData ? 'Finding drivers' : 'Driver search live';
+  const quickBookingReady = Boolean(pickupLocation && dropoffLocation);
+  const quickBookingStep = !dropoffLocation ? 1 : quickBookingReady && !fare && autoFetchingTripData ? 2 : 3;
+  const quickDestinationText = dropoffLocation?.address || dropoffQuery || '';
+  const quickPickupText = pickupLocation?.address || pickupQuery || 'Use current location';
+
+  const handleQuickConfirmRide = async () => {
+    if (!pickupLocation) {
+      await autofillPickupFromCurrentLocation({ silent: false });
+      if (!dropoffLocation) {
+        setError('Select your destination to continue.');
+      }
+      return;
+    }
+    if (!dropoffLocation) {
+      setLocationValidation((prev) => ({ ...prev, dropoff: true }));
+      setError('Select your destination to continue.');
+      return;
+    }
+    await createBooking();
+  };
+
+  const selectRecentDestination = (item) => {
+    if (!item?.location) {
+      return;
+    }
+    setLocationForPoint('dropoff', item.location);
+    setSelectingPoint('pickup');
+    setMessage('Destination selected. Review fare and confirm.');
+  };
+
+  const renderQuickSuggestion = (item, point) => (
+    <TouchableOpacity
+      key={`quick-${point}-${item.placeId}`}
+      style={styles.quickSuggestionRow}
+      onPress={() => handleSelectSuggestion(point, item)}>
+      <View style={styles.quickSuggestionPin} />
+      <Text style={styles.quickSuggestionText} numberOfLines={2}>{item.description}</Text>
+    </TouchableOpacity>
+  );
+
+  const renderPassengerQuickBooking = () => (
+    <View style={[styles.quickBookingSheet, isMobileWeb && styles.quickBookingSheetMobile]}>
+      <View style={styles.quickSheetHandle} />
+      <View style={styles.quickBookingHeader}>
+        <View style={styles.quickBookingTitleBlock}>
+          <Text style={styles.quickGreeting}>Hi {user?.name || 'there'}</Text>
+          <Text style={[styles.quickTitle, isMobileWeb && styles.quickTitleMobile]}>Where are you going?</Text>
+        </View>
+        <View style={styles.quickHeaderActions}>
+          <NotificationBell
+            onPress={() => setShowNotificationCenter(true)}
+            unreadCount={unreadCount}
+            style={styles.quickIconButton}
+          />
+          <TouchableOpacity
+            style={styles.quickMoreButton}
+            onPress={() => {
+              setShowPassengerMenus((prev) => !prev);
+              setActivePassengerMenu(PRIMARY_PASSENGER_MENU_KEY);
+            }}>
+            <Text style={styles.quickMoreText}>{showPassengerMenus ? 'Hide' : 'Menu'}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <View style={styles.quickStepRow}>
+        {['Destination', 'Ride', 'Confirm'].map((label, index) => {
+          const stepNumber = index + 1;
+          const active = quickBookingStep >= stepNumber;
+          return (
+            <View key={label} style={styles.quickStepItem}>
+              <View style={[styles.quickStepDot, active && styles.quickStepDotActive]}>
+                <Text style={[styles.quickStepNumber, active && styles.quickStepNumberActive]}>{stepNumber}</Text>
+              </View>
+              <Text style={[styles.quickStepLabel, active && styles.quickStepLabelActive]}>{label}</Text>
+            </View>
+          );
+        })}
+      </View>
+
+      {shouldShowWebLocationPrompt && (
+        <TouchableOpacity
+          style={styles.quickLocationPrompt}
+          onPress={() => autofillPickupFromCurrentLocation({ silent: false })}
+          disabled={locatingPickup}>
+          <Text style={styles.quickLocationPromptTitle}>{locatingPickup ? 'Getting your location...' : 'Allow current location'}</Text>
+          <Text style={styles.quickLocationPromptText}>Pickup fills automatically after permission.</Text>
+        </TouchableOpacity>
+      )}
+
+      <View style={styles.quickRouteBox}>
+        <View style={styles.quickRouteLine}>
+          <View style={[styles.quickRouteDot, styles.quickPickupDot]} />
+          <View style={styles.quickRouteCopy}>
+            <View style={styles.quickRouteLabelRow}>
+              <Text style={styles.quickRouteLabel}>Pickup</Text>
+              <TouchableOpacity
+                style={styles.quickUseLocationButton}
+                onPress={() => autofillPickupFromCurrentLocation({ silent: false })}
+                disabled={locatingPickup}>
+                <Text style={styles.quickUseLocationText}>{locatingPickup ? 'Locating' : 'Use current'}</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.quickRouteValue} numberOfLines={1}>{quickPickupText}</Text>
+          </View>
+        </View>
+
+        <View style={styles.quickRouteDivider} />
+
+        <View style={styles.quickRouteLine}>
+          <View style={[styles.quickRouteDot, styles.quickDropDot]} />
+          <View style={styles.quickRouteCopy}>
+            <Text style={styles.quickRouteLabel}>Destination</Text>
+            <VoiceTextInput
+              style={[styles.quickDestinationInput, locationValidation.dropoff && styles.quickDestinationInputError]}
+              containerStyle={styles.quickDestinationInputContainer}
+              value={dropoffQuery}
+              onFocus={() => setSelectingPoint('dropoff')}
+              onChangeText={(text) => handleSearchTextChange('dropoff', text)}
+              placeholder="Search destination"
+              placeholderTextColor="#7A8A80"
+              returnKeyType="search"
+            />
+          </View>
+        </View>
+      </View>
+
+      {searchingDropoff && <Text style={styles.quickHint}>Searching places...</Text>}
+      {dropoffSuggestions.slice(0, 4).map((item) => renderQuickSuggestion(item, 'dropoff'))}
+
+      {!quickDestinationText && recentDestinationOptions.length > 0 && (
+        <View style={styles.quickRecentSection}>
+          <Text style={styles.quickSectionLabel}>Recent places</Text>
+          <View style={styles.quickRecentRow}>
+            {recentDestinationOptions.map((item) => (
+              <TouchableOpacity
+                key={item.id}
+                style={styles.quickRecentChip}
+                onPress={() => selectRecentDestination(item)}>
+                <Text style={styles.quickRecentChipTitle} numberOfLines={1}>{item.label}</Text>
+                <Text style={styles.quickRecentChipSub} numberOfLines={1}>{item.address}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      )}
+
+      <View style={styles.quickFareCard}>
+        <View>
+          <Text style={styles.quickFareLabel}>{quickBookingReady ? 'Estimated fare' : 'Trip preview'}</Text>
+          <Text style={styles.quickFareValue}>{autoFetchingTripData ? 'Calculating...' : quickFareLabel}</Text>
+        </View>
+        <View style={styles.quickFareMeta}>
+          <Text style={styles.quickFareMetaText}>{quickDistanceLabel}</Text>
+          <Text style={styles.quickFareMetaText}>{quickEtaLabel}</Text>
+        </View>
+      </View>
+
+      <View style={styles.quickChoiceRow}>
+        <View style={styles.quickChoiceChip}>
+          <Text style={styles.quickChoiceLabel}>Ride</Text>
+          <Text style={styles.quickChoiceValue} numberOfLines={1}>
+            {selectedVehicleType?.label || selectedVehicleType?.name || rideProductLabels?.[effectiveRideProduct] || 'Auto'}
+          </Text>
+        </View>
+        <TouchableOpacity
+          style={styles.quickChoiceChip}
+          onPress={() => handleMenuSelection('payment', t.payment || 'Payment')}>
+          <Text style={styles.quickChoiceLabel}>Payment</Text>
+          <Text style={styles.quickChoiceValue}>{selectedPaymentMethod === 'online' ? 'Online' : 'Cash'}</Text>
+        </TouchableOpacity>
+      </View>
+
+      <TouchableOpacity
+        style={[
+          styles.quickConfirmButton,
+          (!quickBookingReady || loading) && styles.quickConfirmButtonDisabled,
+        ]}
+        onPress={handleQuickConfirmRide}
+        disabled={loading}>
+        <Text style={styles.quickConfirmText}>
+          {loading ? 'Requesting ride...' : quickBookingReady ? 'Confirm Ride' : 'Select destination'}
+        </Text>
+      </TouchableOpacity>
+
+      <View style={styles.quickSecondaryActions}>
+        <TouchableOpacity
+          style={styles.quickSecondaryButton}
+          onPress={() => setShowInteractiveMap((prev) => !prev)}>
+          <Text style={styles.quickSecondaryText}>{showInteractiveMap ? 'Map pick on' : 'Map pick off'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.quickSecondaryButton}
+          onPress={() => handleMenuSelection('safety', t.safety)}>
+          <Text style={styles.quickSecondaryText}>Safety</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.quickSecondaryButton}
+          onPress={handleProfilePress}>
+          <Text style={styles.quickSecondaryText}>Profile</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
 
   if (showProfile) {
     return (
@@ -2024,7 +2261,12 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         </View>
 
         <View style={[styles.panel, isMobileWeb && styles.panelMobile, accessibilityUi.panelStyle]}>
-          <View style={[styles.headerRow, isMobileWeb && styles.headerRowMobile]}>
+          <View
+            style={[
+              styles.headerRow,
+              isMobileWeb && styles.headerRowMobile,
+              isMobileWeb && activePassengerMenu === PRIMARY_PASSENGER_MENU_KEY && styles.headerRowBookingMobile,
+            ]}>
             <View style={[styles.headerUserBlock, isMobileWeb && styles.headerUserBlockMobile]}>
               <Text style={[styles.hello, isMobileWeb && styles.helloMobile, accessibilityUi.headingStyle]}>{t.hi}, {user?.name || t.passengerFallbackName}</Text>
               {!isMobileWeb && <Text style={[styles.sub, accessibilityUi.textStyle]}>{t.passengerCenter}</Text>}
@@ -2068,7 +2310,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               />
             )}
 
-            {shouldShowWebLocationPrompt && (
+            {shouldShowWebLocationPrompt && !isMobileWeb && (
               <View style={[styles.locationPermissionCard, isMobileWeb && styles.locationPermissionCardMobile]}>
                 <View style={styles.locationPermissionCopy}>
                   <Text style={styles.locationPermissionTitle}>Current location access</Text>
@@ -2087,64 +2329,68 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               </View>
             )}
 
-            <View style={[styles.dashboardTopRow, isMobileWeb && styles.dashboardTopRowMobile]}>
-              <TouchableOpacity
-                style={[
-                  styles.primaryMenuButton,
-                  isMobileWeb && styles.primaryMenuButtonMobile,
-                  activePassengerMenu === PRIMARY_PASSENGER_MENU_KEY && styles.primaryMenuButtonActive,
-                ]}
-                accessibilityRole="tab"
-                accessibilityLabel={t.rideBooking}
-                accessibilityState={{ selected: activePassengerMenu === PRIMARY_PASSENGER_MENU_KEY }}
-                onPress={() => handleMenuSelection(PRIMARY_PASSENGER_MENU_KEY, t.rideBooking)}>
-                <View style={styles.primaryMenuButtonContent}>
-                  <View
+            {shouldShowPassengerMenuRails && (
+              <>
+                <View style={[styles.dashboardTopRow, isMobileWeb && styles.dashboardTopRowMobile]}>
+                  <TouchableOpacity
                     style={[
-                      styles.menuIconBadge,
-                      activePassengerMenu === PRIMARY_PASSENGER_MENU_KEY && styles.menuIconBadgeActive,
-                    ]}>
-                    <PassengerMenuIcon
-                      symbol={PASSENGER_MENU_BY_KEY.ride.symbol}
-                      selected={activePassengerMenu === PRIMARY_PASSENGER_MENU_KEY}
-                    />
-                  </View>
-                  <Text style={styles.primaryMenuButtonText}>{t.rideBooking}</Text>
-                </View>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.menuToggleButton, isMobileWeb && styles.menuToggleButtonMobile]}
-                accessibilityRole="button"
-                accessibilityLabel={showPassengerMenus ? t.hideMenus : t.otherMenus}
-                accessibilityState={{ expanded: showPassengerMenus }}
-                onPress={() =>
-                  setShowPassengerMenus((prev) => {
-                    const next = !prev;
-                    triggerA11yFeedback(next ? `${t.otherMenus} opened` : `${t.otherMenus} closed`);
-                    return next;
-                  })
-                }>
-                <Text style={styles.menuToggleButtonText}>
-                  {showPassengerMenus ? t.hideMenus : t.otherMenus}
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={[styles.pinnedMenuRow, isMobileWeb && styles.pinnedMenuRowMobile]}>
-              {pinnedPassengerMenuOptions.map((menu) => renderPassengerMenuChip(menu, 'pinned'))}
-            </View>
-
-            {showPassengerMenus && (
-              <View style={styles.secondaryMenuPanel}>
-                {SECONDARY_PASSENGER_MENU_GROUPS.map((section) => (
-                  <View key={section.key} style={styles.menuGroup}>
-                    <Text style={styles.menuGroupTitle}>{section.title}</Text>
-                    <View style={styles.secondaryMenuRow}>
-                      {section.options.map((menu) => renderPassengerMenuChip(menu))}
+                      styles.primaryMenuButton,
+                      isMobileWeb && styles.primaryMenuButtonMobile,
+                      activePassengerMenu === PRIMARY_PASSENGER_MENU_KEY && styles.primaryMenuButtonActive,
+                    ]}
+                    accessibilityRole="tab"
+                    accessibilityLabel={t.rideBooking}
+                    accessibilityState={{ selected: activePassengerMenu === PRIMARY_PASSENGER_MENU_KEY }}
+                    onPress={() => handleMenuSelection(PRIMARY_PASSENGER_MENU_KEY, t.rideBooking)}>
+                    <View style={styles.primaryMenuButtonContent}>
+                      <View
+                        style={[
+                          styles.menuIconBadge,
+                          activePassengerMenu === PRIMARY_PASSENGER_MENU_KEY && styles.menuIconBadgeActive,
+                        ]}>
+                        <PassengerMenuIcon
+                          symbol={PASSENGER_MENU_BY_KEY.ride.symbol}
+                          selected={activePassengerMenu === PRIMARY_PASSENGER_MENU_KEY}
+                        />
+                      </View>
+                      <Text style={styles.primaryMenuButtonText}>{t.rideBooking}</Text>
                     </View>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.menuToggleButton, isMobileWeb && styles.menuToggleButtonMobile]}
+                    accessibilityRole="button"
+                    accessibilityLabel={showPassengerMenus ? t.hideMenus : t.otherMenus}
+                    accessibilityState={{ expanded: showPassengerMenus }}
+                    onPress={() =>
+                      setShowPassengerMenus((prev) => {
+                        const next = !prev;
+                        triggerA11yFeedback(next ? `${t.otherMenus} opened` : `${t.otherMenus} closed`);
+                        return next;
+                      })
+                    }>
+                    <Text style={styles.menuToggleButtonText}>
+                      {showPassengerMenus ? t.hideMenus : t.otherMenus}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={[styles.pinnedMenuRow, isMobileWeb && styles.pinnedMenuRowMobile]}>
+                  {pinnedPassengerMenuOptions.map((menu) => renderPassengerMenuChip(menu, 'pinned'))}
+                </View>
+
+                {showPassengerMenus && (
+                  <View style={styles.secondaryMenuPanel}>
+                    {SECONDARY_PASSENGER_MENU_GROUPS.map((section) => (
+                      <View key={section.key} style={styles.menuGroup}>
+                        <Text style={styles.menuGroupTitle}>{section.title}</Text>
+                        <View style={styles.secondaryMenuRow}>
+                          {section.options.map((menu) => renderPassengerMenuChip(menu))}
+                        </View>
+                      </View>
+                    ))}
                   </View>
-                ))}
-              </View>
+                )}
+              </>
             )}
 
             {activePassengerMenu !== PRIMARY_PASSENGER_MENU_KEY && (
@@ -2230,7 +2476,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               </View>
             )}
 
-            {activePassengerMenu === 'ride' && (
+            {activePassengerMenu === 'ride' && renderPassengerQuickBooking()}
+
+            {false && activePassengerMenu === 'ride' && (
               <>
                 <View style={[styles.infoBlock, isMobileWeb && styles.infoBlockMobile]}>
                   <View style={[styles.rideModeRow, isMobileWeb && styles.rideModeRowMobile]}>
@@ -3214,9 +3462,9 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.background },
   container: { flex: 1, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 16 },
   containerMobile: {
-    paddingHorizontal: 10,
-    paddingTop: 8,
-    paddingBottom: 10,
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    paddingBottom: 0,
   },
   mapContainer: {
     height: 220,
@@ -3229,8 +3477,9 @@ const styles = StyleSheet.create({
     ...SHADOWS.card,
   },
   mapContainerMobile: {
-    height: 205,
-    borderRadius: 14,
+    height: 268,
+    borderRadius: 0,
+    borderWidth: 0,
   },
   mapOverlayWrap: {
     position: 'absolute',
@@ -3271,14 +3520,20 @@ const styles = StyleSheet.create({
     ...SHADOWS.card,
   },
   panelMobile: {
-    marginTop: 10,
-    borderRadius: 14,
-    padding: 12,
+    marginTop: -22,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    padding: 10,
+    borderLeftWidth: 0,
+    borderRightWidth: 0,
+    borderBottomWidth: 0,
   },
   panelScroll: { flex: 1 },
   panelScrollMobile: { flex: 1 },
   panelScrollContent: { paddingBottom: 22 },
-  panelScrollContentMobile: { paddingBottom: 120 },
+  panelScrollContentMobile: { paddingBottom: 36 },
   premiumCallout: { marginBottom: 10 },
   premiumTitle: {
     ...TYPOGRAPHY.title,
@@ -3300,6 +3555,9 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: 6,
     marginBottom: 2,
+  },
+  headerRowBookingMobile: {
+    display: 'none',
   },
   headerUserBlock: { flex: 1, paddingRight: 8 },
   headerUserBlockMobile: { flexBasis: '100%', paddingRight: 0 },
@@ -3387,6 +3645,392 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 13,
     fontWeight: '800',
+  },
+  quickBookingSheet: {
+    borderWidth: 1,
+    borderColor: '#D7E2DA',
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    padding: 14,
+    marginBottom: 12,
+    ...SHADOWS.card,
+  },
+  quickBookingSheetMobile: {
+    borderWidth: 0,
+    borderRadius: 0,
+    paddingHorizontal: 4,
+    paddingTop: 4,
+    paddingBottom: 10,
+    marginBottom: 8,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  quickSheetHandle: {
+    alignSelf: 'center',
+    width: 38,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#C8D8CE',
+    marginBottom: 12,
+  },
+  quickBookingHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 12,
+  },
+  quickBookingTitleBlock: {
+    flex: 1,
+  },
+  quickGreeting: {
+    color: '#66786D',
+    fontSize: 12,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  quickTitle: {
+    color: COLORS.textMain,
+    fontSize: 25,
+    lineHeight: 30,
+    fontWeight: '900',
+  },
+  quickTitleMobile: {
+    fontSize: 22,
+    lineHeight: 27,
+  },
+  quickHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  quickIconButton: {
+    marginRight: 0,
+  },
+  quickMoreButton: {
+    borderWidth: 1,
+    borderColor: '#C9D9CF',
+    backgroundColor: '#F8FBF9',
+    borderRadius: 10,
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+  },
+  quickMoreText: {
+    color: COLORS.textMain,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  quickStepRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12,
+  },
+  quickStepItem: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    minWidth: 0,
+  },
+  quickStepDot: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: '#CBD9D0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  quickStepDotActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primary,
+  },
+  quickStepNumber: {
+    color: '#6B7D72',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  quickStepNumberActive: {
+    color: '#FFFFFF',
+  },
+  quickStepLabel: {
+    color: '#6B7D72',
+    flexShrink: 1,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  quickStepLabelActive: {
+    color: COLORS.primaryDark,
+  },
+  quickLocationPrompt: {
+    borderWidth: 1,
+    borderColor: '#B8D8C1',
+    borderRadius: 12,
+    backgroundColor: '#F3FAF5',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 10,
+  },
+  quickLocationPromptTitle: {
+    color: COLORS.primaryDark,
+    fontSize: 13,
+    fontWeight: '900',
+    marginBottom: 2,
+  },
+  quickLocationPromptText: {
+    color: '#446151',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  quickRouteBox: {
+    borderWidth: 1,
+    borderColor: '#D8E5DC',
+    borderRadius: 14,
+    backgroundColor: '#FBFDFB',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 10,
+  },
+  quickRouteLine: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  quickRouteDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginTop: 5,
+  },
+  quickPickupDot: {
+    backgroundColor: COLORS.primary,
+  },
+  quickDropDot: {
+    backgroundColor: '#E53935',
+  },
+  quickRouteCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  quickRouteLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  quickRouteLabel: {
+    color: '#6C7B72',
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  quickRouteValue: {
+    color: COLORS.textMain,
+    fontSize: 14,
+    fontWeight: '800',
+    lineHeight: 19,
+    marginTop: 2,
+  },
+  quickUseLocationButton: {
+    borderRadius: 999,
+    backgroundColor: '#EAF6ED',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  quickUseLocationText: {
+    color: COLORS.primaryDark,
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  quickRouteDivider: {
+    height: 1,
+    backgroundColor: '#E4EEE7',
+    marginVertical: 10,
+    marginLeft: 22,
+  },
+  quickDestinationInputContainer: {
+    marginTop: 4,
+  },
+  quickDestinationInput: {
+    borderWidth: 0,
+    borderRadius: 0,
+    paddingHorizontal: 0,
+    paddingVertical: 4,
+    marginBottom: 0,
+    backgroundColor: 'transparent',
+    color: COLORS.textMain,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  quickDestinationInputError: {
+    color: COLORS.danger,
+  },
+  quickHint: {
+    color: '#66786D',
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  quickSuggestionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    borderWidth: 1,
+    borderColor: '#D8E5DC',
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 11,
+    paddingVertical: 10,
+    marginBottom: 7,
+  },
+  quickSuggestionPin: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: COLORS.primary,
+  },
+  quickSuggestionText: {
+    flex: 1,
+    color: COLORS.textMain,
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 18,
+  },
+  quickRecentSection: {
+    marginBottom: 10,
+  },
+  quickSectionLabel: {
+    color: '#66786D',
+    fontSize: 11,
+    fontWeight: '900',
+    marginBottom: 6,
+    textTransform: 'uppercase',
+  },
+  quickRecentRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  quickRecentChip: {
+    flex: 1,
+    minWidth: 0,
+    borderWidth: 1,
+    borderColor: '#D8E5DC',
+    borderRadius: 12,
+    backgroundColor: '#F8FBF9',
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+  },
+  quickRecentChipTitle: {
+    color: COLORS.textMain,
+    fontSize: 12,
+    fontWeight: '900',
+    marginBottom: 2,
+  },
+  quickRecentChipSub: {
+    color: '#66786D',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  quickFareCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    borderWidth: 1,
+    borderColor: '#D8E5DC',
+    borderRadius: 14,
+    backgroundColor: '#F2F8F4',
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    marginBottom: 9,
+  },
+  quickFareLabel: {
+    color: '#557061',
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  quickFareValue: {
+    color: COLORS.textMain,
+    fontSize: 20,
+    fontWeight: '900',
+    marginTop: 2,
+  },
+  quickFareMeta: {
+    alignItems: 'flex-end',
+    gap: 3,
+  },
+  quickFareMetaText: {
+    color: '#496252',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  quickChoiceRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 10,
+  },
+  quickChoiceChip: {
+    flex: 1,
+    minWidth: 0,
+    borderWidth: 1,
+    borderColor: '#D8E5DC',
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+  },
+  quickChoiceLabel: {
+    color: '#66786D',
+    fontSize: 10,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    marginBottom: 2,
+  },
+  quickChoiceValue: {
+    color: COLORS.textMain,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  quickConfirmButton: {
+    minHeight: 52,
+    borderRadius: 14,
+    backgroundColor: COLORS.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 10,
+    ...SHADOWS.soft,
+  },
+  quickConfirmButtonDisabled: {
+    backgroundColor: '#9DB8A5',
+  },
+  quickConfirmText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  quickSecondaryActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  quickSecondaryButton: {
+    flexGrow: 1,
+    borderWidth: 1,
+    borderColor: '#D8E5DC',
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    alignItems: 'center',
+  },
+  quickSecondaryText: {
+    color: '#365043',
+    fontSize: 12,
+    fontWeight: '900',
   },
   route: { color: '#666666', marginTop: 10, marginBottom: 10 },
   dashboardTopRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
