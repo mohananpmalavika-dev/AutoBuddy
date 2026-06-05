@@ -305,6 +305,7 @@ TRIP_DISTANCE_MIN_SEGMENT_KM = float(os.environ.get("TRIP_DISTANCE_MIN_SEGMENT_K
 TRIP_DISTANCE_MAX_SEGMENT_KM = float(os.environ.get("TRIP_DISTANCE_MAX_SEGMENT_KM", "8.0"))
 TRIP_DISTANCE_MAX_POINTS = int(os.environ.get("TRIP_DISTANCE_MAX_POINTS", "1200"))
 DRIVER_LIVE_LOCATION_TTL_SECONDS = int(os.environ.get("DRIVER_LIVE_LOCATION_TTL_SECONDS", "300"))
+ANALYTICS_DB_NAME = os.environ.get("ANALYTICS_DB_NAME", f"{settings.db_name}_analytics").strip() or f"{settings.db_name}_analytics"
 REDIS_URL_RAW = os.environ.get("REDIS_URL", "")
 REDIS_URL, REDIS_URL_INVALID = _normalize_redis_url(REDIS_URL_RAW)
 REDIS_KEY_PREFIX = os.environ.get("REDIS_KEY_PREFIX", "autobuddy").strip()
@@ -383,6 +384,7 @@ if STRIPE_SECRET_KEY:
 
 redis_client = None
 db = None
+analytics_db = None
 if REDIS_URL and redis_async:
     try:
         redis_client = redis_async.from_url(
@@ -642,6 +644,9 @@ def build_error_response(
 # ==================== STARTUP SEED ====================
 async def seed_admin():
     """Create indexes and optionally seed bootstrap users from environment."""
+    if db is None:
+        logger.warning("Skipping Mongo seed/index setup because primary database is unavailable.")
+        return
     try:
         bootstrap_users: List[Dict[str, Any]] = []
         if BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_NAME and BOOTSTRAP_ADMIN_PHONE and BOOTSTRAP_ADMIN_PASSWORD:
@@ -938,24 +943,22 @@ async def seed_admin():
         await db.ride_revenues.create_index("booking_id", unique=True)
         await ensure_default_revenue_plans(db)
         await db.analytics_events.create_index([("created_at", -1)])
-        await analytics_db.ride_events.create_index([("created_at", -1)])
+        if analytics_db is not None:
+            await analytics_db.ride_events.create_index([("created_at", -1)])
         await db.launch_page_visits.create_index([("created_at", -1)])
         await db.launch_page_visits.create_index([("event_date", 1)])
         await db.launch_page_visits.create_index([("identity_key", 1), ("created_at", -1)])
         await db.launch_page_visits.create_index([("ip_address", 1), ("created_at", -1)])
         # Total Mobility Platform indexes
         try:
-            await db.ride_types.create_index("_id", unique=True)
             await db.ride_types.create_index("active")
         except OperationFailure:
             pass
         try:
-            await db.vehicle_types.create_index("_id", unique=True)
             await db.vehicle_types.create_index("active")
         except OperationFailure:
             pass
         try:
-            await db.coverage_areas.create_index("_id", unique=True)
             await db.coverage_areas.create_index([("level", 1), ("active", 1)])
         except OperationFailure:
             pass
@@ -971,7 +974,7 @@ async def seed_admin():
 
 @app.on_event("startup")
 async def on_startup():
-    global driver_health_monitor_task, ride_dispatch_worker_task, analytics_warehouse_worker_task, redis_client, db
+    global driver_health_monitor_task, ride_dispatch_worker_task, analytics_warehouse_worker_task, redis_client, db, analytics_db
     if not settings.mongo_url:
         error_msg = (
             "MONGO_URL must be configured via environment. "
@@ -1086,12 +1089,17 @@ async def on_startup():
     try:
         mongo_client = create_mongo_client(settings)
         db = create_database(mongo_client, settings)
+        analytics_db = mongo_client[ANALYTICS_DB_NAME]
         app.state.db = db
+        app.state.analytics_db = analytics_db
         app.state.mongo_client = mongo_client
         logger.info("MongoDB connection initialized")
     except Exception as exc:
         logger.warning("MongoDB initialization failed; continuing in degraded mode: %s", exc)
         db = None
+        analytics_db = None
+        app.state.db = None
+        app.state.analytics_db = None
     
     await seed_admin()
     # Initialize default vehicle types
@@ -3293,8 +3301,14 @@ async def queue_analytics_event(event: Dict[str, Any]) -> bool:
 
 
 async def persist_analytics_event(event: Dict[str, Any]) -> None:
+    if db is None:
+        return
     await db.analytics_events.insert_one(event)
-    await analytics_db.ride_events.insert_one(event)
+    if analytics_db is not None:
+        try:
+            await analytics_db.ride_events.insert_one(event)
+        except Exception:
+            logger.exception("Analytics mirror write failed")
 
 
 async def write_analytics_event(event_type: str, user_id: Optional[str], payload: Dict[str, Any]):

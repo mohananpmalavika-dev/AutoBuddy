@@ -240,7 +240,6 @@ async def init_canonical_vehicles(db: AsyncIOMotorDatabase) -> None:
                 upsert=True,
             )
 
-        await vehicles_collection.create_index("_id", unique=True)
         await vehicles_collection.create_index("vehicle_type_id", unique=True)
         await vehicles_collection.create_index([("allowed_ride_types", 1), ("active", 1)])
         await vehicles_collection.create_index([("goods_supported", 1), ("active", 1)])
