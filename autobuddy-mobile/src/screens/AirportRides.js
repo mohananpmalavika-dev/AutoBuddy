@@ -111,7 +111,7 @@ const TerminalsTab = ({ adminToken }) => {
 const FlightsTab = ({ adminToken }) => {
   const [flights, setFlights] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [selectedTerminal, setSelectedTerminal] = useState('term_BLR');
+  const [selectedTerminal] = useState('term_BLR');
 
   const fetchFlights = useCallback(async () => {
     try {

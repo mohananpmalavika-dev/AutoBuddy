@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View, Modal, ActivityIndicator, Alert } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View, ActivityIndicator, Alert } from 'react-native';
 import { COLORS, SHADOWS } from '../theme';
 
 /**
@@ -16,7 +16,6 @@ export default function DriverSOSButton({
   disabled = false,
   compact = false,
 }) {
-  const [showConfirmation, setShowConfirmation] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSOSPress = () => {
@@ -27,7 +26,6 @@ export default function DriverSOSButton({
         [
           {
             text: 'Cancel',
-            onPress: () => setShowConfirmation(false),
             style: 'cancel',
           },
           {
@@ -37,7 +35,6 @@ export default function DriverSOSButton({
           },
         ]
       );
-      setShowConfirmation(true);
     } else {
       handleConfirmSOS();
     }
@@ -47,9 +44,7 @@ export default function DriverSOSButton({
     setIsSubmitting(true);
     try {
       const result = await onTriggerSOS?.();
-      if (result) {
-        setShowConfirmation(false);
-      }
+      return result;
     } catch (error) {
       Alert.alert('SOS Error', error?.message || 'Failed to send emergency alert');
     } finally {
@@ -61,8 +56,7 @@ export default function DriverSOSButton({
     if (sosActive) {
       try {
         await onCancelSOS?.();
-        setShowConfirmation(false);
-      } catch (error) {
+      } catch {
         Alert.alert('Error', 'Failed to cancel SOS');
       }
     }

@@ -50,6 +50,11 @@ const MetricsCard = ({ title, value, unit, icon, color, trend }) => (
   </View>
 );
 
+const getReportedMinutesAgo = (incident) => {
+  const minutes = Number(incident?.minutes_ago ?? incident?.reported_minutes_ago ?? 0);
+  return Number.isFinite(minutes) ? Math.max(0, Math.floor(minutes)) : 0;
+};
+
 // ============================================================================
 // DASHBOARD TAB
 // ============================================================================
@@ -190,7 +195,6 @@ const WarRoomDashboard = ({ cityId, adminToken }) => {
 const IncidentsDashboard = ({ cityId, adminToken }) => {
   const [incidents, setIncidents] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [selectedIncident, setSelectedIncident] = useState(null);
 
   const fetchIncidents = useCallback(async () => {
     try {
@@ -235,7 +239,7 @@ const IncidentsDashboard = ({ cityId, adminToken }) => {
         Alert.alert('Success', 'Incident acknowledged');
         fetchIncidents();
       }
-    } catch (e) {
+    } catch {
       Alert.alert('Error', 'Failed to acknowledge incident');
     }
   };
@@ -255,17 +259,14 @@ const IncidentsDashboard = ({ cityId, adminToken }) => {
       keyExtractor={(item) => item.id}
       refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchIncidents} />}
       renderItem={({ item }) => (
-        <TouchableOpacity
-          onPress={() => setSelectedIncident(item)}
-          style={[styles.incidentItem, SHADOWS.small]}
-        >
+        <View style={[styles.incidentItem, SHADOWS.small]}>
           <View style={[styles.severityBadge, { backgroundColor: severityColor[item.severity] }]}>
             <Text style={styles.severityText}>{item.severity.toUpperCase()}</Text>
           </View>
           <View style={styles.incidentContent}>
             <Text style={styles.incidentType}>{item.incident_type.replace(/_/g, ' ').toUpperCase()}</Text>
             <Text style={styles.incidentDesc} numberOfLines={2}>{item.description}</Text>
-            <Text style={styles.incidentTime}>Reported {Math.floor(Math.random() * 30)} min ago</Text>
+            <Text style={styles.incidentTime}>Reported {getReportedMinutesAgo(item)} min ago</Text>
           </View>
           <TouchableOpacity
             onPress={() => handleAcknowledge(item.id)}
@@ -273,7 +274,7 @@ const IncidentsDashboard = ({ cityId, adminToken }) => {
           >
             <Text style={styles.buttonText}>ACK</Text>
           </TouchableOpacity>
-        </TouchableOpacity>
+        </View>
       )}
       ListEmptyComponent={<Text style={styles.emptyText}>No active incidents</Text>}
     />

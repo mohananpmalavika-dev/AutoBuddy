@@ -77,7 +77,7 @@ export function useDriverRealtimeTracking({
     if (socketRef.current?.connected) {
       try {
         emitDriverLocation(payload.booking_id || activeRideId, payload.latitude, payload.longitude, payload.accuracy);
-      } catch (err) {
+      } catch {
         // Fallback to raw socket emit if helper fails
         socketRef.current.emit('driver_location_update', payload);
       }
@@ -91,7 +91,7 @@ export function useDriverRealtimeTracking({
         timestamp: Date.now(),
       }).catch(() => null);
     }, 0);
-  }, [emitTelemetry, updateAdaptiveIntervalFromKmh]);
+  }, [activeRideId, emitTelemetry, updateAdaptiveIntervalFromKmh]);
 
   const emitLocation = useCallback(
     async (location) => {
@@ -211,7 +211,7 @@ export function useDriverRealtimeTracking({
       if (lastLocationRef.current) {
         try {
           emitDriverLocation(lastLocationRef.current.booking_id || activeRideId, lastLocationRef.current.latitude, lastLocationRef.current.longitude, lastLocationRef.current.accuracy);
-        } catch (err) {
+        } catch {
           socket.emit('driver_location_update', lastLocationRef.current);
         }
       }

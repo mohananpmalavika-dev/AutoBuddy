@@ -66,7 +66,7 @@ function normalizeSocketUrl(value) {
       url.protocol = 'https:';
     }
     return url.toString();
-  } catch (error) {
+  } catch {
     return rawValue;
   }
 }

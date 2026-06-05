@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -9,10 +9,8 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  Image,
-  Animated,
 } from 'react-native';
-import { COLORS, SHADOWS } from '../theme';
+import { SHADOWS } from '../theme';
 import { formatToIST } from '../utils/time';
 import VoiceTextInput from './VoiceTextInput';
 
@@ -399,6 +397,11 @@ export default function ExpenseTrackerAdvanced({
               <View style={styles.statItem}>
                 <Text style={styles.statItemLabel}>Total Entries</Text>
                 <Text style={styles.statItemValue}>{expenses.length}</Text>
+              </View>
+
+              <View style={styles.statItem}>
+                <Text style={styles.statItemLabel}>Tracked Days</Text>
+                <Text style={styles.statItemValue}>{Object.keys(expenseTrends).length}</Text>
               </View>
 
               <View style={styles.statItem}>

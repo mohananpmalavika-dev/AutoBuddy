@@ -36,11 +36,11 @@ export const initializeSocket = (token: string, baseUrl?: string): Socket | null
     const socket = createAutoBuddySocket(token, baseUrl);
 
     socket.on('connect', () => {
-      console.log('Socket connected:', socket.id);
+      console.warn('Socket connected:', socket.id);
     });
 
     socket.on('disconnect', () => {
-      console.log('Socket disconnected');
+      console.warn('Socket disconnected');
     });
 
     socket.on('error', (error: unknown) => {

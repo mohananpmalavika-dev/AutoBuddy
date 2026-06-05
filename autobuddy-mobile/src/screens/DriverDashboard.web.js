@@ -92,9 +92,7 @@ import {
   runDriverQuickAction,
 } from '../lib/driverDashboardFlow';
 import {
-  extractDriverReadinessFromError,
   formatDriverReadinessMessage,
-  getDriverReadinessTab,
   isDriverReadyToDrive,
 } from '../lib/driverReadiness';
 import {
@@ -255,7 +253,6 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   const reverseGeocodeCacheRef = useRef(new Map());
   const availabilityUiOverrideUntilRef = useRef(0);
   const availabilityLocalChangeAtRef = useRef(0);
-  const availabilityToggleRequestIdRef = useRef(0);
   const availabilityToggleInFlightRef = useRef(null);
   const pendingAvailabilitySyncRef = useRef(null);
   const availabilityRetryInFlightRef = useRef(false);
@@ -313,7 +310,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   const [spinWinStatus, setSpinWinStatus] = useState(null);
   const [spinWinLoading, setSpinWinLoading] = useState(false);
   const [spinningNow, setSpinningNow] = useState(false);
-  const [driverMetrics, setDriverMetrics] = useState({
+  const [driverMetrics] = useState({
     average_rating: 0,
     acceptance_rate: 0,
     completion_rate: 0,
@@ -325,7 +322,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     weekly_avg_rating: 0,
     avg_response_time: 0,
   });
-  const [analyticsHistory, setAnalyticsHistory] = useState([]);
+  const [analyticsHistory] = useState([]);
 
   const setAvailabilitySyncPendingState = useCallback((value) => {
     const nextValue = !!value;
@@ -1130,7 +1127,6 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     normalizeLocation,
     requestDriverData,
     runAction,
-    serverIsOnline,
     token,
   ]);
 
@@ -1230,7 +1226,6 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     hydrateDriverFareConfig,
     normalizeLocation,
     requestDriverData,
-    serverIsOnline,
   ]);
 
   const refreshRideStageValidation = useCallback(async () => {
@@ -1762,15 +1757,10 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   }, [
     displayIsOnline,
     token,
-    apiRequest,
-    isDriverReadyToDrive,
-    formatDriverReadinessMessage,
     requestDriverData,
-    hasDriverAvailabilitySnapshot,
-    readDriverAvailability,
     applyAvailabilitySnapshot,
     pushDriverLocation,
-    getAvailabilityErrorMessage,
+    setAvailabilitySyncPendingState,
   ]);
 
   const acceptRequest = async (bookingId) => {

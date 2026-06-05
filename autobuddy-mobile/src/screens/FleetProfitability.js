@@ -3,7 +3,7 @@
  * Real-time financial metrics, vehicle profitability analysis, and ROI tracking
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,9 +12,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   TouchableOpacity,
-  Dimensions,
   StyleSheet,
-  Alert,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
@@ -208,7 +206,7 @@ const FleetProfitabilityScreen = () => {
                 size={24}
                 color={COLORS.primary}
               />
-              <Text style={styles.cardTitle}>Today's Performance</Text>
+              <Text style={styles.cardTitle}>Today&apos;s Performance</Text>
             </View>
 
             <View style={styles.summaryRow}>

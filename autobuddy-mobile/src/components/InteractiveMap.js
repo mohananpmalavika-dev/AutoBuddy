@@ -154,7 +154,7 @@ export default function InteractiveMap({
         ? { lat: Number(pickupLocation.latitude), lng: Number(pickupLocation.longitude) }
         : null
     ),
-    [pickupLocation?.latitude, pickupLocation?.longitude],
+    [pickupLocation],
   );
   const controlledDropoffMarkerPos = useMemo(
     () => (
@@ -162,7 +162,7 @@ export default function InteractiveMap({
         ? { lat: Number(dropoffLocation.latitude), lng: Number(dropoffLocation.longitude) }
         : null
     ),
-    [dropoffLocation?.latitude, dropoffLocation?.longitude],
+    [dropoffLocation],
   );
   const activePickupMarkerPos = controlledPickupMarkerPos || pickupMarkerPos;
   const activeDropoffMarkerPos = controlledDropoffMarkerPos || dropoffMarkerPos;

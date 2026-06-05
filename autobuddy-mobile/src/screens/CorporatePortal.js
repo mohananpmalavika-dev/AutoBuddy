@@ -291,7 +291,7 @@ const RideRequestsTab = ({ companyId, adminToken }) => {
       });
       Alert.alert('Success', 'Request approved');
       fetchRequests();
-    } catch (e) {
+    } catch {
       Alert.alert('Error', 'Failed to approve');
     }
   };

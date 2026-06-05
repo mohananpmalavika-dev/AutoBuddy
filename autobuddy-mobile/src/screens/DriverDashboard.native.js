@@ -17,7 +17,6 @@ import MapView, { Marker, Polyline } from 'react-native-maps';
 import BottomSheet from '@gorhom/bottom-sheet';
 
 import { driverAPI } from '../services/apiClient';
-import { getSocket } from '../services/socketClient';
 import { COLORS, SHADOWS } from '../theme';
 import { apiRequest } from '../lib/api';
 import {
@@ -361,7 +360,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   const [spinWinLoading, setSpinWinLoading] = useState(false);
   const [spinningNow, setSpinningNow] = useState(false);
   const [driverTrackingIntervalMs, setDriverTrackingIntervalMs] = useState(DRIVER_MOVING_TRACK_INTERVAL_MS);
-  const [driverMetrics, setDriverMetrics] = useState({
+  const [driverMetrics] = useState({
     average_rating: 0,
     acceptance_rate: 0,
     completion_rate: 0,
@@ -373,7 +372,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     weekly_avg_rating: 0,
     avg_response_time: 0,
   });
-  const [analyticsHistory, setAnalyticsHistory] = useState([]);
+  const [analyticsHistory] = useState([]);
   const setAvailabilitySyncPendingState = useCallback((value) => {
     const nextValue = !!value;
     availabilitySyncPendingRef.current = nextValue;
@@ -826,7 +825,6 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
 
       try {
         await driverAPI.updateLocation(locationApiBody);
-        const socket = getSocket();
         emitSocketLocationUpdate({
             booking_id: activeRideId || undefined,
             latitude: locationToSend.latitude,
@@ -871,7 +869,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
         return null;
       }
     },
-    [activeRideId, driverLocation, emitSocketLocationUpdate, normalizeLocation, readDeviceLocation, token],
+    [activeRideId, driverLocation, emitSocketLocationUpdate, normalizeLocation, readDeviceLocation],
   );
 
   const retryPendingAvailabilitySync = useCallback(async () => {
@@ -917,7 +915,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     } finally {
       availabilityRetryInFlightRef.current = false;
     }
-  }, [applyAvailabilitySnapshot, driverLocation, pushDriverLocation, setAvailabilitySyncPendingState, token]);
+  }, [applyAvailabilitySnapshot, driverLocation, pushDriverLocation, setAvailabilitySyncPendingState]);
 
   const notifyWithVoice = useCallback((title, body) => {
     Alert.alert(title, body);

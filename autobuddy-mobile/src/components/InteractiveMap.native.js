@@ -120,7 +120,7 @@ export default function InteractiveMap({
         }
         : null
     ),
-    [pickupLocation?.latitude, pickupLocation?.longitude],
+    [pickupLocation],
   );
   const controlledDropoffMarkerPos = useMemo(
     () => (
@@ -131,12 +131,10 @@ export default function InteractiveMap({
         }
         : null
     ),
-    [dropoffLocation?.latitude, dropoffLocation?.longitude],
+    [dropoffLocation],
   );
   const activePickupMarkerPos = controlledPickupMarkerPos || pickupMarkerPos;
   const activeDropoffMarkerPos = controlledDropoffMarkerPos || dropoffMarkerPos;
-  const activePickupAddress = pickupLocation?.address || pickupAddress;
-  const activeDropoffAddress = dropoffLocation?.address || dropoffAddress;
 
   // Compute map region
   const mapRegion = useMemo(() => {
