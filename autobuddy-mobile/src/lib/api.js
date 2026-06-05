@@ -69,8 +69,13 @@ let backendOutageUntilMs = 0;
 let consecutiveServerErrors = 0;
 let refreshInFlightPromise = null;
 let refreshRetryBlockedUntilMs = 0;
+const inFlightGetRequests = new Map();
+const getRateLimitCooldowns = new Map();
 const SERVER_ERROR_THRESHOLD = 3;
 const OUTAGE_COOLDOWN_MS = 15000;
+const RATE_LIMIT_COOLDOWN_MS = 30000;
+const RATE_LIMIT_MIN_COOLDOWN_MS = 5000;
+const RATE_LIMIT_MAX_COOLDOWN_MS = 120000;
 const REFRESH_FAILURE_COOLDOWN_MS = 60000;
 const REFRESH_RATE_LIMIT_COOLDOWN_MS = 120000;
 const HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
@@ -243,6 +248,37 @@ function pauseRefreshRetries(status) {
   );
 }
 
+function getRetryAfterCooldownMs(response) {
+  const rawRetryAfter = response?.headers?.get?.('Retry-After');
+  if (!rawRetryAfter) {
+    return RATE_LIMIT_COOLDOWN_MS;
+  }
+
+  const seconds = Number(rawRetryAfter);
+  if (Number.isFinite(seconds) && seconds > 0) {
+    return Math.min(RATE_LIMIT_MAX_COOLDOWN_MS, Math.max(RATE_LIMIT_MIN_COOLDOWN_MS, seconds * 1000));
+  }
+
+  const retryDateMs = Date.parse(rawRetryAfter);
+  if (Number.isFinite(retryDateMs)) {
+    return Math.min(
+      RATE_LIMIT_MAX_COOLDOWN_MS,
+      Math.max(RATE_LIMIT_MIN_COOLDOWN_MS, retryDateMs - Date.now()),
+    );
+  }
+
+  return RATE_LIMIT_COOLDOWN_MS;
+}
+
+function createRateLimitCooldownError(cooldownUntilMs) {
+  const seconds = Math.max(1, Math.ceil((cooldownUntilMs - Date.now()) / 1000));
+  const error = new Error(`Too many requests. Pausing this request for ${seconds}s.`);
+  error.status = 429;
+  error.rateLimitCooldown = true;
+  error.retryAfterMs = Math.max(0, cooldownUntilMs - Date.now());
+  return error;
+}
+
 async function performRefreshAccessToken() {
   if (Date.now() < refreshRetryBlockedUntilMs) {
     await failRefreshWithoutClearingValidSession();
@@ -392,90 +428,130 @@ export async function apiRequest(path, options = {}, legacyPath = undefined, leg
     }
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const requestDedupeKey =
+    normalizedMethod === 'GET'
+      ? [
+          normalizedMethod,
+          url.toString(),
+          shouldWrapLegacyResponse ? 'wrap' : 'raw',
+          effectiveToken ? effectiveToken.slice(-16) : 'anon',
+        ].join('|')
+      : null;
 
-  try {
-    const hasBody = body !== undefined && body !== null;
-    const requestBody = isFormData || typeof body === 'string' ? body : hasBody ? JSON.stringify(body) : undefined;
-    const shouldBypassCache = normalizedMethod === 'GET';
-    const response = await fetch(url.toString(), {
-      method: normalizedMethod,
-      signal: controller.signal,
-      cache: shouldBypassCache ? 'no-store' : 'default',
-      headers: {
-        Accept: 'application/json',
-        ...(shouldBypassCache ? { 'Cache-Control': 'no-store', Pragma: 'no-cache' } : {}),
-        ...(hasBody && !isFormData ? { 'Content-Type': 'application/json' } : {}),
-        ...(effectiveToken ? { Authorization: `Bearer ${effectiveToken}` } : {}),
-      },
-      body: requestBody,
-    });
+  if (requestDedupeKey) {
+    const cooldownUntilMs = getRateLimitCooldowns.get(requestDedupeKey) || 0;
+    if (cooldownUntilMs > Date.now()) {
+      throw createRateLimitCooldownError(cooldownUntilMs);
+    }
+    getRateLimitCooldowns.delete(requestDedupeKey);
 
-    const raw = await response.text();
-    let data = null;
+    const inFlightRequest = inFlightGetRequests.get(requestDedupeKey);
+    if (inFlightRequest) {
+      return inFlightRequest;
+    }
+  }
+
+  const requestPromise = (async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      data = raw ? JSON.parse(raw) : null;
-    } catch {
-      data = raw;
-    }
+      const hasBody = body !== undefined && body !== null;
+      const requestBody = isFormData || typeof body === 'string' ? body : hasBody ? JSON.stringify(body) : undefined;
+      const shouldBypassCache = normalizedMethod === 'GET';
+      const response = await fetch(url.toString(), {
+        method: normalizedMethod,
+        signal: controller.signal,
+        cache: shouldBypassCache ? 'no-store' : 'default',
+        headers: {
+          Accept: 'application/json',
+          ...(shouldBypassCache ? { 'Cache-Control': 'no-store', Pragma: 'no-cache' } : {}),
+          ...(hasBody && !isFormData ? { 'Content-Type': 'application/json' } : {}),
+          ...(effectiveToken ? { Authorization: `Bearer ${effectiveToken}` } : {}),
+        },
+        body: requestBody,
+      });
 
-    if (!response.ok) {
-      if (response.status >= 500) {
-        consecutiveServerErrors += 1;
-        if (consecutiveServerErrors >= SERVER_ERROR_THRESHOLD) {
-          backendOutageUntilMs = Date.now() + OUTAGE_COOLDOWN_MS;
+      const raw = await response.text();
+      let data = null;
+
+      try {
+        data = raw ? JSON.parse(raw) : null;
+      } catch {
+        data = raw;
+      }
+
+      if (!response.ok) {
+        if (response.status === 429 && requestDedupeKey) {
+          getRateLimitCooldowns.set(requestDedupeKey, Date.now() + getRetryAfterCooldownMs(response));
         }
-      } else {
-        consecutiveServerErrors = 0;
+        if (response.status >= 500) {
+          consecutiveServerErrors += 1;
+          if (consecutiveServerErrors >= SERVER_ERROR_THRESHOLD) {
+            backendOutageUntilMs = Date.now() + OUTAGE_COOLDOWN_MS;
+          }
+        } else {
+          consecutiveServerErrors = 0;
+        }
+        if (
+          response.status === 503 &&
+          normalizedPath === '/auth/login' &&
+          normalizedMethod === 'POST' &&
+          body &&
+          !options._legacyTried
+        ) {
+          return apiRequest('/auth/_legacy/login', {
+            ...options,
+            _legacyTried: true,
+          });
+        }
+        if (
+          response.status === 401 &&
+          !_retry &&
+          !normalizedPath.includes('/auth/login') &&
+          !normalizedPath.includes('/auth/refresh')
+        ) {
+          const newToken = await refreshAccessToken();
+          return apiRequest(normalizedPath, {
+            ...options,
+            token: newToken,
+            _retry: true,
+          });
+        }
+        const message = extractErrorMessage(data, response.status);
+        const error = new Error(message);
+        error.status = response.status;
+        error.payload = data;
+        throw error;
       }
-      if (
-        response.status === 503 &&
-        normalizedPath === '/auth/login' &&
-        normalizedMethod === 'POST' &&
-        body &&
-        !options._legacyTried
-      ) {
-        return apiRequest('/auth/_legacy/login', {
-          ...options,
-          _legacyTried: true,
-        });
+
+      consecutiveServerErrors = 0;
+      backendOutageUntilMs = 0;
+
+      if (effectiveToken && !isAuthPath) {
+        await safelyCall(extendSessionExpiry);
       }
-      if (
-        response.status === 401 &&
-        !_retry &&
-        !normalizedPath.includes('/auth/login') &&
-        !normalizedPath.includes('/auth/refresh')
-      ) {
-        const newToken = await refreshAccessToken();
-        return apiRequest(normalizedPath, {
-          ...options,
-          token: newToken,
-          _retry: true,
-        });
+
+      return shouldWrapLegacyResponse ? { data } : data;
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        throw new Error('Network timeout. Please check connection.');
       }
-      const message = extractErrorMessage(data, response.status);
-      const error = new Error(message);
-      error.status = response.status;
-      error.payload = data;
-      throw error;
+      throw err;
+    } finally {
+      clearTimeout(timer);
     }
+  })();
 
-    consecutiveServerErrors = 0;
-    backendOutageUntilMs = 0;
-
-    if (effectiveToken && !isAuthPath) {
-      await safelyCall(extendSessionExpiry);
-    }
-
-    return shouldWrapLegacyResponse ? { data } : data;
-  } catch (err) {
-    if (err.name === 'AbortError') {
-      throw new Error('Network timeout. Please check connection.');
-    }
-    throw err;
-  } finally {
-    clearTimeout(timer);
+  if (requestDedupeKey) {
+    inFlightGetRequests.set(requestDedupeKey, requestPromise);
+    const clearInFlightRequest = () => {
+      if (inFlightGetRequests.get(requestDedupeKey) === requestPromise) {
+        inFlightGetRequests.delete(requestDedupeKey);
+      }
+    };
+    requestPromise.then(clearInFlightRequest, clearInFlightRequest);
   }
+
+  return requestPromise;
 }

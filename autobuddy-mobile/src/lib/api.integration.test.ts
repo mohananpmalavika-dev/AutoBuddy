@@ -126,6 +126,55 @@ describe('apiRequest integration', () => {
     });
   });
 
+  it('coalesces duplicate in-flight GET requests', async () => {
+    const fetchMock = (global as unknown as { fetch: jest.Mock }).fetch;
+    let resolveFetch: (value: unknown) => void = () => undefined;
+    fetchMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
+    const { apiRequest } = loadApiModule();
+
+    const firstRequest = apiRequest('/bookings', { token: 'token-123' });
+    const secondRequest = apiRequest('/bookings', { token: 'token-123' });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    resolveFetch({
+      ok: true,
+      text: async () => JSON.stringify([{ id: 'booking-1' }]),
+    });
+
+    await expect(Promise.all([firstRequest, secondRequest])).resolves.toEqual([
+      [{ id: 'booking-1' }],
+      [{ id: 'booking-1' }],
+    ]);
+  });
+
+  it('locally cools down repeated GET requests after a 429', async () => {
+    const fetchMock = (global as unknown as { fetch: jest.Mock }).fetch;
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      headers: { get: (name: string) => (name === 'Retry-After' ? '60' : null) },
+      text: async () => JSON.stringify({ detail: 'Too many requests' }),
+    });
+    const { apiRequest } = loadApiModule();
+
+    await expect(apiRequest('/bookings/active')).rejects.toMatchObject({
+      message: 'Too many requests',
+      status: 429,
+    });
+    await expect(apiRequest('/bookings/active')).rejects.toMatchObject({
+      status: 429,
+      rateLimitCooldown: true,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('formats validation array details into a readable message', async () => {
     const fetchMock = (global as unknown as { fetch: jest.Mock }).fetch;
     fetchMock.mockResolvedValue({

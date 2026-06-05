@@ -1281,7 +1281,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     setActiveBooking(booking || null);
   };
 
-  const refreshPassengerBookings = async ({ silent = false } = {}) => {
+  const refreshPassengerBookings = useCallback(async ({ silent = false } = {}) => {
     try {
       setError(''); // Clear any previous errors
       const bookings = await apiRequest('/bookings', { token, limit: 100, offset: 0 });
@@ -1300,10 +1300,10 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       setPassengerBookings([]);
       return [];
     }
-  };
+  }, [historyPageSize, t, token]);
   useEffect(() => {
     refreshPassengerBookingsRef.current = refreshPassengerBookings;
-  });
+  }, [refreshPassengerBookings]);
 
   const loadMoreHistory = async () => {
     try {
@@ -1441,16 +1441,42 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       const includeBookings = activePassengerMenu === 'history' || cycle % 3 === 0;
       const includeSpinStatus = activePassengerMenu === 'spin' || cycle % 6 === 0;
       const includeAvailability = activePassengerMenu === 'ride' || cycle % 4 === 0;
+      let backedOff = false;
+
+      const applyPassengerPollBackoff = (err) => {
+        const status = Number(err?.status || 0);
+        if (status === 429) {
+          backedOff = true;
+          passengerPollCooldownUntilRef.current = Date.now() + 30000;
+          const now = Date.now();
+          if (!unmounted && now - passengerPollNoticeAtRef.current > 15000) {
+            setMessage('Server is busy. Slowing passenger sync for 30 seconds.');
+            passengerPollNoticeAtRef.current = now;
+          }
+        } else if (status === 503) {
+          backedOff = true;
+          passengerPollCooldownUntilRef.current = Date.now() + 20000;
+        }
+      };
+
+      const quietPollRequest = (promise, fallback) =>
+        promise.catch((err) => {
+          applyPassengerPollBackoff(err);
+          return fallback;
+        });
 
       try {
         const [active, bookings, spinStatus, availability] = await Promise.all([
-          apiRequest('/bookings/active', { token }).catch(() => null),
-          includeBookings ? apiRequest('/bookings', { token }).catch(() => []) : Promise.resolve(null),
-          includeSpinStatus ? apiRequest('/spin-win/config', { token }).catch(() => null) : Promise.resolve(null),
+          quietPollRequest(apiRequest('/bookings/active', { token }), null),
+          includeBookings ? quietPollRequest(apiRequest('/bookings', { token }), []) : Promise.resolve(null),
+          includeSpinStatus ? quietPollRequest(apiRequest('/spin-win/config', { token }), null) : Promise.resolve(null),
           includeAvailability
-            ? apiRequest('/ride-products/availability', {
-              query: { pickup_address: String(pickupLocation?.address || '').trim() || undefined },
-            }).catch(() => null)
+            ? quietPollRequest(
+                apiRequest('/ride-products/availability', {
+                  query: { pickup_address: String(pickupLocation?.address || '').trim() || undefined },
+                }),
+                null,
+              )
             : Promise.resolve(null),
         ]);
         if (unmounted) {
@@ -1469,19 +1495,11 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             pickup_district: availability.pickup_district || null,
           });
         }
-        passengerPollCooldownUntilRef.current = 0;
-      } catch (err) {
-        const status = Number(err?.status || 0);
-        if (status === 429) {
-          passengerPollCooldownUntilRef.current = Date.now() + 30000;
-          const now = Date.now();
-          if (now - passengerPollNoticeAtRef.current > 15000) {
-            setMessage('Server is busy. Slowing passenger sync for 30 seconds.');
-            passengerPollNoticeAtRef.current = now;
-          }
-        } else if (status === 503) {
-          passengerPollCooldownUntilRef.current = Date.now() + 20000;
+        if (!backedOff) {
+          passengerPollCooldownUntilRef.current = 0;
         }
+      } catch (err) {
+        applyPassengerPollBackoff(err);
       } finally {
         passengerPollInFlightRef.current = false;
       }

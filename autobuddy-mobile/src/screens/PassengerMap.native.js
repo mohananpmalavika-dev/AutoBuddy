@@ -3,6 +3,7 @@ import {
   AccessibilityInfo,
   ActivityIndicator,
   Alert,
+  AppState,
   Modal,
   ScrollView,
   StyleSheet,
@@ -160,6 +161,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const refreshPassengerBookingsRef = useRef(null);
   const passengerPollInFlightRef = useRef(false);
   const passengerPollCycleRef = useRef(0);
+  const passengerPollCooldownUntilRef = useRef(0);
+  const passengerPollNoticeAtRef = useRef(0);
+  const appStateRef = useRef(AppState.currentState || 'active');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -243,6 +247,16 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const dropAddressRequestRef = useRef(0);
   const pickupSearchRequestRef = useRef(0);
   const dropSearchRequestRef = useRef(0);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      appStateRef.current = nextState;
+    });
+
+    return () => {
+      subscription?.remove?.();
+    };
+  }, []);
 
   const formatCoordinateAddress = (lat, lng) => `Lat ${Number(lat).toFixed(6)}, Lng ${Number(lng).toFixed(6)}`;
 
@@ -797,7 +811,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     }
   };
 
-  const refreshPassengerBookings = async ({ silent = false } = {}) => {
+  const refreshPassengerBookings = useCallback(async ({ silent = false } = {}) => {
     try {
       setError(''); // Clear any previous errors
       const bookings = await apiRequest('/bookings', { token, limit: 100, offset: 0 });
@@ -816,11 +830,11 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       setPassengerBookings([]);
       return [];
     }
-  };
+  }, [historyPageSize, token]);
 
   useEffect(() => {
     refreshPassengerBookingsRef.current = refreshPassengerBookings;
-  });
+  }, [refreshPassengerBookings]);
 
   const loadMoreHistory = async () => {
     try {
@@ -932,16 +946,47 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       if (unmounted || passengerPollInFlightRef.current) {
         return;
       }
+      if (appStateRef.current !== 'active') {
+        return;
+      }
+      if (Date.now() < passengerPollCooldownUntilRef.current) {
+        return;
+      }
+
       passengerPollInFlightRef.current = true;
       passengerPollCycleRef.current += 1;
       const cycle = passengerPollCycleRef.current;
       const includeBookings = activePassengerMenu === 'history' || cycle % 3 === 0;
       const includeSpinStatus = activePassengerMenu === 'spin' || cycle % 6 === 0;
+      let backedOff = false;
+
+      const applyPassengerPollBackoff = (err) => {
+        const status = Number(err?.status || 0);
+        if (status === 429) {
+          backedOff = true;
+          passengerPollCooldownUntilRef.current = Date.now() + 30000;
+          const now = Date.now();
+          if (!unmounted && now - passengerPollNoticeAtRef.current > 15000) {
+            setMessage('Server is busy. Slowing passenger sync for 30 seconds.');
+            passengerPollNoticeAtRef.current = now;
+          }
+        } else if (status === 503) {
+          backedOff = true;
+          passengerPollCooldownUntilRef.current = Date.now() + 20000;
+        }
+      };
+
+      const quietPollRequest = (promise, fallback) =>
+        promise.catch((err) => {
+          applyPassengerPollBackoff(err);
+          return fallback;
+        });
+
       try {
         const [active, bookings, spinStatus] = await Promise.all([
-          apiRequest('/bookings/active', { token }).catch(() => null),
-          includeBookings ? apiRequest('/bookings', { token }).catch(() => []) : Promise.resolve(null),
-          includeSpinStatus ? apiRequest('/spin-win/config', { token }).catch(() => null) : Promise.resolve(null),
+          quietPollRequest(apiRequest('/bookings/active', { token }), null),
+          includeBookings ? quietPollRequest(apiRequest('/bookings', { token }), []) : Promise.resolve(null),
+          includeSpinStatus ? quietPollRequest(apiRequest('/spin-win/config', { token }), null) : Promise.resolve(null),
         ]);
         if (unmounted) {
           return;
@@ -953,7 +998,11 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         if (includeSpinStatus) {
           setSpinWinStatus(spinStatus || null);
         }
-      } catch {
+        if (!backedOff) {
+          passengerPollCooldownUntilRef.current = 0;
+        }
+      } catch (err) {
+        applyPassengerPollBackoff(err);
         // Keep last known state on silent refresh failures.
       } finally {
         passengerPollInFlightRef.current = false;
