@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Platform,
   SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 
@@ -121,6 +123,8 @@ function titleForRole(value) {
 }
 
 export default function OperatorDashboard({ token, user, onLogout }) {
+  const { width, height } = useWindowDimensions();
+  const isCompactWeb = Platform.OS === 'web' && (width < 640 || height < 720);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -384,8 +388,8 @@ export default function OperatorDashboard({ token, user, onLogout }) {
   if (loading) {
     return (
       <SafeAreaView style={styles.safe}>
-        <View style={styles.loading}>
-          <AutoBuddyBrand subtitle="Loading operator portal..." />
+        <View style={[styles.loading, isCompactWeb && styles.loadingCompact]}>
+          <AutoBuddyBrand subtitle="Loading operator portal..." compact={isCompactWeb} />
           <ActivityIndicator size="large" color={COLORS.primary} />
         </View>
       </SafeAreaView>
@@ -394,13 +398,15 @@ export default function OperatorDashboard({ token, user, onLogout }) {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.container}>
-        <View style={styles.header}>
-          <View>
-            <AutoBuddyBrand subtitle="Owner / Operator Portal" />
-            <Text style={styles.headerText}>{profile?.company_name || `${user?.name || 'Operator'} Fleet`}</Text>
+      <ScrollView contentContainerStyle={[styles.container, isCompactWeb && styles.containerCompact]}>
+        <View style={[styles.header, isCompactWeb && styles.headerCompact]}>
+          <View style={isCompactWeb && styles.headerCopyCompact}>
+            <AutoBuddyBrand subtitle="Owner / Operator Portal" compact={isCompactWeb} />
+            <Text style={[styles.headerText, isCompactWeb && styles.headerTextCompact]}>
+              {profile?.company_name || `${user?.name || 'Operator'} Fleet`}
+            </Text>
           </View>
-          <TouchableOpacity style={styles.logoutButton} onPress={onLogout}>
+          <TouchableOpacity style={[styles.logoutButton, isCompactWeb && styles.logoutButtonCompact]} onPress={onLogout}>
             <Text style={styles.logoutText}>Logout</Text>
           </TouchableOpacity>
         </View>
@@ -411,14 +417,14 @@ export default function OperatorDashboard({ token, user, onLogout }) {
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.tabRow}
-          style={styles.tabScroller}>
+          contentContainerStyle={[styles.tabRow, isCompactWeb && styles.tabRowCompact]}
+          style={[styles.tabScroller, isCompactWeb && styles.tabScrollerCompact]}>
           {OPERATOR_TABS.map((tab) => {
             const active = activeTab === tab.key;
             return (
               <TouchableOpacity
                 key={tab.key}
-                style={[styles.tabButton, active && styles.tabButtonActive]}
+                style={[styles.tabButton, isCompactWeb && styles.tabButtonCompact, active && styles.tabButtonActive]}
                 onPress={() => setActiveTab(tab.key)}>
                 <Text style={[styles.tabText, active && styles.tabTextActive]}>{tab.label}</Text>
               </TouchableOpacity>
@@ -429,39 +435,41 @@ export default function OperatorDashboard({ token, user, onLogout }) {
         {activeTab === 'overview' && (
           <>
             <View style={styles.summaryGrid}>
-              <View style={styles.summaryCard}>
+              <View style={[styles.summaryCard, isCompactWeb && styles.summaryCardCompact]}>
                 <Text style={styles.summaryLabel}>Fleet Vehicles</Text>
                 <Text style={styles.summaryValue}>{Number(summary.total_vehicles || 0)}</Text>
               </View>
-              <View style={styles.summaryCard}>
+              <View style={[styles.summaryCard, isCompactWeb && styles.summaryCardCompact]}>
                 <Text style={styles.summaryLabel}>Assigned</Text>
                 <Text style={styles.summaryValue}>{Number(summary.assigned_vehicles || 0)}</Text>
               </View>
-              <View style={styles.summaryCard}>
+              <View style={[styles.summaryCard, isCompactWeb && styles.summaryCardCompact]}>
                 <Text style={styles.summaryLabel}>Drivers</Text>
                 <Text style={styles.summaryValue}>{Number(summary.drivers || 0)}</Text>
               </View>
-              <View style={styles.summaryCard}>
+              <View style={[styles.summaryCard, isCompactWeb && styles.summaryCardCompact]}>
                 <Text style={styles.summaryLabel}>Completed Rides</Text>
                 <Text style={styles.summaryValue}>{Number(summary.completed_rides || 0)}</Text>
               </View>
-              <View style={styles.summaryCard}>
+              <View style={[styles.summaryCard, isCompactWeb && styles.summaryCardCompact]}>
                 <Text style={styles.summaryLabel}>Gross Earnings</Text>
                 <Text style={styles.summaryValueSmall}>{formatCurrency(summary.gross_earnings)}</Text>
               </View>
-              <View style={styles.summaryCard}>
+              <View style={[styles.summaryCard, isCompactWeb && styles.summaryCardCompact]}>
                 <Text style={styles.summaryLabel}>Verification</Text>
                 <Text style={styles.summaryValueSmall}>{titleForRole(profile?.verification_status || 'pending')}</Text>
               </View>
             </View>
 
-            <View style={styles.panel}>
+            <View style={[styles.panel, isCompactWeb && styles.panelCompact]}>
               <Text style={styles.sectionTitle}>Recent Completed Rides</Text>
               {recentBookings.length === 0 ? (
                 <Text style={styles.emptyText}>No completed rides yet.</Text>
               ) : (
                 recentBookings.slice(0, 8).map((booking) => (
-                  <View key={booking.id || booking._id || `${booking.driver_id}-${booking.created_at}`} style={styles.rideRow}>
+                  <View
+                    key={booking.id || booking._id || `${booking.driver_id}-${booking.created_at}`}
+                    style={[styles.rideRow, isCompactWeb && styles.rideRowCompact]}>
                     <View>
                       <Text style={styles.rideTitle}>
                         {booking.pickup_address || booking.pickup_location?.address || 'Pickup'}
@@ -481,7 +489,7 @@ export default function OperatorDashboard({ token, user, onLogout }) {
         )}
 
         {activeTab === 'profile' && (
-        <View style={styles.panel}>
+        <View style={[styles.panel, isCompactWeb && styles.panelCompact]}>
           <Text style={styles.sectionTitle}>Business Profile</Text>
           <View style={styles.formGrid}>
             <View style={styles.formField}>
@@ -509,7 +517,10 @@ export default function OperatorDashboard({ token, user, onLogout }) {
               <VoiceTextInput style={styles.input} value={profileForm.service_regions_text} onChangeText={(value) => updateProfileField('service_regions_text', value)} placeholder="all, Ernakulam, Kochi" placeholderTextColor={COLORS.textMuted} />
             </View>
           </View>
-          <TouchableOpacity style={[styles.primaryButton, saving && styles.buttonDisabled]} onPress={saveProfile} disabled={saving}>
+          <TouchableOpacity
+            style={[styles.primaryButton, isCompactWeb && styles.primaryButtonCompact, saving && styles.buttonDisabled]}
+            onPress={saveProfile}
+            disabled={saving}>
             <Text style={styles.primaryText}>Save Profile</Text>
           </TouchableOpacity>
         </View>
@@ -517,7 +528,7 @@ export default function OperatorDashboard({ token, user, onLogout }) {
 
         {activeTab === 'vehicles' && (
           <>
-        <View style={styles.panel}>
+        <View style={[styles.panel, isCompactWeb && styles.panelCompact]}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>{editingVehicleId ? 'Edit Fleet Vehicle' : 'Add Fleet Vehicle'}</Text>
             {editingVehicleId ? (
@@ -610,19 +621,22 @@ export default function OperatorDashboard({ token, user, onLogout }) {
               <VoiceTextInput style={styles.input} value={vehicleForm.service_regions_text} onChangeText={(value) => updateVehicleField('service_regions_text', value)} placeholder="all, Kochi" placeholderTextColor={COLORS.textMuted} />
             </View>
           </View>
-          <TouchableOpacity style={[styles.primaryButton, saving && styles.buttonDisabled]} onPress={saveVehicle} disabled={saving}>
+          <TouchableOpacity
+            style={[styles.primaryButton, isCompactWeb && styles.primaryButtonCompact, saving && styles.buttonDisabled]}
+            onPress={saveVehicle}
+            disabled={saving}>
             <Text style={styles.primaryText}>{editingVehicleId ? 'Update Vehicle' : 'Add Vehicle'}</Text>
           </TouchableOpacity>
         </View>
 
-        <View style={styles.panel}>
+        <View style={[styles.panel, isCompactWeb && styles.panelCompact]}>
           <Text style={styles.sectionTitle}>Fleet Vehicles</Text>
           {vehicles.length === 0 ? (
             <Text style={styles.emptyText}>No fleet vehicles added yet.</Text>
           ) : (
             vehicles.map((vehicle) => (
               <View key={vehicle.id} style={styles.vehicleCard}>
-                <View style={styles.vehicleHeader}>
+                <View style={[styles.vehicleHeader, isCompactWeb && styles.vehicleHeaderCompact]}>
                   <View>
                     <Text style={styles.vehicleTitle}>
                       {vehicle.make} {vehicle.model}
@@ -650,7 +664,7 @@ export default function OperatorDashboard({ token, user, onLogout }) {
 
                 <View style={styles.assignRow}>
                   <VoiceTextInput
-                    style={[styles.input, styles.assignInput]}
+                    style={[styles.input, styles.assignInput, isCompactWeb && styles.assignInputCompact]}
                     value={assignmentInputs[vehicle.id] || ''}
                     onChangeText={(value) => setAssignmentInputs((prev) => ({ ...prev, [vehicle.id]: value }))}
                     placeholder="Driver email, phone, or ID"
@@ -676,7 +690,7 @@ export default function OperatorDashboard({ token, user, onLogout }) {
           operatorFleetId ? (
             <FleetDashboardAdvanced token={token} fleetId={operatorFleetId} onTabChange={handleAdvancedTabChange} />
           ) : (
-            <View style={styles.panel}>
+            <View style={[styles.panel, isCompactWeb && styles.panelCompact]}>
               <Text style={styles.emptyText}>Operator profile is still loading.</Text>
             </View>
           )
@@ -686,7 +700,7 @@ export default function OperatorDashboard({ token, user, onLogout }) {
           operatorFleetId ? (
             <FleetWalletPanel token={token} fleetId={operatorFleetId} />
           ) : (
-            <View style={styles.panel}>
+            <View style={[styles.panel, isCompactWeb && styles.panelCompact]}>
               <Text style={styles.emptyText}>Operator profile is still loading.</Text>
             </View>
           )
@@ -696,7 +710,7 @@ export default function OperatorDashboard({ token, user, onLogout }) {
           operatorFleetId ? (
             <PerformanceRankingsPanel token={token} fleetId={operatorFleetId} />
           ) : (
-            <View style={styles.panel}>
+            <View style={[styles.panel, isCompactWeb && styles.panelCompact]}>
               <Text style={styles.emptyText}>Operator profile is still loading.</Text>
             </View>
           )
@@ -706,7 +720,7 @@ export default function OperatorDashboard({ token, user, onLogout }) {
           operatorFleetId ? (
             <LiveFleetMapPanel token={token} fleetId={operatorFleetId} />
           ) : (
-            <View style={styles.panel}>
+            <View style={[styles.panel, isCompactWeb && styles.panelCompact]}>
               <Text style={styles.emptyText}>Operator profile is still loading.</Text>
             </View>
           )
@@ -716,7 +730,7 @@ export default function OperatorDashboard({ token, user, onLogout }) {
           operatorFleetId ? (
             <IncentiveManagementPanel token={token} fleetId={operatorFleetId} />
           ) : (
-            <View style={styles.panel}>
+            <View style={[styles.panel, isCompactWeb && styles.panelCompact]}>
               <Text style={styles.emptyText}>Operator profile is still loading.</Text>
             </View>
           )
@@ -736,6 +750,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 12,
+    padding: 18,
+  },
+  loadingCompact: {
+    justifyContent: 'flex-start',
+    paddingTop: 18,
   },
   container: {
     padding: 18,
@@ -744,6 +763,10 @@ const styles = StyleSheet.create({
     width: '100%',
     alignSelf: 'center',
   },
+  containerCompact: {
+    padding: 10,
+    paddingBottom: 28,
+  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -751,10 +774,20 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 16,
   },
+  headerCompact: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    marginBottom: 12,
+  },
+  headerCopyCompact: { width: '100%' },
   headerText: {
     color: COLORS.textMuted,
     fontWeight: '700',
     marginTop: 4,
+  },
+  headerTextCompact: {
+    fontSize: 13,
+    lineHeight: 18,
   },
   logoutButton: {
     backgroundColor: COLORS.surface,
@@ -763,6 +796,10 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 14,
     paddingVertical: 10,
+  },
+  logoutButtonCompact: {
+    alignItems: 'center',
+    paddingVertical: 9,
   },
   logoutText: {
     color: COLORS.textMain,
@@ -791,9 +828,16 @@ const styles = StyleSheet.create({
   tabScroller: {
     marginBottom: 14,
   },
+  tabScrollerCompact: {
+    marginBottom: 10,
+  },
   tabRow: {
     gap: 8,
     paddingRight: 8,
+  },
+  tabRowCompact: {
+    gap: 6,
+    paddingRight: 4,
   },
   tabButton: {
     borderWidth: 1,
@@ -804,6 +848,11 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     minWidth: 96,
     alignItems: 'center',
+  },
+  tabButtonCompact: {
+    minWidth: 78,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
   },
   tabButtonActive: {
     backgroundColor: COLORS.primary,
@@ -832,6 +881,10 @@ const styles = StyleSheet.create({
     padding: 14,
     ...SHADOWS.soft,
   },
+  summaryCardCompact: {
+    flexBasis: 132,
+    padding: 11,
+  },
   summaryLabel: {
     color: COLORS.textMuted,
     fontWeight: '700',
@@ -855,6 +908,10 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 14,
     ...SHADOWS.soft,
+  },
+  panelCompact: {
+    padding: 11,
+    marginBottom: 10,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -924,6 +981,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
+  primaryButtonCompact: {
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    paddingVertical: 11,
+  },
   primarySmallButton: {
     backgroundColor: COLORS.primary,
     borderRadius: 8,
@@ -978,6 +1040,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 12,
   },
+  rideRowCompact: {
+    flexDirection: 'column',
+    gap: 6,
+  },
   rideTitle: {
     color: COLORS.textMain,
     fontWeight: '900',
@@ -999,6 +1065,11 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: 12,
+  },
+  vehicleHeaderCompact: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: 8,
   },
   vehicleTitle: {
     color: COLORS.textMain,
@@ -1026,5 +1097,9 @@ const styles = StyleSheet.create({
   assignInput: {
     flexGrow: 1,
     minWidth: 220,
+  },
+  assignInputCompact: {
+    minWidth: 0,
+    width: '100%',
   },
 });

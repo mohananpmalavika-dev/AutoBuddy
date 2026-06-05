@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Platform, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { INDIAN_LANGUAGE_OPTIONS, normalizeLanguageCode } from '../locales/indianLanguages';
 
 const LANGUAGES = INDIAN_LANGUAGE_OPTIONS.map((language) => ({
@@ -186,6 +186,8 @@ function applyDomLanguage(lang) {
 
 export default function WebCommandBar({ showLanguageSelector = false }) {
   const isWeb = Platform.OS === 'web';
+  const { width } = useWindowDimensions();
+  const isCompactWeb = isWeb && width < 520;
   const observerRef = useRef(null);
   const [status, setStatus] = useState('');
   const [languageCode, setLanguageCode] = useState(() => {
@@ -244,9 +246,11 @@ export default function WebCommandBar({ showLanguageSelector = false }) {
   return (
     <>
       {showLanguageSelector && (
-        <View style={styles.wrap} dataSet={{ noTranslate: 'true' }}>
-          <TouchableOpacity style={styles.btn} onPress={cycleLanguage}>
-            <Text style={styles.btnText}>Language: {currentLanguage.label}</Text>
+        <View style={[styles.wrap, isCompactWeb && styles.wrapCompact]} dataSet={{ noTranslate: 'true' }}>
+          <TouchableOpacity style={[styles.btn, isCompactWeb && styles.btnCompact]} onPress={cycleLanguage}>
+            <Text style={[styles.btnText, isCompactWeb && styles.btnTextCompact]} numberOfLines={1}>
+              Language: {currentLanguage.label}
+            </Text>
           </TouchableOpacity>
           {!!status && <Text style={styles.status}>{status}</Text>}
         </View>
@@ -264,6 +268,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
+  wrapCompact: {
+    marginTop: 4,
+    marginBottom: 8,
+  },
   btn: {
     borderRadius: 12,
     borderWidth: 1,
@@ -277,6 +285,12 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     elevation: 2,
   },
+  btnCompact: {
+    width: '100%',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
   btnText: { color: '#195A2B', fontWeight: '800', fontSize: 14 },
+  btnTextCompact: { fontSize: 13 },
   status: { color: '#5E6A5F', fontSize: 12, width: '100%', marginTop: 2 },
 });
