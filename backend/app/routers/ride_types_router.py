@@ -29,6 +29,7 @@ async def init_default_ride_types(db: AsyncIOMotorDatabase):
         print("✅ Default ride types initialized")
     except Exception as e:
         print(f"⚠️ Error initializing ride types: {e}")
+        raise
 
 @router.get("/public/all")
 async def get_all_ride_types(db: AsyncIOMotorDatabase = Depends(get_db)):

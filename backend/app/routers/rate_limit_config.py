@@ -590,6 +590,7 @@ async def init_default_rate_limit_configs(db: AsyncIOMotorDatabase) -> None:
                 })
     except Exception as e:
         print(f"Error initializing rate limit configs: {str(e)}")
+        raise
 
 
 async def get_effective_rate_limit(

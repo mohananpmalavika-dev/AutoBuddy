@@ -365,6 +365,25 @@ READINESS_DB_PING_TIMEOUT_MS = max(
     200,
     min(10000, int(os.environ.get("READINESS_DB_PING_TIMEOUT_MS", "1500"))),
 )
+DRIVER_DASHBOARD_REQUEST_TIMEOUT_SECONDS = max(
+    2.0,
+    min(30.0, float(os.environ.get("DRIVER_DASHBOARD_REQUEST_TIMEOUT_SECONDS", "12"))),
+)
+FAST_PROBE_PATHS = {"/", "/health", "/api/health", "/ready", "/api/ready"}
+DRIVER_DASHBOARD_TIMEOUT_PATHS = {
+    "/api/drivers/active-ride",
+    "/api/drivers/availability",
+    "/api/drivers/blocked-passengers",
+    "/api/drivers/earnings",
+    "/api/drivers/fare-calculator",
+    "/api/drivers/menu-badges",
+    "/api/drivers/pending-requests",
+    "/api/drivers/profile",
+    "/api/drivers/readiness",
+    "/api/drivers/upcoming-rides",
+    "/api/pricing/rules",
+    "/api/spin-win/config",
+}
 FERNET_SECRET = (settings.fernet_secret or "").strip()
 FERNET_SECRET_CONFIGURED = bool(settings.fernet_secret)
 if not FERNET_SECRET:
@@ -474,7 +493,6 @@ root_socket_app = socketio.ASGIApp(sio, socketio_path=None)
 driver_health_monitor_task: Optional[asyncio.Task] = None
 ride_dispatch_worker_task: Optional[asyncio.Task] = None
 analytics_warehouse_worker_task: Optional[asyncio.Task] = None
-startup_bootstrap_task: Optional[asyncio.Task] = None
 
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
@@ -969,91 +987,51 @@ async def seed_admin():
         except OperationFailure:
             pass
     except Exception as e:
-        logger.error(f"Seed error: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.exception("Seed error: %s", e)
+        raise
 
-async def run_post_startup_bootstrap() -> None:
-    """Run slow, non-port-critical startup work after Uvicorn has bound the port."""
+async def run_startup_bootstrap() -> None:
+    """Run deployment-critical database bootstrap before startup completes."""
     if db is None:
-        logger.warning("Skipping post-startup bootstrap because primary database is unavailable.")
-        return
+        raise RuntimeError("Cannot complete startup bootstrap because primary database is unavailable.")
 
-    logger.info("Post-startup bootstrap started")
+    logger.info("Startup bootstrap started")
     try:
         await seed_admin()
-        try:
-            await init_default_vehicle_types(db)
-        except Exception:
-            logger.exception("Vehicle types initialization failed during post-startup bootstrap")
-        try:
-            await init_default_vehicle_types_extended(db)
-        except Exception:
-            logger.exception("Extended vehicle types initialization failed during post-startup bootstrap")
-        try:
-            await init_default_ride_types(db)
-        except Exception:
-            logger.exception("Ride types initialization failed during post-startup bootstrap")
-        try:
-            await init_canonical_vehicles(db)
-        except Exception:
-            logger.exception("Canonical vehicles initialization failed during post-startup bootstrap")
-        try:
-            await init_default_rate_limit_configs(db)
-        except Exception:
-            logger.exception("Rate limit configuration initialization failed during post-startup bootstrap")
-        try:
-            await ensure_rate_limit_defaults(db)
-        except Exception:
-            logger.exception("Rate limit defaults initialization failed during post-startup bootstrap")
-        try:
-            from app.db.migration_fleet_advanced import create_fleet_advanced_indexes
-            await create_fleet_advanced_indexes(db)
-        except Exception:
-            logger.exception("Fleet Advanced features initialization failed during post-startup bootstrap")
-        try:
-            from app.db.migration_operations_center import create_operations_center_indexes
-            await create_operations_center_indexes(db)
-        except Exception:
-            logger.exception("Operations Center initialization failed during post-startup bootstrap")
-        try:
-            from app.db.migration_corporate_portal import create_corporate_portal_indexes
-            await create_corporate_portal_indexes(db)
-        except Exception:
-            logger.exception("Corporate Portal initialization failed during post-startup bootstrap")
-        try:
-            from app.db.migration_airport import create_airport_indexes
-            await create_airport_indexes(db)
-        except Exception:
-            logger.exception("Airport Ride System initialization failed during post-startup bootstrap")
-        try:
-            from app.db.migration_heatmaps import create_heatmap_indexes
-            await create_heatmap_indexes(db)
-        except Exception:
-            logger.exception("Driver Heatmaps initialization failed during post-startup bootstrap")
-        try:
-            from app.db.migration_fleet_profitability import create_fleet_profitability_indexes
-            await create_fleet_profitability_indexes(db)
-        except Exception:
-            logger.exception("Fleet Profitability initialization failed during post-startup bootstrap")
-        try:
-            referral_backfill = await backfill_referrals_for_existing_users(db)
-            if referral_backfill.get("ran"):
-                logger.info("Referral code backfill completed for %s users.", referral_backfill.get("processed", 0))
-        except Exception:
-            logger.exception("Referral code backfill failed during post-startup bootstrap")
-    except asyncio.CancelledError:
-        logger.warning("Post-startup bootstrap cancelled")
-        raise
+        await init_default_vehicle_types(db)
+        await init_default_vehicle_types_extended(db)
+        await init_default_ride_types(db)
+        await init_canonical_vehicles(db)
+        await init_default_rate_limit_configs(db)
+        await ensure_rate_limit_defaults(db)
+
+        from app.db.migration_fleet_advanced import create_fleet_advanced_indexes
+        from app.db.migration_operations_center import create_operations_center_indexes
+        from app.db.migration_corporate_portal import create_corporate_portal_indexes
+        from app.db.migration_airport import create_airport_indexes
+        from app.db.migration_heatmaps import create_heatmap_indexes
+        from app.db.migration_fleet_profitability import create_fleet_profitability_indexes
+
+        await create_fleet_advanced_indexes(db)
+        await create_operations_center_indexes(db)
+        await create_corporate_portal_indexes(db)
+        await create_airport_indexes(db)
+        await create_heatmap_indexes(db)
+        await create_fleet_profitability_indexes(db)
+
+        referral_backfill = await backfill_referrals_for_existing_users(db)
+        if referral_backfill.get("ran"):
+            logger.info("Referral code backfill completed for %s users.", referral_backfill.get("processed", 0))
     except Exception:
-        logger.exception("Post-startup bootstrap failed")
-    else:
-        logger.info("Post-startup bootstrap completed")
+        logger.exception("Startup bootstrap failed")
+        raise
+
+    logger.info("Startup bootstrap completed")
 
 
 @app.on_event("startup")
 async def on_startup():
-    global driver_health_monitor_task, ride_dispatch_worker_task, analytics_warehouse_worker_task, startup_bootstrap_task, redis_client, db, analytics_db
+    global driver_health_monitor_task, ride_dispatch_worker_task, analytics_warehouse_worker_task, redis_client, db, analytics_db
     if not settings.mongo_url:
         error_msg = (
             "MONGO_URL must be configured via environment. "
@@ -1174,22 +1152,14 @@ async def on_startup():
         app.state.mongo_client = mongo_client
         logger.info("MongoDB connection initialized")
     except Exception as exc:
-        logger.warning("MongoDB initialization failed; continuing in degraded mode: %s", exc)
         db = None
         analytics_db = None
         app.state.db = None
         app.state.analytics_db = None
-    
-    if db is not None:
-        startup_bootstrap_task = asyncio.create_task(
-            run_post_startup_bootstrap(),
-            name="post_startup_bootstrap",
-        )
-        app.state.startup_bootstrap_task = startup_bootstrap_task
-        logger.info("Post-startup bootstrap scheduled")
-    else:
-        startup_bootstrap_task = None
-        app.state.startup_bootstrap_task = None
+        logger.exception("MongoDB initialization failed; startup cannot continue")
+        raise RuntimeError("MongoDB initialization failed; deployment bootstrap cannot complete.") from exc
+
+    await run_startup_bootstrap()
     
     # Initialize dependencies for critical routers
     try:
@@ -1255,6 +1225,11 @@ async def api_guardrails_middleware(request: Request, call_next):
     status_code = 500
     response: Optional[Any] = None
     try:
+        if request.method == "HEAD" and request_path in FAST_PROBE_PATHS:
+            response = Response(status_code=204)
+            status_code = int(response.status_code)
+            return response
+
         if request.method in {"POST", "PUT", "PATCH"}:
             content_length_value = str(request.headers.get("content-length") or "").strip()
             if content_length_value:
@@ -1380,7 +1355,33 @@ async def api_guardrails_middleware(request: Request, call_next):
                 )
                 status_code = int(response.status_code)
                 return response
-        response = await call_next(request)
+        try:
+            if request.method == "GET" and request_path in DRIVER_DASHBOARD_TIMEOUT_PATHS:
+                response = await asyncio.wait_for(
+                    call_next(request),
+                    timeout=DRIVER_DASHBOARD_REQUEST_TIMEOUT_SECONDS,
+                )
+            else:
+                response = await call_next(request)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Driver dashboard request timed out",
+                extra={
+                    "extra_data": {
+                        "method": request.method,
+                        "path": request_path,
+                        "timeout_seconds": DRIVER_DASHBOARD_REQUEST_TIMEOUT_SECONDS,
+                        "client_ip": client_ip,
+                    }
+                },
+            )
+            response = build_error_response(
+                request,
+                status_code=504,
+                message="Driver dashboard is still warming up. Please retry.",
+                code="driver_dashboard_timeout",
+                details={"timeout_seconds": DRIVER_DASHBOARD_REQUEST_TIMEOUT_SECONDS},
+            )
         status_code = int(response.status_code)
         return response
     finally:
@@ -14839,7 +14840,9 @@ async def health_check():
             queue_pending = None
             analytics_queue_pending = None
     try:
-        await db.command("ping")
+        if db is None:
+            raise ServerSelectionTimeoutError("MongoDB client is not initialized")
+        await db.command("ping", maxTimeMS=READINESS_DB_PING_TIMEOUT_MS)
     except ServerSelectionTimeoutError:
         return JSONResponse(
             status_code=503,
@@ -16058,10 +16061,7 @@ app.mount("/ws", socket_app)
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
-    global driver_health_monitor_task, ride_dispatch_worker_task, analytics_warehouse_worker_task, startup_bootstrap_task
-    if startup_bootstrap_task and not startup_bootstrap_task.done():
-        startup_bootstrap_task.cancel()
-    startup_bootstrap_task = None
+    global driver_health_monitor_task, ride_dispatch_worker_task, analytics_warehouse_worker_task
     if driver_health_monitor_task and not driver_health_monitor_task.done():
         driver_health_monitor_task.cancel()
     driver_health_monitor_task = None

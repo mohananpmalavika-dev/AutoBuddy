@@ -29,6 +29,7 @@ async def init_default_vehicle_types_extended(db: AsyncIOMotorDatabase):
         print("✅ Extended vehicle types initialized")
     except Exception as e:
         print(f"⚠️ Error initializing vehicle types: {e}")
+        raise
 
 @router.get("/public/all")
 async def get_all_vehicle_types(db: AsyncIOMotorDatabase = Depends(get_db)):
