@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import { getDisplayText } from '../lib/displayText';
 
 /**
  * NotificationContext - Global state for user notifications.
@@ -28,10 +29,10 @@ function normalizeNotification(notification = {}) {
     ...notification,
     id: getNotificationId(notification),
     type: notification.type || data.type || 'notification',
-    title: notification.title || data.title || 'New Update',
-    body: notification.body || notification.message || data.body || data.message || '',
-    icon: notification.icon || data.icon || 'N',
-    severity: notification.severity || data.severity || 'info',
+    title: getDisplayText(notification.title || data.title, 'New Update'),
+    body: getDisplayText(notification.body || notification.message || data.body || data.message, ''),
+    icon: getDisplayText(notification.icon || data.icon, 'N'),
+    severity: getDisplayText(notification.severity || data.severity, 'info'),
     timestamp,
     created_at: createdAt || timestamp,
     read: readProvided ? Boolean(notification.read ?? notification.is_read) : false,

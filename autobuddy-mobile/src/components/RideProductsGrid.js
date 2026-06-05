@@ -1,6 +1,7 @@
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { getDisplayText } from '../lib/displayText';
 import { COLORS, SHADOWS } from '../theme';
 
 const PRODUCTS = [
@@ -42,8 +43,8 @@ export default function RideProductsGrid({
           const active = selected === item.key;
           const enabled = enabledSet.has(item.key);
           const localized = labels[item.key] || {};
-          const title = localized.title || item.title;
-          const description = localized.description || item.sub;
+          const title = getDisplayText(localized.title || localized, item.title);
+          const description = getDisplayText(localized.description, item.sub);
 
           return (
             <Pressable

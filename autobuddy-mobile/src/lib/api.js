@@ -1,5 +1,6 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+import { getDisplayMessage, getDisplayText } from './displayText';
 import {
   clearSession as clearLegacySession,
   loadSession as loadLegacySession,
@@ -191,10 +192,15 @@ function extractErrorMessage(data, status) {
     if (msg) {
       return msg;
     }
+    const detailMessage = getDisplayMessage(detail, '');
+    if (detailMessage) {
+      return detailMessage;
+    }
   }
 
-  if (typeof data?.message === 'string' && data.message.trim()) {
-    return data.message.trim();
+  const dataMessage = getDisplayText(data?.message, '');
+  if (dataMessage) {
+    return dataMessage;
   }
 
   if (typeof data === 'string' && data.trim()) {

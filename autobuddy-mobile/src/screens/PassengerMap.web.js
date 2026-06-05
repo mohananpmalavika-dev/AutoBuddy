@@ -14,6 +14,7 @@ import { SymbolView } from 'expo-symbols';
 
 import { apiRequest } from '../lib/api';
 import { createAutoBuddySocket } from '../lib/socket';
+import { getDisplayText } from '../lib/displayText';
 import {
   getPlaceLocation,
   isPlacesConfigured,
@@ -1988,6 +1989,16 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     () => (availableVehicleTypes || []).find((type) => type.id === effectiveSelectedVehicleTypeId) || null,
     [availableVehicleTypes, effectiveSelectedVehicleTypeId],
   );
+  const selectedRideChoiceLabel = useMemo(
+    () =>
+      getDisplayText(
+        selectedVehicleType?.label ||
+          selectedVehicleType?.name ||
+          rideProductLabels?.[effectiveRideProduct],
+        'Auto',
+      ),
+    [effectiveRideProduct, rideProductLabels, selectedVehicleType],
+  );
   const recentDestinationOptions = useMemo(() => {
     const seen = new Set();
     return (passengerBookings || [])
@@ -2175,7 +2186,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         <View style={styles.quickChoiceChip}>
           <Text style={styles.quickChoiceLabel}>Ride</Text>
           <Text style={styles.quickChoiceValue} numberOfLines={1}>
-            {selectedVehicleType?.label || selectedVehicleType?.name || rideProductLabels?.[effectiveRideProduct] || 'Auto'}
+            {selectedRideChoiceLabel}
           </Text>
         </View>
         <TouchableOpacity

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { apiRequest } from '../lib/api';
+import { getDisplayText } from '../lib/displayText';
 
 /**
  * Hook for managing vehicle types from backend
@@ -9,6 +10,29 @@ export function useVehicleTypes() {
   const [vehicleTypes, setVehicleTypes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  const normalizeVehicleType = useCallback((vehicleType) => {
+    if (!vehicleType || typeof vehicleType !== 'object') {
+      return null;
+    }
+
+    const rawId = vehicleType.id || vehicleType.vehicle_type_id || vehicleType.type_id || vehicleType.key || '';
+    const fallbackName = getDisplayText(rawId, 'Vehicle')
+      .replace(/[_-]+/g, ' ')
+      .replace(/\b\w/g, (letter) => letter.toUpperCase());
+    const name = getDisplayText(vehicleType.name || vehicleType.label || vehicleType.vehicle_type_name, fallbackName);
+    const id = getDisplayText(rawId, name);
+
+    return {
+      ...vehicleType,
+      id,
+      name,
+      label: getDisplayText(vehicleType.label, name),
+      vehicle_type_name: getDisplayText(vehicleType.vehicle_type_name, name),
+      description: getDisplayText(vehicleType.description, ''),
+      icon: getDisplayText(vehicleType.icon, ''),
+    };
+  }, []);
 
   const fetchVehicleTypes = useCallback(async (token = null) => {
     setLoading(true);
@@ -20,8 +44,18 @@ export function useVehicleTypes() {
         : '/api/vehicles/public/all';  // Canonical public endpoint
       
       const data = await apiRequest(endpoint, { token });
-      setVehicleTypes(data || []);
-      return data || [];
+      const rows = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.data)
+          ? data.data
+          : Array.isArray(data?.vehicle_types)
+            ? data.vehicle_types
+            : [];
+      const nextVehicleTypes = rows
+        .map(normalizeVehicleType)
+        .filter(Boolean);
+      setVehicleTypes(nextVehicleTypes);
+      return nextVehicleTypes;
     } catch (err) {
       const errorMsg = err?.message || 'Failed to fetch vehicle types';
       setError(errorMsg);
@@ -30,7 +64,7 @@ export function useVehicleTypes() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [normalizeVehicleType]);
 
   // Fetch vehicle types on mount
   useEffect(() => {

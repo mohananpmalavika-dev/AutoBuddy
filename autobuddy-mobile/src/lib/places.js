@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import { API_BASE_URL } from './api';
+import { getDisplayMessage, getDisplayText } from './displayText';
 
 const GOOGLE_MAPS_API_BASE = 'https://maps.googleapis.com/maps/api';
 const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -66,8 +67,8 @@ async function fetchBackendPlacesJson(path, params) {
 
   if (!response.ok) {
     const message =
-      payload?.detail ||
-      payload?.message ||
+      getDisplayMessage(payload?.detail, '') ||
+      getDisplayText(payload?.message, '') ||
       (typeof payload === 'string' && payload) ||
       `Places request failed (${response.status}).`;
     throw new Error(message);
@@ -105,23 +106,33 @@ export async function searchPlaces(query, options = {}) {
       longitude: options.longitude,
       radius: options.radius || 50000,
     });
-    return Array.isArray(results) ? results : [];
+    return Array.isArray(results)
+      ? results.map((item) => ({
+          ...item,
+          placeId: item.placeId || item.place_id,
+          description: getDisplayText(item.description || item.name || item.title, 'Place'),
+        }))
+      : [];
   }
 
   const payload = await fetchGoogleJson('place/autocomplete/json', params, true);
   const predictions = Array.isArray(payload?.predictions) ? payload.predictions : [];
   return predictions.map((item) => ({
     placeId: item.place_id,
-    description: item.description,
+    description: getDisplayText(item.description, 'Place'),
   }));
 }
 
 export async function getPlaceLocation(placeId) {
   if (SHOULD_PROXY_PLACES) {
-    return fetchBackendPlacesJson('details', {
+    const payload = await fetchBackendPlacesJson('details', {
       place_id: placeId,
       language: 'en',
     });
+    return {
+      ...payload,
+      address: getDisplayText(payload?.address || payload?.description || payload?.name, 'Selected place'),
+    };
   }
 
   const payload = await fetchGoogleJson('place/details/json', {
@@ -141,7 +152,7 @@ export async function getPlaceLocation(placeId) {
   return {
     latitude: Number(lat.toFixed(6)),
     longitude: Number(lng.toFixed(6)),
-    address: result.formatted_address || result.name || `Lat ${lat}, Lng ${lng}`,
+    address: getDisplayText(result.formatted_address || result.name, `Lat ${lat}, Lng ${lng}`),
   };
 }
 
@@ -152,7 +163,7 @@ export async function reverseGeocodeLocation(latitude, longitude) {
       longitude,
       language: 'en',
     });
-    return payload?.address || null;
+    return getDisplayText(payload?.address, '') || null;
   }
 
   const payload = await fetchGoogleJson(
@@ -165,5 +176,5 @@ export async function reverseGeocodeLocation(latitude, longitude) {
   );
 
   const first = Array.isArray(payload?.results) ? payload.results[0] : null;
-  return first?.formatted_address || null;
+  return getDisplayText(first?.formatted_address, '') || null;
 }
