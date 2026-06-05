@@ -20,7 +20,7 @@ DEFAULT_RATE_LIMIT_CONFIGS: Dict[str, Dict[str, Any]] = {
         "description": "Global per-IP API guardrail",
     },
     "strict": {
-        "max_requests": 5,
+        "max_requests": 25,
         "window_seconds": 60,
         "description": "Strict limit for sensitive endpoints",
     },
@@ -40,7 +40,7 @@ DEFAULT_RATE_LIMIT_CONFIGS: Dict[str, Dict[str, Any]] = {
         "description": "Per-user limit for authenticated requests",
     },
     "anonymous": {
-        "max_requests": 50,
+        "max_requests": 250,
         "window_seconds": 3600,
         "description": "Per-IP limit for anonymous requests",
     },

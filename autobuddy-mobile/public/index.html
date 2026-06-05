@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AutoBuddy - Ride Sharing App</title>
     <meta name="description" content="AutoBuddy - Your trusted ride-sharing companion">
-    <meta name="theme-color" content="#208AEF">
+    <meta name="theme-color" content="#0b7a29">
     <meta property="og:title" content="AutoBuddy">
     <meta property="og:description" content="AutoBuddy - Your trusted ride-sharing companion">
     <link rel="manifest" href="/manifest.webmanifest">
@@ -78,8 +78,41 @@
             margin-bottom: 10px;
         }
 
+        .secondary-btn {
+            width: min(360px, 100%);
+            margin: 0 auto 10px;
+            padding: 13px;
+            border-radius: 14px;
+            font-size: 15px;
+            font-weight: 900;
+            cursor: pointer;
+            transition: background-color 0.2s ease, transform 0.2s ease;
+            border: 1px solid #b6d7c1;
+            background: #f4fbf6;
+            color: #0b7a29;
+            display: block;
+        }
+
+        .secondary-btn[hidden] {
+            display: none;
+        }
+
         .primary-btn:hover {
             transform: translateY(-2px);
+        }
+
+        .secondary-btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .install-status {
+            min-height: 20px;
+            margin: 0 auto 8px;
+            color: #315a3b;
+            font-size: 13px;
+            font-weight: 700;
+            line-height: 1.35;
+            width: min(420px, 100%);
         }
 
         .footer {
@@ -104,6 +137,8 @@
         </div>
 
         <a href="/app" class="primary-btn">Start Riding</a>
+        <button id="installShortcutButton" class="secondary-btn" type="button" hidden>Install Shortcut</button>
+        <div id="installStatus" class="install-status" aria-live="polite"></div>
 
         <div class="footer">
             &copy; 2026 AutoBuddy. All rights reserved.
@@ -111,6 +146,105 @@
     </div>
 
     <script>
+        let deferredInstallPrompt = null;
+        let appRedirectTimer = null;
+        const installButton = document.getElementById('installShortcutButton');
+        const installStatus = document.getElementById('installStatus');
+
+        function setInstallStatus(message) {
+            if (installStatus) {
+                installStatus.textContent = message || '';
+            }
+        }
+
+        function isStandaloneLaunch() {
+            return Boolean(
+                window.matchMedia && window.matchMedia('(display-mode: standalone)').matches
+            ) || Boolean(window.navigator && window.navigator.standalone);
+        }
+
+        function isIosDevice() {
+            return /iphone|ipad|ipod/i.test(window.navigator.userAgent || '');
+        }
+
+        function showInstallButton() {
+            if (installButton) {
+                installButton.hidden = false;
+            }
+        }
+
+        function scheduleAppRedirect(delayMs) {
+            if (appRedirectTimer) {
+                clearTimeout(appRedirectTimer);
+            }
+            appRedirectTimer = setTimeout(() => {
+                window.location.href = '/app';
+            }, delayMs);
+        }
+
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => null);
+        }
+
+        window.addEventListener('beforeinstallprompt', (event) => {
+            event.preventDefault();
+            deferredInstallPrompt = event;
+            showInstallButton();
+            setInstallStatus('Install AutoBuddy for one-tap access from this device.');
+            scheduleAppRedirect(20000);
+        });
+
+        window.addEventListener('appinstalled', () => {
+            deferredInstallPrompt = null;
+            setInstallStatus('AutoBuddy shortcut installed.');
+            if (installButton) {
+                installButton.hidden = true;
+            }
+            scheduleAppRedirect(1200);
+        });
+
+        if (installButton) {
+            installButton.addEventListener('click', async () => {
+                if (deferredInstallPrompt) {
+                    try {
+                        await deferredInstallPrompt.prompt();
+                        const choice = await deferredInstallPrompt.userChoice;
+                        deferredInstallPrompt = null;
+                        if (choice && choice.outcome === 'accepted') {
+                            setInstallStatus('AutoBuddy install started.');
+                            scheduleAppRedirect(1200);
+                            return;
+                        }
+                        setInstallStatus('Install was dismissed. You can still open AutoBuddy now.');
+                        scheduleAppRedirect(4000);
+                        return;
+                    } catch (_) {
+                        setInstallStatus('Use your browser menu to install AutoBuddy.');
+                    }
+                } else if (isIosDevice()) {
+                    setInstallStatus('On iPhone or iPad, tap Share, then Add to Home Screen.');
+                } else {
+                    setInstallStatus('Use your browser menu and choose Install App or Add to Home Screen.');
+                }
+                scheduleAppRedirect(6000);
+            });
+        }
+
+        if (isStandaloneLaunch()) {
+            setInstallStatus('AutoBuddy shortcut is ready.');
+            scheduleAppRedirect(1200);
+        } else if (isIosDevice()) {
+            showInstallButton();
+            setInstallStatus('Install AutoBuddy from the Share menu for one-tap access.');
+        }
+
+        window.setTimeout(() => {
+            if (!isStandaloneLaunch() && !deferredInstallPrompt && !isIosDevice()) {
+                showInstallButton();
+                setInstallStatus('Install AutoBuddy from your browser menu for one-tap access.');
+            }
+        }, 1500);
+
         function resolveApiBaseUrl() {
             const host = window.location.hostname || '';
             if (host === 'localhost' || host === '127.0.0.1') {
@@ -188,9 +322,9 @@
 
         recordLaunchVisit();
 
-        setTimeout(() => {
-            window.location.href = '/app';
-        }, 10000);
+        if (!appRedirectTimer) {
+            scheduleAppRedirect(10000);
+        }
     </script>
 </body>
 </html>
