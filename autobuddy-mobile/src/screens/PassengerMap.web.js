@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -156,10 +157,26 @@ const PASSENGER_MENU_BY_KEY = PASSENGER_MENU_OPTIONS.reduce(
   {},
 );
 
+function resolvePassengerMenuSymbol(symbol) {
+  if (typeof symbol === 'string') {
+    return symbol;
+  }
+  if (!symbol || typeof symbol !== 'object') {
+    return 'circle';
+  }
+  if (Platform.OS === 'ios') {
+    return symbol.ios || symbol.web || symbol.android || 'circle';
+  }
+  if (Platform.OS === 'android') {
+    return symbol.android || symbol.web || symbol.ios || 'circle';
+  }
+  return symbol.web || symbol.android || symbol.ios || 'circle';
+}
+
 function PassengerMenuIcon({ symbol, selected, size = 16 }) {
   return (
     <SymbolView
-      name={symbol}
+      name={resolvePassengerMenuSymbol(symbol)}
       size={size}
       tintColor={selected ? '#FFFFFF' : COLORS.primaryDark}
       resizeMode="scaleAspectFit"
