@@ -68,6 +68,10 @@ MODERATE_ENDPOINT_PATHS = (
     "/api/support/tickets",
 )
 
+NORMAL_ENDPOINT_PATHS = (
+    "/api/bookings/active",
+)
+
 DEFAULT_ENDPOINT_RATE_LIMITS = tuple(
     [
         {
@@ -76,6 +80,14 @@ DEFAULT_ENDPOINT_RATE_LIMITS = tuple(
             "description": "Default strict endpoint limit",
         }
         for endpoint in STRICT_ENDPOINT_PATHS
+    ]
+    + [
+        {
+            "endpoint": endpoint,
+            "limit_type": "normal",
+            "description": "Default normal endpoint limit for polling reads",
+        }
+        for endpoint in NORMAL_ENDPOINT_PATHS
     ]
     + [
         {
@@ -380,30 +392,30 @@ async def ensure_rate_limit_defaults(db) -> None:
             upsert=True,
         )
 
+    for endpoint_config in DEFAULT_ENDPOINT_RATE_LIMITS:
+        limit_type = endpoint_config["limit_type"]
+        profile = DEFAULT_RATE_LIMIT_CONFIGS[limit_type]
+        endpoint = normalize_endpoint_path(endpoint_config["endpoint"])
+        await db.endpoint_rate_limits.update_one(
+            {"endpoint": endpoint},
+            {
+                "$setOnInsert": {
+                    "endpoint": endpoint,
+                    "limit_type": limit_type,
+                    "max_requests": int(profile["max_requests"]),
+                    "window_seconds": int(profile["window_seconds"]),
+                    "description": endpoint_config.get("description"),
+                    "enabled": True,
+                    "source": "system-default",
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            },
+            upsert=True,
+        )
+
     seed_state = await db.system_settings.find_one({"setting_key": RATE_LIMIT_DEFAULTS_SEEDED_KEY})
     if not seed_state or not seed_state.get("setting_value"):
-        for endpoint_config in DEFAULT_ENDPOINT_RATE_LIMITS:
-            limit_type = endpoint_config["limit_type"]
-            profile = DEFAULT_RATE_LIMIT_CONFIGS[limit_type]
-            endpoint = normalize_endpoint_path(endpoint_config["endpoint"])
-            await db.endpoint_rate_limits.update_one(
-                {"endpoint": endpoint},
-                {
-                    "$setOnInsert": {
-                        "endpoint": endpoint,
-                        "limit_type": limit_type,
-                        "max_requests": int(profile["max_requests"]),
-                        "window_seconds": int(profile["window_seconds"]),
-                        "description": endpoint_config.get("description"),
-                        "enabled": True,
-                        "source": "system-default",
-                        "created_at": now,
-                        "updated_at": now,
-                    }
-                },
-                upsert=True,
-            )
-
         await db.system_settings.update_one(
             {"setting_key": RATE_LIMIT_DEFAULTS_SEEDED_KEY},
             {
@@ -500,11 +512,14 @@ async def get_rate_limit_settings(db) -> Dict[str, Any]:
 
 def _find_endpoint_rule(endpoint: str, endpoints: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     path = normalize_endpoint_path(endpoint)
+    matches = []
     for config in endpoints:
         configured_path = normalize_endpoint_path(config.get("endpoint"))
         if path == configured_path or path.startswith(f"{configured_path}/"):
-            if _is_enabled(config.get("enabled", True)):
-                return config
+            matches.append((len(configured_path), config))
+    for _, config in sorted(matches, key=lambda item: item[0], reverse=True):
+        if _is_enabled(config.get("enabled", True)):
+            return config
     return None
 
 

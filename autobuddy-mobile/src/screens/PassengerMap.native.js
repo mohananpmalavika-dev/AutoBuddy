@@ -317,6 +317,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const passengerPollCycleRef = useRef(0);
   const passengerPollCooldownUntilRef = useRef(0);
   const passengerPollNoticeAtRef = useRef(0);
+  const activeBookingRequestRef = useRef({ token: null, request: null });
   const appStateRef = useRef(AppState.currentState || 'active');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
@@ -981,9 +982,25 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     [triggerA11yFeedback],
   );
 
+  const requestActiveBooking = useCallback(() => {
+    const tokenKey = String(token || '');
+    const currentRequest = activeBookingRequestRef.current;
+    if (currentRequest?.request && currentRequest.token === tokenKey) {
+      return currentRequest.request;
+    }
+
+    const request = apiRequest('/bookings/active', { token }).finally(() => {
+      if (activeBookingRequestRef.current?.request === request) {
+        activeBookingRequestRef.current = { token: null, request: null };
+      }
+    });
+    activeBookingRequestRef.current = { token: tokenKey, request };
+    return request;
+  }, [token]);
+
   const refreshActiveBooking = async () => {
     const booking = await callApi(
-      () => apiRequest('/bookings/active', { token }),
+      () => requestActiveBooking(),
       'Active ride status refreshed.',
     );
     if (booking) {
@@ -1163,7 +1180,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
 
       try {
         const [active, bookings, spinStatus] = await Promise.all([
-          quietPollRequest(apiRequest('/bookings/active', { token })),
+          quietPollRequest(requestActiveBooking()),
           includeBookings ? quietPollRequest(apiRequest('/bookings', { token })) : Promise.resolve(null),
           includeSpinStatus ? quietPollRequest(apiRequest('/spin-win/config', { token })) : Promise.resolve(null),
         ]);
@@ -1196,7 +1213,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       unmounted = true;
       clearInterval(timer);
     };
-  }, [activePassengerMenu, token]);
+  }, [activePassengerMenu, requestActiveBooking, token]);
 
   useEffect(() => {
     // Auto-refresh history when user opens the history tab
@@ -1701,7 +1718,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
 
     let existingActive = null;
     try {
-      existingActive = await apiRequest('/bookings/active', { token });
+      existingActive = await requestActiveBooking();
     } catch (err) {
       const cooldownMs = getPassengerPollBackoffMs(err);
       if (cooldownMs > 0) {

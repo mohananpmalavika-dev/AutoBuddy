@@ -10277,6 +10277,7 @@ async def get_bookings(
     return results
 
 @api_router.get("/bookings/active")
+@retry_on_db_error(max_attempts=3, base_delay=0.5, max_delay=5.0)
 async def get_active_booking(current_user: dict = Depends(get_current_user)):
     """Get user's active booking"""
     active_statuses = [BookingStatus.PENDING, BookingStatus.ACCEPTED, BookingStatus.DRIVER_ARRIVED, BookingStatus.IN_PROGRESS]
@@ -10290,19 +10291,23 @@ async def get_active_booking(current_user: dict = Depends(get_current_user)):
     booking = await db.bookings.find_one(query)
     
     if booking:
-        passenger = await db.users.find_one({"id": booking["passenger_id"]})
+        passenger_id = booking.get("passenger_id")
+        driver_id = booking.get("driver_id")
+        passenger = await db.users.find_one({"id": passenger_id}) if passenger_id else None
         driver = await db.users.find_one({"id": booking.get("driver_id")}) if booking.get("driver_id") else None
-        driver_profile = await db.drivers.find_one({"user_id": booking.get("driver_id")}) if booking.get("driver_id") else None
+        driver_profile = await db.drivers.find_one({"user_id": driver_id}) if driver_id else None
         driver_live_location = await get_effective_driver_location(driver_profile) if driver_profile else None
 
+        payload = dict(booking)
+        if payload.get("_id") is not None:
+            payload["_id"] = str(payload["_id"])
         payload = {
-            **booking,
-            "_id": str(booking["_id"]),
-            "passenger_name": passenger["name"] if passenger else None,
-            "passenger_phone": passenger["phone"] if passenger else None,
-            "driver_name": driver["name"] if driver else None,
-            "driver_phone": driver["phone"] if driver else None,
-            "vehicle_info": driver_profile["vehicle_info"] if driver_profile and driver_profile.get("vehicle_info") else None,
+            **payload,
+            "passenger_name": passenger.get("name") if passenger else None,
+            "passenger_phone": passenger.get("phone") if passenger else None,
+            "driver_name": driver.get("name") if driver else None,
+            "driver_phone": driver.get("phone") if driver else None,
+            "vehicle_info": driver_profile.get("vehicle_info") if driver_profile and driver_profile.get("vehicle_info") else None,
             "driver_location": driver_live_location,
             "route_polyline": booking.get("route_polyline")
         }
