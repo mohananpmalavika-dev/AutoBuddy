@@ -273,16 +273,16 @@ function getUpcomingCount(payload) {
   return asArray(payload?.scheduled_requests).length + asArray(payload?.assigned_rides).length;
 }
 
-function MetricTile({ label, value }) {
+function MetricTile({ label, value, compact = false }) {
   return (
-    <View style={styles.metricTile}>
+    <View style={[styles.metricTile, compact && styles.metricTileCompact]}>
       <Text style={styles.metricValue}>{value}</Text>
       <Text style={styles.metricLabel}>{label}</Text>
     </View>
   );
 }
 
-function StatusPill({ accepting, syncing, tracking, onPress, disabled, userName }) {
+function StatusPill({ accepting, syncing, tracking, onPress, disabled, userName, compact = false }) {
   const tone = syncing ? 'syncing' : accepting ? 'accepting' : 'paused';
   const colors = {
     accepting: {
@@ -307,7 +307,11 @@ function StatusPill({ accepting, syncing, tracking, onPress, disabled, userName 
 
   return (
     <TouchableOpacity
-      style={[styles.statusPill, { backgroundColor: colors.bg, borderColor: colors.border }]}
+      style={[
+        styles.statusPill,
+        compact && styles.statusPillCompact,
+        { backgroundColor: colors.bg, borderColor: colors.border },
+      ]}
       onPress={onPress}
       disabled={disabled}
       activeOpacity={0.78}>
@@ -316,7 +320,7 @@ function StatusPill({ accepting, syncing, tracking, onPress, disabled, userName 
         <Text style={[styles.statusTitle, { color: colors.text }]}>
           {syncing ? 'SYNCING' : accepting ? 'ACCEPTING RIDES' : 'PAUSED'}
         </Text>
-        <Text style={styles.statusHint}>
+        <Text style={styles.statusHint} numberOfLines={compact ? 2 : undefined}>
           {userName || 'Driver'} - {accepting ? 'Tap to pause requests' : 'Tap to go online'}
           {tracking ? ' - tracking' : ''}
         </Text>
@@ -1303,10 +1307,10 @@ export default function DriverCommandPage({
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, compactLayout && styles.scrollContentCompact]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}>
-        <View style={[styles.mapShell, { height: compactLayout ? 240 : 280 }]}>
+        <View style={[styles.mapShell, compactLayout ? styles.mapShellCompact : styles.mapShellDesktop]}>
           <WebGoogleLiveMap
             apiKey={googleMapsWebKey}
             title="AutoBuddy driver map"
@@ -1320,7 +1324,7 @@ export default function DriverCommandPage({
             routeDestination={mapDestination}
             showStatusOverlay={false}
           />
-          <View style={styles.mapOverlay} pointerEvents="none">
+          <View style={[styles.mapOverlay, compactLayout && styles.mapOverlayCompact]} pointerEvents="none">
             <Text style={styles.mapTitle}>Live Driver Map</Text>
             <Text style={styles.mapSubtitle}>
               {displayIsAccepting ? 'Accepting ride requests.' : 'Paused new requests.'}
@@ -1328,8 +1332,8 @@ export default function DriverCommandPage({
           </View>
         </View>
 
-        <View style={styles.mainPanel}>
-          <View style={styles.topBar}>
+        <View style={[styles.mainPanel, compactLayout && styles.mainPanelCompact]}>
+          <View style={[styles.topBar, compactLayout && styles.topBarCompact]}>
             <StatusPill
               accepting={displayIsAccepting}
               syncing={availabilityLoading}
@@ -1337,37 +1341,40 @@ export default function DriverCommandPage({
               onPress={toggleOnlineStatus}
               disabled={availabilityLoading || loading}
               userName={user?.name}
+              compact={compactLayout}
             />
-            <View style={styles.topActions}>
+            <View style={[styles.topActions, compactLayout && styles.topActionsCompact]}>
               <TouchableOpacity
-                style={styles.topActionButton}
+                style={[styles.topActionButton, compactLayout && styles.topActionButtonCompact]}
                 onPress={() => refreshDriverData()}
                 disabled={refreshing || loading}>
                 <Text style={styles.topActionText}>{refreshing ? '...' : 'Refresh'}</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.topActionButton}
+                style={[styles.topActionButton, compactLayout && styles.topActionButtonCompact]}
                 onPress={onProfilePress || (() => setActiveTab('profile'))}>
                 <Text style={styles.topActionText}>Profile</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.topActionButton} onPress={onLogout}>
+              <TouchableOpacity
+                style={[styles.topActionButton, compactLayout && styles.topActionButtonCompact]}
+                onPress={onLogout}>
                 <Text style={styles.topActionText}>Logout</Text>
               </TouchableOpacity>
             </View>
           </View>
 
-          <View style={styles.titleRow}>
-            <View>
-              <Text style={styles.pageTitle}>Driver Command Center</Text>
-              <Text style={styles.locationText}>
+          <View style={[styles.titleRow, compactLayout && styles.titleRowCompact]}>
+            <View style={compactLayout && styles.titleBlockCompact}>
+              <Text style={[styles.pageTitle, compactLayout && styles.pageTitleCompact]}>Driver Command Center</Text>
+              <Text style={[styles.locationText, compactLayout && styles.locationTextCompact]} numberOfLines={compactLayout ? 2 : undefined}>
                 {driverLocation?.address || 'Location not synced yet'}
                 {trackingOnline ? ' - Tracking' : ''}
               </Text>
             </View>
-            <View style={styles.summaryTiles}>
-              <MetricTile label="Requests" value={pendingRequests.length} />
-              <MetricTile label="Upcoming" value={getUpcomingCount(upcomingRides)} />
-              <MetricTile label="Today" value={formatMoney(earnings?.today_earnings)} />
+            <View style={[styles.summaryTiles, compactLayout && styles.summaryTilesCompact]}>
+              <MetricTile label="Requests" value={pendingRequests.length} compact={compactLayout} />
+              <MetricTile label="Upcoming" value={getUpcomingCount(upcomingRides)} compact={compactLayout} />
+              <MetricTile label="Today" value={formatMoney(earnings?.today_earnings)} compact={compactLayout} />
             </View>
           </View>
 
@@ -1387,7 +1394,7 @@ export default function DriverCommandPage({
             statusSyncing={availabilityLoading}
           />
 
-          <View style={styles.tabPanel}>{renderTabContent()}</View>
+          <View style={[styles.tabPanel, compactLayout && styles.tabPanelCompact]}>{renderTabContent()}</View>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -1406,6 +1413,10 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 16,
   },
+  scrollContentCompact: {
+    padding: 8,
+    gap: 10,
+  },
   mapShell: {
     borderRadius: 8,
     borderWidth: 1,
@@ -1414,6 +1425,13 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     position: 'relative',
     ...SHADOWS.card,
+  },
+  mapShellDesktop: {
+    height: 280,
+  },
+  mapShellCompact: {
+    height: 190,
+    borderRadius: 8,
   },
   map: {
     width: '100%',
@@ -1429,6 +1447,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.94)',
     borderWidth: 1,
     borderColor: COLORS.border,
+  },
+  mapOverlayCompact: {
+    left: 8,
+    top: 8,
+    maxWidth: '76%',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
   },
   mapTitle: {
     fontSize: 16,
@@ -1450,6 +1475,10 @@ const styles = StyleSheet.create({
     gap: 14,
     ...SHADOWS.card,
   },
+  mainPanelCompact: {
+    padding: 10,
+    gap: 10,
+  },
   topBar: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1457,10 +1486,17 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 12,
   },
+  topBarCompact: {
+    alignItems: 'stretch',
+  },
   topActions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
+  },
+  topActionsCompact: {
+    width: '100%',
+    flexWrap: 'nowrap',
   },
   topActionButton: {
     minHeight: 42,
@@ -1471,6 +1507,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: COLORS.surface,
+  },
+  topActionButtonCompact: {
+    flex: 1,
+    minWidth: 0,
+    paddingHorizontal: 8,
   },
   topActionText: {
     fontSize: 13,
@@ -1488,6 +1529,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+  },
+  statusPillCompact: {
+    width: '100%',
+    minWidth: 0,
+    maxWidth: '100%',
+    minHeight: 66,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   statusDot: {
     width: 16,
@@ -1514,10 +1563,21 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 14,
   },
+  titleRowCompact: {
+    flexDirection: 'column',
+    gap: 10,
+  },
+  titleBlockCompact: {
+    width: '100%',
+  },
   pageTitle: {
     fontSize: 28,
     fontWeight: '900',
     color: COLORS.textMain,
+  },
+  pageTitleCompact: {
+    fontSize: 24,
+    lineHeight: 29,
   },
   locationText: {
     marginTop: 6,
@@ -1525,10 +1585,18 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: COLORS.textMuted,
   },
+  locationTextCompact: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
   summaryTiles: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
+  },
+  summaryTilesCompact: {
+    width: '100%',
+    flexWrap: 'nowrap',
   },
   metricRow: {
     flexDirection: 'row',
@@ -1545,6 +1613,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     justifyContent: 'center',
+  },
+  metricTileCompact: {
+    flex: 1,
+    minWidth: 0,
+    paddingHorizontal: 8,
   },
   metricValue: {
     fontSize: 17,
@@ -1573,6 +1646,9 @@ const styles = StyleSheet.create({
   },
   tabPanel: {
     minHeight: 280,
+  },
+  tabPanelCompact: {
+    minHeight: 220,
   },
   stackedPanels: {
     gap: 14,
