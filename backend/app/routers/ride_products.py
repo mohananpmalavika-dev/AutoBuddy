@@ -84,6 +84,16 @@ class RideProductDistrictConfigUpdate(BaseModel):
 
 
 ALL_RIDE_PRODUCT_KEYS: List[str] = [item.value for item in RideProduct]
+ALL_RIDE_PRODUCT_KEY_SET = set(ALL_RIDE_PRODUCT_KEYS)
+LEGACY_COMPATIBILITY_RIDE_TYPE_KEYS = {
+    "instant",
+    "scheduled",
+    "rental",
+    "airport",
+    "corporate",
+    "tourism",
+    "goods",
+}
 RIDE_TYPE_COMPATIBILITY_ALIASES = {
     RideProduct.NORMAL.value: "instant",
     RideProduct.POOL.value: "instant",
@@ -114,6 +124,41 @@ DISTRICT_ALIASES: Dict[str, str] = {
     "pathanamthitta": "pathanamthitta",
     "kollam": "kollam",
 }
+
+
+def _normalize_driver_accepted_ride_types(value: Any) -> List[str]:
+    if value is None:
+        return []
+    raw_values = [part.strip() for part in value.split(",")] if isinstance(value, str) else value
+    if not isinstance(raw_values, list):
+        return []
+    result: List[str] = []
+    seen: Set[str] = set()
+    for raw in raw_values:
+        key = str(raw or "").strip().lower().replace("-", "_").replace(" ", "_")
+        if key not in ALL_RIDE_PRODUCT_KEY_SET and key not in LEGACY_COMPATIBILITY_RIDE_TYPE_KEYS:
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(key)
+    return result
+
+
+def _driver_accepts_ride_product(driver: Dict[str, Any], ride_product: RideProduct) -> bool:
+    raw_vehicle = _as_dict(driver.get("vehicle_info"))
+    accepted = _normalize_driver_accepted_ride_types(
+        raw_vehicle.get("accepted_ride_types")
+        or _as_dict(driver.get("online_vehicle")).get("accepted_ride_types")
+        or driver.get("accepted_ride_types")
+    )
+    if not accepted:
+        return True
+    requested_key = ride_product.value
+    if requested_key in accepted:
+        return True
+    requested_compatibility = RIDE_TYPE_COMPATIBILITY_ALIASES.get(requested_key, requested_key)
+    return any(item not in ALL_RIDE_PRODUCT_KEY_SET and item == requested_compatibility for item in accepted)
 
 
 def _to_float(value: Any, default: float = 0.0) -> float:
@@ -200,7 +245,9 @@ def _driver_matches_service(
     if requested_vehicle_subtype and driver_vehicle_subtype and driver_vehicle_subtype != requested_vehicle_subtype:
         return False
     compatibility_key = RIDE_TYPE_COMPATIBILITY_ALIASES.get(ride_product.value, ride_product.value)
-    return is_vehicle_compatible_with_ride_type(driver_vehicle_type, compatibility_key)
+    if not is_vehicle_compatible_with_ride_type(driver_vehicle_type, compatibility_key):
+        return False
+    return _driver_accepts_ride_product(driver, ride_product)
 
 
 async def _find_matching_driver_ids(

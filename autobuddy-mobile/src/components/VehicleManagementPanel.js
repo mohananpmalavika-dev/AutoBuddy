@@ -14,6 +14,21 @@ import { useVehicleTypes } from '../hooks/useVehicleTypes';
 
 const DEFAULT_VEHICLE_TYPE_ID = 'auto';
 const DEFAULT_SEATING_CAPACITY = 4;
+const DEFAULT_ACCEPTED_RIDE_TYPES = ['normal'];
+const ACCEPTED_RIDE_TYPE_OPTIONS = [
+  { key: 'normal', label: 'Normal' },
+  { key: 'pool', label: 'Pool' },
+  { key: 'scheduled', label: 'Scheduled' },
+  { key: 'corporate', label: 'Corporate' },
+  { key: 'airport', label: 'Airport' },
+  { key: 'intercity', label: 'Intercity' },
+  { key: 'ev_auto', label: 'EV Auto' },
+  { key: 'tourism', label: 'Tourism' },
+  { key: 'women_only', label: 'Women Only' },
+  { key: 'rental_hourly', label: 'Rental Hourly' },
+  { key: 'school_elderly_safe', label: 'School/Elderly Safe' },
+];
+const ACCEPTED_RIDE_TYPE_KEYS = new Set(ACCEPTED_RIDE_TYPE_OPTIONS.map((item) => item.key));
 
 function getVehicleTypeId(vehicleType) {
   return String(vehicleType?.vehicle_type_id || vehicleType?.id || '').trim();
@@ -28,6 +43,21 @@ function parseIntegerField(value, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function normalizeAcceptedRideTypes(value, fallback = DEFAULT_ACCEPTED_RIDE_TYPES) {
+  const raw = Array.isArray(value) ? value : [];
+  const normalized = raw
+    .map((item) => String(item || '').trim().toLowerCase())
+    .filter((item, index, list) => ACCEPTED_RIDE_TYPE_KEYS.has(item) && list.indexOf(item) === index);
+  return normalized.length > 0 ? normalized : [...fallback];
+}
+
+function formatAcceptedRideTypes(value) {
+  const labels = normalizeAcceptedRideTypes(value).map(
+    (key) => ACCEPTED_RIDE_TYPE_OPTIONS.find((item) => item.key === key)?.label || key,
+  );
+  return labels.join(', ');
+}
+
 function normalizeVehicle(vehicle = {}) {
   return {
     id: vehicle.id,
@@ -40,6 +70,7 @@ function normalizeVehicle(vehicle = {}) {
     seating_capacity: Number(vehicle.seating_capacity || vehicle.seatingCapacity || DEFAULT_SEATING_CAPACITY),
     vehicle_type_id: vehicle.vehicle_type_id || vehicle.vehicle_type || vehicle.vehicleType || DEFAULT_VEHICLE_TYPE_ID,
     vehicle_subtype_id: vehicle.vehicle_subtype_id || vehicle.vehicleSubtypeId || null,
+    accepted_ride_types: normalizeAcceptedRideTypes(vehicle.accepted_ride_types),
     is_active: Boolean(vehicle.is_active),
   };
 }
@@ -71,6 +102,7 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
     seating_capacity: String(DEFAULT_SEATING_CAPACITY),
     vehicle_type_id: '', // Will be vehicle_type_id from canonical backend
     vehicle_subtype_id: '',
+    accepted_ride_types: [...DEFAULT_ACCEPTED_RIDE_TYPES],
   });
 
   const fetchVehicles = useCallback(async () => {
@@ -110,6 +142,7 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
     seating_capacity: String(DEFAULT_SEATING_CAPACITY),
     vehicle_type_id: getDefaultVehicleTypeId(vehicleTypes),
     vehicle_subtype_id: '',
+    accepted_ride_types: [...DEFAULT_ACCEPTED_RIDE_TYPES],
   });
 
   const buildVehiclePayload = () => {
@@ -125,6 +158,7 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
       vehicle_type: vehicleTypeId,
       vehicle_type_id: vehicleTypeId,
       vehicle_subtype_id: String(formData.vehicle_subtype_id || '').trim() || null,
+      accepted_ride_types: normalizeAcceptedRideTypes(formData.accepted_ride_types),
     };
   };
 
@@ -155,6 +189,7 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
       seating_capacity: String(vehicle.seating_capacity || vehicle.seatingCapacity || DEFAULT_SEATING_CAPACITY),
       vehicle_type_id: vehicle.vehicle_type_id || vehicle.vehicleType || DEFAULT_VEHICLE_TYPE_ID,
       vehicle_subtype_id: vehicle.vehicle_subtype_id || '',
+      accepted_ride_types: normalizeAcceptedRideTypes(vehicle.accepted_ride_types),
     });
     setEditingVehicleId(vehicle.id);
     setShowAddForm(true);
@@ -175,6 +210,11 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
     const nextCapacity = parseIntegerField(formData.seating_capacity, 0);
     if (nextCapacity < 1 || nextCapacity > 12) {
       setError('Please enter seating capacity between 1 and 12.');
+      return;
+    }
+
+    if (normalizeAcceptedRideTypes(formData.accepted_ride_types, []).length === 0) {
+      setError('Please select at least one accepted ride type.');
       return;
     }
 
@@ -242,6 +282,23 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
     }));
   };
 
+  const toggleAcceptedRideType = (rideTypeKey) => {
+    setFormData((prev) => {
+      const current = new Set(normalizeAcceptedRideTypes(prev.accepted_ride_types, []));
+      if (current.has(rideTypeKey)) {
+        current.delete(rideTypeKey);
+      } else {
+        current.add(rideTypeKey);
+      }
+      return {
+        ...prev,
+        accepted_ride_types: ACCEPTED_RIDE_TYPE_OPTIONS
+          .map((item) => item.key)
+          .filter((key) => current.has(key)),
+      };
+    });
+  };
+
   if (loading && vehicles.length === 0) {
     return (
       <View style={styles.container}>
@@ -288,6 +345,9 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
                 Registration: <Text style={styles.bold}>{activeVehicle.registration_number}</Text>
               </Text>
             )}
+            <Text style={styles.vehicleInfo}>
+              Ride types: <Text style={styles.bold}>{formatAcceptedRideTypes(activeVehicle.accepted_ride_types)}</Text>
+            </Text>
           </View>
           <View style={styles.activeVehicleActions}>
             <TouchableOpacity
@@ -315,6 +375,9 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
                   </Text>
                   <Text style={styles.licensePlate}>{vehicle.license_plate}</Text>
                 </View>
+                <Text style={styles.vehicleInfo}>
+                  Ride types: <Text style={styles.bold}>{formatAcceptedRideTypes(vehicle.accepted_ride_types)}</Text>
+                </Text>
                 <View style={styles.vehicleCardButtons}>
                   <TouchableOpacity
                     style={styles.editButton}
@@ -490,6 +553,25 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
               )}
             </>
           )}
+
+          <Text style={styles.fieldLabel}>Accepted Ride Types*</Text>
+          <View style={styles.rideTypeSelection}>
+            {ACCEPTED_RIDE_TYPE_OPTIONS.map((option) => {
+              const active = normalizeAcceptedRideTypes(formData.accepted_ride_types, []).includes(option.key);
+              return (
+                <TouchableOpacity
+                  key={option.key}
+                  style={[styles.rideTypeButton, active && styles.rideTypeButtonActive]}
+                  onPress={() => toggleAcceptedRideType(option.key)}
+                  disabled={parentLoading || loading}
+                >
+                  <Text style={[styles.rideTypeButtonText, active && styles.rideTypeButtonTextActive]}>
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
 
           <View style={styles.formButtons}>
             <TouchableOpacity
@@ -786,6 +868,33 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   subtypeButtonTextActive: {
+    color: '#fff',
+  },
+  rideTypeSelection: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 4,
+    marginBottom: 14,
+  },
+  rideTypeButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.background,
+  },
+  rideTypeButtonActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  rideTypeButtonText: {
+    fontSize: 12,
+    color: COLORS.textMain,
+    fontWeight: '600',
+  },
+  rideTypeButtonTextActive: {
     color: '#fff',
   },
   noTypesText: {

@@ -1761,6 +1761,10 @@ class VehicleInfo(BaseModel):
     vehicle_number: str
     vehicle_model: str
     vehicle_color: str
+    vehicle_type: Optional[str] = None
+    vehicle_type_id: Optional[str] = None
+    vehicle_subtype_id: Optional[str] = None
+    accepted_ride_types: List[str] = Field(default_factory=list)
 
 class DriverProfile(BaseModel):
     user_id: str
@@ -1889,6 +1893,7 @@ class DriverVehiclePayload(BaseModel):
     vehicle_type: Optional[str] = Field(default=None, min_length=2, max_length=40)
     vehicle_type_id: Optional[str] = Field(default=None, min_length=2, max_length=40)
     vehicle_subtype_id: Optional[str] = Field(default=None, max_length=80)
+    accepted_ride_types: Optional[List[str]] = Field(default=None, max_length=20)
 
     @model_validator(mode="after")
     def normalize_canonical_vehicle_fields(self):
@@ -1897,6 +1902,11 @@ class DriverVehiclePayload(BaseModel):
         self.vehicle_type = vehicle_type_id
         if self.vehicle_subtype_id is not None:
             self.vehicle_subtype_id = self.vehicle_subtype_id.strip() or None
+        if self.accepted_ride_types is not None:
+            accepted_ride_types = normalize_driver_accepted_ride_types(self.accepted_ride_types, default=[])
+            if not accepted_ride_types:
+                raise ValueError("Select at least one accepted ride type.")
+            self.accepted_ride_types = accepted_ride_types
         return self
 
 class DriverSettingsUpdate(BaseModel):
@@ -2664,6 +2674,10 @@ def build_driver_vehicle_response(vehicle: Dict[str, Any]) -> Dict[str, Any]:
         "vehicle_subtype_name": vehicle.get("vehicle_subtype_name"),
         "vehicle_icon": vehicle.get("vehicle_icon"),
         "capacity_unit": str(vehicle.get("capacity_unit") or "passengers"),
+        "accepted_ride_types": normalize_driver_accepted_ride_types(
+            vehicle.get("accepted_ride_types"),
+            default=list(DRIVER_ACCEPTED_RIDE_TYPE_KEYS),
+        ),
         "is_active": bool(vehicle.get("is_active", False)),
         "created_at": vehicle.get("created_at"),
         "updated_at": vehicle.get("updated_at"),
@@ -2682,6 +2696,10 @@ def build_driver_vehicle_info(vehicle: Dict[str, Any]) -> Dict[str, Any]:
         "vehicle_subtype_id": vehicle.get("vehicle_subtype_id"),
         "vehicle_type_name": vehicle.get("vehicle_type_name"),
         "vehicle_subtype_name": vehicle.get("vehicle_subtype_name"),
+        "accepted_ride_types": normalize_driver_accepted_ride_types(
+            vehicle.get("accepted_ride_types"),
+            default=list(DRIVER_ACCEPTED_RIDE_TYPE_KEYS),
+        ),
     }
 
 async def resolve_driver_vehicle_catalog_selection(payload: DriverVehiclePayload) -> Dict[str, Any]:
@@ -2798,7 +2816,7 @@ async def resolve_driver_online_vehicle_for_availability(
         raise HTTPException(
             status_code=409,
             detail={
-                "message": "Selected vehicle must have vehicle number, model, color, and type before going online.",
+                "message": "Selected vehicle must have vehicle number, model, color, type, and accepted ride types before going online.",
                 "vehicle": build_driver_vehicle_response(selected_vehicle),
             },
         )
@@ -4816,6 +4834,48 @@ RIDE_TYPE_COMPATIBILITY_ALIASES = {
     "rental_hourly": "rental",
 }
 
+DRIVER_ACCEPTED_RIDE_TYPE_KEYS = tuple(RIDE_TYPE_FARE_MULTIPLIERS.keys())
+DRIVER_ACCEPTED_RIDE_TYPE_SET = set(DRIVER_ACCEPTED_RIDE_TYPE_KEYS)
+DRIVER_COMPATIBILITY_RIDE_TYPE_SET = {
+    "instant",
+    "scheduled",
+    "rental",
+    "airport",
+    "corporate",
+    "tourism",
+    "goods",
+}
+DEFAULT_DRIVER_ACCEPTED_RIDE_TYPES = ["normal"]
+
+
+def normalize_driver_accepted_ride_types(
+    value: Any,
+    *,
+    default: Optional[List[str]] = None,
+) -> List[str]:
+    if value is None:
+        return list(default or [])
+    raw_values = value
+    if isinstance(value, str):
+        raw_values = [part.strip() for part in value.split(",")]
+    if not isinstance(raw_values, list):
+        return list(default or [])
+
+    seen = set()
+    normalized: List[str] = []
+    for raw in raw_values:
+        key = str(raw or "").strip().lower()
+        if not key:
+            continue
+        key = key.replace("-", "_").replace(" ", "_")
+        if key not in DRIVER_ACCEPTED_RIDE_TYPE_SET and key not in DRIVER_COMPATIBILITY_RIDE_TYPE_SET:
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(key)
+    return normalized or list(default or [])
+
 
 def get_ride_type_fare_multiplier(ride_type: Optional[str]) -> float:
     key = str(ride_type or "normal").strip().lower() or "normal"
@@ -4868,6 +4928,35 @@ def get_driver_online_vehicle_subtype(driver: Optional[Dict[str, Any]]) -> str:
     ).strip().lower()
 
 
+def get_driver_accepted_ride_types(driver: Optional[Dict[str, Any]]) -> List[str]:
+    source = driver or {}
+    raw_vehicle = source.get("vehicle_info") or {}
+    online_vehicle = source.get("online_vehicle") or {}
+    return normalize_driver_accepted_ride_types(
+        raw_vehicle.get("accepted_ride_types")
+        or online_vehicle.get("accepted_ride_types")
+        or source.get("accepted_ride_types"),
+    )
+
+
+def driver_accepts_requested_ride_type(driver: Optional[Dict[str, Any]], requested_ride_type: Optional[str]) -> bool:
+    requested = str(requested_ride_type or "").strip().lower()
+    if not requested:
+        return True
+    requested = requested.replace("-", "_").replace(" ", "_")
+    accepted = get_driver_accepted_ride_types(driver)
+    if not accepted:
+        return True
+    if requested in accepted:
+        return True
+    requested_compatibility = get_ride_type_compatibility_key(requested)
+    return any(
+        accepted_key not in DRIVER_ACCEPTED_RIDE_TYPE_SET
+        and accepted_key == requested_compatibility
+        for accepted_key in accepted
+    )
+
+
 def driver_matches_booking_service(driver: Optional[Dict[str, Any]], booking: Optional[Dict[str, Any]]) -> bool:
     booking_doc = booking or {}
     requested_vehicle_type = str(
@@ -4889,6 +4978,8 @@ def driver_matches_booking_service(driver: Optional[Dict[str, Any]], booking: Op
     if requested_vehicle_subtype and driver_vehicle_subtype and driver_vehicle_subtype != requested_vehicle_subtype:
         return False
     if requested_ride_type and not vehicle_supports_requested_ride_type(driver_vehicle_type, requested_ride_type):
+        return False
+    if requested_ride_type and not driver_accepts_requested_ride_type(driver, requested_ride_type):
         return False
     return True
 
@@ -6283,7 +6374,12 @@ def is_driver_vehicle_ready(vehicle: Optional[Dict[str, Any]]) -> bool:
     if not vehicle:
         return False
     required_fields = ["license_plate", "registration_number", "vehicle_type", "seating_capacity"]
-    return all(bool(vehicle.get(field_name)) for field_name in required_fields)
+    has_required_fields = all(bool(vehicle.get(field_name)) for field_name in required_fields)
+    accepted_default = list(DRIVER_ACCEPTED_RIDE_TYPE_KEYS) if "accepted_ride_types" not in vehicle else []
+    has_accepted_ride_types = bool(
+        normalize_driver_accepted_ride_types(vehicle.get("accepted_ride_types"), default=accepted_default)
+    )
+    return has_required_fields and has_accepted_ride_types
 
 async def build_driver_ready_to_drive_status(
     driver_id: str,
@@ -6327,7 +6423,7 @@ async def build_driver_ready_to_drive_status(
         blockers.append(
             build_driver_readiness_issue(
                 "incomplete_vehicle",
-                "Complete license plate, registration, type, and seating details for the active vehicle.",
+                "Complete license plate, registration, type, seating, and accepted ride types for the active vehicle.",
                 "vehicle",
             )
         )
@@ -7986,6 +8082,7 @@ async def get_driver_vehicles(current_user: dict = Depends(get_current_user)):
                 "vehicle_subtype_id": None,
                 "vehicle_type_name": "Auto",
                 "vehicle_subtype_name": None,
+                "accepted_ride_types": list(DRIVER_ACCEPTED_RIDE_TYPE_KEYS),
                 "is_active": True,
                 "created_at": now,
                 "updated_at": now,
@@ -8012,6 +8109,10 @@ async def create_driver_vehicle(payload: DriverVehiclePayload, current_user: dic
     catalog_selection = await resolve_driver_vehicle_catalog_selection(payload)
     canonical_vehicle = catalog_selection["vehicle"]
     canonical_subtype = catalog_selection["subtype"]
+    accepted_ride_types = normalize_driver_accepted_ride_types(
+        payload.accepted_ride_types,
+        default=DEFAULT_DRIVER_ACCEPTED_RIDE_TYPES,
+    )
     has_existing = await db.driver_vehicles.find_one({"driver_id": current_user["id"]}, {"_id": 0, "id": 1})
     vehicle_doc = {
         "id": str(uuid.uuid4()),
@@ -8030,6 +8131,7 @@ async def create_driver_vehicle(payload: DriverVehiclePayload, current_user: dic
         "vehicle_subtype_name": canonical_subtype.get("name") if canonical_subtype else None,
         "vehicle_icon": canonical_vehicle.get("icon"),
         "capacity_unit": canonical_vehicle.get("capacity_unit", "passengers"),
+        "accepted_ride_types": accepted_ride_types,
         "is_active": not bool(has_existing),
         "created_at": now,
         "updated_at": now,
@@ -8051,6 +8153,14 @@ async def update_driver_vehicle(vehicle_id: str, payload: DriverVehiclePayload, 
     catalog_selection = await resolve_driver_vehicle_catalog_selection(payload)
     canonical_vehicle = catalog_selection["vehicle"]
     canonical_subtype = catalog_selection["subtype"]
+    accepted_ride_types = (
+        normalize_driver_accepted_ride_types(payload.accepted_ride_types, default=DEFAULT_DRIVER_ACCEPTED_RIDE_TYPES)
+        if "accepted_ride_types" in payload.model_fields_set
+        else normalize_driver_accepted_ride_types(
+            existing.get("accepted_ride_types"),
+            default=list(DRIVER_ACCEPTED_RIDE_TYPE_KEYS),
+        )
+    )
     updated_fields = {
         "make": payload.make,
         "model": payload.model,
@@ -8066,6 +8176,7 @@ async def update_driver_vehicle(vehicle_id: str, payload: DriverVehiclePayload, 
         "vehicle_subtype_name": canonical_subtype.get("name") if canonical_subtype else None,
         "vehicle_icon": canonical_vehicle.get("icon"),
         "capacity_unit": canonical_vehicle.get("capacity_unit", "passengers"),
+        "accepted_ride_types": accepted_ride_types,
         "updated_at": now,
     }
     await db.driver_vehicles.update_one(
@@ -9182,35 +9293,17 @@ async def get_nearby_drivers(
     requested_vehicle_type = str(vehicle_type_id or "").strip().lower()
     requested_vehicle_subtype = str(vehicle_subtype_id or "").strip().lower()
     requested_ride_type = str(ride_type or "").strip().lower()
-
-    def driver_matches_requested_service(driver_doc: Dict[str, Any]) -> bool:
-        raw_vehicle = driver_doc.get("vehicle_info") or {}
-        driver_vehicle_type = str(
-            raw_vehicle.get("vehicle_type_id")
-            or raw_vehicle.get("vehicle_type")
-            or driver_doc.get("vehicle_type_id")
-            or driver_doc.get("vehicle_type")
-            or "auto"
-        ).strip().lower()
-        driver_vehicle_subtype = str(
-            raw_vehicle.get("vehicle_subtype_id")
-            or driver_doc.get("vehicle_subtype_id")
-            or ""
-        ).strip().lower()
-
-        if requested_vehicle_type and driver_vehicle_type != requested_vehicle_type:
-            return False
-        if requested_vehicle_subtype and driver_vehicle_subtype and driver_vehicle_subtype != requested_vehicle_subtype:
-            return False
-        if requested_ride_type and not vehicle_supports_requested_ride_type(driver_vehicle_type, requested_ride_type):
-            return False
-        return True
+    requested_service = {
+        "vehicle_type_id": requested_vehicle_type,
+        "vehicle_subtype_id": requested_vehicle_subtype,
+        "ride_type": requested_ride_type,
+    }
 
     nearby_drivers: List[Dict[str, Any]] = []
     primary_scored_drivers: List[Dict[str, Any]] = []
     fallback_scored_drivers: List[Dict[str, Any]] = []
     for driver in available_drivers:
-        if not driver_matches_requested_service(driver):
+        if not driver_matches_booking_service(driver, requested_service):
             continue
         if blocked_driver_ids and driver.get("user_id") in blocked_driver_ids:
             continue
@@ -9598,7 +9691,8 @@ async def get_pending_requests(current_user: dict = Depends(get_current_user)):
         or get_driver_online_vehicle_type(driver_service_profile)
         or "none"
     ).strip()
-    cache_key = f"driver_pending_requests:{current_user['id']}:{cache_vehicle_key}"
+    accepted_ride_type_key = ",".join(get_driver_accepted_ride_types(driver_service_profile) or ["legacy"])
+    cache_key = f"driver_pending_requests:{current_user['id']}:{cache_vehicle_key}:{accepted_ride_type_key}"
     cached = await cache_get(cache_key)
     if cached is not None:
         return [
