@@ -5,10 +5,24 @@ Complete CRUD operations for notifications with preferences and filtering
 from fastapi import APIRouter, HTTPException, Request, Query
 from datetime import datetime, timezone
 from bson import ObjectId
+from bson.errors import InvalidId
 import logging
 from typing import Optional, List, Literal
 
 logger = logging.getLogger(__name__)
+
+
+def notification_owner_query(user_id: str, notification_id: str) -> dict:
+    normalized_id = str(notification_id or "").strip()
+    clauses = [
+        {"user_id": user_id, "id": normalized_id},
+        {"user_id": user_id, "notification_id": normalized_id},
+    ]
+    try:
+        clauses.append({"user_id": user_id, "_id": ObjectId(normalized_id)})
+    except InvalidId:
+        pass
+    return {"$or": clauses}
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
@@ -144,8 +158,10 @@ async def list_notifications(
         
         formatted = []
         for notif in notifications:
+            notification_id = str(notif.get("id") or notif.get("notification_id") or notif.get("_id") or "")
             formatted.append({
-                "id": str(notif["_id"]),
+                "_id": str(notif["_id"]) if notif.get("_id") is not None else None,
+                "id": notification_id,
                 "type": notif.get("type"),
                 "title": notif.get("title"),
                 "message": notif.get("message"),
@@ -177,22 +193,15 @@ async def get_notification(notification_id: str, request: Request):
     """Get a specific notification"""
     try:
         user_id = await verify_user_token(request)
-        
-        try:
-            notif_id = ObjectId(notification_id)
-        except:
-            raise HTTPException(status_code=400, detail="Invalid notification ID")
-        
-        notification = await db.notifications.find_one({
-            "_id": notif_id,
-            "user_id": user_id
-        })
+        notification = await db.notifications.find_one(notification_owner_query(user_id, notification_id))
         
         if not notification:
             raise HTTPException(status_code=404, detail="Notification not found")
         
+        response_id = str(notification.get("id") or notification.get("notification_id") or notification.get("_id") or "")
         return {
-            "id": str(notification["_id"]),
+            "_id": str(notification["_id"]) if notification.get("_id") is not None else None,
+            "id": response_id,
             "type": notification.get("type"),
             "title": notification.get("title"),
             "message": notification.get("message"),
@@ -219,13 +228,8 @@ async def mark_notification_read(notification_id: str, request: Request):
     try:
         user_id = await verify_user_token(request)
         
-        try:
-            notif_id = ObjectId(notification_id)
-        except:
-            raise HTTPException(status_code=400, detail="Invalid notification ID")
-        
         result = await db.notifications.find_one_and_update(
-            {"_id": notif_id, "user_id": user_id},
+            notification_owner_query(user_id, notification_id),
             {"$set": {"read": True}},
             return_document=True
         )
@@ -274,16 +278,7 @@ async def delete_notification(notification_id: str, request: Request):
     """Delete a specific notification"""
     try:
         user_id = await verify_user_token(request)
-        
-        try:
-            notif_id = ObjectId(notification_id)
-        except:
-            raise HTTPException(status_code=400, detail="Invalid notification ID")
-        
-        result = await db.notifications.delete_one({
-            "_id": notif_id,
-            "user_id": user_id
-        })
+        result = await db.notifications.delete_one(notification_owner_query(user_id, notification_id))
         
         if result.deleted_count == 0:
             raise HTTPException(status_code=404, detail="Notification not found")

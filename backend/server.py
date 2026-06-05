@@ -34,6 +34,8 @@ import re
 from urllib.parse import urlparse, parse_qs
 from cryptography.fernet import Fernet
 from pymongo.errors import ServerSelectionTimeoutError, PyMongoError
+from bson import ObjectId
+from bson.errors import InvalidId
 from app.core.config import get_settings
 from app.db.retry import retry_on_db_error
 from app.db.client import create_mongo_client, create_database
@@ -12066,9 +12068,13 @@ def serialize_notification(row: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def notification_owner_query(user_id: str, notification_id: str) -> Dict[str, Any]:
-    clauses = [{"user_id": user_id, "id": notification_id}]
+    normalized_id = str(notification_id or "").strip()
+    clauses = [
+        {"user_id": user_id, "id": normalized_id},
+        {"user_id": user_id, "notification_id": normalized_id},
+    ]
     try:
-        clauses.append({"user_id": user_id, "_id": ObjectId(notification_id)})
+        clauses.append({"user_id": user_id, "_id": ObjectId(normalized_id)})
     except InvalidId:
         pass
     return {"$or": clauses}
