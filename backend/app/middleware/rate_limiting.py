@@ -52,8 +52,10 @@ class RateLimitingMiddleware(BaseHTTPMiddleware):
         max_requests = rule.max_requests
         window_seconds = rule.window_seconds
         
-        # Get rate limit key (user ID or IP address)
-        key = get_rate_limit_key(request)
+        # Get rate limit key (user ID/token/IP) and keep endpoint/profile
+        # buckets isolated from each other.
+        base_key = get_rate_limit_key(request)
+        key = f"{base_key}:{rule.bucket_name}"
         
         # Check rate limit
         if not self.limiter.is_allowed(key, max_requests, window_seconds):
@@ -63,7 +65,9 @@ class RateLimitingMiddleware(BaseHTTPMiddleware):
                 f"Rate limit exceeded for {key} on {path}",
                 extra={
                     "key": key,
+                    "base_key": base_key,
                     "path": path,
+                    "bucket": rule.bucket_name,
                     "limit_type": rule.limit_type,
                     "source": rule.source,
                     "max_requests": max_requests,
@@ -89,6 +93,7 @@ class RateLimitingMiddleware(BaseHTTPMiddleware):
                     "X-RateLimit-Limit": str(max_requests),
                     "X-RateLimit-Window": str(window_seconds),
                     "X-RateLimit-Key": key,
+                    "X-RateLimit-Bucket": rule.bucket_name,
                     "X-RateLimit-Source": rule.source,
                 }
             )
@@ -100,6 +105,7 @@ class RateLimitingMiddleware(BaseHTTPMiddleware):
         response.headers["X-RateLimit-Limit"] = str(max_requests)
         response.headers["X-RateLimit-Window"] = str(window_seconds)
         response.headers["X-RateLimit-Key"] = key
+        response.headers["X-RateLimit-Bucket"] = rule.bucket_name
         response.headers["X-RateLimit-Source"] = rule.source
         
         return response

@@ -178,6 +178,7 @@ from app.utils.sentry_config import SentryConfig, set_sentry_context, clear_sent
 from app.middleware.rate_limiting import RateLimitingMiddleware
 from app.utils.rate_limiting import (
     ensure_rate_limit_defaults,
+    get_rate_limit_key,
     get_rate_limit_profile_rule,
     get_rate_limit_rule_for_path,
     is_login_rate_limit_exempt_path,
@@ -1229,6 +1230,7 @@ async def api_guardrails_middleware(request: Request, call_next):
     start_time = time.perf_counter()
     client_ip = get_request_ip(request)
     request_path = request.url.path
+    rate_limit_subject = get_rate_limit_key(request)
     path_template = request_path
     is_realtime_path = is_realtime_rate_limit_exempt_path(request_path)
     is_login_rate_limit_exempt = is_login_rate_limit_exempt_path(request_path)
@@ -1305,7 +1307,7 @@ async def api_guardrails_middleware(request: Request, call_next):
                 if rate_limit_rule:
                     await runtime_state.check_bucket_rate_limit(
                         bucket_name=rate_limit_rule.bucket_name,
-                        ip_address=client_ip,
+                        ip_address=rate_limit_subject,
                         window_seconds=rate_limit_rule.window_seconds,
                         max_requests=rate_limit_rule.max_requests,
                     )
@@ -1318,6 +1320,7 @@ async def api_guardrails_middleware(request: Request, call_next):
                     success=False,
                     metadata={
                         "bucket": rate_limit_rule.bucket_name if rate_limit_rule else "disabled",
+                        "subject": rate_limit_subject,
                         "limit_type": rate_limit_rule.limit_type if rate_limit_rule else None,
                         "source": rate_limit_rule.source if rate_limit_rule else None,
                     },
@@ -1346,7 +1349,7 @@ async def api_guardrails_middleware(request: Request, call_next):
                 if api_global_rule:
                     await runtime_state.check_bucket_rate_limit(
                         bucket_name=api_global_rule.bucket_name,
-                        ip_address=client_ip,
+                        ip_address=rate_limit_subject,
                         window_seconds=api_global_rule.window_seconds,
                         max_requests=api_global_rule.max_requests,
                     )

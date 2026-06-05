@@ -197,6 +197,8 @@ const PASSENGER_POLL_RATE_LIMIT_COOLDOWN_MS = 30000;
 const PASSENGER_POLL_BACKEND_COOLDOWN_MS = 20000;
 const PASSENGER_POLL_AUTH_RETRY_COOLDOWN_MS = 60000;
 const PASSENGER_POLL_AUTH_EXPIRED_COOLDOWN_MS = 5 * 60 * 1000;
+const DRIVER_DISCOVERY_DEDUPE_MS = 15000;
+const DRIVER_DISCOVERY_RATE_LIMIT_COOLDOWN_MS = 30000;
 const RIDE_PRODUCT_LABEL_FALLBACKS = {
   normal: 'Normal',
   pool: 'Pool Ride',
@@ -261,6 +263,26 @@ function getPassengerSyncDelayMessage(
     return 'Backend is temporarily unavailable. Retrying passenger sync automatically.';
   }
   return fallbackMessage;
+}
+
+function getDiscoveryLocationSignature(location) {
+  const latitude = Number(location?.latitude);
+  const longitude = Number(location?.longitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return 'missing';
+  }
+  return `${latitude.toFixed(5)},${longitude.toFixed(5)}`;
+}
+
+function getDriverDiscoveryBackoffMs(error) {
+  const status = Number(error?.status || 0);
+  if (status === 429 || error?.rateLimitCooldown) {
+    return getApiRetryAfterMs(error, DRIVER_DISCOVERY_RATE_LIMIT_COOLDOWN_MS);
+  }
+  if (status >= 500 || status === 0 || error?.backendOutage) {
+    return getApiRetryAfterMs(error, PASSENGER_POLL_BACKEND_COOLDOWN_MS);
+  }
+  return 0;
 }
 
 function titleFromId(value, fallback = 'Option') {
@@ -344,6 +366,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const passengerPollCooldownUntilRef = useRef(0);
   const passengerPollNoticeAtRef = useRef(0);
   const activeBookingRequestRef = useRef({ token: null, request: null });
+  const driverDiscoveryRequestRef = useRef({ signature: '', request: null, completedAt: 0 });
+  const driverDiscoveryCooldownUntilRef = useRef(0);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -990,6 +1014,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     setFare(null);
     setNearbyDrivers([]);
     setOptedOutDriverIds([]);
+    driverDiscoveryRequestRef.current = { signature: '', request: null, completedAt: 0 };
+    driverDiscoveryCooldownUntilRef.current = 0;
   };
 
   useEffect(() => {
@@ -1884,75 +1910,144 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     return Promise.resolve(window.confirm(t.confirmParallelBooking));
   };
 
-  const refreshDriverDiscovery = useCallback(async ({ silent = false } = {}) => {
+  const refreshDriverDiscovery = useCallback(async ({ silent = false, force = false } = {}) => {
     if (!pickupLocation || !dropoffLocation) {
       setFare(null);
       setNearbyDrivers([]);
       setSelectedDriverId('');
+      driverDiscoveryRequestRef.current = { signature: '', request: null, completedAt: 0 };
       return;
     }
-    try {
-      setAutoFetchingTripData(true);
-      const [estimate, drivers, favorites, blocked] = await Promise.all([
-        apiRequest('/fare/estimate', {
-          method: 'POST',
-          body: {
-            pickup_location: pickupLocation,
-            drop_location: dropoffLocation,
-          },
-        }),
-        apiRequest('/drivers/nearby', {
-          token,
-          query: {
-            latitude: pickupLocation.latitude,
-            longitude: pickupLocation.longitude,
-            drop_latitude: dropoffLocation.latitude,
-            drop_longitude: dropoffLocation.longitude,
-            radius_km: 6,
-          },
-        }),
-        apiRequest('/passengers/favorite-drivers', {
-          token,
-          query: {
-            latitude: pickupLocation.latitude,
-            longitude: pickupLocation.longitude,
-          },
-        }).catch(() => []),
-        apiRequest('/passengers/blocked-drivers', { token }).catch(() => ({ driver_ids: [] })),
-      ]);
-      setFare(estimate || null);
 
-      const favoritesList = Array.isArray(favorites) ? favorites : [];
-      const favoriteIds = favoritesList.map((item) => item.driver_id).filter(Boolean);
-      setFavoriteDriverIds(favoriteIds);
-      const blockedIds = Array.isArray(blocked?.driver_ids) ? blocked.driver_ids : [];
-      setBlockedDriverIds(blockedIds);
+    const signature = [
+      getDiscoveryLocationSignature(pickupLocation),
+      getDiscoveryLocationSignature(dropoffLocation),
+      effectiveSelectedVehicleTypeId || 'auto',
+      selectedVehicleModelId || 'model',
+      effectiveRideProduct || 'normal',
+    ].join('|');
+    const now = Date.now();
+    const currentRequest = driverDiscoveryRequestRef.current;
 
-      const nearbyList = (Array.isArray(drivers) ? drivers : []).map((driver) => ({
-        ...driver,
-        is_favorite: favoriteIds.includes(driver.driver_id),
-        source: 'nearby',
-      })).filter((driver) => !blockedIds.includes(driver.driver_id));
-      const nearbyIds = new Set(nearbyList.map((item) => item.driver_id));
-      const favoriteFallback = favoritesList
-        .filter((driver) => driver?.driver_id && !nearbyIds.has(driver.driver_id) && !blockedIds.includes(driver.driver_id))
-        .map((driver) => ({ ...driver, source: 'favorite_fallback', is_favorite: true }));
-
-      const merged = [...nearbyList, ...favoriteFallback];
-      setNearbyDrivers(merged);
-      setSelectedDriverId((prev) =>
-        prev && !merged.some((item) => item.driver_id === prev)
-          ? ''
-          : prev,
-      );
-    } catch (err) {
-      if (!silent) {
-        setError(err.message || t.couldNotAutoCalculate);
-      }
-    } finally {
-      setAutoFetchingTripData(false);
+    if (!force && currentRequest.request && currentRequest.signature === signature) {
+      return currentRequest.request;
     }
-  }, [dropoffLocation, pickupLocation, t.couldNotAutoCalculate, token]);
+    if (!force && driverDiscoveryCooldownUntilRef.current > now) {
+      if (!silent && now - passengerPollNoticeAtRef.current > 15000) {
+        setMessage('Server is busy. Fare and driver search will retry shortly.');
+        passengerPollNoticeAtRef.current = now;
+      }
+      return null;
+    }
+    if (
+      !force &&
+      currentRequest.signature === signature &&
+      currentRequest.completedAt > 0 &&
+      now - currentRequest.completedAt < DRIVER_DISCOVERY_DEDUPE_MS
+    ) {
+      return null;
+    }
+
+    let request = null;
+    request = (async () => {
+      const previousCompletedAt = currentRequest.completedAt;
+      setAutoFetchingTripData(true);
+      try {
+        const [estimate, drivers, favorites, blocked] = await Promise.all([
+          apiRequest('/fare/estimate', {
+            method: 'POST',
+            body: {
+              pickup_location: pickupLocation,
+              drop_location: dropoffLocation,
+            },
+          }),
+          apiRequest('/drivers/nearby', {
+            token,
+            query: {
+              latitude: pickupLocation.latitude,
+              longitude: pickupLocation.longitude,
+              drop_latitude: dropoffLocation.latitude,
+              drop_longitude: dropoffLocation.longitude,
+              radius_km: 6,
+              vehicle_type_id: effectiveSelectedVehicleTypeId || undefined,
+              vehicle_subtype_id: selectedVehicleModelId || undefined,
+              ride_type: effectiveRideProduct || undefined,
+            },
+          }),
+          apiRequest('/passengers/favorite-drivers', {
+            token,
+            query: {
+              latitude: pickupLocation.latitude,
+              longitude: pickupLocation.longitude,
+            },
+          }).catch(() => []),
+          apiRequest('/passengers/blocked-drivers', { token }).catch(() => ({ driver_ids: [] })),
+        ]);
+        setFare(estimate || null);
+
+        const favoritesList = Array.isArray(favorites) ? favorites : [];
+        const favoriteIds = favoritesList.map((item) => item.driver_id).filter(Boolean);
+        setFavoriteDriverIds(favoriteIds);
+        const blockedIds = Array.isArray(blocked?.driver_ids) ? blocked.driver_ids : [];
+        setBlockedDriverIds(blockedIds);
+
+        const nearbyList = (Array.isArray(drivers) ? drivers : []).map((driver) => ({
+          ...driver,
+          is_favorite: favoriteIds.includes(driver.driver_id),
+          source: 'nearby',
+        })).filter((driver) => !blockedIds.includes(driver.driver_id));
+        const nearbyIds = new Set(nearbyList.map((item) => item.driver_id));
+        const favoriteFallback = favoritesList
+          .filter((driver) => driver?.driver_id && !nearbyIds.has(driver.driver_id) && !blockedIds.includes(driver.driver_id))
+          .map((driver) => ({ ...driver, source: 'favorite_fallback', is_favorite: true }));
+
+        const merged = [...nearbyList, ...favoriteFallback];
+        setNearbyDrivers(merged);
+        setSelectedDriverId((prev) =>
+          prev && !merged.some((item) => item.driver_id === prev)
+            ? ''
+            : prev,
+        );
+        driverDiscoveryCooldownUntilRef.current = 0;
+        driverDiscoveryRequestRef.current = { signature, request: null, completedAt: Date.now() };
+        return merged;
+      } catch (err) {
+        const cooldownMs = getDriverDiscoveryBackoffMs(err);
+        if (cooldownMs > 0) {
+          driverDiscoveryCooldownUntilRef.current = Date.now() + cooldownMs;
+          setPassengerPollCooldown(passengerPollCooldownUntilRef, cooldownMs);
+          if (!silent) {
+            setMessage('Server is busy. Fare and driver search will retry shortly.');
+          }
+          return null;
+        }
+        if (!silent) {
+          setError(err.message || t.couldNotAutoCalculate);
+        }
+        return null;
+      } finally {
+        if (driverDiscoveryRequestRef.current.request === request) {
+          driverDiscoveryRequestRef.current = { signature, request: null, completedAt: previousCompletedAt };
+        }
+        setAutoFetchingTripData(false);
+      }
+    })();
+
+    driverDiscoveryRequestRef.current = {
+      signature,
+      request,
+      completedAt: currentRequest.completedAt,
+    };
+    return request;
+  }, [
+    dropoffLocation,
+    effectiveRideProduct,
+    effectiveSelectedVehicleTypeId,
+    pickupLocation,
+    selectedVehicleModelId,
+    t.couldNotAutoCalculate,
+    token,
+  ]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -1997,7 +2092,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       isFavorite ? t.removedFavoriteDriver : t.driverMarkedFavorite,
     );
     if (done && pickupLocation && dropoffLocation) {
-      await refreshDriverDiscovery({ silent: true });
+      await refreshDriverDiscovery({ silent: true, force: true });
     }
   };
 
@@ -2012,7 +2107,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       isBlocked ? t.driverUnblocked : t.driverBlocked,
     );
     if (done && pickupLocation && dropoffLocation) {
-      await refreshDriverDiscovery({ silent: true });
+      await refreshDriverDiscovery({ silent: true, force: true });
     }
   };
 
@@ -2176,7 +2271,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     await refreshPassengerBookings({ silent: true });
     await refreshRideProductAvailability({ silent: true });
     await refreshSpinWinStatus({ silent: true });
-    await refreshDriverDiscovery({ silent: true });
+    await refreshDriverDiscovery({ silent: true, force: true });
   };
 
   const handleProfilePress = useCallback(() => {

@@ -1,6 +1,7 @@
 """
 Rate limiting utilities for production
 """
+import hashlib
 import time
 import logging
 from dataclasses import dataclass
@@ -15,9 +16,9 @@ RATE_LIMIT_DEFAULTS_SEEDED_KEY = "rate_limit_defaults_seeded"
 
 DEFAULT_RATE_LIMIT_CONFIGS: Dict[str, Dict[str, Any]] = {
     "api_global": {
-        "max_requests": 320,
+        "max_requests": 900,
         "window_seconds": 60,
-        "description": "Global per-IP API guardrail",
+        "description": "Global per-client API guardrail",
     },
     "strict": {
         "max_requests": 250,
@@ -34,8 +35,13 @@ DEFAULT_RATE_LIMIT_CONFIGS: Dict[str, Dict[str, Any]] = {
         "window_seconds": 60,
         "description": "Normal limit for general endpoints",
     },
+    "passenger_realtime": {
+        "max_requests": 1200,
+        "window_seconds": 60,
+        "description": "High-frequency passenger map and trip preview reads",
+    },
     "authenticated": {
-        "max_requests": 500,
+        "max_requests": 3000,
         "window_seconds": 3600,
         "description": "Per-user limit for authenticated requests",
     },
@@ -47,7 +53,7 @@ DEFAULT_RATE_LIMIT_CONFIGS: Dict[str, Dict[str, Any]] = {
 }
 
 VALID_RATE_LIMIT_TYPES = tuple(DEFAULT_RATE_LIMIT_CONFIGS.keys())
-ENDPOINT_RATE_LIMIT_TYPES = ("strict", "moderate", "normal")
+ENDPOINT_RATE_LIMIT_TYPES = ("strict", "moderate", "normal", "passenger_realtime")
 
 LOGIN_RATE_LIMIT_EXEMPT_PATHS = (
     "/api/auth/login",
@@ -68,8 +74,22 @@ MODERATE_ENDPOINT_PATHS = (
     "/api/support/tickets",
 )
 
-NORMAL_ENDPOINT_PATHS = (
+PASSENGER_REALTIME_ENDPOINT_PATHS = (
     "/api/bookings/active",
+    "/api/drivers/nearby",
+    "/api/fare/estimate",
+    "/api/passengers/blocked-drivers",
+    "/api/passengers/favorite-drivers",
+    "/api/places/details",
+    "/api/places/reverse-geocode",
+    "/api/places/search",
+    "/api/ride-products/availability",
+    "/api/spin-win/config",
+)
+
+NORMAL_ENDPOINT_PATHS = (
+    "/api/vehicle-types",
+    "/api/vehicles/types",
 )
 
 DEFAULT_ENDPOINT_RATE_LIMITS = tuple(
@@ -80,6 +100,14 @@ DEFAULT_ENDPOINT_RATE_LIMITS = tuple(
             "description": "Default strict endpoint limit",
         }
         for endpoint in STRICT_ENDPOINT_PATHS
+    ]
+    + [
+        {
+            "endpoint": endpoint,
+            "limit_type": "passenger_realtime",
+            "description": "Default live passenger map and trip preview limit",
+        }
+        for endpoint in PASSENGER_REALTIME_ENDPOINT_PATHS
     ]
     + [
         {
@@ -236,6 +264,10 @@ class RateLimitConfig:
     
     # Most endpoints
     NORMAL_LIMIT = DEFAULT_RATE_LIMIT_CONFIGS["normal"]["max_requests"]
+
+    # High-frequency passenger map reads
+    PASSENGER_REALTIME_LIMIT = DEFAULT_RATE_LIMIT_CONFIGS["passenger_realtime"]["max_requests"]
+    PASSENGER_REALTIME_ENDPOINTS = set(PASSENGER_REALTIME_ENDPOINT_PATHS)
     
     # Per-user limits
     AUTHENTICATED_LIMIT = DEFAULT_RATE_LIMIT_CONFIGS["authenticated"]["max_requests"]
@@ -245,13 +277,19 @@ class RateLimitConfig:
 def get_rate_limit_key(request) -> str:
     """
     Generate rate limit key based on request
-    Prefers authenticated user ID, falls back to IP address
+    Prefers authenticated user ID or bearer-token identity, falls back to IP address
     """
     # Try to get user ID from AuthenticationMiddleware without forcing
     # Starlette's request.user property when that middleware is not installed.
     scope_user = getattr(request, "scope", {}).get("user")
     if scope_user is not None and hasattr(scope_user, "id"):
         return f"user:{scope_user.id}"
+
+    auth_header = str(getattr(request, "headers", {}).get("authorization") or "").strip()
+    scheme, _, token = auth_header.partition(" ")
+    if scheme.lower() == "bearer" and token.strip():
+        token_hash = hashlib.sha256(token.strip().encode("utf-8")).hexdigest()[:24]
+        return f"token:{token_hash}"
     
     # Fall back to IP address
     client_ip = request.client.host if request.client else "unknown"
@@ -301,6 +339,8 @@ def get_default_limit_type_for_endpoint(endpoint: str) -> str:
     normalized = normalize_endpoint_path(endpoint)
     if normalized in RateLimitConfig.STRICT_ENDPOINTS:
         return "strict"
+    if normalized in RateLimitConfig.PASSENGER_REALTIME_ENDPOINTS:
+        return "passenger_realtime"
     if normalized in RateLimitConfig.MODERATE_ENDPOINTS:
         return "moderate"
     return "normal"
@@ -320,11 +360,11 @@ def _normalize_limit_doc(limit_type: str, doc: Optional[Dict[str, Any]] = None) 
 
 
 def _normalize_endpoint_doc(doc: Dict[str, Any], limits: Dict[str, Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    endpoint = normalize_endpoint_path(doc.get("endpoint"))
+    endpoint = normalize_endpoint_path(doc.get("endpoint") or doc.get("endpoint_path"))
     if endpoint == "/":
         return None
 
-    raw_limit_type = str(doc.get("limit_type") or "normal").strip().lower()
+    raw_limit_type = str(doc.get("limit_type") or get_default_limit_type_for_endpoint(endpoint)).strip().lower()
     limit_type = raw_limit_type if raw_limit_type in ENDPOINT_RATE_LIMIT_TYPES else "normal"
     profile = limits.get(limit_type) or _normalize_limit_doc("normal")
     return {
@@ -350,6 +390,7 @@ def _default_limit_settings() -> Dict[str, Any]:
         endpoints.append(
             {
                 "endpoint": normalize_endpoint_path(endpoint_config["endpoint"]),
+                "endpoint_path": normalize_endpoint_path(endpoint_config["endpoint"]),
                 "limit_type": limit_type,
                 "max_requests": profile["max_requests"],
                 "window_seconds": profile["window_seconds"],
@@ -391,16 +432,32 @@ async def ensure_rate_limit_defaults(db) -> None:
             },
             upsert=True,
         )
+        await db.rate_limit_configs.update_one(
+            {
+                "limit_type": limit_type,
+                "source": {"$in": ["system-default", "defaults", None]},
+                "max_requests": {"$lt": int(config["max_requests"])},
+            },
+            {
+                "$set": {
+                    "max_requests": int(config["max_requests"]),
+                    "updated_at": now,
+                }
+            },
+        )
 
     for endpoint_config in DEFAULT_ENDPOINT_RATE_LIMITS:
         limit_type = endpoint_config["limit_type"]
         profile = DEFAULT_RATE_LIMIT_CONFIGS[limit_type]
         endpoint = normalize_endpoint_path(endpoint_config["endpoint"])
         await db.endpoint_rate_limits.update_one(
-            {"endpoint": endpoint},
+            {"$or": [{"endpoint": endpoint}, {"endpoint_path": endpoint}]},
             {
-                "$setOnInsert": {
+                "$set": {
                     "endpoint": endpoint,
+                    "endpoint_path": endpoint,
+                },
+                "$setOnInsert": {
                     "limit_type": limit_type,
                     "max_requests": int(profile["max_requests"]),
                     "window_seconds": int(profile["window_seconds"]),
@@ -412,6 +469,19 @@ async def ensure_rate_limit_defaults(db) -> None:
                 }
             },
             upsert=True,
+        )
+        await db.endpoint_rate_limits.update_one(
+            {
+                "$or": [{"endpoint": endpoint}, {"endpoint_path": endpoint}],
+                "source": {"$in": ["system-default", "defaults", None]},
+                "max_requests": {"$lt": int(profile["max_requests"])},
+            },
+            {
+                "$set": {
+                    "max_requests": int(profile["max_requests"]),
+                    "updated_at": now,
+                }
+            },
         )
 
     seed_state = await db.system_settings.find_one({"setting_key": RATE_LIMIT_DEFAULTS_SEEDED_KEY})
@@ -615,7 +685,7 @@ async def apply_rate_limit(request, limiter) -> Tuple[bool, Optional[int]]:
     Returns:
         (is_allowed: bool, retry_after_seconds: Optional[int])
     """
-    key = get_rate_limit_key(request)
+    base_key = get_rate_limit_key(request)
     app_state = getattr(getattr(request, "app", None), "state", None)
     db = getattr(app_state, "db", None)
     rule = await get_rate_limit_rule_for_path(request.url.path, db)
@@ -623,6 +693,7 @@ async def apply_rate_limit(request, limiter) -> Tuple[bool, Optional[int]]:
         return (True, None)
     max_requests = rule.max_requests
     window_seconds = rule.window_seconds
+    key = f"{base_key}:{rule.bucket_name}"
     
     if limiter.is_allowed(key, max_requests, window_seconds):
         return (True, None)

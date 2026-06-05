@@ -74,27 +74,32 @@ class EndpointRateLimitResponse(BaseModel):
 # Default rate limit profiles (to be created in database on startup)
 DEFAULT_RATE_LIMIT_PROFILES = {
     "api_global": {
-        "max_requests": 320,
+        "max_requests": 900,
         "window_seconds": 60,
-        "description": "Global per-IP API guardrail",
+        "description": "Global per-client API guardrail",
     },
     "strict": {
-        "max_requests": 5,
+        "max_requests": 250,
         "window_seconds": 60,
         "description": "Strict limit for sensitive endpoints (auth, payments, admin)",
     },
     "moderate": {
-        "max_requests": 30,
+        "max_requests": 300,
         "window_seconds": 60,
         "description": "Moderate limit for common endpoints (bookings, support)",
     },
     "normal": {
-        "max_requests": 100,
+        "max_requests": 500,
         "window_seconds": 60,
         "description": "Normal limit for general API endpoints",
     },
+    "passenger_realtime": {
+        "max_requests": 1200,
+        "window_seconds": 60,
+        "description": "High-frequency passenger map and trip preview reads",
+    },
     "authenticated": {
-        "max_requests": 500,
+        "max_requests": 3000,
         "window_seconds": 3600,
         "description": "Per-user limit for authenticated requests",
     },
@@ -133,6 +138,56 @@ DEFAULT_ENDPOINT_RATE_LIMITS = [
         "endpoint_path": "/api/admin/audit-log",
         "limit_type": "strict",
         "description": "Audit log access",
+    },
+    {
+        "endpoint_path": "/api/bookings/active",
+        "limit_type": "passenger_realtime",
+        "description": "Passenger active ride polling",
+    },
+    {
+        "endpoint_path": "/api/drivers/nearby",
+        "limit_type": "passenger_realtime",
+        "description": "Nearby driver discovery",
+    },
+    {
+        "endpoint_path": "/api/fare/estimate",
+        "limit_type": "passenger_realtime",
+        "description": "Passenger trip fare estimate",
+    },
+    {
+        "endpoint_path": "/api/passengers/blocked-drivers",
+        "limit_type": "passenger_realtime",
+        "description": "Passenger blocked-driver reads",
+    },
+    {
+        "endpoint_path": "/api/passengers/favorite-drivers",
+        "limit_type": "passenger_realtime",
+        "description": "Passenger favorite-driver reads",
+    },
+    {
+        "endpoint_path": "/api/places/details",
+        "limit_type": "passenger_realtime",
+        "description": "Place detail lookup",
+    },
+    {
+        "endpoint_path": "/api/places/reverse-geocode",
+        "limit_type": "passenger_realtime",
+        "description": "Map reverse geocoding",
+    },
+    {
+        "endpoint_path": "/api/places/search",
+        "limit_type": "passenger_realtime",
+        "description": "Place autocomplete search",
+    },
+    {
+        "endpoint_path": "/api/ride-products/availability",
+        "limit_type": "passenger_realtime",
+        "description": "Passenger ride-product availability polling",
+    },
+    {
+        "endpoint_path": "/api/spin-win/config",
+        "limit_type": "passenger_realtime",
+        "description": "Passenger spin status polling",
     },
     {
         "endpoint_path": "/api/bookings",
@@ -250,7 +305,7 @@ async def get_all_endpoints(
     return [
         EndpointRateLimitResponse(
             id=str(e["_id"]),
-            endpoint_path=e["endpoint_path"],
+            endpoint_path=e.get("endpoint_path") or e.get("endpoint") or "",
             limit_type=e["limit_type"],
             max_requests=e.get("max_requests"),
             window_seconds=e.get("window_seconds"),
@@ -281,7 +336,9 @@ async def create_endpoint_config(
         )
     
     # Check if endpoint already configured
-    existing = await db.endpoint_rate_limits.find_one({"endpoint_path": body.endpoint_path})
+    existing = await db.endpoint_rate_limits.find_one(
+        {"$or": [{"endpoint_path": body.endpoint_path}, {"endpoint": body.endpoint_path}]}
+    )
     if existing:
         raise HTTPException(
             status_code=400,
@@ -290,6 +347,7 @@ async def create_endpoint_config(
     
     config = {
         "endpoint_path": body.endpoint_path,
+        "endpoint": body.endpoint_path,
         "limit_type": body.limit_type,
         "max_requests": body.max_requests,
         "window_seconds": body.window_seconds,
@@ -332,6 +390,7 @@ async def update_endpoint_config(
         {
             "$set": {
                 "endpoint_path": body.endpoint_path,
+                "endpoint": body.endpoint_path,
                 "limit_type": body.limit_type,
                 "max_requests": body.max_requests,
                 "window_seconds": body.window_seconds,
@@ -419,11 +478,17 @@ async def init_default_rate_limit_configs(db: AsyncIOMotorDatabase) -> None:
         # Initialize endpoint configs if they don't exist
         for endpoint_config in DEFAULT_ENDPOINT_RATE_LIMITS:
             existing = await db.endpoint_rate_limits.find_one(
-                {"endpoint_path": endpoint_config["endpoint_path"]}
+                {
+                    "$or": [
+                        {"endpoint_path": endpoint_config["endpoint_path"]},
+                        {"endpoint": endpoint_config["endpoint_path"]},
+                    ]
+                }
             )
             if not existing:
                 await db.endpoint_rate_limits.insert_one({
                     "endpoint_path": endpoint_config["endpoint_path"],
+                    "endpoint": endpoint_config["endpoint_path"],
                     "limit_type": endpoint_config["limit_type"],
                     "max_requests": None,  # Use profile defaults
                     "window_seconds": None,
