@@ -7751,6 +7751,7 @@ async def create_driver_vehicle(payload: DriverVehiclePayload, current_user: dic
     return {"success": True, "vehicle": build_driver_vehicle_response(vehicle_doc)}
 
 @api_router.put("/drivers/vehicles/{vehicle_id}")
+@retry_on_db_error(max_attempts=3, base_delay=0.5, max_delay=5.0)
 async def update_driver_vehicle(vehicle_id: str, payload: DriverVehiclePayload, current_user: dict = Depends(get_current_user)):
     require_driver(current_user)
     existing = await db.driver_vehicles.find_one({"driver_id": current_user["id"], "id": vehicle_id}, {"_id": 0})
