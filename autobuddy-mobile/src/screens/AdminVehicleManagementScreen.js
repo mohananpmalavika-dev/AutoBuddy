@@ -24,7 +24,13 @@ import { apiRequest } from '../lib/api';
  * - View/Edit fare configurations
  * - Enable/Disable vehicles by region
  */
-export default function AdminVehicleManagementScreen({ navigation, route, token: tokenProp, embedded = false }) {
+export default function AdminVehicleManagementScreen({
+  navigation,
+  route,
+  token: tokenProp,
+  embedded = false,
+  isActive = true,
+}) {
   const token = tokenProp || route?.params?.token || route?.params?.authToken || '';
 
   const [vehicles, setVehicles] = useState([]);
@@ -69,11 +75,15 @@ export default function AdminVehicleManagementScreen({ navigation, route, token:
   }, [token]);
 
   useEffect(() => {
+    if (!isActive) {
+      return undefined;
+    }
+
     const timer = setTimeout(() => {
       fetchVehicles();
     }, 0);
     return () => clearTimeout(timer);
-  }, [fetchVehicles]);
+  }, [fetchVehicles, isActive]);
 
   const handleRefresh = () => {
     setLoading(true);

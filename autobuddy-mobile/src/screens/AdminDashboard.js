@@ -536,28 +536,56 @@ export default function AdminDashboard({ token, user, onLogout }) {
     }
   };
 
-  const refreshAdminData = async () => {
+  const refreshAdminData = async (options = {}) => {
+    const normalizedOptions =
+      options && typeof options === 'object' && !options.nativeEvent ? options : {};
+    const scope = normalizedOptions.scope || activeAdminMenu || PRIMARY_ADMIN_MENU_KEY;
+    const includeAll = Boolean(normalizedOptions.includeAll);
+    const shouldFetch = (...menuKeys) => includeAll || menuKeys.includes(scope);
+
     const dashboard = await runAction(() => adminAPI.getDashboard());
-    const pending = await adminAPI.getKycPending().catch(() => []);
-    const pendingPassengerKyc = await adminAPI.getPassengerKycPending().catch(() => []);
-    const pricingSettings = await adminAPI.getPricingRules().catch(() => null);
-    const feeSettings = await adminAPI.getRegistrationFeeConfig().catch(() => null);
-    const pendingRegistrations = await adminAPI.getPendingRegistrations().catch(() => []);
-    const pendingWalletTopupRows = await adminAPI.getPendingWalletTopups().catch(() => []);
-    const subscriptionSettings = await adminAPI.getSubscriptionConfig().catch(() => null);
-    const pendingSubscriptions = await adminAPI.getPendingSubscriptions().catch(() => []);
-    const pendingSubscriptionPaymentRows = await adminAPI.getPendingSubscriptionPayments().catch(() => []);
-    const pendingPhoneChanges = await adminAPI.getPendingPhoneChanges().catch(() => []);
-    const pendingAccountDeletions = await adminAPI.getPendingAccountDeletions().catch(() => []);
-    const pendingDriverFare = await adminAPI.getPendingDriverFareRequests().catch(() => []);
-    const approvedDriverFare = await adminAPI.getApprovedDriverFareConfigs().catch(() => []);
-    const activeTrips = await adminAPI.getOngoingTrips().catch(() => []);
-    const usersLiveStatus = await adminAPI.getUsersLiveStatus().catch(() => null);
-    const roleReport = await adminAPI.getRolewiseUserReport().catch(() => null);
-    const launchVisits = await adminAPI.getLaunchVisitReport({ days: 30, limit: 120 }).catch(() => null);
-    const spinWinSettings = await adminAPI.getSpinWinConfig().catch(() => null);
-    const spinWinWinnerRows = await adminAPI.getSpinWinWinners({ limit: 50 }).catch(() => []);
-    const rideProductsDistrictSettings = await adminAPI.getRideProductsDistrictConfig().catch(() => null);
+    const loadKyc = shouldFetch('kyc');
+    const loadPricing = shouldFetch('pricing');
+    const loadRegistration = shouldFetch('registration');
+    const loadWallet = shouldFetch('wallet');
+    const loadSubscriptions = shouldFetch('subscriptions');
+    const loadPhone = shouldFetch('phone');
+    const loadAccountDeletions = shouldFetch('account_deletions');
+    const loadTrips = shouldFetch('trips');
+    const loadUsersLive = shouldFetch('users', 'role_report');
+    const loadRoleReport = shouldFetch('role_report');
+    const loadLaunchVisits = shouldFetch('launch_visits');
+    const loadSpin = shouldFetch('spin');
+    const loadRideProducts = shouldFetch('ride_products');
+
+    const pending = loadKyc ? await adminAPI.getKycPending().catch(() => []) : null;
+    const pendingPassengerKyc = loadKyc ? await adminAPI.getPassengerKycPending().catch(() => []) : null;
+    const pricingSettings = loadPricing ? await adminAPI.getPricingRules().catch(() => null) : null;
+    const feeSettings = loadRegistration ? await adminAPI.getRegistrationFeeConfig().catch(() => null) : null;
+    const pendingRegistrations = loadRegistration ? await adminAPI.getPendingRegistrations().catch(() => []) : null;
+    const pendingWalletTopupRows = loadWallet ? await adminAPI.getPendingWalletTopups().catch(() => []) : null;
+    const subscriptionSettings = loadSubscriptions ? await adminAPI.getSubscriptionConfig().catch(() => null) : null;
+    const pendingSubscriptions = loadSubscriptions ? await adminAPI.getPendingSubscriptions().catch(() => []) : null;
+    const pendingSubscriptionPaymentRows = loadSubscriptions
+      ? await adminAPI.getPendingSubscriptionPayments().catch(() => [])
+      : null;
+    const pendingPhoneChanges = loadPhone ? await adminAPI.getPendingPhoneChanges().catch(() => []) : null;
+    const pendingAccountDeletions = loadAccountDeletions
+      ? await adminAPI.getPendingAccountDeletions().catch(() => [])
+      : null;
+    const pendingDriverFare = loadPricing ? await adminAPI.getPendingDriverFareRequests().catch(() => []) : null;
+    const approvedDriverFare = loadPricing ? await adminAPI.getApprovedDriverFareConfigs().catch(() => []) : null;
+    const activeTrips = loadTrips ? await adminAPI.getOngoingTrips().catch(() => []) : null;
+    const usersLiveStatus = loadUsersLive ? await adminAPI.getUsersLiveStatus().catch(() => null) : null;
+    const roleReport = loadRoleReport ? await adminAPI.getRolewiseUserReport().catch(() => null) : null;
+    const launchVisits = loadLaunchVisits
+      ? await adminAPI.getLaunchVisitReport({ days: 30, limit: 120 }).catch(() => null)
+      : null;
+    const spinWinSettings = loadSpin ? await adminAPI.getSpinWinConfig().catch(() => null) : null;
+    const spinWinWinnerRows = loadSpin ? await adminAPI.getSpinWinWinners({ limit: 50 }).catch(() => []) : null;
+    const rideProductsDistrictSettings = loadRideProducts
+      ? await adminAPI.getRideProductsDistrictConfig().catch(() => null)
+      : null;
     const dashboardStats = normalizeAdminDashboardStats(dashboard);
     
     // Emit real-time Socket.IO event for metrics updates
@@ -584,8 +612,10 @@ export default function AdminDashboard({ token, user, onLogout }) {
         peak_hours: Array.isArray(pricingSettings.peak_hours) ? pricingSettings.peak_hours.join(',') : '8,9,17,18,19',
       });
     }
-    setKycRequests(normalizeListResponse(pending, ['pending', 'requests', 'kyc_requests']));
-    setPassengerKycRequests(normalizeListResponse(pendingPassengerKyc, ['pending', 'requests', 'kyc_requests']));
+    if (loadKyc) {
+      setKycRequests(normalizeListResponse(pending, ['pending', 'requests', 'kyc_requests']));
+      setPassengerKycRequests(normalizeListResponse(pendingPassengerKyc, ['pending', 'requests', 'kyc_requests']));
+    }
     if (feeSettings) {
       setRegistrationFees({
         passenger_registration_fee: String(feeSettings.passenger_registration_fee ?? 0),
@@ -600,8 +630,12 @@ export default function AdminDashboard({ token, user, onLogout }) {
         razorpay_payment_link: String(feeSettings.razorpay_payment_link || ''),
       });
     }
-    setPendingRegistrationPayments(normalizeListResponse(pendingRegistrations, ['payments', 'pending_payments']));
-    setPendingWalletTopups(normalizeListResponse(pendingWalletTopupRows, ['topups', 'pending_topups']));
+    if (loadRegistration) {
+      setPendingRegistrationPayments(normalizeListResponse(pendingRegistrations, ['payments', 'pending_payments']));
+    }
+    if (loadWallet) {
+      setPendingWalletTopups(normalizeListResponse(pendingWalletTopupRows, ['topups', 'pending_topups']));
+    }
     if (subscriptionSettings) {
       setSubscriptionConfig({
         passenger: normalizeRoleSubscriptionConfig(subscriptionSettings.passenger || {}),
@@ -609,63 +643,77 @@ export default function AdminDashboard({ token, user, onLogout }) {
         operator: normalizeRoleSubscriptionConfig(subscriptionSettings.operator || {}),
       });
     }
-    setPendingSubscriptionActivations(normalizeListResponse(pendingSubscriptions, ['subscriptions', 'pending_subscriptions']));
-    setPendingSubscriptionPayments(normalizeListResponse(pendingSubscriptionPaymentRows, ['payments', 'pending_payments']));
-    setPendingPhoneChangeRequests(normalizeListResponse(pendingPhoneChanges, ['requests', 'phone_changes']));
-    setPendingAccountDeletionRequests(normalizeListResponse(pendingAccountDeletions, ['requests', 'account_deletions']));
-    setPendingDriverFareRequests(normalizeListResponse(pendingDriverFare, ['requests', 'fare_requests']));
-    setApprovedDriverFareConfigs(normalizeListResponse(approvedDriverFare, ['configs', 'fare_configs']));
-    setOngoingTrips(normalizeListResponse(activeTrips, ['bookings', 'trips']));
-    const liveDrivers = normalizeListResponse(usersLiveStatus?.drivers);
-    const livePassengers = normalizeListResponse(usersLiveStatus?.passengers);
-    const liveOperators = normalizeListResponse(usersLiveStatus?.operators);
-    setDriverUsers(liveDrivers);
-    setPassengerUsers(livePassengers);
-    setOperatorUsers(liveOperators);
-    setLiveCounts({
-      drivers_live: Number(usersLiveStatus?.live_counts?.drivers_live || 0),
-      passengers_live: Number(usersLiveStatus?.live_counts?.passengers_live || 0),
-      operators_total: Number(usersLiveStatus?.live_counts?.operators_total || 0),
-      total_live: Number(usersLiveStatus?.live_counts?.total_live || 0),
-    });
-    const reportPassengers = normalizeRoleReportRows(
-      normalizeListResponse(roleReport?.passengers),
-      livePassengers,
-      'passenger',
-    );
-    const reportDrivers = normalizeRoleReportRows(
-      normalizeListResponse(roleReport?.drivers),
-      liveDrivers,
-      'driver',
-    );
-    const reportOperators = normalizeRoleReportRows(
-      normalizeListResponse(roleReport?.operators),
-      liveOperators,
-      'operator',
-    );
-    const reportTotal = reportPassengers.length + reportDrivers.length + reportOperators.length;
-    const overviewStats = {
-      ...dashboardStats,
-      total_passengers: dashboardStats.total_passengers || reportPassengers.length,
-      total_drivers: dashboardStats.total_drivers || reportDrivers.length,
-      total_operators: dashboardStats.total_operators || reportOperators.length,
-      total_users: dashboardStats.total_users || reportTotal,
-    };
-    if (dashboard || reportTotal > 0) {
-      setStats(overviewStats);
+    if (loadSubscriptions) {
+      setPendingSubscriptionActivations(normalizeListResponse(pendingSubscriptions, ['subscriptions', 'pending_subscriptions']));
+      setPendingSubscriptionPayments(normalizeListResponse(pendingSubscriptionPaymentRows, ['payments', 'pending_payments']));
     }
-    setRolewiseUserReport({
-      passengers: reportPassengers,
-      drivers: reportDrivers,
-      operators: reportOperators,
-      counts: {
-        passengers: reportPassengers.length,
-        drivers: reportDrivers.length,
-        operators: reportOperators.length,
-        total: reportTotal,
-      },
-      generated_at: roleReport?.generated_at || usersLiveStatus?.generated_at || new Date().toISOString(),
-    });
+    if (loadPhone) {
+      setPendingPhoneChangeRequests(normalizeListResponse(pendingPhoneChanges, ['requests', 'phone_changes']));
+    }
+    if (loadAccountDeletions) {
+      setPendingAccountDeletionRequests(normalizeListResponse(pendingAccountDeletions, ['requests', 'account_deletions']));
+    }
+    if (loadPricing) {
+      setPendingDriverFareRequests(normalizeListResponse(pendingDriverFare, ['requests', 'fare_requests']));
+      setApprovedDriverFareConfigs(normalizeListResponse(approvedDriverFare, ['configs', 'fare_configs']));
+    }
+    if (loadTrips) {
+      setOngoingTrips(normalizeListResponse(activeTrips, ['bookings', 'trips']));
+    }
+    const liveDrivers = loadUsersLive ? normalizeListResponse(usersLiveStatus?.drivers) : driverUsers;
+    const livePassengers = loadUsersLive ? normalizeListResponse(usersLiveStatus?.passengers) : passengerUsers;
+    const liveOperators = loadUsersLive ? normalizeListResponse(usersLiveStatus?.operators) : operatorUsers;
+    if (loadUsersLive) {
+      setDriverUsers(liveDrivers);
+      setPassengerUsers(livePassengers);
+      setOperatorUsers(liveOperators);
+      setLiveCounts({
+        drivers_live: Number(usersLiveStatus?.live_counts?.drivers_live || 0),
+        passengers_live: Number(usersLiveStatus?.live_counts?.passengers_live || 0),
+        operators_total: Number(usersLiveStatus?.live_counts?.operators_total || 0),
+        total_live: Number(usersLiveStatus?.live_counts?.total_live || 0),
+      });
+    }
+    if (loadRoleReport) {
+      const reportPassengers = normalizeRoleReportRows(
+        normalizeListResponse(roleReport?.passengers),
+        livePassengers,
+        'passenger',
+      );
+      const reportDrivers = normalizeRoleReportRows(
+        normalizeListResponse(roleReport?.drivers),
+        liveDrivers,
+        'driver',
+      );
+      const reportOperators = normalizeRoleReportRows(
+        normalizeListResponse(roleReport?.operators),
+        liveOperators,
+        'operator',
+      );
+      const reportTotal = reportPassengers.length + reportDrivers.length + reportOperators.length;
+      const overviewStats = {
+        ...dashboardStats,
+        total_passengers: dashboardStats.total_passengers || reportPassengers.length,
+        total_drivers: dashboardStats.total_drivers || reportDrivers.length,
+        total_operators: dashboardStats.total_operators || reportOperators.length,
+        total_users: dashboardStats.total_users || reportTotal,
+      };
+      if (dashboard || reportTotal > 0) {
+        setStats(overviewStats);
+      }
+      setRolewiseUserReport({
+        passengers: reportPassengers,
+        drivers: reportDrivers,
+        operators: reportOperators,
+        counts: {
+          passengers: reportPassengers.length,
+          drivers: reportDrivers.length,
+          operators: reportOperators.length,
+          total: reportTotal,
+        },
+        generated_at: roleReport?.generated_at || usersLiveStatus?.generated_at || new Date().toISOString(),
+      });
+    }
     if (launchVisits) {
       setLaunchVisitReport({
         ...defaultLaunchVisitReportState(),
@@ -682,7 +730,9 @@ export default function AdminDashboard({ token, user, onLogout }) {
     if (spinWinSettings) {
       setSpinWinConfig(normalizeSpinWinConfig(spinWinSettings));
     }
-    setSpinWinWinners(normalizeListResponse(spinWinWinnerRows, ['winners']));
+    if (loadSpin) {
+      setSpinWinWinners(normalizeListResponse(spinWinWinnerRows, ['winners']));
+    }
     if (rideProductsDistrictSettings) {
       setRideProductDistrictConfig(normalizeRideProductDistrictConfig(rideProductsDistrictSettings));
     }
@@ -691,11 +741,11 @@ export default function AdminDashboard({ token, user, onLogout }) {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      refreshAdminData().catch(() => null);
+      refreshAdminData({ scope: activeAdminMenu }).catch(() => null);
     }, 0);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [activeAdminMenu, token]);
 
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof window === 'undefined') {
@@ -709,7 +759,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
         return;
       }
       lastRefreshAt = now;
-      refreshAdminData().catch(() => null);
+      refreshAdminData({ scope: activeAdminMenu }).catch(() => null);
     };
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
@@ -727,7 +777,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, [activeAdminMenu, token]);
 
   // PHASE 1: FILTERING & PAGINATION FUNCTIONS
   // Filter trips (without pagination)
@@ -1918,7 +1968,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
             </View>
           </View>
           <Text style={styles.sectionTitle}>Investor Analytics Visibility</Text>
-          <AdminAnalyticsPanel token={token} />
+          <AdminAnalyticsPanel token={token} isActive={activeAdminMenu === 'analytics'} />
         </View>
 
         <View style={[styles.section, activeAdminMenu !== 'trips' && styles.hiddenSection]}>
@@ -3451,6 +3501,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
           <AdminVehicleManagementScreen
             embedded
             token={token}
+            isActive={activeAdminMenu === 'vehicle_types'}
           />
         </View>
       </ScrollView>
