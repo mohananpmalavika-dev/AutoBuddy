@@ -1,6 +1,7 @@
 import uuid
 import re
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from typing import Any, Dict, List, Optional
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -68,7 +69,7 @@ DEFAULT_DRIVER_PLANS = [
 
 
 def _utc_now() -> datetime:
-    return datetime.utcnow()
+    return get_ist_now()
 
 
 def _normalize_role(role: Any) -> str:
@@ -250,8 +251,20 @@ async def create_subscription(db: AsyncIOMotorDatabase, user: Dict[str, Any], pl
 
 
 async def get_wallet(db: AsyncIOMotorDatabase, user_id: str) -> Dict[str, Any]:
-    wallet = await db.wallets.find_one({"user_id": user_id}, {"_id": 0})
+    wallet = await db.user_wallets.find_one({"user_id": user_id}, {"_id": 0})
     if wallet:
+        return wallet
+    legacy_wallet = await db.wallets.find_one({"user_id": user_id}, {"_id": 0})
+    if legacy_wallet:
+        wallet = {
+            "id": str(legacy_wallet.get("id") or uuid.uuid4()),
+            "user_id": user_id,
+            "balance": float(legacy_wallet.get("balance") or 0.0),
+            "currency": legacy_wallet.get("currency") or "INR",
+            "created_at": legacy_wallet.get("created_at") or _utc_now(),
+            "updated_at": legacy_wallet.get("updated_at") or _utc_now(),
+        }
+        await db.user_wallets.update_one({"user_id": user_id}, {"$setOnInsert": wallet}, upsert=True)
         return wallet
     wallet = {
         "id": str(uuid.uuid4()),
@@ -259,8 +272,9 @@ async def get_wallet(db: AsyncIOMotorDatabase, user_id: str) -> Dict[str, Any]:
         "balance": 0.0,
         "currency": "INR",
         "created_at": _utc_now(),
+        "updated_at": _utc_now(),
     }
-    await db.wallets.insert_one(wallet)
+    await db.user_wallets.insert_one(wallet)
     return wallet
 
 
@@ -283,7 +297,15 @@ async def add_wallet_credit(
         "created_at": _utc_now(),
     }
     await db.wallet_transactions.insert_one(txn)
-    await db.wallets.update_one({"user_id": user_id}, {"$inc": {"balance": value}})
+    await db.user_wallets.update_one(
+        {"user_id": user_id},
+        {
+            "$inc": {"balance": value},
+            "$set": {"updated_at": _utc_now()},
+            "$setOnInsert": {"id": str(uuid.uuid4()), "currency": "INR", "created_at": _utc_now()},
+        },
+        upsert=True,
+    )
     return txn
 
 

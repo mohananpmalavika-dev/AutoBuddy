@@ -1,6 +1,9 @@
 import asyncio
+import math
+import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set
 
@@ -13,10 +16,17 @@ from app.db.deps import get_db
 from app.db.models_features import PaymentMethod as PassengerPaymentMethod
 from app.db.models_features import PromoCode, PromoCodeUsage
 from app.db.database import SessionLocal
+from app.models.document_catalog import effective_is_mandatory, ensure_default_document_requirements
+from app.models.canonical_vehicle_model import get_vehicle_multiplier
+from app.models.ride_type_compatibility import is_vehicle_compatible_with_ride_type
 from app.utils.rbac import get_current_user_secure
 
 router = APIRouter(prefix="/api", tags=["ride_products"])
 PER_TRIP_BLOCK_GRACE_RIDES = 2
+PASSENGER_KYC_REQUIRED_FOR_BOOKING = (
+    os.environ.get("PASSENGER_KYC_REQUIRED_FOR_BOOKING", "false").strip().lower()
+    not in {"0", "false", "no", "off"}
+)
 
 
 class RideProduct(str, Enum):
@@ -58,6 +68,9 @@ class AdvancedBookingRequest(BaseModel):
     promo_discount_type: Optional[str] = Field(default=None, max_length=20)
     promo_discount_value: Optional[float] = Field(default=None, ge=0)
     promo_max_discount: Optional[float] = Field(default=None, ge=0)
+    vehicle_type_id: Optional[str] = Field(default=None, max_length=50)
+    vehicle_subtype_id: Optional[str] = Field(default=None, max_length=80)
+    vehicle_model: Optional[str] = Field(default=None, max_length=120)
 
 
 class DistrictRideProductRule(BaseModel):
@@ -71,6 +84,15 @@ class RideProductDistrictConfigUpdate(BaseModel):
 
 
 ALL_RIDE_PRODUCT_KEYS: List[str] = [item.value for item in RideProduct]
+RIDE_TYPE_COMPATIBILITY_ALIASES = {
+    RideProduct.NORMAL.value: "instant",
+    RideProduct.POOL.value: "instant",
+    RideProduct.EV_AUTO.value: "instant",
+    RideProduct.WOMEN_ONLY.value: "instant",
+    RideProduct.SCHOOL_ELDERLY_SAFE.value: "instant",
+    RideProduct.INTERCITY.value: "instant",
+    RideProduct.RENTAL_HOURLY.value: "rental",
+}
 DISTRICT_ALIASES: Dict[str, str] = {
     "trivandrum": "thiruvananthapuram",
     "thiruvananthapuram": "thiruvananthapuram",
@@ -105,6 +127,18 @@ def _as_dict(value: Any) -> Dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _vehicle_multiplier(vehicle_type_id: Optional[str], subtype_id: Optional[str] = None) -> float:
+    key = str(vehicle_type_id or "").strip().lower()
+    subtype_key = str(subtype_id or "").strip() or None
+    if not key:
+        return 1.0
+    try:
+        multiplier = float(get_vehicle_multiplier(key, subtype_key))
+        return multiplier if math.isfinite(multiplier) and multiplier > 0 else 1.0
+    except Exception:
+        return 1.0
+
+
 def _product_multiplier(product: RideProduct) -> float:
     return {
         RideProduct.NORMAL: 1.00,
@@ -119,6 +153,85 @@ def _product_multiplier(product: RideProduct) -> float:
         RideProduct.RENTAL_HOURLY: 2.10,
         RideProduct.SCHOOL_ELDERLY_SAFE: 1.12,
     }.get(product, 1.00)
+
+
+def _location_distance_km(origin: Dict[str, Any], target: Dict[str, Any]) -> float:
+    origin_lat = _to_float(origin.get("latitude"), math.nan)
+    origin_lng = _to_float(origin.get("longitude"), math.nan)
+    target_lat = _to_float(target.get("latitude"), math.nan)
+    target_lng = _to_float(target.get("longitude"), math.nan)
+    if any(not math.isfinite(value) for value in [origin_lat, origin_lng, target_lat, target_lng]):
+        return math.inf
+    radius_km = 6371.0
+    lat1 = math.radians(origin_lat)
+    lat2 = math.radians(target_lat)
+    delta_lat = math.radians(target_lat - origin_lat)
+    delta_lng = math.radians(target_lng - origin_lng)
+    hav = (
+        math.sin(delta_lat / 2) ** 2
+        + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lng / 2) ** 2
+    )
+    return radius_km * 2 * math.atan2(math.sqrt(hav), math.sqrt(max(0.0, 1 - hav)))
+
+
+def _driver_matches_service(
+    driver: Dict[str, Any],
+    vehicle_type_id: Optional[str],
+    vehicle_subtype_id: Optional[str],
+    ride_product: RideProduct,
+) -> bool:
+    raw_vehicle = _as_dict(driver.get("vehicle_info"))
+    driver_vehicle_type = str(
+        raw_vehicle.get("vehicle_type_id")
+        or raw_vehicle.get("vehicle_type")
+        or driver.get("vehicle_type_id")
+        or driver.get("vehicle_type")
+        or "auto"
+    ).strip().lower()
+    driver_vehicle_subtype = str(
+        raw_vehicle.get("vehicle_subtype_id")
+        or driver.get("vehicle_subtype_id")
+        or ""
+    ).strip().lower()
+    requested_vehicle_type = str(vehicle_type_id or "").strip().lower()
+    requested_vehicle_subtype = str(vehicle_subtype_id or "").strip().lower()
+    if requested_vehicle_type and driver_vehicle_type != requested_vehicle_type:
+        return False
+    if requested_vehicle_subtype and driver_vehicle_subtype and driver_vehicle_subtype != requested_vehicle_subtype:
+        return False
+    compatibility_key = RIDE_TYPE_COMPATIBILITY_ALIASES.get(ride_product.value, ride_product.value)
+    return is_vehicle_compatible_with_ride_type(driver_vehicle_type, compatibility_key)
+
+
+async def _find_matching_driver_ids(
+    db: AsyncIOMotorDatabase,
+    pickup: Dict[str, Any],
+    vehicle_type_id: Optional[str],
+    vehicle_subtype_id: Optional[str],
+    ride_product: RideProduct,
+    *,
+    radius_km: float = 2.0,
+    limit: int = 5,
+) -> List[str]:
+    drivers = await db.drivers.find(
+        {
+            "is_available": True,
+            "vehicle_info": {"$ne": None},
+            "kyc_status": "approved",
+        },
+        {"_id": 0, "user_id": 1, "current_location": 1, "vehicle_info": 1, "rating": 1},
+    ).to_list(250)
+    scored: List[Dict[str, Any]] = []
+    for driver in drivers:
+        if not _driver_matches_service(driver, vehicle_type_id, vehicle_subtype_id, ride_product):
+            continue
+        location = _as_dict(driver.get("current_location"))
+        distance = _location_distance_km(pickup, location)
+        if math.isfinite(distance) and distance <= radius_km:
+            scored.append({"driver_id": str(driver.get("user_id") or ""), "distance_km": distance})
+    scored.sort(key=lambda item: item["distance_km"])
+    return [item["driver_id"] for item in scored[: max(1, int(limit or 1))] if item["driver_id"]]
+
 
 
 def _product_label(product: RideProduct) -> str:
@@ -234,7 +347,7 @@ def _resolve_validated_promo(
         return {}
 
     with SessionLocal() as session:
-        now = datetime.utcnow()
+        now = get_ist_now()
         promo = (
             session.query(PromoCode)
             .filter(
@@ -295,7 +408,7 @@ def _resolve_validated_promo(
 
 
 def _default_ride_product_config() -> Dict[str, Any]:
-    now = datetime.utcnow()
+    now = get_ist_now()
     return {
         "id": "district_ride_products",
         "default_enabled_products": ALL_RIDE_PRODUCT_KEYS,
@@ -346,8 +459,8 @@ def _normalize_ride_product_config(doc: Optional[Dict[str, Any]]) -> Dict[str, A
         "id": "district_ride_products",
         "default_enabled_products": _normalize_enabled_products(payload.get("default_enabled_products")),
         "district_rules": _normalize_district_rules(payload.get("district_rules")),
-        "updated_at": payload.get("updated_at") if isinstance(payload.get("updated_at"), datetime) else datetime.utcnow(),
-        "created_at": payload.get("created_at") if isinstance(payload.get("created_at"), datetime) else datetime.utcnow(),
+        "updated_at": payload.get("updated_at") if isinstance(payload.get("updated_at"), datetime) else get_ist_now(),
+        "created_at": payload.get("created_at") if isinstance(payload.get("created_at"), datetime) else get_ist_now(),
     }
 
 
@@ -399,6 +512,83 @@ def _as_utc_naive(value: Any) -> Optional[datetime]:
     return None
 
 
+def _normalize_status_value(value: Any) -> str:
+    status = str(value or "").strip().lower()
+    if "." in status:
+        status = status.split(".")[-1]
+    return status
+
+
+async def _ensure_passenger_booking_compliance(
+    db: AsyncIOMotorDatabase,
+    user: Dict[str, Any],
+) -> None:
+    passenger_id = str(user.get("id") or "").strip()
+    if not passenger_id:
+        raise HTTPException(status_code=401, detail="Invalid passenger account. Please login again.")
+
+    now = get_ist_now()
+    if PASSENGER_KYC_REQUIRED_FOR_BOOKING:
+        kyc_doc = await db.passenger_kyc.find_one({"user_id": passenger_id}, {"_id": 0})
+        kyc_status = _normalize_status_value(
+            (kyc_doc or {}).get("status")
+            or (kyc_doc or {}).get("verification_level")
+            or user.get("kyc_status")
+            or "unverified"
+        )
+        kyc_verified = bool((kyc_doc or {}).get("is_verified")) or kyc_status in {"approved", "verified"}
+        if not kyc_verified:
+            raise HTTPException(
+                status_code=403,
+                detail="Passenger KYC must be approved before booking a ride.",
+            )
+
+    await ensure_default_document_requirements(db)
+    requirement_rows = await db.document_requirements.find(
+        {
+            "enabled": True,
+            "applicable_to": {"$in": ["passenger", "both"]},
+        }
+    ).to_list(None)
+    requirements = [
+        requirement
+        for requirement in requirement_rows
+        if effective_is_mandatory(requirement)
+    ]
+    if not requirements:
+        return
+
+    upload_rows = await db.document_uploads.find({"user_id": passenger_id}).to_list(None)
+    legacy_rows = await db.passenger_documents.find({"user_id": passenger_id}).to_list(None)
+    uploaded_types = {
+        str(row.get("document_type") or row.get("type") or "").strip()
+        for row in [*upload_rows, *legacy_rows]
+        if str(row.get("document_type") or row.get("type") or "").strip()
+    }
+    missing = [
+        requirement
+        for requirement in requirements
+        if str(requirement.get("document_type") or "").strip() not in uploaded_types
+    ]
+    if not missing:
+        return
+
+    user_record = await db.users.find_one({"id": passenger_id}, {"_id": 0, "created_at": 1}) or {}
+    created_at = _as_utc_naive(user_record.get("created_at") or user.get("created_at")) or now
+    max_grace_days = max(int(requirement.get("grace_period_days", 0) or 0) for requirement in requirements)
+    if max_grace_days > 0 and now <= created_at + timedelta(days=max_grace_days):
+        return
+
+    missing_names = [
+        str(requirement.get("display_name") or requirement.get("document_type") or "required document")
+        for requirement in missing
+    ]
+    raise HTTPException(
+        status_code=403,
+        detail=f"Mandatory passenger documents are required before booking: {', '.join(missing_names)}.",
+    )
+
+
 def _is_scheme_active(plan: Dict[str, Any]) -> bool:
     amount = _to_float(plan.get("amount"), 0.0)
     if amount <= 0 or not bool(plan.get("active")):
@@ -407,7 +597,7 @@ def _is_scheme_active(plan: Dict[str, Any]) -> bool:
     end_at = _as_utc_naive(plan.get("scheme_end_at"))
     if not start_at or not end_at:
         return False
-    now = datetime.utcnow()
+    now = get_ist_now()
     return start_at <= now <= end_at
 
 
@@ -588,7 +778,7 @@ async def update_admin_ride_product_district_config(
     if _normalize_role(current_user.get("role")) != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    now = datetime.utcnow()
+    now = get_ist_now()
     config_doc = {
         "id": "district_ride_products",
         "default_enabled_products": _normalize_enabled_products([item.value for item in payload.default_enabled_products]),
@@ -623,6 +813,7 @@ async def create_advanced_booking(
     if not current_user_id:
         raise HTTPException(status_code=401, detail="Invalid account data. Please login again.")
     await _ensure_subscription_allows_advanced_booking(db, current_user)
+    await _ensure_passenger_booking_compliance(db, current_user)
     config = await _get_ride_product_config(db)
     pickup_address = str((payload.pickup_location or {}).get("address") or "").strip() or None
     pickup_district = str((payload.pickup_location or {}).get("district") or "").strip() or None
@@ -645,7 +836,7 @@ async def create_advanced_booking(
     if payload.ride_product == RideProduct.SCHEDULED and not payload.scheduled_for:
         raise HTTPException(status_code=400, detail="Scheduled time is required for scheduled rides")
 
-    if payload.scheduled_for and payload.scheduled_for <= datetime.utcnow():
+    if payload.scheduled_for and payload.scheduled_for <= get_ist_now():
         raise HTTPException(status_code=400, detail="Scheduled time must be in the future")
 
     if payload.ride_product == RideProduct.RENTAL_HOURLY and not payload.rental_hours:
@@ -672,7 +863,9 @@ async def create_advanced_booking(
     distance_km = max(0.5, _to_float(drop.get("distance_km"), _to_float(pickup.get("distance_km"), 5.0)))
     base_fare = 60.0
     per_km = 18.0
-    raw_estimated_fare = round((base_fare + (distance_km * per_km)) * _product_multiplier(payload.ride_product), 2)
+    ride_type_multiplier = _product_multiplier(payload.ride_product)
+    vehicle_type_multiplier = _vehicle_multiplier(payload.vehicle_type_id, payload.vehicle_subtype_id)
+    raw_estimated_fare = round((base_fare + (distance_km * per_km)) * ride_type_multiplier * vehicle_type_multiplier, 2)
     payment_method_id = str(payload.payment_method_id or "").strip() or None
     payment_channel = str(payload.payment_channel or "").strip().lower() or None
     if payment_method_id:
@@ -701,9 +894,20 @@ async def create_advanced_booking(
         promo_discount_amount = float(promo_validation.get("discount_amount") or 0.0)
     estimated_fare = round(max(0.0, raw_estimated_fare - promo_discount_amount), 2)
 
-    now = datetime.utcnow()
+    now = get_ist_now()
     is_scheduled = payload.ride_product == RideProduct.SCHEDULED or payload.scheduled_for is not None
     booking_id = str(uuid.uuid4())
+    candidate_driver_ids = []
+    if not is_scheduled and not payload.selected_driver_id:
+        candidate_driver_ids = await _find_matching_driver_ids(
+            db,
+            pickup,
+            payload.vehicle_type_id,
+            payload.vehicle_subtype_id,
+            payload.ride_product,
+            radius_km=2.0,
+            limit=5,
+        )
     booking = {
         "id": booking_id,
         "passenger_id": current_user_id,
@@ -726,6 +930,9 @@ async def create_advanced_booking(
         "safe_ride_priority": payload.safe_ride_priority,
         "notes": payload.notes,
         "selected_driver_id": payload.selected_driver_id,
+        "vehicle_type_id": payload.vehicle_type_id,
+        "vehicle_subtype_id": payload.vehicle_subtype_id,
+        "vehicle_model": payload.vehicle_model,
         "payment_method": normalized_payment_method,
         "payment_method_id": payment_method_id,
         "payment_channel": payment_channel,
@@ -735,7 +942,18 @@ async def create_advanced_booking(
         "promo_max_discount": promo_max_discount,
         "promo_discount_amount": promo_discount_amount,
         "fare_before_discount": raw_estimated_fare,
+        "ride_type_multiplier": ride_type_multiplier,
+        "vehicle_type_multiplier": vehicle_type_multiplier,
         "status": "scheduled" if is_scheduled else "pending",
+        "dispatch_status": "scheduled" if is_scheduled else "searching",
+        "dispatch_algorithm": "advanced_product_pool_v1",
+        "candidate_driver_ids": [payload.selected_driver_id] if payload.selected_driver_id else candidate_driver_ids,
+        "progress_handoff": {
+            "active_booking_endpoint": "/api/bookings/active",
+            "booking_status_event": "booking_status_changed",
+            "driver_request_event": "new_booking_available",
+            "recommended_poll_seconds": 5,
+        },
         "estimated_fare": estimated_fare,
         "distance_km": round(distance_km, 2),
         "pickup_surcharge": 0.0,

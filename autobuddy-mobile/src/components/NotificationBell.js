@@ -1,6 +1,6 @@
 import React from 'react';
 import { TouchableOpacity, View, Text, StyleSheet } from 'react-native';
-import { COLORS, SHADOWS } from '../theme';
+import { SHADOWS } from '../theme';
 
 /**
  * NotificationBell - Header notification icon with badge

@@ -1,9 +1,19 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 const DEFAULT_ZOOM = 14;
 const MAP_CONTAINER_STYLE = { width: '100%', height: '100%' };
 const ROUTE_REFRESH_DELTA = 0.0005;
+const MARKER_COLORS = {
+  pickup: '#E53935',
+  dropoff: '#1E88E5',
+  driver: '#0B8F3A',
+};
+const MARKER_Z_INDEX = {
+  pickup: 20,
+  dropoff: 10,
+  driver: 30,
+};
 
 let googleMapsLoaderPromise = null;
 
@@ -66,6 +76,41 @@ const loadGoogleMapsScript = (apiKey) => {
 const createLatLng = (googleMaps, location) =>
   new googleMaps.LatLng(location.latitude, location.longitude);
 
+const createMarkerIcon = (googleMaps, markerKey) => {
+  const fillColor = MARKER_COLORS[markerKey] || MARKER_COLORS.dropoff;
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="34" height="44" viewBox="0 0 34 44">
+      <path d="M17 42C14.2 37.9 3 25.8 3 15.9C3 7.7 9.3 2 17 2C24.7 2 31 7.7 31 15.9C31 25.8 19.8 37.9 17 42Z" fill="${fillColor}" stroke="#FFFFFF" stroke-width="3"/>
+      <circle cx="17" cy="16" r="6" fill="rgba(255,255,255,0.24)"/>
+    </svg>
+  `;
+  return {
+    url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+    scaledSize: new googleMaps.Size(34, 44),
+    anchor: new googleMaps.Point(17, 42),
+    labelOrigin: new googleMaps.Point(17, 16),
+  };
+};
+
+const createMarkerLabel = (labelText) => ({
+  text: labelText,
+  color: '#FFFFFF',
+  fontSize: '12px',
+  fontWeight: '800',
+});
+
+const fitBoundsToPoints = (googleMaps, map, points) => {
+  const validPoints = points.filter(Boolean);
+  if (validPoints.length < 2) {
+    return;
+  }
+  const bounds = new googleMaps.LatLngBounds();
+  validPoints.forEach((point) => {
+    bounds.extend(createLatLng(googleMaps, point));
+  });
+  map.fitBounds(bounds, 56);
+};
+
 export default function WebGoogleLiveMap({
   apiKey,
   title,
@@ -81,11 +126,13 @@ export default function WebGoogleLiveMap({
   onMapPress = null,
   onMarkerDragEnd = null,
   selectingPoint = null,
+  showStatusOverlay = true,
 }) {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
   const directionsServiceRef = useRef(null);
   const directionsRendererRef = useRef(null);
+  const routeFallbackPolylineRef = useRef(null);
   const markersRef = useRef({
     pickup: null,
     dropoff: null,
@@ -95,6 +142,7 @@ export default function WebGoogleLiveMap({
     origin: null,
     destination: null,
   });
+  const mapClickListenerRef = useRef(null);
   const [mapReady, setMapReady] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
 
@@ -104,6 +152,9 @@ export default function WebGoogleLiveMap({
   const driverPoint = useMemo(() => normalizeCoords(driverLocation), [driverLocation]);
   const routeOriginPoint = useMemo(() => normalizeCoords(routeOrigin), [routeOrigin]);
   const routeDestinationPoint = useMemo(() => normalizeCoords(routeDestination), [routeDestination]);
+  const showEmbedFallback = !!fallbackUrl && (!apiKey || loadFailed);
+  const showFallbackDriverPointer =
+    showEmbedFallback && !!driverPoint && !pickupPoint && !dropoffPoint && !routeDestinationPoint;
 
   useEffect(() => {
     if (!apiKey || typeof window === 'undefined' || !mapContainerRef.current) {
@@ -124,18 +175,6 @@ export default function WebGoogleLiveMap({
           streetViewControl: false,
           fullscreenControl: false,
         });
-        
-        // Add click listener for interactive mode (click to place markers)
-        if (isInteractiveMode && onMapPress) {
-          mapRef.current.addListener('click', (event) => {
-            const coordinate = {
-              latitude: event.latLng.lat(),
-              longitude: event.latLng.lng(),
-            };
-            onMapPress(coordinate);
-          });
-        }
-        
         directionsServiceRef.current = new googleMaps.DirectionsService();
         directionsRendererRef.current = new googleMaps.DirectionsRenderer({
           suppressMarkers: true,
@@ -161,11 +200,72 @@ export default function WebGoogleLiveMap({
   }, [apiKey, defaultCenterPoint]);
 
   useEffect(() => {
+    if (mapClickListenerRef.current) {
+      mapClickListenerRef.current.remove();
+      mapClickListenerRef.current = null;
+    }
+
+    if (
+      !mapReady ||
+      !isInteractiveMode ||
+      !onMapPress ||
+      typeof window === 'undefined' ||
+      !mapRef.current ||
+      !window.google?.maps
+    ) {
+      return undefined;
+    }
+
+    mapClickListenerRef.current = mapRef.current.addListener('click', (event) => {
+      if (!event?.latLng) {
+        return;
+      }
+      onMapPress({
+        latitude: event.latLng.lat(),
+        longitude: event.latLng.lng(),
+      });
+    });
+
+    return () => {
+      if (mapClickListenerRef.current) {
+        mapClickListenerRef.current.remove();
+        mapClickListenerRef.current = null;
+      }
+    };
+  }, [mapReady, isInteractiveMode, onMapPress]);
+
+  useEffect(() => {
     if (!mapReady || typeof window === 'undefined' || !mapRef.current || !window.google?.maps) {
       return;
     }
     const googleMaps = window.google.maps;
     const map = mapRef.current;
+
+    const clearFallbackRoute = () => {
+      if (routeFallbackPolylineRef.current) {
+        routeFallbackPolylineRef.current.setMap(null);
+        routeFallbackPolylineRef.current = null;
+      }
+    };
+
+    const showFallbackRoute = () => {
+      clearFallbackRoute();
+      if (!routeOriginPoint || !routeDestinationPoint) {
+        return;
+      }
+      routeFallbackPolylineRef.current = new googleMaps.Polyline({
+        map,
+        path: [
+          createLatLng(googleMaps, routeOriginPoint),
+          createLatLng(googleMaps, routeDestinationPoint),
+        ],
+        geodesic: true,
+        strokeColor: '#1E88E5',
+        strokeOpacity: 0.75,
+        strokeWeight: 5,
+      });
+      fitBoundsToPoints(googleMaps, map, [routeOriginPoint, routeDestinationPoint]);
+    };
 
     const syncMarker = (markerKey, point, titleText, labelText) => {
       const currentMarker = markersRef.current[markerKey];
@@ -177,12 +277,17 @@ export default function WebGoogleLiveMap({
         return;
       }
       const nextPosition = createLatLng(googleMaps, point);
+      const markerIcon = createMarkerIcon(googleMaps, markerKey);
+      const markerLabel = createMarkerLabel(labelText);
+      const zIndex = MARKER_Z_INDEX[markerKey] || 1;
       if (!currentMarker) {
         const markerConfig = {
           map,
           position: nextPosition,
           title: titleText,
-          label: labelText,
+          icon: markerIcon,
+          label: markerLabel,
+          zIndex,
         };
         
         // Enable dragging for pickup/dropoff markers in interactive mode
@@ -206,7 +311,9 @@ export default function WebGoogleLiveMap({
       }
       currentMarker.setPosition(nextPosition);
       currentMarker.setTitle(titleText);
-      currentMarker.setLabel(labelText);
+      currentMarker.setIcon(markerIcon);
+      currentMarker.setLabel(markerLabel);
+      currentMarker.setZIndex(zIndex);
       
       // Update draggable state based on interactive mode
       if (isInteractiveMode && (markerKey === 'pickup' || markerKey === 'dropoff')) {
@@ -216,8 +323,8 @@ export default function WebGoogleLiveMap({
       }
     };
 
-    syncMarker('pickup', pickupPoint, 'Pickup', 'P');
-    syncMarker('dropoff', dropoffPoint, 'Dropoff', 'D');
+    syncMarker('pickup', pickupPoint, 'Passenger / Pickup', 'P');
+    syncMarker('dropoff', dropoffPoint, 'Destination', 'D');
     syncMarker('driver', driverPoint, 'Driver', 'R');
 
     const routeOriginChanged = hasMeaningfulMovement(lastRouteRef.current.origin, routeOriginPoint);
@@ -229,6 +336,10 @@ export default function WebGoogleLiveMap({
           origin: routeOriginPoint,
           destination: routeDestinationPoint,
         };
+        if (!directionsServiceRef.current || !directionsRendererRef.current) {
+          showFallbackRoute();
+          return;
+        }
         directionsServiceRef.current.route(
           {
             origin: createLatLng(googleMaps, routeOriginPoint),
@@ -239,10 +350,13 @@ export default function WebGoogleLiveMap({
           },
           (result, status) => {
             if (status === googleMaps.DirectionsStatus.OK && result) {
+              clearFallbackRoute();
               directionsRendererRef.current.setDirections(result);
+              fitBoundsToPoints(googleMaps, map, [routeOriginPoint, routeDestinationPoint]);
               return;
             }
             directionsRendererRef.current.setDirections({ routes: [] });
+            showFallbackRoute();
           },
         );
       }
@@ -254,6 +368,7 @@ export default function WebGoogleLiveMap({
       destination: null,
     };
     directionsRendererRef.current.setDirections({ routes: [] });
+    clearFallbackRoute();
 
     const focusPoint = driverPoint || pickupPoint || dropoffPoint || defaultCenterPoint;
     if (focusPoint) {
@@ -273,23 +388,174 @@ export default function WebGoogleLiveMap({
   ]);
 
   if (!apiKey || loadFailed) {
-    if (!fallbackUrl) {
-      return <View style={mapStyle} />;
-    }
     return (
-      <iframe
-        title={title}
-        src={fallbackUrl}
-        style={mapStyle}
-        allowFullScreen
-        loading="lazy"
-      />
+      <View style={[mapStyle, styles.mapFallbackSurface]}>
+        {!!fallbackUrl && (
+          <iframe
+            title={title}
+            src={fallbackUrl}
+            style={styles.fallbackFrame}
+            allowFullScreen
+            loading="lazy"
+          />
+        )}
+        {showFallbackDriverPointer && (
+          <View style={styles.fallbackDriverMarker} pointerEvents="none">
+            <View style={styles.fallbackDriverMarkerTail} />
+            <Text style={styles.fallbackDriverMarkerText}>D</Text>
+          </View>
+        )}
+        {showStatusOverlay && (
+          <View style={styles.statusOverlay} pointerEvents="none">
+            <Text style={styles.statusTitle}>{fallbackUrl ? 'Live map fallback' : 'Live map unavailable'}</Text>
+            <Text style={styles.statusCopy}>
+              {fallbackUrl
+                ? 'Showing the browser-safe Google Maps embed.'
+                : 'Map coordinates are available when the driver location syncs.'}
+            </Text>
+          </View>
+        )}
+      </View>
     );
   }
 
   return (
-    <View style={mapStyle}>
-      <View ref={mapContainerRef} style={MAP_CONTAINER_STYLE} />
+    <View style={[mapStyle, styles.mapFallbackSurface]}>
+      {showEmbedFallback && fallbackUrl && (
+        <iframe
+          title={title}
+          src={fallbackUrl}
+          style={styles.fallbackFrame}
+          allowFullScreen
+          loading="lazy"
+        />
+      )}
+      {showFallbackDriverPointer && (
+        <View style={styles.fallbackDriverMarker} pointerEvents="none">
+          <View style={styles.fallbackDriverMarkerTail} />
+          <Text style={styles.fallbackDriverMarkerText}>D</Text>
+        </View>
+      )}
+      <View ref={mapContainerRef} style={[MAP_CONTAINER_STYLE, styles.mapLayer, !mapReady && styles.mapLayerBooting]} />
+      {!mapReady && !showEmbedFallback && (
+        <View style={styles.mapLoadingPlaceholder} pointerEvents="none">
+          <Text style={styles.loadingSpinner}>Loading</Text>
+          <Text style={styles.loadingText}>Loading map...</Text>
+        </View>
+      )}
+      {showStatusOverlay && !mapReady && showEmbedFallback && (
+        <View style={styles.statusOverlay} pointerEvents="none">
+          <Text style={styles.statusTitle}>Map initializing</Text>
+          <Text style={styles.statusCopy}>Preparing driver location and route view.</Text>
+        </View>
+      )}
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  mapFallbackSurface: {
+    position: 'relative',
+    overflow: 'hidden',
+    backgroundColor: '#EAF1ED',
+  },
+  fallbackFrame: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+    borderWidth: 0,
+  },
+  fallbackDriverMarker: {
+    position: 'absolute',
+    left: '50%',
+    top: '50%',
+    width: 32,
+    height: 32,
+    marginLeft: -16,
+    marginTop: -36,
+    borderRadius: 16,
+    borderWidth: 3,
+    borderColor: '#FFFFFF',
+    backgroundColor: '#0B8F3A',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 8,
+    boxShadow: '0 8px 18px rgba(15, 47, 30, 0.28)',
+  },
+  fallbackDriverMarkerTail: {
+    position: 'absolute',
+    width: 12,
+    height: 12,
+    left: 7,
+    bottom: -7,
+    borderRightWidth: 3,
+    borderBottomWidth: 3,
+    borderColor: '#FFFFFF',
+    backgroundColor: '#0B8F3A',
+    transform: [{ rotate: '45deg' }],
+  },
+  fallbackDriverMarkerText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '900',
+    zIndex: 1,
+  },
+  mapLayer: {
+    position: 'relative',
+    zIndex: 0,
+  },
+  mapLayerBooting: {
+    opacity: 0.01,
+  },
+  mapLoadingPlaceholder: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+    zIndex: 1,
+  },
+  loadingSpinner: {
+    fontSize: 16,
+    color: '#0F2F1E',
+    marginBottom: 8,
+    fontWeight: '800',
+  },
+  loadingText: {
+    marginTop: 8,
+    fontSize: 13,
+    color: '#666',
+    fontWeight: '500',
+  },
+  statusOverlay: {
+    position: 'absolute',
+    left: 16,
+    bottom: 16,
+    maxWidth: 360,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(215, 226, 218, 0.92)',
+    backgroundColor: 'rgba(255, 255, 255, 0.94)',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    zIndex: 10,
+  },
+  statusTitle: {
+    color: '#0F2F1E',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  statusCopy: {
+    color: '#486453',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+});

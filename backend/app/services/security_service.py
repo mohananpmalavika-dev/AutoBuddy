@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from typing import Any, Dict, List
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -10,7 +11,7 @@ async def get_recent_audit_logs(db: AsyncIOMotorDatabase, limit: int = 200) -> L
 
 
 async def compute_user_fraud_score(db: AsyncIOMotorDatabase, user_id: str) -> Dict[str, Any]:
-    cutoff = datetime.utcnow() - timedelta(hours=1)
+    cutoff = get_ist_now() - timedelta(hours=1)
     normalized_user_id = str(user_id or "").strip()
     if not normalized_user_id:
         return {"risk_score": 0.0, "flagged": False, "reasons": []}

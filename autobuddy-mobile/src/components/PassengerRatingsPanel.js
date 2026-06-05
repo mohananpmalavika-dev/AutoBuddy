@@ -11,6 +11,7 @@ import {
 import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
 import VoiceTextInput from './VoiceTextInput';
+import { formatToIST } from '../utils/time';
 
 function RatingStars({ current, onSelect }) {
   return (
@@ -29,7 +30,6 @@ function RatingStars({ current, onSelect }) {
 export default function PassengerRatingsPanel({ token, initialRideId = null, onRatingComplete = null }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
   const [ratings, setRatings] = useState([]);
   const [showSubmitForm, setShowSubmitForm] = useState(false);
   const [editingRatingId, setEditingRatingId] = useState(null);
@@ -37,7 +37,6 @@ export default function PassengerRatingsPanel({ token, initialRideId = null, onR
   const [selectedRideId, setSelectedRideId] = useState(initialRideId);
   const [score, setScore] = useState(0);
   const [feedback, setFeedback] = useState('');
-  const [filterStatus, setFilterStatus] = useState('unrated'); // unrated, rated, all
 
   const ratedBookingIds = useMemo(
     () => new Set(ratings.map((rating) => rating.booking_id).filter(Boolean)),
@@ -67,16 +66,37 @@ export default function PassengerRatingsPanel({ token, initialRideId = null, onR
 
   const fetchPastRides = useCallback(async () => {
     try {
-      const response = await apiRequest('/bookings', { token });
-      const rides = Array.isArray(response?.data) ? response.data : Array.isArray(response) ? response : [];
+      const response = await apiRequest('/passengers/ratings/eligible-rides', {
+        token,
+        query: { limit: 100 },
+      });
+      const rides = Array.isArray(response?.rides)
+        ? response.rides
+        : Array.isArray(response?.data)
+          ? response.data
+          : Array.isArray(response)
+            ? response
+            : [];
       setPastRides(
         rides
           .filter((ride) => String(ride.status || '').toLowerCase() === 'completed')
-          .filter((ride) => ride.driver_id)
-          .slice(0, 20),
+          .filter((ride) => ride.driver_id),
       );
     } catch (err) {
-      setError(err.message || 'Failed to load completed rides');
+      try {
+        const fallbackResponse = await apiRequest('/bookings', {
+          token,
+          query: { status: 'completed', limit: 100 },
+        });
+        const fallbackRides = Array.isArray(fallbackResponse?.data)
+          ? fallbackResponse.data
+          : Array.isArray(fallbackResponse)
+            ? fallbackResponse
+            : [];
+        setPastRides(fallbackRides.filter((ride) => ride.driver_id));
+      } catch (fallbackErr) {
+        setError(fallbackErr.message || err.message || 'Failed to load completed rides');
+      }
     }
   }, [token]);
 
@@ -95,30 +115,6 @@ export default function PassengerRatingsPanel({ token, initialRideId = null, onR
     () => pastRides.filter((ride) => !ratedBookingIds.has(ride.id)).slice(0, 10),
     [pastRides, ratedBookingIds],
   );
-
-  const handleOpenRatingForm = useCallback((rideId) => {
-    const ride = pastRides.find((r) => r.id === rideId);
-    if (ride) {
-      setSelectedRideId(rideId);
-      setShowSubmitForm(true);
-      setEditingRatingId(null);
-      setScore(0);
-      setFeedback('');
-      setError('');
-    }
-  }, [pastRides]);
-
-  const handleEditRating = useCallback((rating) => {
-    const ride = pastRides.find((r) => r.id === rating.booking_id);
-    if (ride) {
-      setEditingRatingId(rating.id);
-      setSelectedRideId(rating.booking_id);
-      setScore(rating.score || 0);
-      setFeedback(rating.feedback || '');
-      setShowSubmitForm(true);
-      setError('');
-    }
-  }, [pastRides]);
 
   const submitRating = useCallback(async () => {
     const selectedRide = pastRides.find((ride) => ride.id === selectedRideId);
@@ -213,7 +209,7 @@ export default function PassengerRatingsPanel({ token, initialRideId = null, onR
                       style={[styles.rideOption, selectedRideId === ride.id && styles.rideOptionActive]}
                       onPress={() => setSelectedRideId(ride.id)}>
                       <Text style={styles.rideOptionText}>
-                        {ride.driver_name || 'Driver'} - {new Date(ride.created_at).toLocaleDateString()}
+                        {ride.driver_name || 'Driver'} - {formatToIST(ride.created_at, { dateStyle: 'short' })}
                       </Text>
                     </TouchableOpacity>
                   ))}
@@ -306,7 +302,7 @@ export default function PassengerRatingsPanel({ token, initialRideId = null, onR
                 <Text style={styles.editButtonText}>Edit</Text>
               </TouchableOpacity>
 
-              <Text style={styles.ratingDate}>{new Date(rating.created_at).toLocaleDateString()}</Text>
+              <Text style={styles.ratingDate}>{formatToIST(rating.created_at, { dateStyle: 'short' })}</Text>
             </View>
           ))}
         </View>

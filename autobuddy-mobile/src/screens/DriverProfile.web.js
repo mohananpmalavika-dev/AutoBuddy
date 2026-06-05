@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Image,
   Linking,
-  SafeAreaView,
   Share,
   ScrollView,
   StyleSheet,
@@ -11,6 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { apiRequest } from '../lib/api';
 import { normalizeAdminPaymentOptions, requiresUtrForPaymentMethod } from '../lib/paymentOptions';
@@ -758,7 +758,7 @@ const styles = StyleSheet.create({
   headerUserBlock: { flex: 1, marginLeft: 12 },
   hello: { fontSize: 22, fontWeight: '700', color: '#202020' },
   sub: { fontSize: 13, color: '#666666', marginTop: 2 },
-  headerLogo: { width: 50, height: 50, borderRadius: 25 },
+  headerLogo: { width: 86, height: 47, borderRadius: 10 },
   logoutButton: {
     marginLeft: 12,
     paddingHorizontal: 12,

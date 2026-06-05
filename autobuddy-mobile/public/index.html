@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AutoBuddy - Ride Sharing App</title>
     <meta name="description" content="AutoBuddy - Your trusted ride-sharing companion">
-    <meta name="theme-color" content="#208AEF">
+    <meta name="theme-color" content="#0b7a29">
     <meta property="og:title" content="AutoBuddy">
     <meta property="og:description" content="AutoBuddy - Your trusted ride-sharing companion">
     <link rel="manifest" href="/manifest.webmanifest">
@@ -25,105 +25,42 @@
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
                 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
             background: linear-gradient(135deg, #E9F7EC 0%, #F7FCF4 100%);
-            height: 100vh;
+            min-height: 100vh;
             display: flex;
             justify-content: center;
             align-items: center;
-            padding: 12px;
-            overflow: hidden;
+            padding: 18px;
+            overflow: auto;
         }
 
         .launch-card {
-            max-width: 540px;
-            width: min(540px, 96vw);
+            max-width: 1160px;
+            width: min(1160px, 96vw);
             margin: 0 auto;
-            padding: 24px;
+            padding: 16px;
             background: #ffffff;
-            border-radius: 28px;
+            border-radius: 24px;
             text-align: center;
             box-shadow: 0 24px 60px rgba(0, 80, 40, 0.12);
-            max-height: calc(100vh - 24px);
         }
 
-        .logo-box {
-            width: 182px;
-            height: 182px;
-            margin: 0 auto 14px;
-            border-radius: 36px;
-            display: grid;
-            place-items: center;
-            background: #ffffff;
-            box-shadow: 0 12px 35px rgba(0, 0, 0, 0.06);
-        }
-
-        .logo-box img {
-            width: 150px;
-            height: 150px;
-            object-fit: contain;
-        }
-
-        .launch-card h1 {
-            margin: 0;
-            font-size: 38px;
-            color: #064e1f;
-            font-weight: 900;
-            line-height: 1.05;
-        }
-
-        .subtitle {
-            margin: 8px 0 14px;
-            color: #31513a;
-            font-size: 15px;
-        }
-
-        .badge {
-            display: inline-block;
-            margin-bottom: 14px;
-            padding: 9px 18px;
-            border-radius: 999px;
-            background: #e4f7e7;
-            color: #086522;
-            font-weight: 800;
-            font-size: 13px;
-        }
-
-        .info-box {
-            text-align: left;
-            padding: 14px;
-            border-radius: 14px;
-            background: #e8f4ff;
-            border-left: 5px solid #2087ff;
-            margin-bottom: 14px;
-        }
-
-        .info-box h3 {
-            margin: 0 0 6px;
-            color: #0758a8;
-            font-size: 16px;
-        }
-
-        .info-box p {
-            margin: 0;
-            color: #3d4f5f;
-            font-size: 13px;
-        }
-
-        .features {
-            text-align: left;
-            padding: 14px 16px;
+        .launch-image-box {
+            width: 100%;
+            margin: 0 auto 16px;
             border-radius: 18px;
-            background: #fafafa;
-            margin-bottom: 14px;
+            background: #ffffff;
+            overflow: hidden;
         }
 
-        .features p {
-            margin: 10px 0;
-            color: #1f2933;
-            font-size: 15px;
+        .launch-image-box img {
+            display: block;
+            width: 100%;
+            height: auto;
         }
 
         .primary-btn {
-            width: 100%;
+            width: min(360px, 100%);
+            margin: 0 auto;
             padding: 14px;
             border-radius: 14px;
             font-size: 16px;
@@ -141,8 +78,41 @@
             margin-bottom: 10px;
         }
 
+        .secondary-btn {
+            width: min(360px, 100%);
+            margin: 0 auto 10px;
+            padding: 13px;
+            border-radius: 14px;
+            font-size: 15px;
+            font-weight: 900;
+            cursor: pointer;
+            transition: background-color 0.2s ease, transform 0.2s ease;
+            border: 1px solid #b6d7c1;
+            background: #f4fbf6;
+            color: #0b7a29;
+            display: block;
+        }
+
+        .secondary-btn[hidden] {
+            display: none;
+        }
+
         .primary-btn:hover {
             transform: translateY(-2px);
+        }
+
+        .secondary-btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .install-status {
+            min-height: 20px;
+            margin: 0 auto 8px;
+            color: #315a3b;
+            font-size: 13px;
+            font-weight: 700;
+            line-height: 1.35;
+            width: min(420px, 100%);
         }
 
         .footer {
@@ -154,58 +124,21 @@
 
         @media (max-width: 600px) {
             .launch-card {
-                padding: 18px 14px;
-                border-radius: 22px;
-            }
-
-            .logo-box {
-                width: 132px;
-                height: 132px;
-                border-radius: 24px;
-            }
-
-            .logo-box img {
-                width: 104px;
-                height: 104px;
-            }
-
-            .launch-card h1 {
-                font-size: 32px;
-            }
-
-            .features p {
-                margin: 8px 0;
+                padding: 10px;
+                border-radius: 18px;
             }
         }
     </style>
 </head>
 <body>
     <div class="launch-card">
-        <div class="logo-box">
-            <img src="/logo.png" alt="AutoBuddy logo" />
-        </div>
-
-        <h1>AutoBuddy</h1>
-        <p class="subtitle">Safe, fast and affordable rides across Kerala</p>
-
-        <div class="badge">Early Access Now Open</div>
-
-        <div class="info-box">
-            <h3>AutoBuddy Early Access</h3>
-            <p>
-                Be among the first users to experience smarter, safer and faster ride
-                booking with AutoBuddy.
-            </p>
-        </div>
-
-        <div class="features">
-            <p>Instant ride booking</p>
-            <p>Safe and verified drivers</p>
-            <p>Live ride tracking</p>
-            <p>Trusted ratings and reviews</p>
+        <div class="launch-image-box">
+            <img src="/launch-image.jpg" alt="AutoBuddy launch preview" />
         </div>
 
         <a href="/app" class="primary-btn">Start Riding</a>
+        <button id="installShortcutButton" class="secondary-btn" type="button" hidden>Install Shortcut</button>
+        <div id="installStatus" class="install-status" aria-live="polite"></div>
 
         <div class="footer">
             &copy; 2026 AutoBuddy. All rights reserved.
@@ -213,6 +146,105 @@
     </div>
 
     <script>
+        let deferredInstallPrompt = null;
+        let appRedirectTimer = null;
+        const installButton = document.getElementById('installShortcutButton');
+        const installStatus = document.getElementById('installStatus');
+
+        function setInstallStatus(message) {
+            if (installStatus) {
+                installStatus.textContent = message || '';
+            }
+        }
+
+        function isStandaloneLaunch() {
+            return Boolean(
+                window.matchMedia && window.matchMedia('(display-mode: standalone)').matches
+            ) || Boolean(window.navigator && window.navigator.standalone);
+        }
+
+        function isIosDevice() {
+            return /iphone|ipad|ipod/i.test(window.navigator.userAgent || '');
+        }
+
+        function showInstallButton() {
+            if (installButton) {
+                installButton.hidden = false;
+            }
+        }
+
+        function scheduleAppRedirect(delayMs) {
+            if (appRedirectTimer) {
+                clearTimeout(appRedirectTimer);
+            }
+            appRedirectTimer = setTimeout(() => {
+                window.location.href = '/app';
+            }, delayMs);
+        }
+
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => null);
+        }
+
+        window.addEventListener('beforeinstallprompt', (event) => {
+            event.preventDefault();
+            deferredInstallPrompt = event;
+            showInstallButton();
+            setInstallStatus('Install AutoBuddy for one-tap access from this device.');
+            scheduleAppRedirect(20000);
+        });
+
+        window.addEventListener('appinstalled', () => {
+            deferredInstallPrompt = null;
+            setInstallStatus('AutoBuddy shortcut installed.');
+            if (installButton) {
+                installButton.hidden = true;
+            }
+            scheduleAppRedirect(1200);
+        });
+
+        if (installButton) {
+            installButton.addEventListener('click', async () => {
+                if (deferredInstallPrompt) {
+                    try {
+                        await deferredInstallPrompt.prompt();
+                        const choice = await deferredInstallPrompt.userChoice;
+                        deferredInstallPrompt = null;
+                        if (choice && choice.outcome === 'accepted') {
+                            setInstallStatus('AutoBuddy install started.');
+                            scheduleAppRedirect(1200);
+                            return;
+                        }
+                        setInstallStatus('Install was dismissed. You can still open AutoBuddy now.');
+                        scheduleAppRedirect(4000);
+                        return;
+                    } catch (_) {
+                        setInstallStatus('Use your browser menu to install AutoBuddy.');
+                    }
+                } else if (isIosDevice()) {
+                    setInstallStatus('On iPhone or iPad, tap Share, then Add to Home Screen.');
+                } else {
+                    setInstallStatus('Use your browser menu and choose Install App or Add to Home Screen.');
+                }
+                scheduleAppRedirect(6000);
+            });
+        }
+
+        if (isStandaloneLaunch()) {
+            setInstallStatus('AutoBuddy shortcut is ready.');
+            scheduleAppRedirect(1200);
+        } else if (isIosDevice()) {
+            showInstallButton();
+            setInstallStatus('Install AutoBuddy from the Share menu for one-tap access.');
+        }
+
+        window.setTimeout(() => {
+            if (!isStandaloneLaunch() && !deferredInstallPrompt && !isIosDevice()) {
+                showInstallButton();
+                setInstallStatus('Install AutoBuddy from your browser menu for one-tap access.');
+            }
+        }, 1500);
+
         function resolveApiBaseUrl() {
             const host = window.location.hostname || '';
             if (host === 'localhost' || host === '127.0.0.1') {
@@ -290,9 +322,9 @@
 
         recordLaunchVisit();
 
-        setTimeout(() => {
-            window.location.href = '/app';
-        }, 10000);
+        if (!appRedirectTimer) {
+            scheduleAppRedirect(10000);
+        }
     </script>
 </body>
 </html>

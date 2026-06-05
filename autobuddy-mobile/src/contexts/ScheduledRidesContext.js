@@ -4,7 +4,7 @@ import React, { createContext, useContext, useState, useCallback } from 'react';
  * ScheduledRidesContext - Manage scheduled/future rides
  */
 
-const ScheduledRidesContext = createContext(null);
+export const ScheduledRidesContext = createContext(null);
 
 export function ScheduledRidesProvider({ children }) {
   const [scheduledRides, setScheduledRides] = useState([]);
@@ -17,6 +17,11 @@ export function ScheduledRidesProvider({ children }) {
       createdAt: new Date(),
     };
     setScheduledRides((prev) => [...prev, ride]);
+    return ride;
+  }, []);
+
+  const addScheduledRide = useCallback((ride) => {
+    setScheduledRides((prev) => [ride, ...prev]);
     return ride;
   }, []);
 
@@ -39,6 +44,7 @@ export function ScheduledRidesProvider({ children }) {
 
   const value = {
     scheduledRides,
+    addScheduledRide,
     createScheduledRide,
     cancelScheduledRide,
     rescheduleRide,

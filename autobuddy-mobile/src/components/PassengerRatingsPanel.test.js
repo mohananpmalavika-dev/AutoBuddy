@@ -27,8 +27,8 @@ describe('PassengerRatingsPanel', () => {
           },
         ];
       }
-      if (path === '/bookings') {
-        return [];
+      if (path === '/passengers/ratings/eligible-rides') {
+        return { rides: [] };
       }
       if (path === '/v1/passengers/ratings/rating-1' && options.method === 'PATCH') {
         return {
@@ -50,7 +50,8 @@ describe('PassengerRatingsPanel', () => {
     fireEvent.press(getByText('Edit'));
     fireEvent.press(getAllByText('*')[0]);
     fireEvent.changeText(getByPlaceholderText('Share your experience...'), 'Excellent ride');
-    fireEvent.press(getByText('Update Rating'));
+    const updateButtons = getAllByText('Update Rating');
+    fireEvent.press(updateButtons[updateButtons.length - 1]);
 
     await waitFor(() => {
       expect(apiRequest).toHaveBeenCalledWith(

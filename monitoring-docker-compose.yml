@@ -1,0 +1,180 @@
+version: '3.8'
+
+services:
+  # ============================================================================
+  # Prometheus - Metrics Collection and Storage
+  # ============================================================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: autobuddy-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    environment:
+      TZ: UTC
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - monitoring
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  # ============================================================================
+  # Grafana - Visualization and Dashboarding
+  # ============================================================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: autobuddy-grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana-dashboard.json:/etc/grafana/provisioning/dashboards/autobuddy.json:ro
+      - ./grafana/datasources.yml:/etc/grafana/provisioning/datasources/prometheus.yml:ro
+      - ./grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: false
+      GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-simple-json-datasource
+      TZ: UTC
+    networks:
+      - monitoring
+    depends_on:
+      - prometheus
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  # ============================================================================
+  # Alertmanager - Alert Management and Routing
+  # ============================================================================
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: autobuddy-alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    environment:
+      TZ: UTC
+    networks:
+      - monitoring
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9093/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  # ============================================================================
+  # Node Exporter - System Metrics
+  # ============================================================================
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: autobuddy-node-exporter
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    environment:
+      TZ: UTC
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+  # ============================================================================
+  # PostgreSQL Exporter - Database Metrics
+  # ============================================================================
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: autobuddy-postgres-exporter
+    ports:
+      - "9187:9187"
+    environment:
+      DATA_SOURCE_NAME: "postgresql://postgres:password@host.docker.internal:5432/autobuddy?sslmode=disable"
+      TZ: UTC
+    networks:
+      - monitoring
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  # ============================================================================
+  # Redis Exporter - Cache Metrics
+  # ============================================================================
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: autobuddy-redis-exporter
+    ports:
+      - "9121:9121"
+    environment:
+      REDIS_ADDR: "host.docker.internal:6379"
+      TZ: UTC
+    networks:
+      - monitoring
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  # ============================================================================
+  # Prometheus Push Gateway - For batch jobs
+  # ============================================================================
+  pushgateway:
+    image: prom/pushgateway:latest
+    container_name: autobuddy-pushgateway
+    ports:
+      - "9091:9091"
+    volumes:
+      - pushgateway_data:/pushgateway
+    command:
+      - '--persistence.file=/pushgateway/metrics'
+      - '--persistence.interval=5m'
+    environment:
+      TZ: UTC
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+networks:
+  monitoring:
+    driver: bridge
+
+volumes:
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  alertmanager_data:
+    driver: local
+  pushgateway_data:
+    driver: local

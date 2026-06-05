@@ -1,17 +1,11 @@
-# AutoBuddy Improvement TODO
+# TODO
 
-## Phase 1: Repo understanding
-- [x] Inspect repo structure and locate key entry points (frontend + backend)
-- [x] Search for performance / refactor hotspots (hooks, useEffect/useMemo usage; backend hot logic)
-- [x] Read backend entrypoint (backend/server.py)
+## Step 1: Fix Tier1 latitude/longitude Field syntax
+- Locate the broken `latitude` / `longitude` `Field(...)` lines in `backend/app/routers/tier1_driver_features.py`.
+- Replace the malformed expressions like `Field(. ge=-90, le=90)` with the valid form: `Field(..., ge=-90, le=90)` (and similarly for longitude).
 
-## Phase 2: Identify improvement opportunities
-- [ ] Create a prioritized list of backend improvements (security, correctness, performance, architecture)
-- [ ] Create a prioritized list of frontend improvements (state/memoization, platform split, code quality)
-- [ ] Add quick wins (changes with low risk/high impact)
+## Step 2: Validate startup
+- Run compile/import check to ensure syntax is resolved.
+- Completed: `python -m py_compile backend/app/routers/tier1_driver_features.py`
 
-## Phase 3: Propose concrete next changes
-- [ ] Propose specific edits/patches for top 5 issues
-- [ ] Provide testing + runbook steps
-- [ ] Prepare PR/branch plan (if you want code changes)
 

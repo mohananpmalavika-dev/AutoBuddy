@@ -2,6 +2,7 @@ import React from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
 
 const LOGO_SOURCE = require('../../assets/images/autobuddy-logo.jpg');
+const LOGO_ASPECT_RATIO = 2760 / 1504;
 
 export default function AutoBuddyBrand({ subtitle, compact = false }) {
   return (
@@ -21,14 +22,15 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   logo: {
-    width: 260,
-    height: 260,
-    borderRadius: 22,
+    width: 320,
+    aspectRatio: LOGO_ASPECT_RATIO,
+    maxWidth: '92%',
+    borderRadius: 18,
   },
   logoCompact: {
-    width: 150,
-    height: 150,
-    borderRadius: 14,
+    width: 180,
+    aspectRatio: LOGO_ASPECT_RATIO,
+    borderRadius: 12,
   },
   subtitle: {
     marginTop: 6,

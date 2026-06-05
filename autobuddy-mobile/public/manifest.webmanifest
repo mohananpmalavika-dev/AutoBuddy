@@ -1,12 +1,15 @@
 {
-  "name": "AutoBuddy",
+  "name": "Auto-Buddy.in",
   "short_name": "AutoBuddy",
-  "description": "AutoBuddy ride sharing dashboard",
-  "start_url": "/app",
+  "description": "Launch Auto-Buddy ride booking and command center.",
+  "id": "/?source=pwa",
+  "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",
+  "orientation": "portrait-primary",
   "background_color": "#E9F7EC",
-  "theme_color": "#208AEF",
+  "theme_color": "#0b7a29",
+  "categories": ["travel", "navigation", "business"],
   "icons": [
     {
       "src": "/logo.png",
@@ -19,6 +22,21 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Open AutoBuddy App",
+      "short_name": "Open App",
+      "description": "Go directly to the AutoBuddy app dashboard.",
+      "url": "/app",
+      "icons": [
+        {
+          "src": "/logo.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
     }
   ]
 }

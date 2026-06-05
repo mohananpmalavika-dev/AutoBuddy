@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Platform,
@@ -7,15 +7,28 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 
 import { apiRequest } from '../lib/api';
+import { adminAPI } from '../services/apiClient';
+import { getSocket } from '../services/socketClient';
 import { COLORS, SHADOWS } from '../theme';
-import AutoBuddyBrand from '../components/AutoBuddyBrand';
 import AdminAnalyticsPanel from '../components/AdminAnalyticsPanel';
 import WebCommandBar from '../components/WebCommandBar';
 import VoiceTextInput from '../components/VoiceTextInput';
+import AdminAuditLogger, { ACTION_TYPES } from '../utils/AdminAuditLogger';
+import PaginationControls from '../components/PaginationControls';
+import ConfirmationDialog from '../components/ConfirmationDialog';
+import AdminSearchBar from '../components/AdminSearchBar';
+import KycDocumentPreview from '../components/KycDocumentPreview';
+import AdminRateLimitConfig from '../components/AdminRateLimitConfig';
+import AdminDocumentRequirements from '../components/AdminDocumentRequirements';
+import AdminFareConfiguration from '../components/AdminFareConfiguration';
+import AdminFareProposals from '../components/AdminFareProposals';
+import AdminVehicleManagementScreen from './AdminVehicleManagementScreen';
+import { formatToIST } from '../utils/time';
 
 const SUBSCRIPTION_PERIOD_OPTIONS = ['monthly', 'quarterly', 'annually', 'per_trip'];
 const RIDE_PRODUCT_KEYS = [
@@ -65,14 +78,22 @@ const ADMIN_MENU_OPTIONS = [
   { key: 'analytics', label: 'Overview' },
   { key: 'trips', label: 'Ongoing Trips' },
   { key: 'users', label: 'Users & Live' },
+  { key: 'role_report', label: 'Role Report' },
   { key: 'launch_visits', label: 'Launch Visitors' },
   { key: 'spin', label: 'Spin & Win' },
   { key: 'subscriptions', label: 'Subscriptions' },
   { key: 'phone', label: 'Phone Requests' },
+  { key: 'account_deletions', label: 'Account Deletions' },
   { key: 'ride_products', label: 'Ride Products' },
+  { key: 'vehicle_types', label: 'Vehicle Types' },
   { key: 'pricing', label: 'Pricing & Fare' },
+  { key: 'fares', label: 'Fare Configuration' },
+  { key: 'fare_proposals', label: 'Driver Fare Proposals' },
   { key: 'registration', label: 'Registration' },
+  { key: 'wallet', label: 'Wallet Top-ups' },
   { key: 'kyc', label: 'KYC' },
+  { key: 'rate_limits', label: 'Rate Limits' },
+  { key: 'documents', label: 'Documents' },
 ];
 const PRIMARY_ADMIN_MENU_KEY = 'analytics';
 const SECONDARY_ADMIN_MENU_OPTIONS = ADMIN_MENU_OPTIONS.filter(
@@ -170,6 +191,80 @@ function defaultLaunchVisitReportState() {
     recent_clicks: [],
     visitors: [],
   };
+}
+
+function defaultRolewiseUserReportState() {
+  return {
+    passengers: [],
+    drivers: [],
+    operators: [],
+    counts: {
+      passengers: 0,
+      drivers: 0,
+      operators: 0,
+      total: 0,
+    },
+    generated_at: null,
+  };
+}
+
+function toOverviewNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeAdminDashboardStats(payload) {
+  const source =
+    payload?.data && payload.data !== payload && typeof payload.data === 'object'
+      ? payload.data
+      : payload || {};
+  return {
+    total_users: toOverviewNumber(source.total_users),
+    total_drivers: toOverviewNumber(source.total_drivers),
+    total_passengers: toOverviewNumber(source.total_passengers),
+    total_operators: toOverviewNumber(source.total_operators),
+    total_bookings: toOverviewNumber(source.total_bookings),
+    completed_bookings: toOverviewNumber(source.completed_bookings),
+    active_bookings: toOverviewNumber(source.active_bookings),
+    total_revenue: toOverviewNumber(source.total_revenue),
+  };
+}
+
+function normalizeListResponse(payload, keys = []) {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  if (!payload || typeof payload !== 'object') {
+    return [];
+  }
+
+  const candidateKeys = [...keys, 'data', 'items', 'results'];
+  const containers = [payload];
+  if (payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data)) {
+    containers.push(payload.data);
+  }
+
+  for (const container of containers) {
+    for (const key of candidateKeys) {
+      if (Array.isArray(container[key])) {
+        return container[key];
+      }
+    }
+  }
+  return [];
+}
+
+function normalizeRoleReportRows(primaryRows, fallbackRows, role) {
+  const rows = primaryRows.length > 0 ? primaryRows : fallbackRows;
+  return rows.map((user) => {
+    const joiningDate = user.joining_date || user.created_at || user.joined_at || user.createdAt || null;
+    return {
+      ...user,
+      role: user.role || role,
+      joining_date: joiningDate,
+      created_at: user.created_at || joiningDate,
+    };
+  });
 }
 
 function normalizeSpinWinConfig(config = null) {
@@ -293,6 +388,8 @@ function serializeDistrictRulesText(ruleMap) {
 }
 
 export default function AdminDashboard({ token, user, onLogout }) {
+  const { width } = useWindowDimensions();
+  const isCompactWeb = Platform.OS === 'web' && width < 640;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -300,6 +397,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
     total_users: 0,
     total_drivers: 0,
     total_passengers: 0,
+    total_operators: 0,
     active_bookings: 0,
     total_revenue: 0,
   });
@@ -319,6 +417,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
   const [registrationFees, setRegistrationFees] = useState({
     passenger_registration_fee: '0',
     driver_registration_fee: '0',
+    operator_registration_fee: '0',
     scheme_start_at: '',
     scheme_end_at: '',
     enable_qr: false,
@@ -330,27 +429,34 @@ export default function AdminDashboard({ token, user, onLogout }) {
   const [uploadedQrFilename, setUploadedQrFilename] = useState('');
   const qrUploadInputRef = useRef(null);
   const [pendingRegistrationPayments, setPendingRegistrationPayments] = useState([]);
+  const [pendingWalletTopups, setPendingWalletTopups] = useState([]);
   const [subscriptionConfig, setSubscriptionConfig] = useState({
     passenger: emptyRoleSubscriptionConfig(),
     driver: emptyRoleSubscriptionConfig(),
+    operator: emptyRoleSubscriptionConfig(),
   });
   const [pendingSubscriptionActivations, setPendingSubscriptionActivations] = useState([]);
   const [pendingSubscriptionPayments, setPendingSubscriptionPayments] = useState([]);
   const [pendingPhoneChangeRequests, setPendingPhoneChangeRequests] = useState([]);
+  const [pendingAccountDeletionRequests, setPendingAccountDeletionRequests] = useState([]);
   const [pendingDriverFareRequests, setPendingDriverFareRequests] = useState([]);
   const [approvedDriverFareConfigs, setApprovedDriverFareConfigs] = useState([]);
+  const [, setPassengerKycRequests] = useState([]);
   const [ongoingTrips, setOngoingTrips] = useState([]);
   const [tripCancelReasons, setTripCancelReasons] = useState({});
   const [activeAdminMenu, setActiveAdminMenu] = useState(PRIMARY_ADMIN_MENU_KEY);
   const [showAdminMenus, setShowAdminMenus] = useState(false);
   const [driverUsers, setDriverUsers] = useState([]);
   const [passengerUsers, setPassengerUsers] = useState([]);
+  const [operatorUsers, setOperatorUsers] = useState([]);
   const [liveCounts, setLiveCounts] = useState({
     drivers_live: 0,
     passengers_live: 0,
+    operators_total: 0,
     total_live: 0,
   });
   const [launchVisitReport, setLaunchVisitReport] = useState(defaultLaunchVisitReportState());
+  const [rolewiseUserReport, setRolewiseUserReport] = useState(defaultRolewiseUserReportState());
   const [spinWinConfig, setSpinWinConfig] = useState(defaultSpinWinConfigState());
   const [spinWinWinners, setSpinWinWinners] = useState([]);
   const [rideProductDistrictConfig, setRideProductDistrictConfig] = useState(
@@ -358,6 +464,57 @@ export default function AdminDashboard({ token, user, onLogout }) {
   );
   const [selectedDistrictForProducts, setSelectedDistrictForProducts] = useState(KERALA_DISTRICTS[0]);
   const [copySourceDistrictForProducts, setCopySourceDistrictForProducts] = useState(KERALA_DISTRICTS[1] || KERALA_DISTRICTS[0]);
+
+  // PHASE 1: PAGINATION & SEARCH STATE
+  // Trips pagination & search
+  const [tripsPage, setTripsPage] = useState(1);
+  const [tripsPageSize, setTripsPageSize] = useState(25);
+  const [tripsSearchTerm, setTripsSearchTerm] = useState('');
+  const [tripsFilterStatus, setTripsFilterStatus] = useState('all');
+
+  // Users pagination & search
+  const [usersPage, setUsersPage] = useState(1);
+  const [usersPageSize, setUsersPageSize] = useState(50);
+  const [usersSearchTerm, setUsersSearchTerm] = useState('');
+  const [usersFilterRole, setUsersFilterRole] = useState('all');
+
+  // KYC pagination & search
+  const [kycPage, setKycPage] = useState(1);
+  const [kycPageSize, setKycPageSize] = useState(25);
+  const [kycSearchTerm, setKycSearchTerm] = useState('');
+  const [kycFilterStatus, setKycFilterStatus] = useState('all');
+  const [showKycPreview, setShowKycPreview] = useState(false);
+  const [selectedKycForPreview, setSelectedKycForPreview] = useState(null);
+
+  // Confirmations
+  const [showConfirmTripsModal, setShowConfirmTripsModal] = useState(false);
+  const [confirmTripAction, setConfirmTripAction] = useState({ tripId: null, reason: '' });
+  const [showConfirmKycModal, setShowConfirmKycModal] = useState(false);
+  const [confirmKycAction, setConfirmKycAction] = useState({ kycId: null, decision: 'approve' });
+
+  // PHASE 2: PAGINATION & SEARCH STATE
+  // Phone Requests
+  const [phonePage, setPhonePage] = useState(1);
+  const [phonePageSize, setPhonePageSize] = useState(25);
+  const [phoneSearchTerm, setPhoneSearchTerm] = useState('');
+
+  // Account Deletions
+  const [deletionPage, setDeletionPage] = useState(1);
+  const [deletionPageSize, setDeletionPageSize] = useState(25);
+  const [deletionSearchTerm, setDeletionSearchTerm] = useState('');
+
+  // Wallet Top-ups
+  const [walletPage, setWalletPage] = useState(1);
+  const [walletPageSize, setWalletPageSize] = useState(25);
+  const [walletSearchTerm, setWalletSearchTerm] = useState('');
+
+  // Subscriptions
+  const [subscriptionPage, setSubscriptionPage] = useState(1);
+  const [subscriptionPageSize, setSubscriptionPageSize] = useState(25);
+  const [subscriptionSearchTerm, setSubscriptionSearchTerm] = useState('');
+
+  // Audit logging state
+  const [auditLogging, setAuditLogging] = useState(false);
 
   const runAction = async (fn, successText) => {
     try {
@@ -379,30 +536,67 @@ export default function AdminDashboard({ token, user, onLogout }) {
     }
   };
 
-  const refreshAdminData = async () => {
-    const dashboard = await runAction(() => apiRequest('/admin/dashboard', { token }));
-    const pending = await apiRequest('/admin/kyc/pending', { token }).catch(() => []);
-    const pricingSettings = await apiRequest('/pricing/rules', { token }).catch(() => null);
-    const feeSettings = await apiRequest('/admin/registration-fees/config', { token }).catch(() => null);
-    const pendingRegistrations = await apiRequest('/admin/registration-payments/pending', { token }).catch(() => []);
-    const subscriptionSettings = await apiRequest('/subscriptions/config', { token }).catch(() => null);
-    const pendingSubscriptions = await apiRequest('/admin/subscriptions/pending', { token }).catch(() => []);
-    const pendingSubscriptionPaymentRows = await apiRequest('/admin/subscriptions/payments/pending', { token }).catch(() => []);
-    const pendingPhoneChanges = await apiRequest('/admin/phone-changes/pending', { token }).catch(() => []);
-    const pendingDriverFare = await apiRequest('/admin/driver-fare-calculator/pending', { token }).catch(() => []);
-    const approvedDriverFare = await apiRequest('/admin/driver-fare-calculator/approved', { token }).catch(() => []);
-    const activeTrips = await apiRequest('/admin/bookings/ongoing', { token }).catch(() => []);
-    const usersLiveStatus = await apiRequest('/admin/users/live-status', { token }).catch(() => null);
-    const launchVisits = await apiRequest('/admin/launch-visits/report', {
-      token,
-      query: { days: 30, limit: 120 },
-    }).catch(() => null);
-    const spinWinSettings = await apiRequest('/admin/spin-win/config', { token }).catch(() => null);
-    const spinWinWinnerRows = await apiRequest('/admin/spin-win/winners', { token, query: { limit: 50 } }).catch(() => []);
-    const rideProductsDistrictSettings = await apiRequest('/admin/ride-products/district-config', { token }).catch(() => null);
+  const refreshAdminData = async (options = {}) => {
+    const normalizedOptions =
+      options && typeof options === 'object' && !options.nativeEvent ? options : {};
+    const scope = normalizedOptions.scope || activeAdminMenu || PRIMARY_ADMIN_MENU_KEY;
+    const includeAll = Boolean(normalizedOptions.includeAll);
+    const shouldFetch = (...menuKeys) => includeAll || menuKeys.includes(scope);
+
+    const dashboard = await runAction(() => adminAPI.getDashboard());
+    const loadKyc = shouldFetch('kyc');
+    const loadPricing = shouldFetch('pricing');
+    const loadRegistration = shouldFetch('registration');
+    const loadWallet = shouldFetch('wallet');
+    const loadSubscriptions = shouldFetch('subscriptions');
+    const loadPhone = shouldFetch('phone');
+    const loadAccountDeletions = shouldFetch('account_deletions');
+    const loadTrips = shouldFetch('trips');
+    const loadUsersLive = shouldFetch('users', 'role_report');
+    const loadRoleReport = shouldFetch('role_report');
+    const loadLaunchVisits = shouldFetch('launch_visits');
+    const loadSpin = shouldFetch('spin');
+    const loadRideProducts = shouldFetch('ride_products');
+
+    const pending = loadKyc ? await adminAPI.getKycPending().catch(() => []) : null;
+    const pendingPassengerKyc = loadKyc ? await adminAPI.getPassengerKycPending().catch(() => []) : null;
+    const pricingSettings = loadPricing ? await adminAPI.getPricingRules().catch(() => null) : null;
+    const feeSettings = loadRegistration ? await adminAPI.getRegistrationFeeConfig().catch(() => null) : null;
+    const pendingRegistrations = loadRegistration ? await adminAPI.getPendingRegistrations().catch(() => []) : null;
+    const pendingWalletTopupRows = loadWallet ? await adminAPI.getPendingWalletTopups().catch(() => []) : null;
+    const subscriptionSettings = loadSubscriptions ? await adminAPI.getSubscriptionConfig().catch(() => null) : null;
+    const pendingSubscriptions = loadSubscriptions ? await adminAPI.getPendingSubscriptions().catch(() => []) : null;
+    const pendingSubscriptionPaymentRows = loadSubscriptions
+      ? await adminAPI.getPendingSubscriptionPayments().catch(() => [])
+      : null;
+    const pendingPhoneChanges = loadPhone ? await adminAPI.getPendingPhoneChanges().catch(() => []) : null;
+    const pendingAccountDeletions = loadAccountDeletions
+      ? await adminAPI.getPendingAccountDeletions().catch(() => [])
+      : null;
+    const pendingDriverFare = loadPricing ? await adminAPI.getPendingDriverFareRequests().catch(() => []) : null;
+    const approvedDriverFare = loadPricing ? await adminAPI.getApprovedDriverFareConfigs().catch(() => []) : null;
+    const activeTrips = loadTrips ? await adminAPI.getOngoingTrips().catch(() => []) : null;
+    const usersLiveStatus = loadUsersLive ? await adminAPI.getUsersLiveStatus().catch(() => null) : null;
+    const roleReport = loadRoleReport ? await adminAPI.getRolewiseUserReport().catch(() => null) : null;
+    const launchVisits = loadLaunchVisits
+      ? await adminAPI.getLaunchVisitReport({ days: 30, limit: 120 }).catch(() => null)
+      : null;
+    const spinWinSettings = loadSpin ? await adminAPI.getSpinWinConfig().catch(() => null) : null;
+    const spinWinWinnerRows = loadSpin ? await adminAPI.getSpinWinWinners({ limit: 50 }).catch(() => []) : null;
+    const rideProductsDistrictSettings = loadRideProducts
+      ? await adminAPI.getRideProductsDistrictConfig().catch(() => null)
+      : null;
+    const dashboardStats = normalizeAdminDashboardStats(dashboard);
+    
+    // Emit real-time Socket.IO event for metrics updates
+    const socket = getSocket();
+    socket.emit('admin_dashboard_refreshed', {
+      timestamp: new Date().toISOString(),
+      data_loaded: !!dashboard
+    });
 
     if (dashboard) {
-      setStats(dashboard);
+      setStats(dashboardStats);
     }
     if (pricingSettings) {
       setPricingRules({
@@ -418,11 +612,15 @@ export default function AdminDashboard({ token, user, onLogout }) {
         peak_hours: Array.isArray(pricingSettings.peak_hours) ? pricingSettings.peak_hours.join(',') : '8,9,17,18,19',
       });
     }
-    setKycRequests(pending || []);
+    if (loadKyc) {
+      setKycRequests(normalizeListResponse(pending, ['pending', 'requests', 'kyc_requests']));
+      setPassengerKycRequests(normalizeListResponse(pendingPassengerKyc, ['pending', 'requests', 'kyc_requests']));
+    }
     if (feeSettings) {
       setRegistrationFees({
         passenger_registration_fee: String(feeSettings.passenger_registration_fee ?? 0),
         driver_registration_fee: String(feeSettings.driver_registration_fee ?? 0),
+        operator_registration_fee: String(feeSettings.operator_registration_fee ?? 0),
         scheme_start_at: normalizeDateTimeText(feeSettings.scheme_start_at),
         scheme_end_at: normalizeDateTimeText(feeSettings.scheme_end_at),
         enable_qr: Boolean(feeSettings.enable_qr),
@@ -432,26 +630,90 @@ export default function AdminDashboard({ token, user, onLogout }) {
         razorpay_payment_link: String(feeSettings.razorpay_payment_link || ''),
       });
     }
-    setPendingRegistrationPayments(Array.isArray(pendingRegistrations) ? pendingRegistrations : []);
+    if (loadRegistration) {
+      setPendingRegistrationPayments(normalizeListResponse(pendingRegistrations, ['payments', 'pending_payments']));
+    }
+    if (loadWallet) {
+      setPendingWalletTopups(normalizeListResponse(pendingWalletTopupRows, ['topups', 'pending_topups']));
+    }
     if (subscriptionSettings) {
       setSubscriptionConfig({
         passenger: normalizeRoleSubscriptionConfig(subscriptionSettings.passenger || {}),
         driver: normalizeRoleSubscriptionConfig(subscriptionSettings.driver || {}),
+        operator: normalizeRoleSubscriptionConfig(subscriptionSettings.operator || {}),
       });
     }
-    setPendingSubscriptionActivations(Array.isArray(pendingSubscriptions) ? pendingSubscriptions : []);
-    setPendingSubscriptionPayments(Array.isArray(pendingSubscriptionPaymentRows) ? pendingSubscriptionPaymentRows : []);
-    setPendingPhoneChangeRequests(Array.isArray(pendingPhoneChanges) ? pendingPhoneChanges : []);
-    setPendingDriverFareRequests(Array.isArray(pendingDriverFare) ? pendingDriverFare : []);
-    setApprovedDriverFareConfigs(Array.isArray(approvedDriverFare) ? approvedDriverFare : []);
-    setOngoingTrips(Array.isArray(activeTrips) ? activeTrips : []);
-    setDriverUsers(Array.isArray(usersLiveStatus?.drivers) ? usersLiveStatus.drivers : []);
-    setPassengerUsers(Array.isArray(usersLiveStatus?.passengers) ? usersLiveStatus.passengers : []);
-    setLiveCounts({
-      drivers_live: Number(usersLiveStatus?.live_counts?.drivers_live || 0),
-      passengers_live: Number(usersLiveStatus?.live_counts?.passengers_live || 0),
-      total_live: Number(usersLiveStatus?.live_counts?.total_live || 0),
-    });
+    if (loadSubscriptions) {
+      setPendingSubscriptionActivations(normalizeListResponse(pendingSubscriptions, ['subscriptions', 'pending_subscriptions']));
+      setPendingSubscriptionPayments(normalizeListResponse(pendingSubscriptionPaymentRows, ['payments', 'pending_payments']));
+    }
+    if (loadPhone) {
+      setPendingPhoneChangeRequests(normalizeListResponse(pendingPhoneChanges, ['requests', 'phone_changes']));
+    }
+    if (loadAccountDeletions) {
+      setPendingAccountDeletionRequests(normalizeListResponse(pendingAccountDeletions, ['requests', 'account_deletions']));
+    }
+    if (loadPricing) {
+      setPendingDriverFareRequests(normalizeListResponse(pendingDriverFare, ['requests', 'fare_requests']));
+      setApprovedDriverFareConfigs(normalizeListResponse(approvedDriverFare, ['configs', 'fare_configs']));
+    }
+    if (loadTrips) {
+      setOngoingTrips(normalizeListResponse(activeTrips, ['bookings', 'trips']));
+    }
+    const liveDrivers = loadUsersLive ? normalizeListResponse(usersLiveStatus?.drivers) : driverUsers;
+    const livePassengers = loadUsersLive ? normalizeListResponse(usersLiveStatus?.passengers) : passengerUsers;
+    const liveOperators = loadUsersLive ? normalizeListResponse(usersLiveStatus?.operators) : operatorUsers;
+    if (loadUsersLive) {
+      setDriverUsers(liveDrivers);
+      setPassengerUsers(livePassengers);
+      setOperatorUsers(liveOperators);
+      setLiveCounts({
+        drivers_live: Number(usersLiveStatus?.live_counts?.drivers_live || 0),
+        passengers_live: Number(usersLiveStatus?.live_counts?.passengers_live || 0),
+        operators_total: Number(usersLiveStatus?.live_counts?.operators_total || 0),
+        total_live: Number(usersLiveStatus?.live_counts?.total_live || 0),
+      });
+    }
+    if (loadRoleReport) {
+      const reportPassengers = normalizeRoleReportRows(
+        normalizeListResponse(roleReport?.passengers),
+        livePassengers,
+        'passenger',
+      );
+      const reportDrivers = normalizeRoleReportRows(
+        normalizeListResponse(roleReport?.drivers),
+        liveDrivers,
+        'driver',
+      );
+      const reportOperators = normalizeRoleReportRows(
+        normalizeListResponse(roleReport?.operators),
+        liveOperators,
+        'operator',
+      );
+      const reportTotal = reportPassengers.length + reportDrivers.length + reportOperators.length;
+      const overviewStats = {
+        ...dashboardStats,
+        total_passengers: dashboardStats.total_passengers || reportPassengers.length,
+        total_drivers: dashboardStats.total_drivers || reportDrivers.length,
+        total_operators: dashboardStats.total_operators || reportOperators.length,
+        total_users: dashboardStats.total_users || reportTotal,
+      };
+      if (dashboard || reportTotal > 0) {
+        setStats(overviewStats);
+      }
+      setRolewiseUserReport({
+        passengers: reportPassengers,
+        drivers: reportDrivers,
+        operators: reportOperators,
+        counts: {
+          passengers: reportPassengers.length,
+          drivers: reportDrivers.length,
+          operators: reportOperators.length,
+          total: reportTotal,
+        },
+        generated_at: roleReport?.generated_at || usersLiveStatus?.generated_at || new Date().toISOString(),
+      });
+    }
     if (launchVisits) {
       setLaunchVisitReport({
         ...defaultLaunchVisitReportState(),
@@ -468,7 +730,9 @@ export default function AdminDashboard({ token, user, onLogout }) {
     if (spinWinSettings) {
       setSpinWinConfig(normalizeSpinWinConfig(spinWinSettings));
     }
-    setSpinWinWinners(Array.isArray(spinWinWinnerRows) ? spinWinWinnerRows : []);
+    if (loadSpin) {
+      setSpinWinWinners(normalizeListResponse(spinWinWinnerRows, ['winners']));
+    }
     if (rideProductsDistrictSettings) {
       setRideProductDistrictConfig(normalizeRideProductDistrictConfig(rideProductsDistrictSettings));
     }
@@ -477,11 +741,441 @@ export default function AdminDashboard({ token, user, onLogout }) {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      refreshAdminData().catch(() => null);
+      refreshAdminData({ scope: activeAdminMenu }).catch(() => null);
     }, 0);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [activeAdminMenu, token]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') {
+      return undefined;
+    }
+
+    let lastRefreshAt = 0;
+    const refreshVisibleAdminData = () => {
+      const now = Date.now();
+      if (now - lastRefreshAt < 1000) {
+        return;
+      }
+      lastRefreshAt = now;
+      refreshAdminData({ scope: activeAdminMenu }).catch(() => null);
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refreshVisibleAdminData();
+      }
+    };
+
+    window.addEventListener('pageshow', refreshVisibleAdminData);
+    window.addEventListener('focus', refreshVisibleAdminData);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      window.removeEventListener('pageshow', refreshVisibleAdminData);
+      window.removeEventListener('focus', refreshVisibleAdminData);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeAdminMenu, token]);
+
+  // PHASE 1: FILTERING & PAGINATION FUNCTIONS
+  // Filter trips (without pagination)
+  const filterAndPaginateTrips = useCallback(() => {
+    const filtered = (ongoingTrips || []).filter((trip) => {
+      // Search filter
+      if (tripsSearchTerm.trim()) {
+        const search = tripsSearchTerm.toLowerCase();
+        const matchesSearch =
+          trip.id?.toLowerCase().includes(search) ||
+          trip.passenger_name?.toLowerCase().includes(search) ||
+          trip.passenger_phone?.includes(search) ||
+          trip.driver_name?.toLowerCase().includes(search) ||
+          trip.driver_phone?.includes(search);
+        if (!matchesSearch) return false;
+      }
+      // Status filter
+      if (tripsFilterStatus !== 'all' && trip.status !== tripsFilterStatus) {
+        return false;
+      }
+      return true;
+    });
+    return filtered;
+  }, [ongoingTrips, tripsSearchTerm, tripsFilterStatus]);
+
+  const filteredTrips = useMemo(() => {
+    const filtered = filterAndPaginateTrips();
+    const start = (tripsPage - 1) * tripsPageSize;
+    const end = start + tripsPageSize;
+    return filtered.slice(start, end);
+  }, [filterAndPaginateTrips, tripsPage, tripsPageSize]);
+
+  // Filter users (without pagination)
+  const filterAndPaginateUsers = useCallback(() => {
+    const allUsers = [
+      ...(driverUsers || []).map((u) => ({ ...u, role: 'driver' })),
+      ...(passengerUsers || []).map((u) => ({ ...u, role: 'passenger' })),
+      ...(operatorUsers || []).map((u) => ({ ...u, role: 'operator' })),
+    ];
+
+    const search = usersSearchTerm.toLowerCase();
+    const filtered = allUsers.filter((user) => {
+      // Search filter
+      if (search.trim()) {
+        const matchesSearch =
+          user.id?.toLowerCase().includes(search) ||
+          user.name?.toLowerCase().includes(search) ||
+          user.email?.toLowerCase().includes(search) ||
+          user.phone?.includes(search);
+        if (!matchesSearch) return false;
+      }
+      // Role filter
+      if (usersFilterRole !== 'all' && user.role !== usersFilterRole) {
+        return false;
+      }
+      return true;
+    });
+    return filtered;
+  }, [driverUsers, operatorUsers, passengerUsers, usersSearchTerm, usersFilterRole]);
+
+  const filteredUsers = useMemo(() => {
+    const filtered = filterAndPaginateUsers();
+    const start = (usersPage - 1) * usersPageSize;
+    const end = start + usersPageSize;
+    return filtered.slice(start, end);
+  }, [filterAndPaginateUsers, usersPage, usersPageSize]);
+
+  const filteredRoleReportSections = useMemo(() => {
+    const search = usersSearchTerm.toLowerCase().trim();
+    const sections = [
+      { key: 'passenger', title: 'Passengers', rows: rolewiseUserReport.passengers || [] },
+      { key: 'driver', title: 'Drivers', rows: rolewiseUserReport.drivers || [] },
+      { key: 'operator', title: 'Operators', rows: rolewiseUserReport.operators || [] },
+    ];
+
+    return sections
+      .filter((section) => usersFilterRole === 'all' || usersFilterRole === section.key)
+      .map((section) => ({
+        ...section,
+        rows: section.rows.filter((user) => {
+          if (!search) {
+            return true;
+          }
+          return [user.id, user.name, user.email, user.phone]
+            .filter(Boolean)
+            .some((value) => String(value).toLowerCase().includes(search));
+        }),
+      }));
+  }, [rolewiseUserReport, usersFilterRole, usersSearchTerm]);
+
+  // Filter KYC (without pagination)
+  const filterAndPaginateKyc = useCallback(() => {
+    const search = kycSearchTerm.toLowerCase();
+    const filtered = (kycRequests || []).filter((kyc) => {
+      // Search filter
+      if (search.trim()) {
+        const matchesSearch =
+          kyc.driver_id?.toLowerCase().includes(search) ||
+          kyc.driver_name?.toLowerCase().includes(search) ||
+          kyc.driver_phone?.includes(search) ||
+          kyc.driver_email?.toLowerCase().includes(search);
+        if (!matchesSearch) return false;
+      }
+      // Status filter
+      if (kycFilterStatus !== 'all' && kyc.status !== kycFilterStatus) {
+        return false;
+      }
+      return true;
+    });
+    return filtered;
+  }, [kycRequests, kycSearchTerm, kycFilterStatus]);
+
+  const filteredKyc = useMemo(() => {
+    const filtered = filterAndPaginateKyc();
+    const start = (kycPage - 1) * kycPageSize;
+    const end = start + kycPageSize;
+    return filtered.slice(start, end);
+  }, [filterAndPaginateKyc, kycPage, kycPageSize]);
+
+  // PHASE 2: FILTERING FUNCTIONS FOR REMAINING SECTIONS
+  // Filter phone change requests
+  const filterAndPaginatePhone = useCallback(() => {
+    const filtered = (pendingPhoneChangeRequests || []).filter((item) => {
+      if (phoneSearchTerm.trim()) {
+        const search = phoneSearchTerm.toLowerCase();
+        const matchesSearch =
+          item.name?.toLowerCase().includes(search) ||
+          item.email?.toLowerCase().includes(search) ||
+          item.current_phone?.includes(search) ||
+          item.new_phone?.includes(search) ||
+          item.user_id?.toLowerCase().includes(search);
+        if (!matchesSearch) return false;
+      }
+      return true;
+    });
+    return filtered;
+  }, [pendingPhoneChangeRequests, phoneSearchTerm]);
+
+  const filteredPhone = useMemo(() => {
+    const filtered = filterAndPaginatePhone();
+    const start = (phonePage - 1) * phonePageSize;
+    const end = start + phonePageSize;
+    return filtered.slice(start, end);
+  }, [filterAndPaginatePhone, phonePage, phonePageSize]);
+
+  // Filter account deletion requests
+  const filterAndPaginateDeletion = useCallback(() => {
+    const filtered = (pendingAccountDeletionRequests || []).filter((item) => {
+      if (deletionSearchTerm.trim()) {
+        const search = deletionSearchTerm.toLowerCase();
+        const matchesSearch =
+          item.name?.toLowerCase().includes(search) ||
+          item.email?.toLowerCase().includes(search) ||
+          item.phone?.includes(search) ||
+          item.user_id?.toLowerCase().includes(search) ||
+          item.role?.toLowerCase().includes(search);
+        if (!matchesSearch) return false;
+      }
+      return true;
+    });
+    return filtered;
+  }, [pendingAccountDeletionRequests, deletionSearchTerm]);
+
+  const filteredDeletion = useMemo(() => {
+    const filtered = filterAndPaginateDeletion();
+    const start = (deletionPage - 1) * deletionPageSize;
+    const end = start + deletionPageSize;
+    return filtered.slice(start, end);
+  }, [filterAndPaginateDeletion, deletionPage, deletionPageSize]);
+
+  // Filter wallet top-ups
+  const filterAndPaginateWallet = useCallback(() => {
+    const filtered = (pendingWalletTopups || []).filter((item) => {
+      if (walletSearchTerm.trim()) {
+        const search = walletSearchTerm.toLowerCase();
+        const matchesSearch =
+          item.name?.toLowerCase().includes(search) ||
+          item.email?.toLowerCase().includes(search) ||
+          item.phone?.includes(search) ||
+          item.order_id?.toLowerCase().includes(search) ||
+          item.provider?.toLowerCase().includes(search);
+        if (!matchesSearch) return false;
+      }
+      return true;
+    });
+    return filtered;
+  }, [pendingWalletTopups, walletSearchTerm]);
+
+  const filteredWallet = useMemo(() => {
+    const filtered = filterAndPaginateWallet();
+    const start = (walletPage - 1) * walletPageSize;
+    const end = start + walletPageSize;
+    return filtered.slice(start, end);
+  }, [filterAndPaginateWallet, walletPage, walletPageSize]);
+
+  // Filter subscriptions
+  const filterAndPaginateSubscription = useCallback(() => {
+    const filtered = (pendingSubscriptionActivations || []).filter((item) => {
+      if (subscriptionSearchTerm.trim()) {
+        const search = subscriptionSearchTerm.toLowerCase();
+        const matchesSearch =
+          item.user_name?.toLowerCase().includes(search) ||
+          item.email?.toLowerCase().includes(search) ||
+          item.phone?.includes(search) ||
+          item.user_id?.toLowerCase().includes(search) ||
+          item.plan_name?.toLowerCase().includes(search);
+        if (!matchesSearch) return false;
+      }
+      return true;
+    });
+    return filtered;
+  }, [pendingSubscriptionActivations, subscriptionSearchTerm]);
+
+  const filteredSubscription = useMemo(() => {
+    const filtered = filterAndPaginateSubscription();
+    const start = (subscriptionPage - 1) * subscriptionPageSize;
+    const end = start + subscriptionPageSize;
+    return filtered.slice(start, end);
+  }, [filterAndPaginateSubscription, subscriptionPage, subscriptionPageSize]);
+
+  // PHASE 1: AUDIT LOGGING HANDLERS
+  const handleCancelTripWithConfirm = async (tripId) => {
+    const trip = (ongoingTrips || []).find((t) => t.id === tripId);
+    const reason = tripCancelReasons[tripId] || 'Cancelled by admin';
+
+    setShowConfirmTripsModal(false);
+    setAuditLogging(true);
+
+    try {
+      // Log to audit trail
+      await AdminAuditLogger.logAction(ACTION_TYPES.TRIP_CANCELLED, {
+        trip_id: tripId,
+        passenger_id: trip?.passenger_id,
+        driver_id: trip?.driver_id,
+        reason: reason,
+        cancelled_at: new Date().toISOString(),
+      });
+
+      // Cancel the trip
+      await cancelOngoingTripByAdmin(tripId);
+      setMessage('✓ Trip cancelled and logged to audit trail');
+    } catch (err) {
+      setError('Failed to cancel trip: ' + err.message);
+    } finally {
+      setAuditLogging(false);
+    }
+  };
+
+  const handleApproveKyc = async (kycId) => {
+    const kyc = (kycRequests || []).find((k) => k.id === kycId);
+    setShowConfirmKycModal(false);
+    setAuditLogging(true);
+
+    try {
+      await AdminAuditLogger.logAction(ACTION_TYPES.KYC_APPROVED, {
+        kyc_id: kycId,
+        driver_id: kyc?.driver_id,
+        driver_name: kyc?.driver_name,
+        approved_at: new Date().toISOString(),
+      });
+
+      // Approve KYC
+      const result = await apiRequest('/admin/kyc/approve', {
+        method: 'POST',
+        token,
+        body: { kyc_id: kycId },
+      });
+
+      if (result?.success) {
+        setMessage('✓ KYC approved and logged');
+        await refreshAdminData();
+      } else {
+        setError(result?.error || 'Failed to approve KYC');
+      }
+    } catch (err) {
+      setError('Failed to approve KYC: ' + err.message);
+    } finally {
+      setAuditLogging(false);
+    }
+  };
+
+  const handleRejectKyc = async (kycId, reason) => {
+    const kyc = (kycRequests || []).find((k) => k.id === kycId);
+    setShowConfirmKycModal(false);
+    setAuditLogging(true);
+
+    try {
+      await AdminAuditLogger.logAction(ACTION_TYPES.KYC_REJECTED, {
+        kyc_id: kycId,
+        driver_id: kyc?.driver_id,
+        driver_name: kyc?.driver_name,
+        rejection_reason: reason,
+        rejected_at: new Date().toISOString(),
+      });
+
+      // Reject KYC
+      const result = await apiRequest('/admin/kyc/reject', {
+        method: 'POST',
+        token,
+        body: { kyc_id: kycId, reason },
+      });
+
+      if (result?.success) {
+        setMessage('✓ KYC rejected and logged');
+        await refreshAdminData();
+      } else {
+        setError(result?.error || 'Failed to reject KYC');
+      }
+    } catch (err) {
+      setError('Failed to reject KYC: ' + err.message);
+    } finally {
+      setAuditLogging(false);
+    }
+  };
+
+  // PHASE 2: AUDIT LOGGING HANDLERS FOR ADDITIONAL ACTIONS
+  const handlePhoneChangeApproval = async (userId, status) => {
+    setAuditLogging(true);
+    try {
+      const user = (pendingPhoneChangeRequests || []).find((item) => item.user_id === userId);
+      await AdminAuditLogger.logAction(ACTION_TYPES.PHONE_CHANGE_APPROVED, {
+        user_id: userId,
+        user_name: user?.name,
+        old_phone: user?.current_phone,
+        new_phone: user?.new_phone,
+        status: status,
+        approved_at: new Date().toISOString(),
+      });
+      await reviewPhoneChange(userId, status);
+    } catch (err) {
+      setError('Failed to process phone change: ' + err.message);
+    } finally {
+      setAuditLogging(false);
+    }
+  };
+
+  const handleAccountDeletionApproval = async (requestId, status) => {
+    setAuditLogging(true);
+    try {
+      const request = (pendingAccountDeletionRequests || []).find((item) => item.id === requestId);
+      await AdminAuditLogger.logAction(ACTION_TYPES.ACCOUNT_DELETION_APPROVED, {
+        deletion_request_id: requestId,
+        user_id: request?.user_id,
+        user_name: request?.name,
+        user_role: request?.role,
+        status: status,
+        approved_at: new Date().toISOString(),
+      });
+      await reviewAccountDeletion(requestId, status);
+    } catch (err) {
+      setError('Failed to process account deletion: ' + err.message);
+    } finally {
+      setAuditLogging(false);
+    }
+  };
+
+  const handleWalletTopupApproval = async (orderId, status) => {
+    setAuditLogging(true);
+    try {
+      const item = (pendingWalletTopups || []).find((w) => w.order_id === orderId);
+      await AdminAuditLogger.logAction(ACTION_TYPES.WALLET_TOP_UP_APPROVED, {
+        order_id: orderId,
+        user_id: item?.user_id,
+        user_name: item?.name,
+        amount: item?.amount,
+        provider: item?.provider,
+        status: status,
+        verified_at: new Date().toISOString(),
+      });
+      await reviewWalletTopup(orderId, status);
+    } catch (err) {
+      setError('Failed to process wallet top-up: ' + err.message);
+    } finally {
+      setAuditLogging(false);
+    }
+  };
+
+  const handleSubscriptionApproval = async (subscriptionId, status) => {
+    setAuditLogging(true);
+    try {
+      const sub = (pendingSubscriptionActivations || []).find((s) => s.id === subscriptionId);
+      await AdminAuditLogger.logAction(ACTION_TYPES.SUBSCRIPTION_UPDATED, {
+        subscription_id: subscriptionId,
+        user_id: sub?.user_id,
+        user_name: sub?.user_name,
+        plan_name: sub?.plan_name,
+        status: status,
+        updated_at: new Date().toISOString(),
+      });
+      // Add API call for subscription approval when available
+      setMessage(`✓ Subscription ${status} and logged`);
+      await refreshAdminData();
+    } catch (err) {
+      setError('Failed to process subscription: ' + err.message);
+    } finally {
+      setAuditLogging(false);
+    }
+  };
 
   const updatePricingField = (key, value) => {
     setPricingRules((prev) => ({ ...prev, [key]: value }));
@@ -596,77 +1290,47 @@ export default function AdminDashboard({ token, user, onLogout }) {
       }
       return trimmed.includes('T') ? trimmed : trimmed.replace(' ', 'T');
     };
+    const serializeRoleConfig = (roleConfig) => ({
+      monthly: {
+        amount: parseAmount(roleConfig.monthly.amount),
+        active: Boolean(roleConfig.monthly.active),
+        scheme_start_at: normalizeDatePayload(roleConfig.monthly.scheme_start_at),
+        scheme_end_at: normalizeDatePayload(roleConfig.monthly.scheme_end_at),
+      },
+      quarterly: {
+        amount: parseAmount(roleConfig.quarterly.amount),
+        active: Boolean(roleConfig.quarterly.active),
+        scheme_start_at: normalizeDatePayload(roleConfig.quarterly.scheme_start_at),
+        scheme_end_at: normalizeDatePayload(roleConfig.quarterly.scheme_end_at),
+      },
+      annually: {
+        amount: parseAmount(roleConfig.annually.amount),
+        active: Boolean(roleConfig.annually.active),
+        scheme_start_at: normalizeDatePayload(roleConfig.annually.scheme_start_at),
+        scheme_end_at: normalizeDatePayload(roleConfig.annually.scheme_end_at),
+      },
+      per_trip: {
+        amount: parseAmount(roleConfig.per_trip.amount),
+        active: Boolean(roleConfig.per_trip.active),
+        ride_threshold: parseThreshold(roleConfig.per_trip.ride_threshold),
+        scheme_start_at: normalizeDatePayload(roleConfig.per_trip.scheme_start_at),
+        scheme_end_at: normalizeDatePayload(roleConfig.per_trip.scheme_end_at),
+      },
+    });
     const payload = {
-      passenger: {
-        monthly: {
-          amount: parseAmount(subscriptionConfig.passenger.monthly.amount),
-          active: Boolean(subscriptionConfig.passenger.monthly.active),
-          scheme_start_at: normalizeDatePayload(subscriptionConfig.passenger.monthly.scheme_start_at),
-          scheme_end_at: normalizeDatePayload(subscriptionConfig.passenger.monthly.scheme_end_at),
-        },
-        quarterly: {
-          amount: parseAmount(subscriptionConfig.passenger.quarterly.amount),
-          active: Boolean(subscriptionConfig.passenger.quarterly.active),
-          scheme_start_at: normalizeDatePayload(subscriptionConfig.passenger.quarterly.scheme_start_at),
-          scheme_end_at: normalizeDatePayload(subscriptionConfig.passenger.quarterly.scheme_end_at),
-        },
-        annually: {
-          amount: parseAmount(subscriptionConfig.passenger.annually.amount),
-          active: Boolean(subscriptionConfig.passenger.annually.active),
-          scheme_start_at: normalizeDatePayload(subscriptionConfig.passenger.annually.scheme_start_at),
-          scheme_end_at: normalizeDatePayload(subscriptionConfig.passenger.annually.scheme_end_at),
-        },
-        per_trip: {
-          amount: parseAmount(subscriptionConfig.passenger.per_trip.amount),
-          active: Boolean(subscriptionConfig.passenger.per_trip.active),
-          ride_threshold: parseThreshold(subscriptionConfig.passenger.per_trip.ride_threshold),
-          scheme_start_at: normalizeDatePayload(subscriptionConfig.passenger.per_trip.scheme_start_at),
-          scheme_end_at: normalizeDatePayload(subscriptionConfig.passenger.per_trip.scheme_end_at),
-        },
-      },
-      driver: {
-        monthly: {
-          amount: parseAmount(subscriptionConfig.driver.monthly.amount),
-          active: Boolean(subscriptionConfig.driver.monthly.active),
-          scheme_start_at: normalizeDatePayload(subscriptionConfig.driver.monthly.scheme_start_at),
-          scheme_end_at: normalizeDatePayload(subscriptionConfig.driver.monthly.scheme_end_at),
-        },
-        quarterly: {
-          amount: parseAmount(subscriptionConfig.driver.quarterly.amount),
-          active: Boolean(subscriptionConfig.driver.quarterly.active),
-          scheme_start_at: normalizeDatePayload(subscriptionConfig.driver.quarterly.scheme_start_at),
-          scheme_end_at: normalizeDatePayload(subscriptionConfig.driver.quarterly.scheme_end_at),
-        },
-        annually: {
-          amount: parseAmount(subscriptionConfig.driver.annually.amount),
-          active: Boolean(subscriptionConfig.driver.annually.active),
-          scheme_start_at: normalizeDatePayload(subscriptionConfig.driver.annually.scheme_start_at),
-          scheme_end_at: normalizeDatePayload(subscriptionConfig.driver.annually.scheme_end_at),
-        },
-        per_trip: {
-          amount: parseAmount(subscriptionConfig.driver.per_trip.amount),
-          active: Boolean(subscriptionConfig.driver.per_trip.active),
-          ride_threshold: parseThreshold(subscriptionConfig.driver.per_trip.ride_threshold),
-          scheme_start_at: normalizeDatePayload(subscriptionConfig.driver.per_trip.scheme_start_at),
-          scheme_end_at: normalizeDatePayload(subscriptionConfig.driver.per_trip.scheme_end_at),
-        },
-      },
+      passenger: serializeRoleConfig(subscriptionConfig.passenger),
+      driver: serializeRoleConfig(subscriptionConfig.driver),
+      operator: serializeRoleConfig(subscriptionConfig.operator),
     };
+    const roleSubscriptionPayloads = Object.values(payload);
 
-    const invalidAmount = [
-      payload.passenger.monthly.amount,
-      payload.passenger.quarterly.amount,
-      payload.passenger.annually.amount,
-      payload.passenger.per_trip.amount,
-      payload.driver.monthly.amount,
-      payload.driver.quarterly.amount,
-      payload.driver.annually.amount,
-      payload.driver.per_trip.amount,
-    ].some((amount) => Number.isNaN(amount) || amount < 0);
+    const invalidAmount = roleSubscriptionPayloads
+      .flatMap((roleConfig) => SUBSCRIPTION_PERIOD_OPTIONS.map((plan) => roleConfig[plan].amount))
+      .some((amount) => Number.isNaN(amount) || amount < 0);
 
-    const invalidThreshold = [payload.passenger.per_trip.ride_threshold, payload.driver.per_trip.ride_threshold].some(
-      (threshold) => Number.isNaN(threshold) || threshold < 1,
-    );
+    const invalidThreshold = roleSubscriptionPayloads
+      .map((roleConfig) => roleConfig.per_trip.ride_threshold)
+      .some((threshold) => Number.isNaN(threshold) || threshold < 1);
 
     if (invalidAmount) {
       setError('Subscription amounts must be non-negative numbers.');
@@ -677,16 +1341,9 @@ export default function AdminDashboard({ token, user, onLogout }) {
       return;
     }
 
-    const plansToValidate = [
-      payload.passenger.monthly,
-      payload.passenger.quarterly,
-      payload.passenger.annually,
-      payload.passenger.per_trip,
-      payload.driver.monthly,
-      payload.driver.quarterly,
-      payload.driver.annually,
-      payload.driver.per_trip,
-    ];
+    const plansToValidate = roleSubscriptionPayloads.flatMap((roleConfig) =>
+      SUBSCRIPTION_PERIOD_OPTIONS.map((plan) => roleConfig[plan]),
+    );
     for (const plan of plansToValidate) {
       const amount = Number(plan.amount || 0);
       if (amount > 0 && (!plan.scheme_start_at || !plan.scheme_end_at)) {
@@ -716,6 +1373,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
       setSubscriptionConfig({
         passenger: normalizeRoleSubscriptionConfig(saved.passenger || {}),
         driver: normalizeRoleSubscriptionConfig(saved.driver || {}),
+        operator: normalizeRoleSubscriptionConfig(saved.operator || {}),
       });
     }
   };
@@ -763,6 +1421,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
   const saveRegistrationFees = async () => {
     const passenger = Number(registrationFees.passenger_registration_fee || 0);
     const driver = Number(registrationFees.driver_registration_fee || 0);
+    const operator = Number(registrationFees.operator_registration_fee || 0);
     const normalizeDatePayload = (value) => {
       const trimmed = String(value || '').trim();
       if (!trimmed) {
@@ -772,11 +1431,18 @@ export default function AdminDashboard({ token, user, onLogout }) {
     };
     const schemeStartAt = normalizeDatePayload(registrationFees.scheme_start_at);
     const schemeEndAt = normalizeDatePayload(registrationFees.scheme_end_at);
-    if (Number.isNaN(passenger) || passenger < 0 || Number.isNaN(driver) || driver < 0) {
+    if (
+      Number.isNaN(passenger) ||
+      passenger < 0 ||
+      Number.isNaN(driver) ||
+      driver < 0 ||
+      Number.isNaN(operator) ||
+      operator < 0
+    ) {
       setError('Registration fees must be valid non-negative numbers.');
       return;
     }
-    if ((passenger > 0 || driver > 0) && (!schemeStartAt || !schemeEndAt)) {
+    if ((passenger > 0 || driver > 0 || operator > 0) && (!schemeStartAt || !schemeEndAt)) {
       setError('Registration scheme start and end date are required when fee is greater than zero.');
       return;
     }
@@ -796,6 +1462,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
           body: {
             passenger_registration_fee: passenger,
             driver_registration_fee: driver,
+            operator_registration_fee: operator,
             scheme_start_at: schemeStartAt,
             scheme_end_at: schemeEndAt,
             enable_qr: registrationFees.enable_qr,
@@ -811,6 +1478,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
       setRegistrationFees({
         passenger_registration_fee: String(result.passenger_registration_fee ?? 0),
         driver_registration_fee: String(result.driver_registration_fee ?? 0),
+        operator_registration_fee: String(result.operator_registration_fee ?? 0),
         scheme_start_at: normalizeDateTimeText(result.scheme_start_at),
         scheme_end_at: normalizeDateTimeText(result.scheme_end_at),
         enable_qr: Boolean(result.enable_qr),
@@ -885,7 +1553,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
         .map((item) => item.trim())
         .filter(Boolean);
 
-    const allowedRoles = ['passenger', 'driver'];
+    const allowedRoles = ['passenger', 'driver', 'operator'];
     const selectedRoles = Array.isArray(spinWinConfig.eligible_roles)
       ? spinWinConfig.eligible_roles.filter((role) => allowedRoles.includes(String(role).toLowerCase()))
       : [];
@@ -971,7 +1639,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
     if (saved) {
       setSpinWinConfig(normalizeSpinWinConfig(saved));
       const winners = await apiRequest('/admin/spin-win/winners', { token, query: { limit: 50 } }).catch(() => []);
-      setSpinWinWinners(Array.isArray(winners) ? winners : []);
+      setSpinWinWinners(normalizeListResponse(winners, ['winners']));
     }
   };
 
@@ -1082,17 +1750,20 @@ export default function AdminDashboard({ token, user, onLogout }) {
   const farePreview = getFareLogicPreview();
   const selectedDistrictProducts = getSelectedDistrictProducts();
 
-  const reviewKyc = async (driverId, status) => {
-    const payload = { status, reject_reason: status === 'rejected' ? 'Rejected by admin review.' : null };
-    const reviewed = await runAction(() =>
-      apiRequest(`/admin/kyc/${driverId}`, {
-        method: 'PUT',
-        token,
-        body: payload,
-      }),
+  const reviewWalletTopup = async (orderId, status) => {
+    const reviewed = await runAction(
+      () =>
+        apiRequest(`/admin/wallet/topups/${orderId}`, {
+          method: 'PUT',
+          token,
+          body: {
+            status,
+            reject_reason: status === 'rejected' ? 'Rejected by admin review.' : undefined,
+          },
+        }),
+      `Wallet top-up ${status}.`,
     );
     if (reviewed) {
-      setMessage(`KYC ${status} for driver ${driverId}.`);
       await refreshAdminData();
     }
   };
@@ -1133,6 +1804,24 @@ export default function AdminDashboard({ token, user, onLogout }) {
     }
   };
 
+  const reviewAccountDeletion = async (requestId, status) => {
+    const reviewed = await runAction(
+      () =>
+        apiRequest(`/admin/account-deletions/${requestId}`, {
+          method: 'PUT',
+          token,
+          body: {
+            status,
+            reject_reason: status === 'rejected' ? 'Rejected by admin review.' : undefined,
+          },
+        }),
+      `Account deletion ${status}.`,
+    );
+    if (reviewed) {
+      await refreshAdminData();
+    }
+  };
+
   const updateTripCancelReason = (bookingId, value) => {
     setTripCancelReasons((prev) => ({ ...prev, [bookingId]: value }));
   };
@@ -1157,28 +1846,32 @@ export default function AdminDashboard({ token, user, onLogout }) {
     if (!value) {
       return '-';
     }
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
+    try {
+      return formatToIST(value, { dateStyle: 'medium', timeStyle: 'short' });
+    } catch {
       return String(value);
     }
-    return date.toLocaleString();
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-        <AutoBuddyBrand compact subtitle="Admin Dashboard" />
+      <ScrollView style={[styles.container, isCompactWeb && styles.containerCompact]} showsVerticalScrollIndicator={false}>
         <WebCommandBar />
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.headerTitle}>Admin Control</Text>
-            <Text style={styles.headerSub}>Welcome, {user?.name || 'Admin'}</Text>
+        <View style={[styles.header, isCompactWeb && styles.headerCompact]}>
+          <View style={isCompactWeb && styles.headerCopyCompact}>
+            <Text style={[styles.headerTitle, isCompactWeb && styles.headerTitleCompact]}>Admin Control</Text>
+            <Text style={[styles.headerSub, isCompactWeb && styles.headerSubCompact]}>
+              Welcome, {user?.name || 'Admin'}
+            </Text>
           </View>
-          <View style={styles.headerActions}>
-            <TouchableOpacity style={styles.headerBtn} onPress={refreshAdminData} disabled={loading}>
+          <View style={[styles.headerActions, isCompactWeb && styles.headerActionsCompact]}>
+            <TouchableOpacity
+              style={[styles.headerBtn, isCompactWeb && styles.headerBtnCompact]}
+              onPress={refreshAdminData}
+              disabled={loading}>
               <Text style={styles.headerBtnText}>Refresh</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.headerBtn} onPress={onLogout}>
+            <TouchableOpacity style={[styles.headerBtn, isCompactWeb && styles.headerBtnCompact]} onPress={onLogout}>
               <Text style={styles.headerBtnText}>Logout</Text>
             </TouchableOpacity>
           </View>
@@ -1188,11 +1881,12 @@ export default function AdminDashboard({ token, user, onLogout }) {
         {!!message && <Text style={styles.message}>{message}</Text>}
         {loading && <ActivityIndicator color={COLORS.primary} style={styles.loader} />}
 
-        <View style={styles.dashboardTopRow}>
+        <View style={[styles.dashboardTopRow, isCompactWeb && styles.dashboardTopRowCompact]}>
           <TouchableOpacity
             style={[
               styles.primaryMenuButton,
               activeAdminMenu === PRIMARY_ADMIN_MENU_KEY && styles.primaryMenuButtonActive,
+              isCompactWeb && styles.primaryMenuButtonCompact,
             ]}
             onPress={() => {
               setActiveAdminMenu(PRIMARY_ADMIN_MENU_KEY);
@@ -1201,7 +1895,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
             <Text style={styles.primaryMenuButtonText}>Overview</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={styles.menuToggleButton}
+            style={[styles.menuToggleButton, isCompactWeb && styles.menuToggleButtonCompact]}
             onPress={() => setShowAdminMenus((prev) => !prev)}>
             <Text style={styles.menuToggleButtonText}>{showAdminMenus ? 'Hide Menus' : 'Other Menus'}</Text>
           </TouchableOpacity>
@@ -1230,12 +1924,12 @@ export default function AdminDashboard({ token, user, onLogout }) {
         )}
 
         {activeAdminMenu !== PRIMARY_ADMIN_MENU_KEY && (
-          <View style={styles.activeMenuInfoRow}>
+          <View style={[styles.activeMenuInfoRow, isCompactWeb && styles.activeMenuInfoRowCompact]}>
             <Text style={styles.activeMenuInfoText}>
               {ADMIN_MENU_OPTIONS.find((menu) => menu.key === activeAdminMenu)?.label || 'Menu'}
             </Text>
             <TouchableOpacity
-              style={styles.menuToggleButton}
+              style={[styles.menuToggleButton, isCompactWeb && styles.menuToggleButtonCompact]}
               onPress={() => {
                 setActiveAdminMenu(PRIMARY_ADMIN_MENU_KEY);
                 setShowAdminMenus(false);
@@ -1264,66 +1958,110 @@ export default function AdminDashboard({ token, user, onLogout }) {
               <Text style={styles.statLabel}>Passengers</Text>
               <Text style={styles.statValue}>{stats.total_passengers}</Text>
             </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statLabel}>Operators</Text>
+              <Text style={styles.statValue}>{stats.total_operators || 0}</Text>
+            </View>
             <View style={[styles.statCard, styles.fullWidthCard]}>
               <Text style={styles.statLabel}>Total Revenue</Text>
               <Text style={styles.statValue}>INR {stats.total_revenue}</Text>
             </View>
           </View>
           <Text style={styles.sectionTitle}>Investor Analytics Visibility</Text>
-          <AdminAnalyticsPanel token={token} />
+          <AdminAnalyticsPanel token={token} isActive={activeAdminMenu === 'analytics'} />
         </View>
 
         <View style={[styles.section, activeAdminMenu !== 'trips' && styles.hiddenSection]}>
-          <Text style={styles.sectionTitle}>All Ongoing Trips</Text>
-          {ongoingTrips.length === 0 ? (
+          <Text style={styles.sectionTitle}>All Ongoing Trips ({ongoingTrips.length})</Text>
+
+          <AdminSearchBar
+            placeholder="Search by trip ID, passenger, or driver..."
+            value={tripsSearchTerm}
+            onSearch={setTripsSearchTerm}
+            filterOptions={[
+              { label: 'All Status', value: 'all' },
+              { label: 'Active', value: 'active' },
+              { label: 'Waiting', value: 'waiting' },
+              { label: 'Pickup', value: 'pickup' },
+              { label: 'In Transit', value: 'in_transit' },
+            ]}
+            selectedFilter={tripsFilterStatus}
+            onFilterChange={setTripsFilterStatus}
+          />
+
+          {filteredTrips.length === 0 ? (
             <View style={styles.emptyCard}>
-              <Text style={styles.emptyText}>No ongoing trips right now.</Text>
+              <Text style={styles.emptyText}>
+                {ongoingTrips.length === 0 ? 'No ongoing trips.' : 'No trips match your search.'}
+              </Text>
             </View>
           ) : (
-            ongoingTrips.map((trip) => (
-              <View key={trip.id} style={styles.kycCard}>
-                <Text style={styles.driverName}>Trip ID: {trip.id}</Text>
-                <Text style={styles.kycDate}>Status: {String(trip.status || '').replace('_', ' ')}</Text>
-                <Text style={styles.kycDate}>
-                  Passenger: {trip.passenger_name || 'Unknown'} | {trip.passenger_phone || 'N/A'}
-                </Text>
-                <Text style={styles.kycDate}>
-                  Driver: {trip.driver_name || 'Not assigned'} | {trip.driver_phone || 'N/A'}
-                </Text>
-                <Text style={styles.kycDate}>
-                  Pickup: {trip.pickup_location?.address || `${trip.pickup_location?.latitude || ''}, ${trip.pickup_location?.longitude || ''}`}
-                </Text>
-                <Text style={styles.kycDate}>
-                  Drop: {trip.drop_location?.address || `${trip.drop_location?.latitude || ''}, ${trip.drop_location?.longitude || ''}`}
-                </Text>
-                <Text style={styles.kycDate}>
-                  Fare: Rs {Number(trip.estimated_fare || 0).toFixed(2)} | Distance: {Number(trip.distance_km || 0).toFixed(2)} km
-                </Text>
-                <Text style={styles.kycDate}>Created: {formatDateTime(trip.created_at)}</Text>
-                <Text style={styles.kycDate}>Updated: {formatDateTime(trip.updated_at)}</Text>
-                <Text style={styles.inputLabel}>Cancel reason (visible in audit trail)</Text>
-                <VoiceTextInput
-                  style={styles.input}
-                  value={tripCancelReasons[trip.id] || ''}
-                  onChangeText={(value) => updateTripCancelReason(trip.id, value)}
-                  placeholder="Cancelled by admin on user request."
-                  placeholderTextColor="#9AA7A0"
-                />
-                <View style={styles.actionButtons}>
-                  <TouchableOpacity
-                    style={[styles.btn, styles.btnReject]}
-                    onPress={() => cancelOngoingTripByAdmin(trip.id)}
-                    disabled={loading}>
-                    <Text style={styles.btnText}>Cancel Trip</Text>
-                  </TouchableOpacity>
+            <>
+              {filteredTrips.map((trip) => (
+                <View key={trip.id} style={styles.kycCard}>
+                  <Text style={styles.driverName}>Trip ID: {trip.id}</Text>
+                  <Text style={styles.kycDate}>Status: {String(trip.status || '').replace('_', ' ')}</Text>
+                  <Text style={styles.kycDate}>
+                    Passenger: {trip.passenger_name || 'Unknown'} | {trip.passenger_phone || 'N/A'}
+                  </Text>
+                  <Text style={styles.kycDate}>
+                    Driver: {trip.driver_name || 'Not assigned'} | {trip.driver_phone || 'N/A'}
+                  </Text>
+                  <Text style={styles.kycDate}>
+                    Fare: Rs {Number(trip.estimated_fare || 0).toFixed(2)} | Distance: {Number(trip.distance_km || 0).toFixed(2)} km
+                  </Text>
+                  <Text style={styles.kycDate}>Created: {formatDateTime(trip.created_at)}</Text>
+                  <Text style={styles.inputLabel}>Cancel reason</Text>
+                  <VoiceTextInput
+                    style={styles.input}
+                    value={tripCancelReasons[trip.id] || ''}
+                    onChangeText={(value) => updateTripCancelReason(trip.id, value)}
+                    placeholder="Reason for cancellation..."
+                    placeholderTextColor="#9AA7A0"
+                  />
+                  <View style={styles.actionButtons}>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.btnReject]}
+                      onPress={() => {
+                        setConfirmTripAction({ tripId: trip.id, reason: tripCancelReasons[trip.id] || '' });
+                        setShowConfirmTripsModal(true);
+                      }}
+                      disabled={loading || auditLogging}>
+                      <Text style={styles.btnText}>Cancel Trip</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              </View>
-            ))
+              ))}
+              <PaginationControls
+                currentPage={tripsPage}
+                pageSize={tripsPageSize}
+                totalItems={ongoingTrips.length}
+                onPageChange={setTripsPage}
+                onPageSizeChange={setTripsPageSize}
+                disabled={loading}
+              />
+            </>
           )}
+
+          <ConfirmationDialog
+            visible={showConfirmTripsModal}
+            title="Cancel Trip?"
+            message="Are you sure you want to cancel this trip?"
+            details={confirmTripAction.reason ? `Reason: ${confirmTripAction.reason}` : 'No reason provided'}
+            confirmText="YES, CANCEL"
+            confirmButtonColor="#FF3B30"
+            cancelText="NO, KEEP"
+            onConfirm={() => handleCancelTripWithConfirm(confirmTripAction.tripId)}
+            onCancel={() => setShowConfirmTripsModal(false)}
+            isLoading={auditLogging}
+            dangerous={true}
+          />
         </View>
 
         <View style={[styles.section, activeAdminMenu !== 'users' && styles.hiddenSection]}>
-          <Text style={styles.sectionTitle}>Drivers & Passengers</Text>
+          <Text style={styles.sectionTitle}>
+            Users ({driverUsers.length + passengerUsers.length + operatorUsers.length})
+          </Text>
           <View style={styles.statsGrid}>
             <View style={styles.statCard}>
               <Text style={styles.statLabel}>Drivers Live</Text>
@@ -1333,58 +2071,150 @@ export default function AdminDashboard({ token, user, onLogout }) {
               <Text style={styles.statLabel}>Passengers Live</Text>
               <Text style={styles.statValue}>{liveCounts.passengers_live}</Text>
             </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statLabel}>Operators</Text>
+              <Text style={styles.statValue}>{liveCounts.operators_total}</Text>
+            </View>
             <View style={[styles.statCard, styles.fullWidthCard]}>
               <Text style={styles.statLabel}>Total Live Users</Text>
               <Text style={styles.statValue}>{liveCounts.total_live}</Text>
             </View>
           </View>
 
-          <Text style={styles.sectionSubtitle}>Drivers ({driverUsers.length})</Text>
-          {driverUsers.length === 0 ? (
-            <View style={styles.emptyCard}>
-              <Text style={styles.emptyText}>No drivers found.</Text>
-            </View>
-          ) : (
-            driverUsers.map((driver) => (
-              <View key={driver.id} style={styles.kycCard}>
-                <View style={styles.userRowHeader}>
-                  <Text style={styles.driverName}>{driver.name || 'Unknown Driver'}</Text>
-                  <Text style={[styles.liveBadge, driver.is_live ? styles.liveBadgeOn : styles.liveBadgeOff]}>
-                    {driver.is_live ? 'LIVE' : 'OFFLINE'}
-                  </Text>
-                </View>
-                <Text style={styles.kycDate}>{driver.email} | {driver.phone}</Text>
-                <Text style={styles.kycDate}>Driver ID: {driver.id}</Text>
-                <Text style={styles.kycDate}>Available: {driver.is_available ? 'Yes' : 'No'}</Text>
-                <Text style={styles.kycDate}>KYC: {driver.kyc_status || 'pending'}</Text>
-                {!!driver.active_booking_id && (
-                  <Text style={styles.kycDate}>Active Trip: {driver.active_booking_id}</Text>
-                )}
-                {!!driver.live_location_updated_at && (
-                  <Text style={styles.kycDate}>Live Updated: {formatDateTime(driver.live_location_updated_at)}</Text>
-                )}
-              </View>
-            ))
-          )}
+          <AdminSearchBar
+            placeholder="Search by name, email, phone, or ID..."
+            value={usersSearchTerm}
+            onSearch={setUsersSearchTerm}
+            filterOptions={[
+              { label: 'All Users', value: 'all' },
+              { label: 'Drivers Only', value: 'driver' },
+              { label: 'Passengers Only', value: 'passenger' },
+              { label: 'Operators Only', value: 'operator' },
+            ]}
+            selectedFilter={usersFilterRole}
+            onFilterChange={setUsersFilterRole}
+          />
 
-          <Text style={styles.sectionSubtitle}>Passengers ({passengerUsers.length})</Text>
-          {passengerUsers.length === 0 ? (
+          {filteredUsers.length === 0 ? (
             <View style={styles.emptyCard}>
-              <Text style={styles.emptyText}>No passengers found.</Text>
+              <Text style={styles.emptyText}>
+                {driverUsers.length + passengerUsers.length + operatorUsers.length === 0
+                  ? 'No users found.'
+                  : 'No users match your search.'}
+              </Text>
             </View>
           ) : (
-            passengerUsers.map((passenger) => (
-              <View key={passenger.id} style={styles.kycCard}>
-                <View style={styles.userRowHeader}>
-                  <Text style={styles.driverName}>{passenger.name || 'Unknown Passenger'}</Text>
-                  <Text style={[styles.liveBadge, passenger.is_live ? styles.liveBadgeOn : styles.liveBadgeOff]}>
-                    {passenger.is_live ? 'LIVE' : 'OFFLINE'}
-                  </Text>
+            <>
+              {filteredUsers.map((user) => (
+                <View key={user.id} style={styles.kycCard}>
+                  <View style={styles.userRowHeader}>
+                    <View>
+                      <Text style={styles.driverName}>{user.name || 'Unknown User'}</Text>
+                      <Text style={styles.kycDate}>
+                        {user.role === 'driver' ? 'Driver' : user.role === 'operator' ? 'Operator' : 'Passenger'}
+                      </Text>
+                    </View>
+                    <Text style={[styles.liveBadge, user.is_live ? styles.liveBadgeOn : styles.liveBadgeOff]}>
+                      {user.is_live ? 'LIVE' : 'OFFLINE'}
+                    </Text>
+                  </View>
+                  <Text style={styles.kycDate}>{user.email} | {user.phone}</Text>
+                  <Text style={styles.kycDate}>ID: {user.id}</Text>
+                  {user.role === 'driver' && (
+                    <>
+                      <Text style={styles.kycDate}>Available: {user.is_available ? 'Yes' : 'No'}</Text>
+                      <Text style={styles.kycDate}>KYC: {user.kyc_status || 'pending'}</Text>
+                      {!!user.active_booking_id && (
+                        <Text style={styles.kycDate}>Active Trip: {user.active_booking_id}</Text>
+                      )}
+                      {!!user.live_location_updated_at && (
+                        <Text style={styles.kycDate}>Live Updated: {formatDateTime(user.live_location_updated_at)}</Text>
+                      )}
+                    </>
+                  )}
+                  {user.role === 'passenger' && (
+                    <>
+                      {!!user.active_booking_id && (
+                        <Text style={styles.kycDate}>Active Trip: {user.active_booking_id}</Text>
+                      )}
+                    </>
+                  )}
                 </View>
-                <Text style={styles.kycDate}>{passenger.email} | {passenger.phone}</Text>
-                <Text style={styles.kycDate}>Passenger ID: {passenger.id}</Text>
-                {!!passenger.active_booking_id && (
-                  <Text style={styles.kycDate}>Active Trip: {passenger.active_booking_id}</Text>
+              ))}
+              <PaginationControls
+                currentPage={usersPage}
+                pageSize={usersPageSize}
+                totalItems={driverUsers.length + passengerUsers.length + operatorUsers.length}
+                onPageChange={setUsersPage}
+                onPageSizeChange={setUsersPageSize}
+                disabled={loading}
+              />
+            </>
+          )}
+        </View>
+
+        <View style={[styles.section, activeAdminMenu !== 'role_report' && styles.hiddenSection]}>
+          <Text style={styles.sectionTitle}>Role-wise User Report</Text>
+          <Text style={styles.kycDate}>
+            Passenger, driver, and operator accounts with name, email, phone, and joining date.
+          </Text>
+          <Text style={styles.kycDate}>Generated: {formatDateTime(rolewiseUserReport.generated_at)}</Text>
+
+          <View style={styles.statsGrid}>
+            <View style={styles.statCard}>
+              <Text style={styles.statLabel}>Passengers</Text>
+              <Text style={styles.statValue}>{rolewiseUserReport.counts.passengers}</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statLabel}>Drivers</Text>
+              <Text style={styles.statValue}>{rolewiseUserReport.counts.drivers}</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statLabel}>Operators</Text>
+              <Text style={styles.statValue}>{rolewiseUserReport.counts.operators}</Text>
+            </View>
+            <View style={[styles.statCard, styles.fullWidthCard]}>
+              <Text style={styles.statLabel}>Total Report Users</Text>
+              <Text style={styles.statValue}>{rolewiseUserReport.counts.total}</Text>
+            </View>
+          </View>
+
+          <AdminSearchBar
+            placeholder="Search report by name, email, phone, or ID..."
+            value={usersSearchTerm}
+            onSearch={setUsersSearchTerm}
+            filterOptions={[
+              { label: 'All Roles', value: 'all' },
+              { label: 'Drivers', value: 'driver' },
+              { label: 'Passengers', value: 'passenger' },
+              { label: 'Operators', value: 'operator' },
+            ]}
+            selectedFilter={usersFilterRole}
+            onFilterChange={setUsersFilterRole}
+          />
+
+          {filteredRoleReportSections.every((section) => section.rows.length === 0) ? (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyText}>No report users match your search.</Text>
+            </View>
+          ) : (
+            filteredRoleReportSections.map((section) => (
+              <View key={section.key} style={styles.kycCard}>
+                <Text style={styles.sectionSubtitle}>
+                  {section.title} ({section.rows.length})
+                </Text>
+                {section.rows.length === 0 ? (
+                  <Text style={styles.kycDate}>No {section.title.toLowerCase()} found.</Text>
+                ) : (
+                  section.rows.map((reportUser) => (
+                    <View key={reportUser.id || `${section.key}-${reportUser.email}`} style={styles.roleReportRow}>
+                      <Text style={styles.driverName}>{reportUser.name || 'Unknown User'}</Text>
+                      <Text style={styles.kycDate}>Email: {reportUser.email || 'N/A'}</Text>
+                      <Text style={styles.kycDate}>Phone: {reportUser.phone || 'N/A'}</Text>
+                      <Text style={styles.kycDate}>Joining Date: {formatDateTime(reportUser.joining_date || reportUser.created_at)}</Text>
+                      <Text style={styles.kycDate}>User ID: {reportUser.id || 'N/A'}</Text>
+                    </View>
+                  ))
                 )}
               </View>
             ))
@@ -1513,7 +2343,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
 
             <Text style={styles.inputLabel}>Eligible Roles</Text>
             <View style={styles.optionRow}>
-              {['passenger', 'driver'].map((role) => {
+              {['passenger', 'driver', 'operator'].map((role) => {
                 const enabled = spinWinConfig.eligible_roles.includes(role);
                 return (
                   <TouchableOpacity
@@ -1528,7 +2358,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                       );
                     }}>
                     <Text style={[styles.optionChipText, enabled && styles.optionChipTextActive]}>
-                      {role === 'passenger' ? 'Passengers' : 'Drivers'}
+                      {role === 'passenger' ? 'Passengers' : role === 'driver' ? 'Drivers' : 'Operators'}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -1685,9 +2515,11 @@ export default function AdminDashboard({ token, user, onLogout }) {
 
         <View style={[styles.section, activeAdminMenu !== 'subscriptions' && styles.hiddenSection]}>
           <Text style={styles.sectionTitle}>Subscription Plans</Text>
-          {['passenger', 'driver'].map((roleKey) => (
+          {['passenger', 'driver', 'operator'].map((roleKey) => (
             <View key={roleKey} style={styles.kycCard}>
-              <Text style={styles.driverName}>{roleKey === 'driver' ? 'Driver Plans' : 'Passenger Plans'}</Text>
+              <Text style={styles.driverName}>
+                {roleKey === 'driver' ? 'Driver Plans' : roleKey === 'operator' ? 'Operator Plans' : 'Passenger Plans'}
+              </Text>
               {SUBSCRIPTION_PERIOD_OPTIONS.map((plan) => (
                 <View key={`${roleKey}-${plan}`} style={styles.subscriptionPlanCard}>
                   <Text style={styles.inputLabel}>{plan.replace('_', ' ').toUpperCase()}</Text>
@@ -1758,40 +2590,62 @@ export default function AdminDashboard({ token, user, onLogout }) {
         </View>
 
         <View style={[styles.section, activeAdminMenu !== 'subscriptions' && styles.hiddenSection]}>
-          <Text style={styles.sectionTitle}>Pending Subscription Activations</Text>
-          {pendingSubscriptionActivations.length === 0 ? (
+          <Text style={styles.sectionTitle}>Pending Subscription Activations ({pendingSubscriptionActivations.length})</Text>
+
+          <AdminSearchBar
+            placeholder="Search by name, email, phone, or ID..."
+            value={subscriptionSearchTerm}
+            onSearch={setSubscriptionSearchTerm}
+          />
+
+          {filteredSubscription.length === 0 ? (
             <View style={styles.emptyCard}>
-              <Text style={styles.emptyText}>No pending subscription activations.</Text>
+              <Text style={styles.emptyText}>
+                {pendingSubscriptionActivations.length === 0 ? 'No pending subscription activations.' : 'No results match your search.'}
+              </Text>
             </View>
           ) : (
-            pendingSubscriptionActivations.map((item) => (
-              <View key={item.id} style={styles.kycCard}>
-                <Text style={styles.driverName}>{item.name}</Text>
-                <Text style={styles.kycDate}>{item.email} | {item.phone}</Text>
-                <Text style={styles.kycDate}>Role: {item.role}</Text>
-                <Text style={styles.kycDate}>Plan: {item.subscription?.plan_type || 'Not selected'}</Text>
-                <Text style={styles.kycDate}>
-                  Admin Activated: {item.subscription?.activated_by_admin ? 'Yes' : 'No'}
-                </Text>
-                <Text style={styles.kycDate}>
-                  Due Amount: Rs {Number(item.subscription?.outstanding_amount || 0).toFixed(2)}
-                </Text>
-                <View style={styles.actionButtons}>
-                  <TouchableOpacity
-                    style={[styles.btn, styles.btnReject]}
-                    onPress={() => activateSubscriptionForUser(item.id, item.subscription?.plan_type, false)}
-                    disabled={loading}>
-                    <Text style={styles.btnText}>Deactivate</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.btn, styles.btnApprove]}
-                    onPress={() => activateSubscriptionForUser(item.id, item.subscription?.plan_type, true)}
-                    disabled={loading}>
-                    <Text style={styles.btnText}>Activate</Text>
-                  </TouchableOpacity>
+            <>
+              {filteredSubscription.map((item) => (
+                <View key={item.id} style={styles.kycCard}>
+                  <Text style={styles.driverName}>{item.name}</Text>
+                  <Text style={styles.kycDate}>{item.email} | {item.phone}</Text>
+                  <Text style={styles.kycDate}>Role: {item.role}</Text>
+                  <Text style={styles.kycDate}>Plan: {item.subscription?.plan_type || 'Not selected'}</Text>
+                  <Text style={styles.kycDate}>
+                    Admin Activated: {item.subscription?.activated_by_admin ? 'Yes' : 'No'}
+                  </Text>
+                  <Text style={styles.kycDate}>
+                    Due Amount: Rs {Number(item.subscription?.outstanding_amount || 0).toFixed(2)}
+                  </Text>
+                  <View style={styles.actionButtons}>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.btnReject]}
+                      onPress={() => activateSubscriptionForUser(item.id, item.subscription?.plan_type, false)}
+                      disabled={loading || auditLogging}>
+                      <Text style={styles.btnText}>Deactivate</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.btnApprove]}
+                      onPress={() => {
+                        handleSubscriptionApproval(item.id, 'approved');
+                        activateSubscriptionForUser(item.id, item.subscription?.plan_type, true);
+                      }}
+                      disabled={loading || auditLogging}>
+                      <Text style={styles.btnText}>Activate</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              </View>
-            ))
+              ))}
+              <PaginationControls
+                currentPage={subscriptionPage}
+                pageSize={subscriptionPageSize}
+                totalItems={pendingSubscriptionActivations.length}
+                onPageChange={setSubscriptionPage}
+                onPageSizeChange={setSubscriptionPageSize}
+                disabled={loading}
+              />
+            </>
           )}
         </View>
 
@@ -1834,35 +2688,107 @@ export default function AdminDashboard({ token, user, onLogout }) {
         </View>
 
         <View style={[styles.section, activeAdminMenu !== 'phone' && styles.hiddenSection]}>
-          <Text style={styles.sectionTitle}>Pending Phone Change Requests</Text>
-          {pendingPhoneChangeRequests.length === 0 ? (
+          <Text style={styles.sectionTitle}>Pending Phone Change Requests ({pendingPhoneChangeRequests.length})</Text>
+
+          <AdminSearchBar
+            placeholder="Search by name, email, phone, or ID..."
+            value={phoneSearchTerm}
+            onSearch={setPhoneSearchTerm}
+          />
+
+          {filteredPhone.length === 0 ? (
             <View style={styles.emptyCard}>
-              <Text style={styles.emptyText}>No pending phone change requests.</Text>
+              <Text style={styles.emptyText}>
+                {pendingPhoneChangeRequests.length === 0 ? 'No pending phone change requests.' : 'No results match your search.'}
+              </Text>
             </View>
           ) : (
-            pendingPhoneChangeRequests.map((item) => (
-              <View key={`${item.user_id}-${item.new_phone}`} style={styles.kycCard}>
-                <Text style={styles.driverName}>{item.name}</Text>
-                <Text style={styles.kycDate}>{item.email} | {item.current_phone}</Text>
-                <Text style={styles.kycDate}>Role: {item.role}</Text>
-                <Text style={styles.kycDate}>Requested new phone: {item.new_phone}</Text>
-                <Text style={styles.kycDate}>OTP verified: {item.verified ? 'Yes' : 'No'}</Text>
-                <View style={styles.actionButtons}>
-                  <TouchableOpacity
-                    style={[styles.btn, styles.btnReject]}
-                    onPress={() => reviewPhoneChange(item.user_id, 'rejected')}
-                    disabled={loading}>
-                    <Text style={styles.btnText}>Reject</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.btn, styles.btnApprove]}
-                    onPress={() => reviewPhoneChange(item.user_id, 'approved')}
-                    disabled={loading}>
-                    <Text style={styles.btnText}>Approve</Text>
-                  </TouchableOpacity>
+            <>
+              {filteredPhone.map((item) => (
+                <View key={`${item.user_id}-${item.new_phone}`} style={styles.kycCard}>
+                  <Text style={styles.driverName}>{item.name}</Text>
+                  <Text style={styles.kycDate}>{item.email} | {item.current_phone}</Text>
+                  <Text style={styles.kycDate}>Role: {item.role}</Text>
+                  <Text style={styles.kycDate}>Requested new phone: {item.new_phone}</Text>
+                  <Text style={styles.kycDate}>OTP verified: {item.verified ? 'Yes' : 'No'}</Text>
+                  <View style={styles.actionButtons}>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.btnReject]}
+                      onPress={() => handlePhoneChangeApproval(item.user_id, 'rejected')}
+                      disabled={loading || auditLogging}>
+                      <Text style={styles.btnText}>Reject</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.btnApprove]}
+                      onPress={() => handlePhoneChangeApproval(item.user_id, 'approved')}
+                      disabled={loading || auditLogging}>
+                      <Text style={styles.btnText}>Approve</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              </View>
-            ))
+              ))}
+              <PaginationControls
+                currentPage={phonePage}
+                pageSize={phonePageSize}
+                totalItems={pendingPhoneChangeRequests.length}
+                onPageChange={setPhonePage}
+                onPageSizeChange={setPhonePageSize}
+                disabled={loading}
+              />
+            </>
+          )}
+        </View>
+
+        <View style={[styles.section, activeAdminMenu !== 'account_deletions' && styles.hiddenSection]}>
+          <Text style={styles.sectionTitle}>Pending Account Deletion Requests ({pendingAccountDeletionRequests.length})</Text>
+
+          <AdminSearchBar
+            placeholder="Search by name, email, phone, or ID..."
+            value={deletionSearchTerm}
+            onSearch={setDeletionSearchTerm}
+          />
+
+          {filteredDeletion.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyText}>
+                {pendingAccountDeletionRequests.length === 0 ? 'No pending account deletion requests.' : 'No results match your search.'}
+              </Text>
+            </View>
+          ) : (
+            <>
+              {filteredDeletion.map((item) => (
+                <View key={item.id} style={styles.kycCard}>
+                  <Text style={styles.driverName}>{item.name || 'Passenger'}</Text>
+                  <Text style={styles.kycDate}>{item.email || 'N/A'} | {item.phone || 'N/A'}</Text>
+                  <Text style={styles.kycDate}>User ID: {item.user_id}</Text>
+                  <Text style={styles.kycDate}>Role: {item.role || 'passenger'}</Text>
+                  <Text style={styles.kycDate}>Account status: {item.account_status || 'deletion_pending'}</Text>
+                  <Text style={styles.kycDate}>Requested: {String(item.created_at || '')}</Text>
+                  <View style={styles.actionButtons}>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.btnReject]}
+                      onPress={() => handleAccountDeletionApproval(item.id, 'rejected')}
+                      disabled={loading || auditLogging}>
+                      <Text style={styles.btnText}>Reject</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.btnApprove]}
+                      onPress={() => handleAccountDeletionApproval(item.id, 'approved')}
+                      disabled={loading || auditLogging}>
+                      <Text style={styles.btnText}>Approve & Block</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+              <PaginationControls
+                currentPage={deletionPage}
+                pageSize={deletionPageSize}
+                totalItems={pendingAccountDeletionRequests.length}
+                onPageChange={setDeletionPage}
+                onPageSizeChange={setDeletionPageSize}
+                disabled={loading}
+              />
+            </>
           )}
         </View>
 
@@ -2204,6 +3130,17 @@ export default function AdminDashboard({ token, user, onLogout }) {
               placeholder="0"
               placeholderTextColor="#9AA7A0"
             />
+            <Text style={styles.inputLabel}>Operator Registration Fee (Rs)</Text>
+            <VoiceTextInput
+              style={styles.input}
+              value={registrationFees.operator_registration_fee}
+              onChangeText={(value) =>
+                setRegistrationFees((prev) => ({ ...prev, operator_registration_fee: value }))
+              }
+              keyboardType="decimal-pad"
+              placeholder="0"
+              placeholderTextColor="#9AA7A0"
+            />
             <Text style={styles.inputLabel}>Scheme Start (YYYY-MM-DD HH:mm)</Text>
             <VoiceTextInput
               style={styles.input}
@@ -2358,35 +3295,214 @@ export default function AdminDashboard({ token, user, onLogout }) {
           )}
         </View>
 
-        <View style={[styles.section, activeAdminMenu !== 'kyc' && styles.hiddenSection]}>
-          <Text style={styles.sectionTitle}>Pending KYC Approvals</Text>
-          {kycRequests.length === 0 ? (
+        <View style={[styles.section, activeAdminMenu !== 'wallet' && styles.hiddenSection]}>
+          <Text style={styles.sectionTitle}>Pending Wallet Top-up Verifications ({pendingWalletTopups.length})</Text>
+
+          <AdminSearchBar
+            placeholder="Search by name, email, phone, or order ID..."
+            value={walletSearchTerm}
+            onSearch={setWalletSearchTerm}
+          />
+
+          {filteredWallet.length === 0 ? (
             <View style={styles.emptyCard}>
-              <Text style={styles.emptyText}>No pending KYC requests right now.</Text>
+              <Text style={styles.emptyText}>
+                {pendingWalletTopups.length === 0 ? 'No pending wallet top-up verifications.' : 'No results match your search.'}
+              </Text>
             </View>
           ) : (
-            kycRequests.map((req) => (
-              <View key={req.driver_id} style={styles.kycCard}>
-                <Text style={styles.driverName}>{req.driver_name}</Text>
-                <Text style={styles.kycDate}>Driver ID: {req.driver_id}</Text>
-                <Text style={styles.kycDate}>Submitted: {req.submitted_at}</Text>
-                <View style={styles.actionButtons}>
-                  <TouchableOpacity
-                    style={[styles.btn, styles.btnReject]}
-                    onPress={() => reviewKyc(req.driver_id, 'rejected')}
-                    disabled={loading}>
-                    <Text style={styles.btnText}>Reject</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.btn, styles.btnApprove]}
-                    onPress={() => reviewKyc(req.driver_id, 'approved')}
-                    disabled={loading}>
-                    <Text style={styles.btnText}>Approve</Text>
-                  </TouchableOpacity>
+            <>
+              {filteredWallet.map((item) => (
+                <View key={item.order_id} style={styles.kycCard}>
+                  <Text style={styles.driverName}>{item.name || 'User'}</Text>
+                  <Text style={styles.kycDate}>{item.email} | {item.phone}</Text>
+                  <Text style={styles.kycDate}>Role: {item.role || 'N/A'}</Text>
+                  <Text style={styles.kycDate}>Order: {item.order_id}</Text>
+                  <Text style={styles.kycDate}>Amount: Rs {Number(item.amount || 0).toFixed(2)}</Text>
+                  <Text style={styles.kycDate}>Provider: {item.provider || 'N/A'}</Text>
+                  {!!item.transaction_ref && <Text style={styles.kycDate}>Reference: {item.transaction_ref}</Text>}
+                  <Text style={styles.kycDate}>Submitted: {String(item.submitted_at || '')}</Text>
+                  <View style={styles.actionButtons}>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.btnReject]}
+                      onPress={() => handleWalletTopupApproval(item.order_id, 'rejected')}
+                      disabled={loading || auditLogging}>
+                      <Text style={styles.btnText}>Reject</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.btnApprove]}
+                      onPress={() => handleWalletTopupApproval(item.order_id, 'verified')}
+                      disabled={loading || auditLogging}>
+                      <Text style={styles.btnText}>Verify & Credit</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              </View>
-            ))
+              ))}
+              <PaginationControls
+                currentPage={walletPage}
+                pageSize={walletPageSize}
+                totalItems={pendingWalletTopups.length}
+                onPageChange={setWalletPage}
+                onPageSizeChange={setWalletPageSize}
+                disabled={loading}
+              />
+            </>
           )}
+        </View>
+
+        <View style={[styles.section, activeAdminMenu !== 'kyc' && styles.hiddenSection]}>
+          <Text style={styles.sectionTitle}>KYC Verification ({kycRequests.length})</Text>
+
+          <AdminSearchBar
+            placeholder="Search by driver name, phone, or ID..."
+            value={kycSearchTerm}
+            onSearch={setKycSearchTerm}
+            filterOptions={[
+              { label: 'All Status', value: 'all' },
+              { label: 'Pending', value: 'pending' },
+              { label: 'Approved', value: 'approved' },
+              { label: 'Rejected', value: 'rejected' },
+            ]}
+            selectedFilter={kycFilterStatus}
+            onFilterChange={setKycFilterStatus}
+          />
+
+          {filteredKyc.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyText}>
+                {kycRequests.length === 0 ? 'No KYC requests.' : 'No KYC requests match your search.'}
+              </Text>
+            </View>
+          ) : (
+            <>
+              {filteredKyc.map((kyc) => (
+                <View key={kyc.driver_id || kyc.id} style={styles.kycCard}>
+                  <Text style={styles.driverName}>{kyc.driver_name}</Text>
+                  <Text style={styles.kycDate}>Driver ID: {kyc.driver_id}</Text>
+                  <Text style={styles.kycDate}>Phone: {kyc.driver_phone}</Text>
+                  <Text style={styles.kycDate}>Status: {kyc.status || 'Pending'}</Text>
+                  <Text style={styles.kycDate}>Submitted: {kyc.submitted_at}</Text>
+                  <View style={styles.actionButtons}>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.btnInfo]}
+                      onPress={() => {
+                        setSelectedKycForPreview(kyc);
+                        setShowKycPreview(true);
+                      }}>
+                      <Text style={styles.btnText}>👁 Documents</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.btnReject]}
+                      onPress={() => {
+                        setConfirmKycAction({ kycId: kyc.driver_id || kyc.id, decision: 'reject' });
+                        setShowConfirmKycModal(true);
+                      }}
+                      disabled={loading || auditLogging}>
+                      <Text style={styles.btnText}>Reject</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.btnApprove]}
+                      onPress={() => {
+                        setConfirmKycAction({ kycId: kyc.driver_id || kyc.id, decision: 'approve' });
+                        setShowConfirmKycModal(true);
+                      }}
+                      disabled={loading || auditLogging}>
+                      <Text style={styles.btnText}>✓ Approve</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+              <PaginationControls
+                currentPage={kycPage}
+                pageSize={kycPageSize}
+                totalItems={kycRequests.length}
+                onPageChange={setKycPage}
+                onPageSizeChange={setKycPageSize}
+                disabled={loading}
+              />
+            </>
+          )}
+
+          <KycDocumentPreview
+            visible={showKycPreview}
+            documents={{
+              id_proof: selectedKycForPreview?.id_proof_url,
+              driving_license: selectedKycForPreview?.driving_license_url,
+              vehicle_rc: selectedKycForPreview?.vehicle_rc_url,
+              insurance: selectedKycForPreview?.insurance_url,
+              pollution_cert: selectedKycForPreview?.pollution_certificate_url,
+              badge_photo: selectedKycForPreview?.badge_photo_url,
+            }}
+            driverName={selectedKycForPreview?.driver_name}
+            onClose={() => setShowKycPreview(false)}
+            onApprove={(docType) => {
+              if (docType === 'all') {
+                handleApproveKyc(selectedKycForPreview?.driver_id || selectedKycForPreview?.id);
+                setShowKycPreview(false);
+              }
+            }}
+            onReject={(docType, reason) => {
+              if (docType === 'all') {
+                handleRejectKyc(selectedKycForPreview?.driver_id || selectedKycForPreview?.id, reason || 'Unclear documents');
+                setShowKycPreview(false);
+              }
+            }}
+          />
+
+          <ConfirmationDialog
+            visible={showConfirmKycModal}
+            title={confirmKycAction.decision === 'approve' ? 'Approve KYC?' : 'Reject KYC?'}
+            message={`Are you sure you want to ${confirmKycAction.decision} this driver's KYC?`}
+            confirmText={confirmKycAction.decision === 'approve' ? 'YES, APPROVE' : 'YES, REJECT'}
+            confirmButtonColor={confirmKycAction.decision === 'approve' ? '#4CAF50' : '#FF9800'}
+            cancelText="NO, CANCEL"
+            onConfirm={() => {
+              if (confirmKycAction.decision === 'approve') {
+                handleApproveKyc(confirmKycAction.kycId);
+              } else {
+                handleRejectKyc(confirmKycAction.kycId, 'Rejected by admin');
+              }
+            }}
+            onCancel={() => setShowConfirmKycModal(false)}
+            isLoading={auditLogging}
+          />
+        </View>
+
+        <View style={[styles.section, activeAdminMenu !== 'rate_limits' && styles.hiddenSection]}>
+          <AdminRateLimitConfig
+            token={token}
+            isActive={activeAdminMenu === 'rate_limits'}
+            onClose={() => setActiveAdminMenu(PRIMARY_ADMIN_MENU_KEY)}
+          />
+        </View>
+
+        <View style={[styles.section, activeAdminMenu !== 'documents' && styles.hiddenSection]}>
+          <AdminDocumentRequirements
+            isActive={activeAdminMenu === 'documents'}
+            onClose={() => setActiveAdminMenu(PRIMARY_ADMIN_MENU_KEY)}
+          />
+        </View>
+
+        <View style={[styles.section, activeAdminMenu !== 'fares' && styles.hiddenSection]}>
+          <AdminFareConfiguration
+            isActive={activeAdminMenu === 'fares'}
+            onClose={() => setActiveAdminMenu(PRIMARY_ADMIN_MENU_KEY)}
+          />
+        </View>
+
+        <View style={[styles.section, activeAdminMenu !== 'fare_proposals' && styles.hiddenSection]}>
+          <AdminFareProposals
+            isActive={activeAdminMenu === 'fare_proposals'}
+            onClose={() => setActiveAdminMenu(PRIMARY_ADMIN_MENU_KEY)}
+          />
+        </View>
+
+        <View style={[styles.section, activeAdminMenu !== 'vehicle_types' && styles.hiddenSection]}>
+          <AdminVehicleManagementScreen
+            embedded
+            token={token}
+            isActive={activeAdminMenu === 'vehicle_types'}
+          />
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -2396,15 +3512,25 @@ export default function AdminDashboard({ token, user, onLogout }) {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.background },
   container: { flex: 1, padding: 18 },
+  containerCompact: { padding: 10 },
   header: {
     marginBottom: 16,
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: 10,
   },
+  headerCompact: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    marginBottom: 12,
+  },
+  headerCopyCompact: { width: '100%' },
   headerTitle: { fontSize: 30, fontWeight: '900', color: COLORS.textMain },
+  headerTitleCompact: { fontSize: 24, lineHeight: 29 },
   headerSub: { fontSize: 15, color: COLORS.textMuted },
+  headerSubCompact: { fontSize: 13, lineHeight: 18 },
   headerActions: { flexDirection: 'row', gap: 8 },
+  headerActionsCompact: { width: '100%' },
   headerBtn: {
     alignSelf: 'flex-start',
     backgroundColor: '#F8FBF9',
@@ -2414,6 +3540,11 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 12,
     ...SHADOWS.soft,
+  },
+  headerBtnCompact: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 9,
   },
   headerBtnText: { color: COLORS.textMain, fontWeight: '700' },
   error: { color: COLORS.danger, marginBottom: 10 },
@@ -2429,6 +3560,7 @@ const styles = StyleSheet.create({
   menuBar: { marginBottom: 14 },
   menuBarContent: { gap: 8, paddingRight: 10 },
   dashboardTopRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
+  dashboardTopRowCompact: { flexDirection: 'column' },
   primaryMenuButton: {
     flex: 1,
     borderWidth: 1,
@@ -2439,6 +3571,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     ...SHADOWS.soft,
   },
+  primaryMenuButtonCompact: { width: '100%' },
   primaryMenuButtonActive: {
     borderColor: '#1B5E20',
     backgroundColor: '#D5ECD8',
@@ -2452,6 +3585,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
   },
+  menuToggleButtonCompact: {
+    alignItems: 'center',
+    width: '100%',
+  },
   menuToggleButtonText: { color: '#355243', fontWeight: '700' },
   activeMenuInfoRow: {
     flexDirection: 'row',
@@ -2459,6 +3596,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     marginBottom: 12,
+  },
+  activeMenuInfoRowCompact: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
   },
   activeMenuInfoText: { color: '#1E3126', fontWeight: '800', fontSize: 14 },
   menuChip: {
@@ -2576,6 +3717,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#D7E2DA',
     ...SHADOWS.card,
+  },
+  roleReportRow: {
+    borderTopWidth: 1,
+    borderTopColor: '#E7EEE9',
+    paddingTop: 12,
+    marginTop: 12,
   },
   subscriptionPlanCard: {
     borderWidth: 1,

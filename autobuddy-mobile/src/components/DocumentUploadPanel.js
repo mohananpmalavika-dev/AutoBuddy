@@ -12,7 +12,9 @@ import {
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { apiRequest } from '../lib/api';
+import { appendPickerAssetToFormData } from '../lib/uploadFormData';
 import { COLORS, SHADOWS } from '../theme';
+import { formatToIST } from '../utils/time';
 
 const DOCUMENT_TYPES = [
   { key: 'driver_license', label: 'Driver License', requiresExpiry: true },
@@ -21,6 +23,7 @@ const DOCUMENT_TYPES = [
   { key: 'pollution_certificate', label: 'Pollution Certificate', requiresExpiry: true },
   { key: 'aadhar', label: 'Aadhar/ID Proof', requiresExpiry: false },
   { key: 'pan', label: 'PAN Card', requiresExpiry: false },
+  { key: 'selfie', label: 'Selfie/Liveness Photo', requiresExpiry: false },
 ];
 
 const DOCUMENT_LABELS = DOCUMENT_TYPES.reduce((labels, item) => {
@@ -112,9 +115,11 @@ function buildLocalReminders(documents) {
 
 function formatDate(value) {
   if (!value) return 'Not set';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleDateString();
+  try {
+    return formatToIST(value, { dateStyle: 'short' });
+  } catch {
+    return String(value);
+  }
 }
 
 function formatFileSize(size) {
@@ -124,7 +129,7 @@ function formatFileSize(size) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export default function DocumentUploadPanel({ token, loading: parentLoading = false }) {
+export default function DocumentUploadPanel({ token, loading: parentLoading = false, onDataChanged }) {
   const [documents, setDocuments] = useState(buildEmptyDocuments);
   const [reminders, setReminders] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -171,6 +176,7 @@ export default function DocumentUploadPanel({ token, loading: parentLoading = fa
       setError('');
       const data = await apiRequest('/drivers/documents', { token });
       applyDocumentsResponse(data);
+      onDataChanged?.();
     } catch (err) {
       setError(err.message || 'Could not load documents.');
       const emptyDocuments = buildEmptyDocuments();
@@ -180,7 +186,7 @@ export default function DocumentUploadPanel({ token, loading: parentLoading = fa
     } finally {
       setLoading(false);
     }
-  }, [applyDocumentsResponse, mergeExpiryDrafts, token]);
+  }, [applyDocumentsResponse, mergeExpiryDrafts, onDataChanged, token]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -220,11 +226,13 @@ export default function DocumentUploadPanel({ token, loading: parentLoading = fa
         setError('');
 
         const formData = new FormData();
-        formData.append('file', {
-          uri: asset.uri,
-          type: asset.mimeType || 'application/octet-stream',
-          name: asset.name || `${docType}.pdf`,
-        });
+        await appendPickerAssetToFormData(
+          formData,
+          'file',
+          asset,
+          asset.name || `${docType}.pdf`,
+          asset.mimeType || 'application/octet-stream',
+        );
         formData.append('doc_type', docType);
         if (expiryDrafts[docType]) {
           if (!/^\d{4}-\d{2}-\d{2}$/.test(expiryDrafts[docType])) {
@@ -246,6 +254,7 @@ export default function DocumentUploadPanel({ token, loading: parentLoading = fa
           setDetailDocument(response.document);
         }
         await fetchDocuments();
+        onDataChanged?.();
         setTimedMessage(`${DOCUMENT_LABELS[docType]} uploaded for verification.`);
       } catch (err) {
         setError(err.message || 'Upload failed');
@@ -254,7 +263,7 @@ export default function DocumentUploadPanel({ token, loading: parentLoading = fa
         setUploadingDocType(null);
       }
     },
-    [expiryDrafts, fetchDocuments, setTimedMessage, token, updateDocumentState],
+    [expiryDrafts, fetchDocuments, onDataChanged, setTimedMessage, token, updateDocumentState],
   );
 
   const openDocumentDetail = useCallback(
@@ -304,6 +313,7 @@ export default function DocumentUploadPanel({ token, loading: parentLoading = fa
               updateDocumentState(docType, emptyDocument);
               setDetailDocument(emptyDocument);
               setExpiryDrafts((previous) => ({ ...previous, [docType]: '' }));
+              onDataChanged?.();
               setTimedMessage(`${DOCUMENT_LABELS[docType]} removed.`);
             } catch (err) {
               setError(err.message || 'Failed to delete document');
@@ -314,7 +324,7 @@ export default function DocumentUploadPanel({ token, loading: parentLoading = fa
         },
       ]);
     },
-    [setTimedMessage, token, updateDocumentState],
+    [onDataChanged, setTimedMessage, token, updateDocumentState],
   );
 
   const openDownload = useCallback(async (document) => {

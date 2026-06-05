@@ -9,6 +9,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import * as AuthSession from 'expo-auth-session';
@@ -16,14 +17,15 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
 
 import { apiRequest, API_BASE_URL } from '../lib/api';
+import { normalizeAuthSessionFromPayload } from '../lib/authSession';
 import { normalizeAdminPaymentOptions, requiresUtrForPaymentMethod } from '../lib/paymentOptions';
 import { COLORS } from '../theme';
 import PremiumCard from '../components/PremiumCard';
 import WebCommandBar from '../components/WebCommandBar';
 import VoiceTextInput from '../components/VoiceTextInput';
 
-const LAUNCH_BANNER_SOURCE = require('../../assets/images/autobuddy-login-hero.jpg');
-const ROLE_OPTIONS = ['passenger', 'driver'];
+const LAUNCH_BANNER_SOURCE = require('../../assets/images/autobuddy-logo.jpg');
+const ROLE_OPTIONS = ['passenger', 'driver', 'operator'];
 const GENDER_OPTIONS = ['male', 'female', 'other'];
 const AUTH_METHODS = [
   { key: 'password', label: 'Password' },
@@ -33,10 +35,13 @@ const REGISTER_AUTH_METHODS = [
   { key: 'google', label: 'Google' },
   { key: 'password', label: 'Password' },
 ];
-const FALLBACK_GOOGLE_WEB_CLIENT_ID = '475485627719-lgd8c3sgr1d5unie68d2qjcifjoolt5f.apps.googleusercontent.com';
 const INDIAN_PHONE_REGEX = /^[6-9]\d{9}$/;
 
-WebBrowser.maybeCompleteAuthSession({ skipRedirectCheck: true });
+try {
+  WebBrowser.maybeCompleteAuthSession({ skipRedirectCheck: true });
+} catch (error) {
+  console.warn('Google auth session completion skipped:', error?.message || error);
+}
 
 const toTitleCase = (value) => value.charAt(0).toUpperCase() + value.slice(1);
 const hasStrongPassword = (value) => /[A-Z]/.test(value) && /[a-z]/.test(value) && /\d/.test(value);
@@ -66,6 +71,41 @@ function shouldFallbackGoogleRequest(error) {
   );
 }
 
+function isGoogleAuthSessionRecoveryError(error) {
+  const message = String(
+    error?.message ||
+      error?.description ||
+      error?.error ||
+      error?.errorCode ||
+      error?.params?.error_description ||
+      error?.params?.error ||
+      '',
+  ).toLowerCase();
+  return (
+    message.includes('session expired') ||
+    message.includes('auth session') ||
+    message.includes('state mismatch') ||
+    message.includes('pkce') ||
+    message.includes('csrf') ||
+    message.includes('redirect')
+  );
+}
+
+function isOperatorRoleSchemaMismatch(error, attemptedRole) {
+  const status = Number(error?.status || 0);
+  const message = String(error?.message || '').toLowerCase();
+  const mentionsRoleField = message.includes('body.role') || message.includes('role');
+  const mentionsOldRoleChoices =
+    message.includes("input should be 'passenger', 'driver' or 'admin'") ||
+    (message.includes('passenger') && message.includes('driver') && message.includes('admin'));
+  return (
+    attemptedRole === 'operator' &&
+    status === 422 &&
+    mentionsRoleField &&
+    mentionsOldRoleChoices
+  );
+}
+
 function shouldRetryGoogleAsLogin(error) {
   const status = Number(error?.status || 0);
   const message = String(error?.message || '').toLowerCase();
@@ -88,6 +128,7 @@ function isRegistrationPendingVerification(error) {
 }
 
 export default function AuthScreen({ onAuthenticated }) {
+  const { width, height } = useWindowDimensions();
   const [authMethod, setAuthMethod] = useState('password');
   const [mode, setMode] = useState('login');
   const [loading, setLoading] = useState(false);
@@ -107,6 +148,7 @@ export default function AuthScreen({ onAuthenticated }) {
   const [registrationFees, setRegistrationFees] = useState({
     passenger_registration_fee: 0,
     driver_registration_fee: 0,
+    operator_registration_fee: 0,
     enable_qr: false,
     enable_razorpay: false,
     registration_qr_code_url: '',
@@ -120,19 +162,30 @@ export default function AuthScreen({ onAuthenticated }) {
   const GOOGLE_EXPO_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID;
   const GOOGLE_ANDROID_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID;
   const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
-  const GOOGLE_WEB_CLIENT_ID =
-    process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || FALLBACK_GOOGLE_WEB_CLIENT_ID;
-  const hasGoogleClientId = Boolean(
-    GOOGLE_EXPO_CLIENT_ID || GOOGLE_ANDROID_CLIENT_ID || GOOGLE_IOS_CLIENT_ID || GOOGLE_WEB_CLIENT_ID,
-  );
-  const isGoogleConfiguredForPlatform =
-    Platform.OS === 'web'
-      ? Boolean(GOOGLE_WEB_CLIENT_ID)
-      : Platform.OS === 'android'
-        ? Boolean(GOOGLE_ANDROID_CLIENT_ID || GOOGLE_EXPO_CLIENT_ID)
+  const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+
+  const missingGoogleClientIdEnv = useMemo(() => {
+    if (Platform.OS === 'web') {
+      return GOOGLE_WEB_CLIENT_ID ? [] : ['EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID'];
+    }
+
+    const nativeClientId =
+      Platform.OS === 'android'
+        ? GOOGLE_ANDROID_CLIENT_ID
         : Platform.OS === 'ios'
-          ? Boolean(GOOGLE_IOS_CLIENT_ID || GOOGLE_EXPO_CLIENT_ID)
-          : hasGoogleClientId;
+          ? GOOGLE_IOS_CLIENT_ID
+          : GOOGLE_EXPO_CLIENT_ID;
+
+    if (nativeClientId) {
+      return [];
+    }
+
+    return Platform.OS === 'android'
+      ? ['EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID or EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID']
+      : ['EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID or EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID'];
+  }, [GOOGLE_ANDROID_CLIENT_ID, GOOGLE_EXPO_CLIENT_ID, GOOGLE_IOS_CLIENT_ID, GOOGLE_WEB_CLIENT_ID]);
+
+  const isGoogleConfiguredForPlatform = missingGoogleClientIdEnv.length === 0;
   const googleRedirectUri = useMemo(
     () => {
       if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.origin) {
@@ -143,26 +196,46 @@ export default function AuthScreen({ onAuthenticated }) {
     [],
   );
 
-  const [googleRequest, , promptGoogleAsync] = Google.useIdTokenAuthRequest({
-    // Keep these defined to avoid provider-level invariant crashes in environments
-    // where Google OAuth vars are not set yet.
-    expoClientId: GOOGLE_EXPO_CLIENT_ID || 'MISSING_EXPO_CLIENT_ID',
-    androidClientId: GOOGLE_ANDROID_CLIENT_ID || GOOGLE_EXPO_CLIENT_ID || 'MISSING_ANDROID_CLIENT_ID',
-    iosClientId: GOOGLE_IOS_CLIENT_ID || GOOGLE_EXPO_CLIENT_ID || 'MISSING_IOS_CLIENT_ID',
-    webClientId: GOOGLE_WEB_CLIENT_ID || GOOGLE_EXPO_CLIENT_ID || 'MISSING_WEB_CLIENT_ID',
-    redirectUri: googleRedirectUri,
-  });
+  const googleConfig = useMemo(() => {
+    const config = { redirectUri: googleRedirectUri };
+    if (GOOGLE_EXPO_CLIENT_ID) {
+      config.expoClientId = GOOGLE_EXPO_CLIENT_ID;
+    }
+    if (GOOGLE_ANDROID_CLIENT_ID) {
+      config.androidClientId = GOOGLE_ANDROID_CLIENT_ID;
+    }
+    if (GOOGLE_IOS_CLIENT_ID) {
+      config.iosClientId = GOOGLE_IOS_CLIENT_ID;
+    }
+    if (GOOGLE_WEB_CLIENT_ID) {
+      config.webClientId = GOOGLE_WEB_CLIENT_ID;
+    }
+    return config;
+  }, [GOOGLE_ANDROID_CLIENT_ID, GOOGLE_EXPO_CLIENT_ID, GOOGLE_IOS_CLIENT_ID, GOOGLE_WEB_CLIENT_ID, googleRedirectUri]);
+
+  const [googleRequest, , promptGoogleAsync] = Google.useIdTokenAuthRequest(googleConfig);
 
   const isLogin = mode === 'login';
+  const isCompactWeb = Platform.OS === 'web' && width < 520;
+  const isShortWeb = Platform.OS === 'web' && height < 720;
   const authMethodsForMode = isLogin ? AUTH_METHODS : REGISTER_AUTH_METHODS;
   const selectedRegistrationFee = useMemo(() => {
     if (!role) {
       return 0;
     }
-    return role === 'driver'
-      ? Number(registrationFees.driver_registration_fee || 0)
-      : Number(registrationFees.passenger_registration_fee || 0);
-  }, [registrationFees.driver_registration_fee, registrationFees.passenger_registration_fee, role]);
+    if (role === 'driver') {
+      return Number(registrationFees.driver_registration_fee || 0);
+    }
+    if (role === 'operator') {
+      return Number(registrationFees.operator_registration_fee || 0);
+    }
+    return Number(registrationFees.passenger_registration_fee || 0);
+  }, [
+    registrationFees.driver_registration_fee,
+    registrationFees.operator_registration_fee,
+    registrationFees.passenger_registration_fee,
+    role,
+  ]);
   const registrationPaymentConfig = useMemo(
     () => normalizeAdminPaymentOptions(registrationFees),
     [registrationFees],
@@ -182,6 +255,7 @@ export default function AuthScreen({ onAuthenticated }) {
           setRegistrationFees({
             passenger_registration_fee: Number(data.passenger_registration_fee || 0),
             driver_registration_fee: Number(data.driver_registration_fee || 0),
+            operator_registration_fee: Number(data.operator_registration_fee || 0),
             enable_qr: Boolean(data.enable_qr),
             enable_razorpay: Boolean(data.enable_razorpay),
             registration_qr_code_url: String(data.registration_qr_code_url || ''),
@@ -199,12 +273,12 @@ export default function AuthScreen({ onAuthenticated }) {
     };
   }, []);
 
-  const authenticateAndEnter = (data) => {
-    onAuthenticated?.({
-      token: data.access_token,
-      refresh_token: data.refresh_token,
-      user: data.user,
-    });
+  const authenticateAndEnter = async (data) => {
+    const session = normalizeAuthSessionFromPayload(data);
+    if (!session) {
+      throw new Error('Login succeeded but did not return a valid app session. Please try again.');
+    }
+    await onAuthenticated?.(session);
   };
 
   const submitGoogleIdToken = async (googleIdToken, extraPayload = {}, options = {}) => {
@@ -222,7 +296,10 @@ export default function AuthScreen({ onAuthenticated }) {
           body: payload,
         });
       } catch (primaryError) {
-        if (shouldFallbackGoogleRequest(primaryError)) {
+        if (
+          shouldFallbackGoogleRequest(primaryError) ||
+          isOperatorRoleSchemaMismatch(primaryError, payload?.role)
+        ) {
           data = await apiRequest('/auth/_legacy/google', {
             method: 'POST',
             body: payload,
@@ -231,7 +308,7 @@ export default function AuthScreen({ onAuthenticated }) {
           throw primaryError;
         }
       }
-      authenticateAndEnter(data);
+      await authenticateAndEnter(data);
       return data;
     } catch (err) {
       if (!preserveFeedback) {
@@ -343,11 +420,13 @@ export default function AuthScreen({ onAuthenticated }) {
       } catch (primaryError) {
         if (isLogin && isTemporaryLoginFailure(primaryError)) {
           data = await apiRequest('/auth/_legacy/login', { method: 'POST', body: payload });
+        } else if (!isLogin && isOperatorRoleSchemaMismatch(primaryError, payload?.role)) {
+          data = await apiRequest('/auth/_legacy/register', { method: 'POST', body: payload });
         } else {
           throw primaryError;
         }
       }
-      authenticateAndEnter(data);
+      await authenticateAndEnter(data);
     } catch (err) {
       setError(err.message || 'Something went wrong.');
     } finally {
@@ -380,7 +459,7 @@ export default function AuthScreen({ onAuthenticated }) {
 
   const handleGoogleAuth = async () => {
     if (!isGoogleConfiguredForPlatform) {
-      setError('Google login is not configured for this platform. Set EXPO_PUBLIC_GOOGLE_*_CLIENT_ID env values.');
+      setError(`Google login is not configured for this platform. Set ${missingGoogleClientIdEnv.join(', ')}.`);
       return;
     }
     if (!googleRequest) {
@@ -427,11 +506,24 @@ export default function AuthScreen({ onAuthenticated }) {
 
     try {
       resetFeedback();
-      const result = await promptGoogleAsync(
+      const promptOptions =
         Platform.OS === 'web'
           ? { windowFeatures: { width: 520, height: 680 } }
-          : undefined,
-      );
+          : undefined;
+      let result = null;
+      try {
+        result = await promptGoogleAsync(promptOptions);
+      } catch (promptError) {
+        if (Platform.OS !== 'web' || !isGoogleAuthSessionRecoveryError(promptError)) {
+          throw promptError;
+        }
+        try {
+          WebBrowser.maybeCompleteAuthSession({ skipRedirectCheck: true });
+        } catch {
+          // The retry below is enough if the browser has already cleaned up the old auth window.
+        }
+        result = await promptGoogleAsync(promptOptions);
+      }
 
       if (result.type === 'success') {
         const tokenFromParams = result.params?.id_token;
@@ -498,6 +590,10 @@ export default function AuthScreen({ onAuthenticated }) {
           result?.params?.error ||
           result?.errorCode ||
           'Google authentication returned an error.';
+        if (isGoogleAuthSessionRecoveryError({ message: providerError })) {
+          setError('Google sign-in window timed out. Please tap Google again; your app login was kept active.');
+          return;
+        }
         setError(String(providerError));
         return;
       }
@@ -507,6 +603,10 @@ export default function AuthScreen({ onAuthenticated }) {
       const raw = String(err?.message || '').toLowerCase();
       if (raw.includes('popup') || raw.includes('closed') || raw.includes('dismiss')) {
         setError('Google popup was blocked or closed. Please allow popups and try again.');
+        return;
+      }
+      if (isGoogleAuthSessionRecoveryError(err)) {
+        setError('Google sign-in window timed out. Please tap Google again; your app login was kept active.');
         return;
       }
       setError(err.message || 'Google login failed.');
@@ -542,7 +642,7 @@ export default function AuthScreen({ onAuthenticated }) {
         ) : (
           <>
             <Text style={styles.inputLabel}>Payment Method</Text>
-            <View style={styles.paymentMethodRow}>
+            <View style={[styles.paymentMethodRow, isCompactWeb && styles.paymentMethodRowCompact]}>
               {registrationPaymentConfig.methods.map((method) => (
                 <TouchableOpacity
                   key={method.key}
@@ -571,7 +671,7 @@ export default function AuthScreen({ onAuthenticated }) {
                 {!!registrationPaymentConfig.qrCodeUrl && (
                   <Image
                     source={{ uri: registrationPaymentConfig.qrCodeUrl }}
-                    style={styles.registrationQrImage}
+                    style={[styles.registrationQrImage, isCompactWeb && styles.registrationQrImageCompact]}
                     resizeMode="contain"
                   />
                 )}
@@ -619,21 +719,31 @@ export default function AuthScreen({ onAuthenticated }) {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <PremiumCard style={styles.card}>
+      <ScrollView
+        contentContainerStyle={[styles.container, isCompactWeb && styles.containerCompact]}
+        keyboardShouldPersistTaps="handled">
+        <PremiumCard style={[styles.card, isCompactWeb && styles.cardCompact]}>
           <WebCommandBar showLanguageSelector />
           <View style={styles.brandHeader}>
             <Image
               source={LAUNCH_BANNER_SOURCE}
-              style={[styles.launchBanner, Platform.OS === 'web' && styles.launchBannerWeb]}
-              resizeMode="cover"
+              style={[
+                styles.launchBanner,
+                Platform.OS === 'web' && styles.launchBannerWeb,
+                (isCompactWeb || isShortWeb) && styles.launchBannerCompact,
+              ]}
+              resizeMode="contain"
             />
             <View style={styles.brandCopy}>
-              <Text style={styles.title}>{isLogin ? 'Welcome' : 'Create Account'}</Text>
-              <Text style={styles.tagline}>Book your auto quickly, safely and easily</Text>
+              <Text style={[styles.title, isCompactWeb && styles.titleCompact]}>{isLogin ? 'Welcome' : 'Create Account'}</Text>
+              <Text style={[styles.tagline, isCompactWeb && styles.taglineCompact]}>
+                Book your auto quickly, safely and easily
+              </Text>
             </View>
           </View>
-          <Text style={styles.subtitle}>Choose login or register, then select a method</Text>
+          <Text style={[styles.subtitle, isCompactWeb && styles.subtitleCompact]}>
+            Choose login or register, then select a method
+          </Text>
 
           <View style={styles.modeRow}>
             <TouchableOpacity
@@ -679,7 +789,7 @@ export default function AuthScreen({ onAuthenticated }) {
                   key={method.key}
                   onPress={() => {
                     if (methodUnavailable) {
-                      setError('Google login is not configured for this platform.');
+                      setError(`Google sign-in is not configured for this platform. Set ${missingGoogleClientIdEnv.join(', ')}.`);
                       return;
                     }
                     setAuthMethod(method.key);
@@ -707,7 +817,7 @@ export default function AuthScreen({ onAuthenticated }) {
                   <VoiceTextInput style={styles.input} value={name} onChangeText={setName} placeholder="Enter full name" placeholderTextColor={COLORS.textMuted} />
                   <Text style={styles.inputLabel}>Phone Number</Text>
                   <VoiceTextInput style={styles.input} value={phone} onChangeText={setPhone} placeholder="Enter phone number" keyboardType="phone-pad" placeholderTextColor={COLORS.textMuted} />
-                  <View style={styles.roleRow}>
+                  <View style={[styles.roleRow, isCompactWeb && styles.roleRowCompact]}>
                     {ROLE_OPTIONS.map((candidate) => (
                       <TouchableOpacity
                         key={candidate}
@@ -725,7 +835,7 @@ export default function AuthScreen({ onAuthenticated }) {
                     ))}
                   </View>
                   <Text style={styles.inputLabel}>Gender</Text>
-                  <View style={styles.roleRow}>
+                  <View style={[styles.roleRow, isCompactWeb && styles.roleRowCompact]}>
                     {GENDER_OPTIONS.map((candidate) => (
                       <TouchableOpacity
                         key={candidate}
@@ -820,7 +930,7 @@ export default function AuthScreen({ onAuthenticated }) {
                   <VoiceTextInput style={styles.input} value={name} onChangeText={setName} placeholder="Enter full name" placeholderTextColor={COLORS.textMuted} />
                   <Text style={styles.inputLabel}>Phone Number</Text>
                   <VoiceTextInput style={styles.input} value={phone} onChangeText={setPhone} placeholder="Enter phone number" keyboardType="phone-pad" placeholderTextColor={COLORS.textMuted} />
-                  <View style={styles.roleRow}>
+                  <View style={[styles.roleRow, isCompactWeb && styles.roleRowCompact]}>
                     {ROLE_OPTIONS.map((candidate) => (
                       <TouchableOpacity
                         key={candidate}
@@ -838,7 +948,7 @@ export default function AuthScreen({ onAuthenticated }) {
                     ))}
                   </View>
                   <Text style={styles.inputLabel}>Gender</Text>
-                  <View style={styles.roleRow}>
+                  <View style={[styles.roleRow, isCompactWeb && styles.roleRowCompact]}>
                     {GENDER_OPTIONS.map((candidate) => (
                       <TouchableOpacity
                         key={candidate}
@@ -898,6 +1008,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 20,
   },
+  containerCompact: {
+    justifyContent: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+  },
   card: {
     width: '100%',
     maxWidth: 440,
@@ -912,6 +1027,14 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 10 },
     elevation: 8,
   },
+  cardCompact: {
+    maxWidth: '100%',
+    padding: 12,
+    borderRadius: 12,
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+  },
   brandHeader: {
     flexDirection: 'column',
     alignItems: 'center',
@@ -922,6 +1045,11 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 260,
     borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+  },
+  launchBannerCompact: {
+    height: 126,
+    borderRadius: 10,
   },
   launchBannerWeb: {
     objectPosition: 'center top',
@@ -935,12 +1063,20 @@ const styles = StyleSheet.create({
     lineHeight: 34,
     fontWeight: '900',
   },
+  titleCompact: {
+    fontSize: 24,
+    lineHeight: 28,
+  },
   tagline: {
     marginTop: 4,
     color: '#6B7B70',
     fontSize: 15,
     lineHeight: 19,
     textAlign: 'center',
+  },
+  taglineCompact: {
+    fontSize: 13,
+    lineHeight: 17,
   },
   subtitle: {
     color: '#617368',
@@ -949,6 +1085,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     textAlign: 'center',
+  },
+  subtitleCompact: {
+    marginBottom: 10,
+    fontSize: 12,
+    lineHeight: 16,
   },
   methodRow: {
     flexDirection: 'row',
@@ -1026,6 +1167,9 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 12,
   },
+  roleRowCompact: {
+    flexWrap: 'wrap',
+  },
   roleChip: {
     flex: 1,
     alignItems: 'center',
@@ -1065,6 +1209,9 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 10,
   },
+  paymentMethodRowCompact: {
+    flexWrap: 'wrap',
+  },
   paymentMethodChip: {
     flex: 1,
     borderWidth: 1,
@@ -1091,6 +1238,9 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginBottom: 8,
     backgroundColor: '#FFFFFF',
+  },
+  registrationQrImageCompact: {
+    height: 136,
   },
   feeConfirmedBtn: {
     backgroundColor: '#E3F2E8',

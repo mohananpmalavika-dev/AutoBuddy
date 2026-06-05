@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 class UserRole(str, Enum):
     PASSENGER = "passenger"
     DRIVER = "driver"
+    OPERATOR = "operator"
     ADMIN = "admin"
 
 class Gender(str, Enum):

@@ -32,6 +32,15 @@ async def get_current_user(
     return current_user
 
 
+async def verify_token(
+    current_user: dict = Depends(get_current_user_secure),
+):
+    user = dict(current_user or {})
+    if user.get("id") and not user.get("driver_id"):
+        user["driver_id"] = user["id"]
+    return user
+
+
 def get_request_ip(request: Request) -> str:
     forwarded_for = request.headers.get("x-forwarded-for")
     if forwarded_for:
@@ -207,13 +216,22 @@ async def refresh_access_token(
     db: AsyncIOMotorDatabase = Depends(get_db),
     settings: Settings = Depends(get_settings_from_app),
 ):
-    return await auth_service.refresh_access_token(
-        db=db,
-        settings=settings,
-        refresh_token=payload.refresh_token,
-        request_ip=get_request_ip(request),
-        user_agent=str(request.headers.get("user-agent") or ""),
-    )
+    try:
+        return await auth_service.refresh_access_token(
+            db=db,
+            settings=settings,
+            refresh_token=payload.refresh_token,
+            request_ip=get_request_ip(request),
+            user_agent=str(request.headers.get("user-agent") or ""),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Unexpected refresh token error for ip=%s", get_request_ip(request))
+        raise HTTPException(
+            status_code=503,
+            detail="Session refresh service temporarily unavailable. Please try again.",
+        ) from exc
 
 
 @router.post("/auth/logout")

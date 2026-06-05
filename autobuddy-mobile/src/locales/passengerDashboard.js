@@ -1,3 +1,5 @@
+import { normalizeLanguageCode } from './indianLanguages';
+
 export const passengerDashboardLocales = {
   en: {
     hi: 'Hi',
@@ -386,7 +388,16 @@ export const passengerDashboardLocales = {
     hide: 'Hide',
     tapMapToSelect: 'Tap map to pick location',
     pickupSelected: 'Pickup selected. Now select dropoff.',
-    dropSelected: 'Drop selected.',
+    // Vehicle Type Localization
+    vehicleType: 'Vehicle Type',
+    twoWheeler: '2-wheeler',
+    threeWheeler: '3-wheeler',
+    fourWheeler: '4-wheeler',
+    sixWheeler: '6-wheeler',
+    sevenWheeler: '7-wheeler',
+    bus: 'Bus',
+    traveller: 'Traveller',
+    truck: 'Truck',
   },
   ml: {
     hi: 'ഹായ്',
@@ -771,7 +782,16 @@ export const passengerDashboardLocales = {
     hide: 'മറയ്ക്കുക',
     tapMapToSelect: 'സ്ഥലം തിരഞ്ഞെടുക്കാൻ മാപ്പ് സ്പർശിക്കുക',
     pickupSelected: 'പിക്കപ്പ് തിരഞ്ഞെടുത്തു. ഇപ്പോൾ ഡ്രോപ്പ് തിരഞ്ഞെടുക്കുക.',
-    dropSelected: 'ഡ്രോപ്പ് തിരഞ്ഞെടുത്തു.',
+    // Vehicle Type Localization Malayalam
+    vehicleType: 'വാഹന തരം',
+    twoWheeler: '2-ചക്രം',
+    threeWheeler: '3-ചക്രം',
+    fourWheeler: '4-ചക്രം',
+    sixWheeler: '6-ചക്രം',
+    sevenWheeler: '7-ചക്രം',
+    bus: 'ബസ്',
+    traveller: 'ട്രാവെലർ',
+    truck: 'ട്രക്ക്',
   },
 };
 
@@ -805,9 +825,9 @@ function normalizePassengerLocale(code, locale) {
 }
 
 export function resolvePassengerLocale(languageCode) {
-  const code = String(languageCode || 'en').trim().toLowerCase();
-  if (code.startsWith('ml')) {
-    return normalizePassengerLocale('ml', passengerDashboardLocales.ml);
+  const code = normalizeLanguageCode(languageCode);
+  if (passengerDashboardLocales[code]) {
+    return normalizePassengerLocale(code, passengerDashboardLocales[code]);
   }
   return normalizePassengerLocale('en', passengerDashboardLocales.en);
 }

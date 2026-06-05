@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   ScrollView,
   StyleSheet,
@@ -10,6 +11,7 @@ import {
 } from 'react-native';
 import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
+import { formatToIST } from '../utils/time';
 
 /**
  * PassengerKYCPanel - KYC (Know Your Customer) verification
@@ -34,6 +36,8 @@ export default function PassengerKYCPanel({ token }) {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [verifying, setVerifying] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [expiryWarning, setExpiryWarning] = useState('');
 
   const fetchKYCStatus = useCallback(async () => {
     try {
@@ -41,6 +45,20 @@ export default function PassengerKYCPanel({ token }) {
       setError('');
       const data = await apiRequest('/passengers/kyc/status', { token });
       setKycStatus((prev) => data || prev);
+      setRejectionReason(data?.reject_reason || data?.rejection_reason || '');
+      
+      // Check for expiry warnings
+      if (data?.expiry_date) {
+        const expiryDate = new Date(data.expiry_date);
+        const today = new Date();
+        const daysUntilExpiry = Math.floor((expiryDate - today) / (1000 * 60 * 60 * 24));
+        if (daysUntilExpiry < 30 && daysUntilExpiry >= 0) {
+          setExpiryWarning(`Your KYC will expire in ${daysUntilExpiry} days. Please renew.`);
+        } else if (daysUntilExpiry < 0) {
+          setExpiryWarning('Your KYC has expired. Please submit a new one.');
+        }
+      }
+      
       setKycForm({
         document_type: data?.document_type || '',
         document_number: '',
@@ -59,8 +77,30 @@ export default function PassengerKYCPanel({ token }) {
     return () => clearTimeout(timer);
   }, [fetchKYCStatus]);
 
+  // Auto-poll KYC status every 30 seconds when pending
+  useEffect(() => {
+    if (kycStatus.verification_level === 'pending') {
+      const pollInterval = setInterval(() => {
+        fetchKYCStatus().catch(() => null);
+      }, 30000);
+      return () => clearInterval(pollInterval);
+    }
+  }, [kycStatus.verification_level, fetchKYCStatus]);
+
+  // Announce status changes for accessibility
+  useEffect(() => {
+    if (kycStatus.verification_level === 'verified') {
+      AccessibilityInfo.announceForAccessibility('KYC verification successful');
+    } else if (kycStatus.verification_level === 'rejected') {
+      AccessibilityInfo.announceForAccessibility('KYC verification rejected. Check details for reason.');
+    } else if (kycStatus.verification_level === 'pending') {
+      AccessibilityInfo.announceForAccessibility('KYC verification pending. Check status in 30 seconds.');
+    }
+  }, [kycStatus.verification_level]);
+
   const handleSubmitKYC = async () => {
-    if (!kycForm.document_type || !kycForm.document_number) {
+    const documentNumber = kycForm.document_number.trim();
+    if (!kycForm.document_type || !documentNumber) {
       setError('Please select document type and enter document number');
       return;
     }
@@ -69,14 +109,25 @@ export default function PassengerKYCPanel({ token }) {
       setVerifying(true);
       setError('');
 
+      const payload = {
+        document_type: kycForm.document_type,
+        document_number: documentNumber,
+      };
+
       const response = await apiRequest('/passengers/kyc/verify', {
         token,
         method: 'POST',
-        body: kycForm,
+        body: payload,
       });
 
-      setKycStatus(response || kycForm);
-      setMessage('KYC verification submitted successfully. Please wait for confirmation.');
+      setKycStatus((prev) => ({ ...prev, ...(response || {}) }));
+      setRejectionReason(response?.reject_reason || response?.rejection_reason || '');
+      setKycForm((prev) => ({
+        ...prev,
+        document_type: response?.document_type || payload.document_type,
+        document_number: '',
+      }));
+      setMessage('KYC details updated successfully. Verification is optional and pending admin review.');
       setTimeout(() => setMessage(''), 4000);
     } catch (err) {
       setError(err.message || 'Failed to submit KYC');
@@ -93,6 +144,8 @@ export default function PassengerKYCPanel({ token }) {
         return '#FF9800';
       case 'pending':
         return '#2196F3';
+      case 'rejected':
+        return '#D32F2F';
       default:
         return '#F44336';
     }
@@ -106,6 +159,8 @@ export default function PassengerKYCPanel({ token }) {
         return 'Basic (Pending Full Verification)';
       case 'pending':
         return 'Verification Pending';
+      case 'rejected':
+        return 'Rejected';
       default:
         return 'Not Verified';
     }
@@ -121,8 +176,9 @@ export default function PassengerKYCPanel({ token }) {
 
   return (
     <ScrollView style={styles.container}>
-      {error && <Text style={styles.errorText}>{error}</Text>}
-      {message && <Text style={styles.messageText}>{message}</Text>}
+      {error && <Text style={styles.errorText}>❌ {error}</Text>}
+      {message && <Text style={styles.messageText}>✓ {message}</Text>}
+      {expiryWarning && <Text style={styles.warningText}>⚠️ {expiryWarning}</Text>}
 
       {/* Current Verification Status */}
       <View style={[styles.statusBlock, SHADOWS.card, { borderLeftWidth: 4, borderLeftColor: getVerificationStatusColor() }]}>
@@ -139,7 +195,7 @@ export default function PassengerKYCPanel({ token }) {
         {kycStatus.verification_date && (
           <>
             <Text style={styles.infoLabel}>Verified On</Text>
-            <Text style={styles.infoValue}>{new Date(kycStatus.verification_date).toLocaleDateString()}</Text>
+            <Text style={styles.infoValue}>{formatToIST(kycStatus.verification_date, { dateStyle: 'short' })}</Text>
           </>
         )}
 
@@ -155,7 +211,15 @@ export default function PassengerKYCPanel({ token }) {
         {kycStatus.expiry_date && (
           <>
             <Text style={styles.infoLabel}>Expires On</Text>
-            <Text style={styles.infoValue}>{new Date(kycStatus.expiry_date).toLocaleDateString()}</Text>
+            <Text style={styles.infoValue}>{formatToIST(kycStatus.expiry_date, { dateStyle: 'short' })}</Text>
+          </>
+        )}
+
+        {kycStatus.verification_level === 'rejected' && rejectionReason && (
+          <>
+            <Text style={styles.rejectionLabel}>Rejection Reason</Text>
+            <Text style={[styles.rejectionValue, { color: '#D32F2F' }]}>{rejectionReason}</Text>
+            <Text style={styles.hint}>Please correct the issue and submit again</Text>
           </>
         )}
       </View>
@@ -316,6 +380,10 @@ const styles = StyleSheet.create({
   benefitTitle: { fontSize: 13, fontWeight: '600', color: COLORS.text, marginBottom: 4 },
   benefitDescription: { fontSize: 12, color: COLORS.textMuted },
   helpText: { fontSize: 13, color: COLORS.text, lineHeight: 20 },
-  errorText: { color: '#F44336', fontSize: 12, marginBottom: 12, fontWeight: '600' },
-  messageText: { color: '#4CAF50', fontSize: 12, marginBottom: 12, fontWeight: '600' },
+  errorText: { color: '#F44336', fontSize: 12, marginBottom: 12, fontWeight: '600', padding: 8, backgroundColor: '#FFEBEE', borderRadius: 4 },
+  messageText: { color: '#4CAF50', fontSize: 12, marginBottom: 12, fontWeight: '600', padding: 8, backgroundColor: '#E8F5E9', borderRadius: 4 },
+  warningText: { color: '#FF6F00', fontSize: 12, marginBottom: 12, fontWeight: '600', padding: 8, backgroundColor: '#FFF3E0', borderRadius: 4 },
+  rejectionLabel: { fontSize: 12, color: '#D32F2F', marginTop: 8, fontWeight: '600' },
+  rejectionValue: { fontSize: 13, marginBottom: 8, lineHeight: 20 },
+  hint: { fontSize: 11, color: COLORS.textMuted, fontStyle: 'italic', marginTop: 4 },
 });

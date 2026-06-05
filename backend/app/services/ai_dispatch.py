@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from typing import Any, Dict, List
 
 
@@ -25,7 +26,7 @@ def heat_cell(location: Dict[str, Any], precision: int = 3) -> str:
 async def build_demand_heatmap(db, minutes: int = 60, limit: int = 3000) -> List[Dict[str, Any]]:
     lookback_minutes = max(5, int(minutes or 60))
     max_docs = max(100, min(int(limit or 3000), 20000))
-    cutoff = datetime.utcnow() - timedelta(minutes=lookback_minutes)
+    cutoff = get_ist_now() - timedelta(minutes=lookback_minutes)
 
     rows = (
         await db.bookings.find(

@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme';
+import { COLORS, SHADOWS } from '../theme';
+import { formatToIST } from '../utils/time';
 
 /**
  * NotificationItem - Single notification card
@@ -12,14 +13,12 @@ import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme';
 export default function NotificationItem({ notification, onPress, onDismiss }) {
   const {
     id,
-    type,
     title,
     body,
     icon = '🔔',
     severity = 'info',
     timestamp,
     read = false,
-    bookingId,
   } = notification;
 
   const getBackgroundColor = () => {
@@ -66,7 +65,11 @@ export default function NotificationItem({ notification, onPress, onDismiss }) {
     if (diffHours < 24) return `${diffHours}h ago`;
     if (diffDays === 1) return 'yesterday';
     if (diffDays < 7) return `${diffDays}d ago`;
-    return date.toLocaleDateString();
+    try {
+      return formatToIST(timestamp, { dateStyle: 'short' });
+    } catch {
+      return new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', year: 'numeric', month: 'short', day: 'numeric' }).format(date);
+    }
   };
 
   return (

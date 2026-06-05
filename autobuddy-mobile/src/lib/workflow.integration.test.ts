@@ -27,6 +27,13 @@ describe('module workflow integration (frontend)', () => {
       saveSession: jest.fn(async () => undefined),
       clearSession: jest.fn(async () => undefined),
     }));
+    jest.doMock('./persistentSessionManager', () => ({
+      __esModule: true,
+      loadSession: jest.fn(async () => null),
+      saveSession: jest.fn(async () => undefined),
+      clearSession: jest.fn(async () => undefined),
+      extendSessionExpiry: jest.fn(async () => undefined),
+    }));
   }
 
   it('retries once after 401 by refreshing access token (workflow)', async () => {

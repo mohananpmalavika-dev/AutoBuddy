@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   ScrollView,
@@ -8,8 +8,21 @@ import {
   View,
 } from 'react-native';
 import { apiRequest } from '../lib/api';
+import { buildLanguageOptions, normalizeLanguageCode } from '../locales/indianLanguages';
 import { COLORS, SHADOWS } from '../theme';
+import { formatToIST } from '../utils/time';
 import VoiceTextInput from './VoiceTextInput';
+import { driverDashboardLocales } from '../locales/driverDashboard';
+
+/**
+ * Resolve driver dashboard locale based on language code
+ * @param {string} languageCode - Language code (en, ml, hi, ta)
+ * @returns {object} Translated strings
+ */
+function resolveDriverLocale(languageCode = 'en') {
+  const normalized = normalizeLanguageCode(languageCode);
+  return driverDashboardLocales[normalized] || driverDashboardLocales.en;
+}
 
 const DEFAULT_SETTINGS = {
   push_notifications: true,
@@ -43,7 +56,7 @@ function normalizeSettings(rawSettings = {}) {
     quiet_hours_enabled: source.quiet_hours_enabled ?? DEFAULT_SETTINGS.quiet_hours_enabled,
     quiet_hours_start: isValidTime24(source.quiet_hours_start) ? source.quiet_hours_start : DEFAULT_SETTINGS.quiet_hours_start,
     quiet_hours_end: isValidTime24(source.quiet_hours_end) ? source.quiet_hours_end : DEFAULT_SETTINGS.quiet_hours_end,
-    language: ['en', 'ml', 'hi', 'ta'].includes(String(source.language || '').toLowerCase()) ? String(source.language).toLowerCase() : DEFAULT_SETTINGS.language,
+    language: normalizeLanguageCode(source.language || DEFAULT_SETTINGS.language),
     theme: ['light', 'dark', 'auto'].includes(String(source.theme || '').toLowerCase()) ? String(source.theme).toLowerCase() : DEFAULT_SETTINGS.theme,
     share_location: source.share_location ?? DEFAULT_SETTINGS.share_location,
     accept_promo: source.accept_promo ?? DEFAULT_SETTINGS.accept_promo,
@@ -75,28 +88,46 @@ export default function EnhancedSettingsPanel({
   displayIsOnline,
   onToggleOnline,
   onNavigateToTab,
+  onSettingsChange,
 }) {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
-  const [quietHoursDraft, setQuietHoursDraft] = useState({
-    quiet_hours_start: DEFAULT_SETTINGS.quiet_hours_start,
-    quiet_hours_end: DEFAULT_SETTINGS.quiet_hours_end,
+  const [languageCode, setLanguageCode] = useState(() => {
+    if (typeof window === 'undefined') {
+      return 'en';
+    }
+    return normalizeLanguageCode(window.localStorage?.getItem('autobuddy_lang') || 'en');
   });
+  const t = useMemo(() => resolveDriverLocale(languageCode), [languageCode]);
+  const languages = useMemo(() => buildLanguageOptions(), []);
+  const themes = useMemo(
+    () => [
+      { value: 'light', label: t.light || 'Light' },
+      { value: 'dark', label: t.dark || 'Dark' },
+      { value: 'auto', label: t.autoTheme || 'Auto (System)' },
+    ],
+    [t],
+  );
+  const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [quietHoursDraft, setQuietHoursDraft] = useState({});
 
-  const languages = [
-    { value: 'en', label: 'English' },
-    { value: 'ml', label: 'Malayalam' },
-    { value: 'hi', label: 'Hindi' },
-    { value: 'ta', label: 'Tamil' },
-  ];
-
-  const themes = [
-    { value: 'light', label: '☀️ Light Mode' },
-    { value: 'dark', label: '🌙 Dark Mode' },
-    { value: 'auto', label: '🔄 Auto (System)' },
-  ];
+  // Handle language preference updates without triggering setState in effect
+  const updateLanguagePreference = useCallback((lang) => {
+    const nextLanguage = normalizeLanguageCode(lang);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem('autobuddy_lang', nextLanguage);
+      if (typeof window.dispatchEvent === 'function' && typeof CustomEvent !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('autobuddy-language-change', {
+            detail: { language: nextLanguage },
+          }),
+        );
+      }
+    }
+    setLanguageCode(nextLanguage);
+  }, []);
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -105,6 +136,7 @@ export default function EnhancedSettingsPanel({
       const data = await apiRequest('/drivers/settings', { token });
       const nextSettings = normalizeSettings(data?.settings || {});
       setSettings(nextSettings);
+      onSettingsChange?.(nextSettings);
       setQuietHoursDraft({
         quiet_hours_start: nextSettings.quiet_hours_start,
         quiet_hours_end: nextSettings.quiet_hours_end,
@@ -114,7 +146,7 @@ export default function EnhancedSettingsPanel({
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [onSettingsChange, token]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -134,6 +166,13 @@ export default function EnhancedSettingsPanel({
       });
       const nextSettings = normalizeSettings(response?.settings || { ...settings, ...updates });
       setSettings(nextSettings);
+      
+      // Update language preference if language setting changed
+      if (updates.language && String(updates.language).trim()) {
+        updateLanguagePreference(updates.language);
+      }
+      
+      onSettingsChange?.(nextSettings);
       setQuietHoursDraft({
         quiet_hours_start: nextSettings.quiet_hours_start,
         quiet_hours_end: nextSettings.quiet_hours_end,
@@ -174,108 +213,107 @@ export default function EnhancedSettingsPanel({
     Alert.alert('Security', 'Use Profile > Account Security to change your password.');
   };
 
+  const navigateToTab = (tab, options = {}, fallbackTitle, fallbackMessage) => {
+    if (typeof onNavigateToTab === 'function') {
+      onNavigateToTab(tab, options);
+      return true;
+    }
+    Alert.alert(fallbackTitle, fallbackMessage);
+    return false;
+  };
+
   const handlePaymentMethods = () => {
-    Alert.alert(
+    navigateToTab(
+      'profile',
+      { section: 'payout' },
       'Payment Methods',
-      'Manage your payment methods and account',
-      [
-        { text: 'Add Payment Method', onPress: () => console.log('Add payment method') },
-        { text: 'View Linked Accounts', onPress: () => console.log('View linked accounts') },
-        { text: 'Cancel', style: 'cancel' },
-      ],
+      'Open Profile > Payout Details to manage the bank account used for driver payments and withdrawals.',
     );
   };
 
   const handleViewPrivacy = () => {
-    Alert.alert(
-      'Privacy Policy',
-      'AutoBuddy is committed to protecting your privacy. Tap OK to view the full policy in your browser.',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'OK',
-          onPress: () => {
-            console.log('Open privacy policy');
-          },
-        },
-      ],
-    );
+    setShowPrivacyPolicy((current) => !current);
   };
 
   const handleHelpFaq = () => {
-    Alert.alert(
+    navigateToTab(
+      'support',
+      { supportAction: 'help' },
       'Help & FAQ',
-      'Common questions and support resources',
-      [
-        { text: 'View FAQ', onPress: () => console.log('View FAQ') },
-        { text: 'Contact Support', onPress: () => console.log('Contact support') },
-        { text: 'Close', style: 'cancel' },
-      ],
+      'Open the Support tab to search FAQs and view help-center answers.',
+    );
+  };
+
+  const handleContactSupport = () => {
+    navigateToTab(
+      'support',
+      { supportAction: 'contact' },
+      'Contact Support',
+      'Open the Support tab to create a support ticket.',
     );
   };
 
   const handleDeleteAccount = () => {
-    Alert.alert(
+    navigateToTab(
+      'support',
+      { supportAction: 'contact' },
       'Delete Account',
-      'Account deletion requires support verification right now. Please contact support from the Support tab.',
+      'Account deletion requires support verification. Open the Support tab to create a ticket.',
     );
   };
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <Text style={styles.title}>⚙️ Settings & Preferences</Text>
-      <Text style={styles.subtitle}>Manage your account preferences</Text>
+      <Text style={styles.title}>{t.settingsTitle || 'Settings & Preferences'}</Text>
+      <Text style={styles.subtitle}>{t.settingsSubtitle || 'Manage your account preferences'}</Text>
 
       {error && <Text style={[styles.message, styles.error]}>{error}</Text>}
       {message && <Text style={[styles.message, styles.success]}>{message}</Text>}
 
       {/* Availability Section */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🟢 Availability</Text>
+        <Text style={styles.sectionTitle}>{t.onlineStatus || 'Availability'}</Text>
         <View style={styles.settingRow}>
-          <Text style={styles.settingLabel}>Current Status</Text>
+          <Text style={styles.settingLabel}>{t.currentStatus || 'Current Status'}</Text>
           <TouchableOpacity
             style={[styles.statusToggle, displayIsOnline && styles.statusToggleActive]}
             onPress={onToggleOnline}
             disabled={parentLoading}
           >
-            <Text style={styles.statusToggleText}>{displayIsOnline ? '🟢 Online' : '🔴 Offline'}</Text>
+            <Text style={styles.statusToggleText}>{displayIsOnline ? (t.currentlyOnline || 'Online') : (t.currentlyOffline || 'Offline')}</Text>
           </TouchableOpacity>
         </View>
       </View>
 
       {/* Notification Settings */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🔔 Notifications</Text>
+        <Text style={styles.sectionTitle}>{t.notificationSettings || 'Notifications'}</Text>
         <SettingRow
-          label="Push Notifications"
+          label={t.pushNotifications || 'Push Notifications'}
           value={settings.push_notifications}
           onToggle={() => toggleSetting('push_notifications')}
           disabled={parentLoading}
         />
         <SettingRow
-          label="Email Notifications"
+          label={t.emailNotifications || 'Email Notifications'}
           value={settings.email_notifications}
           onToggle={() => toggleSetting('email_notifications')}
           disabled={parentLoading}
         />
         <SettingRow
-          label="SMS Alerts"
+          label={t.smsAlerts || 'SMS Alerts'}
           value={settings.sms_alerts}
           onToggle={() => toggleSetting('sms_alerts')}
           disabled={parentLoading}
         />
         <SettingRow
-          label="Sound Enabled"
+          label={t.soundEnabled || 'Sound Enabled'}
           value={settings.sound_enabled}
           onToggle={() => toggleSetting('sound_enabled')}
           disabled={parentLoading}
         />
         <SettingRow
-          label="Vibration"
+          label={t.vibrationEnabled || 'Vibration'}
           value={settings.vibration_enabled}
           onToggle={() => toggleSetting('vibration_enabled')}
           disabled={parentLoading}
@@ -284,16 +322,16 @@ export default function EnhancedSettingsPanel({
 
       {/* Quiet Hours */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🤫 Quiet Hours</Text>
+        <Text style={styles.sectionTitle}>{t.quietHoursEnabled || 'Quiet Hours'}</Text>
         <SettingRow
-          label="Enable Quiet Hours"
+          label={t.quietHoursEnabled || 'Enable Quiet Hours'}
           value={settings.quiet_hours_enabled}
           onToggle={() => toggleSetting('quiet_hours_enabled')}
           disabled={parentLoading}
         />
         {settings.quiet_hours_enabled && (
           <View style={styles.quietHoursForm}>
-            <Text style={styles.fieldLabel}>Start Time</Text>
+            <Text style={styles.fieldLabel}>{t.quietHoursStartTime || 'Start Time'}</Text>
             <VoiceTextInput
               style={styles.input}
               value={quietHoursDraft.quiet_hours_start}
@@ -301,7 +339,7 @@ export default function EnhancedSettingsPanel({
               placeholder="22:00"
               placeholderTextColor={COLORS.textMuted}
             />
-            <Text style={styles.fieldLabel}>End Time</Text>
+            <Text style={styles.fieldLabel}>{t.quietHoursEndTime || 'End Time'}</Text>
             <VoiceTextInput
               style={styles.input}
               value={quietHoursDraft.quiet_hours_end}
@@ -314,10 +352,10 @@ export default function EnhancedSettingsPanel({
               onPress={saveQuietHours}
               disabled={parentLoading || loading}
             >
-              <Text style={styles.actionButtonText}>Save Quiet Hours</Text>
+              <Text style={styles.actionButtonText}>{t.saveQuietHours || 'Save Quiet Hours'}</Text>
             </TouchableOpacity>
             <Text style={styles.quietHoursInfo}>
-              No notifications will be sent during these hours
+              {t.quietHoursInfo || 'No notifications will be sent during these hours'}
             </Text>
           </View>
         )}
@@ -325,28 +363,28 @@ export default function EnhancedSettingsPanel({
 
       {/* Privacy & Data */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🔒 Privacy & Data</Text>
+        <Text style={styles.sectionTitle}>{t.privacyData || 'Privacy & Data'}</Text>
         <SettingRow
-          label="Share Location"
+          label={t.shareLocation || 'Share Location'}
           value={settings.share_location}
           onToggle={() => toggleSetting('share_location')}
           disabled={parentLoading}
         />
         <SettingRow
-          label="Accept Promotional Offers"
+          label={t.promoAcceptance || 'Accept Promotional Offers'}
           value={settings.accept_promo}
           onToggle={() => toggleSetting('accept_promo')}
           disabled={parentLoading}
         />
         <Text style={styles.privacyNote}>
-          Your location is only shared during active rides. Promotional offers help you earn more.
+          {t.privacyNote || 'When Share Location is off, location is only shared during active rides. Promotional offers help you earn more.'}
         </Text>
       </View>
 
       {/* Display Preferences */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🎨 Display</Text>
-        <Text style={styles.fieldLabel}>Language</Text>
+        <Text style={styles.sectionTitle}>{t.preferences || 'Display'}</Text>
+        <Text style={styles.fieldLabel}>{t.language || 'Language'}</Text>
         <View style={styles.optionGroup}>
           {languages.map((lang) => (
             <TouchableOpacity
@@ -367,7 +405,7 @@ export default function EnhancedSettingsPanel({
           ))}
         </View>
 
-        <Text style={[styles.fieldLabel, styles.fieldLabelSpaced]}>Theme</Text>
+        <Text style={[styles.fieldLabel, styles.fieldLabelSpaced]}>{t.theme || 'Theme'}</Text>
         <View style={styles.optionGroup}>
           {themes.map((theme) => (
             <TouchableOpacity
@@ -391,54 +429,78 @@ export default function EnhancedSettingsPanel({
 
       {/* Account Management */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>👤 Account Management</Text>
+        <Text style={styles.sectionTitle}>{t.accountManagement || 'Account Management'}</Text>
         <TouchableOpacity 
           style={styles.actionButton}
           onPress={handleChangePassword}
           disabled={parentLoading || loading}
         >
-          <Text style={styles.actionButtonText}>🔐 Change Password</Text>
+          <Text style={styles.actionButtonText}>{t.changePassword || 'Change Password'}</Text>
         </TouchableOpacity>
         <TouchableOpacity 
           style={styles.actionButton}
           onPress={handlePaymentMethods}
           disabled={parentLoading || loading}
         >
-          <Text style={styles.actionButtonText}>💳 Payment Methods</Text>
+          <Text style={styles.actionButtonText}>{t.paymentMethods || 'Payment Methods'}</Text>
         </TouchableOpacity>
         <TouchableOpacity 
           style={styles.actionButton}
           onPress={handleViewPrivacy}
           disabled={parentLoading || loading}
         >
-          <Text style={styles.actionButtonText}>📋 View Privacy Policy</Text>
+          <Text style={styles.actionButtonText}>{showPrivacyPolicy ? (t.hidePrivacyPolicy || 'Hide Privacy Policy') : (t.viewPrivacyPolicy || 'View Privacy Policy')}</Text>
         </TouchableOpacity>
+        {showPrivacyPolicy && (
+          <View style={styles.policyPanel}>
+            <Text style={styles.policyTitle}>AutoBuddy {t.privacyPolicy || 'Privacy Policy'}</Text>
+            <Text style={styles.policyText}>
+              AutoBuddy uses your account, vehicle, document, ride, payment, safety, and location data to run driver matching, trips, payouts, fraud prevention, and support.
+            </Text>
+            <Text style={styles.policyText}>
+              Location sharing follows your Share Location setting while you are online, and remains active during live rides so passengers and safety tools can track the trip.
+            </Text>
+            <Text style={styles.policyText}>
+              Documents, bank details, and support attachments are used for verification, compliance, payouts, and account help. Promotional preferences control whether offer messages are sent.
+            </Text>
+            <Text style={styles.policyText}>
+              For account export, correction, or deletion requests, use {t.contactSupport || 'Contact Support'} so the team can verify ownership before making changes.
+            </Text>
+          </View>
+        )}
         <TouchableOpacity 
           style={[styles.actionButton, styles.dangerButton]}
           onPress={handleDeleteAccount}
           disabled={parentLoading || loading}
         >
-          <Text style={styles.dangerButtonText}>🗑️ Delete Account</Text>
+          <Text style={styles.dangerButtonText}>{t.deleteAccount || 'Delete Account'}</Text>
         </TouchableOpacity>
       </View>
 
       {/* About Section */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>ℹ️ About</Text>
+        <Text style={styles.sectionTitle}>{t.about || 'About'}</Text>
         <View style={styles.aboutItem}>
-          <Text style={styles.aboutLabel}>App Version</Text>
+          <Text style={styles.aboutLabel}>{t.appVersion || 'App Version'}</Text>
           <Text style={styles.aboutValue}>1.2.5</Text>
         </View>
         <View style={styles.aboutItem}>
-          <Text style={styles.aboutLabel}>Last Updated</Text>
-          <Text style={styles.aboutValue}>{new Date().toLocaleDateString()}</Text>
+          <Text style={styles.aboutLabel}>{t.lastUpdated || 'Last Updated'}</Text>
+          <Text style={styles.aboutValue}>{formatToIST(new Date(), { dateStyle: 'short' })}</Text>
         </View>
         <TouchableOpacity 
           style={styles.actionButton}
           onPress={handleHelpFaq}
           disabled={parentLoading || loading}
         >
-          <Text style={styles.actionButtonText}>❓ Help & FAQ</Text>
+          <Text style={styles.actionButtonText}>{t.helpAndFAQ || 'Help & FAQ'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={handleContactSupport}
+          disabled={parentLoading || loading}
+        >
+          <Text style={styles.actionButtonText}>{t.contactSupport || 'Contact Support'}</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -626,6 +688,26 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: COLORS.error,
+  },
+  policyPanel: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 10,
+  },
+  policyTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: COLORS.textMain,
+    marginBottom: 8,
+  },
+  policyText: {
+    fontSize: 12,
+    color: COLORS.textMuted,
+    lineHeight: 17,
+    marginBottom: 8,
   },
   aboutItem: {
     flexDirection: 'row',

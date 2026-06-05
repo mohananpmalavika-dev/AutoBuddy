@@ -36,7 +36,7 @@ function BarRow({ label, value, max, suffix = '' }) {
   );
 }
 
-export default function AdminAnalyticsPanel({ token }) {
+export default function AdminAnalyticsPanel({ token, isActive = true }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [payload, setPayload] = useState(null);
@@ -55,6 +55,10 @@ export default function AdminAnalyticsPanel({ token }) {
   }, [token]);
 
   useEffect(() => {
+    if (!isActive) {
+      return undefined;
+    }
+
     let mounted = true;
     const kickoff = setTimeout(() => {
       if (mounted) {
@@ -71,7 +75,7 @@ export default function AdminAnalyticsPanel({ token }) {
       clearTimeout(kickoff);
       clearInterval(timer);
     };
-  }, [load]);
+  }, [isActive, load]);
 
   const peakHours = useMemo(() => {
     const hourMap = {};

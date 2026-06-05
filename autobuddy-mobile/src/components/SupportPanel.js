@@ -10,6 +10,7 @@ import {
   FlatList,
 } from 'react-native';
 import { COLORS } from '../theme';
+import { formatToIST } from '../utils/time';
 import { useSupport } from '../contexts/SupportContext';
 
 /**
@@ -97,7 +98,7 @@ export default function SupportPanel() {
                     <Text style={styles.messageSender}>{item.sender === 'passenger' ? 'You' : 'Support'}</Text>
                     <Text style={styles.messageText}>{item.text}</Text>
                     <Text style={styles.messageTime}>
-                      {new Date(item.timestamp).toLocaleTimeString()}
+                      {formatToIST(item.timestamp, { timeStyle: 'short' })}
                     </Text>
                   </View>
                 )}

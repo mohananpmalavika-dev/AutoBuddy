@@ -12,7 +12,18 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { apiRequest } from '../lib/api';
+import { appendPickerAssetToFormData } from '../lib/uploadFormData';
+import { buildLanguageOptions, getLanguageLabel, normalizeLanguageCode } from '../locales/indianLanguages';
 import { COLORS, SHADOWS } from '../theme';
+
+const LANGUAGE_OPTIONS = buildLanguageOptions({ preferNative: true });
+
+function normalizePassengerProfile(profileData = {}) {
+  return {
+    ...profileData,
+    preferred_language: normalizeLanguageCode(profileData?.preferred_language || 'en'),
+  };
+}
 
 /**
  * PassengerProfilePanel - Passenger profile management
@@ -43,6 +54,9 @@ export default function PassengerProfilePanel({ token, loading: parentLoading = 
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteConfirmationText, setDeleteConfirmationText] = useState('');
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   const fetchProfile = useCallback(async () => {
     try {
@@ -51,8 +65,9 @@ export default function PassengerProfilePanel({ token, loading: parentLoading = 
       const data = await apiRequest('/passengers/profile', { token });
       const profileData = data?.profile || data;
       if (profileData) {
-        setProfile(profileData);
-        setTempProfile(profileData);
+        const nextProfile = normalizePassengerProfile(profileData);
+        setProfile(nextProfile);
+        setTempProfile(nextProfile);
       }
     } catch (err) {
       setError(err.message || 'Failed to load profile');
@@ -99,11 +114,13 @@ export default function PassengerProfilePanel({ token, loading: parentLoading = 
       setError('');
 
       const formData = new FormData();
-      formData.append('file', {
-        uri: asset.uri,
-        type: 'image/jpeg',
-        name: `profile-${Date.now()}.jpg`,
-      });
+      await appendPickerAssetToFormData(
+        formData,
+        'file',
+        asset,
+        'passenger-profile-photo.jpg',
+        'image/jpeg',
+      );
 
       const response = await apiRequest('/passengers/profile/photo', {
         token,
@@ -141,7 +158,7 @@ export default function PassengerProfilePanel({ token, loading: parentLoading = 
         body: updateData,
       });
 
-      const nextProfile = response?.profile || tempProfile;
+      const nextProfile = normalizePassengerProfile(response?.profile || tempProfile);
       setProfile(nextProfile);
       setTempProfile(nextProfile);
       setEditMode({ ...editMode, personalInfo: false });
@@ -160,7 +177,7 @@ export default function PassengerProfilePanel({ token, loading: parentLoading = 
       setError('');
 
       const updateData = {
-        preferred_language: tempProfile.preferred_language,
+        preferred_language: normalizeLanguageCode(tempProfile.preferred_language),
         notifications_enabled: tempProfile.notifications_enabled,
         email_notifications: tempProfile.email_notifications,
         ride_sharing_enabled: tempProfile.ride_sharing_enabled,
@@ -172,7 +189,7 @@ export default function PassengerProfilePanel({ token, loading: parentLoading = 
         body: updateData,
       });
 
-      const nextProfile = response?.profile || tempProfile;
+      const nextProfile = normalizePassengerProfile(response?.profile || tempProfile);
       setProfile(nextProfile);
       setTempProfile(nextProfile);
       setEditMode({ ...editMode, preferences: false });
@@ -186,47 +203,36 @@ export default function PassengerProfilePanel({ token, loading: parentLoading = 
   };
 
   const handleDeleteAccount = () => {
-    Alert.alert(
-      'Delete Account',
-      'Are you sure you want to delete your account? This action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            Alert.alert(
-              'Confirm Deletion',
-              'Type "DELETE" to confirm account deletion:',
-              [
-                {
-                  text: 'Cancel',
-                  style: 'cancel',
-                },
-                {
-                  text: 'Delete My Account',
-                  style: 'destructive',
-                  onPress: async () => {
-                    try {
-                      setLoading(true);
-                      await apiRequest('/passengers/profile/delete', {
-                        token,
-                        method: 'DELETE',
-                      });
-                      setMessage('Account deletion request received');
-                    } catch (err) {
-                      setError(err.message || 'Failed to delete account');
-                    } finally {
-                      setLoading(false);
-                    }
-                  },
-                },
-              ],
-            );
-          },
-        },
-      ],
-    );
+    setError('');
+    setMessage('');
+    setDeleteConfirmationText('');
+    setShowDeleteConfirm(true);
+  };
+
+  const submitDeleteAccountRequest = async () => {
+    if (deleteConfirmationText.trim() !== 'DELETE') {
+      setError('Type DELETE to confirm your account deletion request.');
+      return;
+    }
+
+    try {
+      setDeletingAccount(true);
+      setError('');
+      await apiRequest('/passengers/profile/delete', {
+        token,
+        method: 'DELETE',
+        body: { confirmation: 'DELETE' },
+      });
+      setShowDeleteConfirm(false);
+      setDeleteConfirmationText('');
+      setProfile((prev) => ({ ...prev, account_status: 'deletion_pending' }));
+      setMessage('Account deletion request submitted for admin review.');
+      setTimeout(() => setMessage(''), 3000);
+    } catch (err) {
+      setError(err.message || 'Failed to request account deletion');
+    } finally {
+      setDeletingAccount(false);
+    }
   };
 
   if (loading && profile.name === '') {
@@ -357,17 +363,21 @@ export default function PassengerProfilePanel({ token, loading: parentLoading = 
           <>
             <Text style={styles.preferenceLabel}>Preferred Language</Text>
             <View style={styles.languageOptions}>
-              {['en', 'ml', 'ta', 'te'].map((lang) => (
+              {LANGUAGE_OPTIONS.map((language) => (
                 <TouchableOpacity
-                  key={lang}
+                  key={language.value}
                   style={[
                     styles.languageButton,
-                    tempProfile.preferred_language === lang && styles.languageButtonActive,
+                    tempProfile.preferred_language === language.value && styles.languageButtonActive,
                   ]}
-                  onPress={() => setTempProfile({ ...tempProfile, preferred_language: lang })}
+                  onPress={() => setTempProfile({ ...tempProfile, preferred_language: language.value })}
                 >
-                  <Text style={[styles.languageButtonText, tempProfile.preferred_language === lang && styles.languageButtonTextActive]}>
-                    {lang.toUpperCase()}
+                  <Text
+                    style={[
+                      styles.languageButtonText,
+                      tempProfile.preferred_language === language.value && styles.languageButtonTextActive,
+                    ]}>
+                    {language.label}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -416,7 +426,7 @@ export default function PassengerProfilePanel({ token, loading: parentLoading = 
         ) : (
           <>
             <Text style={styles.infoLabel}>Language</Text>
-            <Text style={styles.infoValue}>{profile.preferred_language.toUpperCase()}</Text>
+            <Text style={styles.infoValue}>{getLanguageLabel(profile.preferred_language)}</Text>
             <Text style={styles.infoLabel}>Push Notifications</Text>
             <Text style={styles.infoValue}>{profile.notifications_enabled ? 'Enabled' : 'Disabled'}</Text>
             <Text style={styles.infoLabel}>Email Notifications</Text>
@@ -428,10 +438,51 @@ export default function PassengerProfilePanel({ token, loading: parentLoading = 
       {/* Account Actions */}
       <View style={[styles.infoBlock, SHADOWS.card]}>
         <Text style={styles.sectionTitle}>Account Actions</Text>
+        {showDeleteConfirm && (
+          <View style={styles.deleteConfirmBox}>
+            <Text style={styles.deleteConfirmTitle}>Confirm account deletion</Text>
+            <Text style={styles.deleteConfirmText}>
+              This submits a request for admin review. Type DELETE below to continue.
+            </Text>
+            <TextInput
+              style={styles.input}
+              value={deleteConfirmationText}
+              onChangeText={setDeleteConfirmationText}
+              placeholder="Type DELETE"
+              autoCapitalize="characters"
+              editable={!deletingAccount}
+            />
+            <View style={styles.deleteActionRow}>
+              <TouchableOpacity
+                style={[styles.actionButton, styles.cancelDeleteButton]}
+                onPress={() => {
+                  setShowDeleteConfirm(false);
+                  setDeleteConfirmationText('');
+                }}
+                disabled={deletingAccount}
+              >
+                <Text style={styles.cancelDeleteButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.actionButton,
+                  styles.confirmDeleteButton,
+                  deleteConfirmationText.trim() !== 'DELETE' && styles.disabledButton,
+                ]}
+                onPress={submitDeleteAccountRequest}
+                disabled={deletingAccount || deleteConfirmationText.trim() !== 'DELETE'}
+              >
+                <Text style={styles.actionButtonText}>
+                  {deletingAccount ? 'Submitting...' : 'Submit Request'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
         <TouchableOpacity
           style={[styles.actionButton, { backgroundColor: '#F44336' }]}
           onPress={handleDeleteAccount}
-          disabled={loading}
+          disabled={loading || deletingAccount}
         >
           <Text style={styles.actionButtonText}>Delete Account</Text>
         </TouchableOpacity>
@@ -481,6 +532,27 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   actionButtonText: { color: '#fff', fontWeight: '600', fontSize: 14 },
+  deleteConfirmBox: {
+    borderWidth: 1,
+    borderColor: '#F44336',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+    backgroundColor: '#FFF5F5',
+  },
+  deleteConfirmTitle: { color: '#B71C1C', fontSize: 14, fontWeight: '800', marginBottom: 6 },
+  deleteConfirmText: { color: COLORS.text, fontSize: 13, lineHeight: 18, marginBottom: 10 },
+  deleteActionRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  cancelDeleteButton: {
+    backgroundColor: COLORS.cardBackground,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    flex: 1,
+    minWidth: 120,
+  },
+  cancelDeleteButtonText: { color: COLORS.text, fontWeight: '700', fontSize: 14 },
+  confirmDeleteButton: { backgroundColor: '#F44336', flex: 1, minWidth: 150 },
+  disabledButton: { opacity: 0.5 },
   errorText: { color: '#F44336', fontSize: 12, marginBottom: 12, fontWeight: '600' },
   messageText: { color: '#4CAF50', fontSize: 12, marginBottom: 12, fontWeight: '600' },
   preferenceLabel: { fontSize: 12, color: COLORS.textMuted, fontWeight: '600', marginBottom: 8 },

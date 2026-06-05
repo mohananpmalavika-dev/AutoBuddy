@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 module.exports = ({ config }) => {
   const googleMapsApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
   const plugins = Array.isArray(config.plugins) ? [...config.plugins] : [];
@@ -6,6 +8,14 @@ module.exports = ({ config }) => {
 
   if (!hasPlugin('expo-image')) {
     plugins.push('expo-image');
+  }
+
+  if (!hasPlugin('@react-native-community/datetimepicker')) {
+    plugins.push('@react-native-community/datetimepicker');
+  }
+
+  if (!hasPlugin('@stripe/stripe-react-native')) {
+    plugins.push(['@stripe/stripe-react-native', {}]);
   }
 
   const mapsPluginIndex = plugins.findIndex((entry) =>

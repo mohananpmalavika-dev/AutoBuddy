@@ -3,6 +3,7 @@ import {
   AccessibilityInfo,
   ActivityIndicator,
   Alert,
+  Linking,
   ScrollView,
   StyleSheet,
   Text,
@@ -10,11 +11,20 @@ import {
   View,
 } from 'react-native';
 import * as Location from 'expo-location';
+import * as WebBrowser from 'expo-web-browser';
+import * as DocumentPicker from 'expo-document-picker';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import BottomSheet from '@gorhom/bottom-sheet';
 
-import { apiRequest } from '../lib/api';
+import { driverAPI } from '../services/apiClient';
 import { COLORS, SHADOWS } from '../theme';
+import { apiRequest } from '../lib/api';
+import {
+  buildDriverAvailabilityState,
+  toDriverLocationApiBody,
+} from '../lib/driverAvailabilityStatus';
+import { offlineQueueManager } from '../lib/offlineQueueManager';
+import { retryWithBackoff } from '../lib/retryUtils';
 import KeralaSafetyCard from '../components/KeralaSafetyCard';
 import DriverTrustCard from '../components/DriverTrustCard';
 import DriverKycPanel from '../components/DriverKycPanel';
@@ -25,14 +35,76 @@ import RideCard from '../components/RideCard';
 import DriverTabBar from '../components/DriverTabBar';
 import EarningsPanel from '../components/EarningsPanel';
 import DocumentUploadPanel from '../components/DocumentUploadPanel';
+import DriverFareDisplay from '../components/DriverFareDisplay';
+import DriverFareProposal from '../components/DriverFareProposal';
 import VehicleManagementPanel from '../components/VehicleManagementPanel';
 import SupportTicketPanel from '../components/SupportTicketPanel';
 import EnhancedSettingsPanel from '../components/EnhancedSettingsPanel';
 import ProfileManagementPanel from '../components/ProfileManagementPanel';
-import AnalyticsDashboard from '../components/AnalyticsDashboard';
+import AnalyticsDashboardAdvanced from '../components/AnalyticsDashboardAdvanced';
+import RideHistoryPanel from '../components/RideHistoryPanel';
+import NotificationCenter from '../components/NotificationCenter';
+import ScheduledRidesPanel from '../components/ScheduledRidesPanel';
+import SubscriptionPanel from '../components/SubscriptionPanel';
+import DriverReviewsPanel from '../components/DriverReviewsPanel';
+import DriverCancelRidePanel from '../components/DriverCancelRidePanel';
+import PassengerTrackingMap from '../components/PassengerTrackingMap';
+import MessageTemplatesPanel from '../components/MessageTemplatesPanel';
+import InTripNavigationDisplay from '../components/InTripNavigationDisplay';
+import DriverPerformanceDashboard from '../components/DriverPerformanceDashboard';
+import SOSButton from '../components/SOSButton';
+import RequestCountdownDisplay from '../components/RequestCountdownDisplay';
+import ExpenseTrackerAdvanced from '../components/ExpenseTrackerAdvanced';
+import RideFilterPanel from '../components/RideFilterPanel';
+import EarningTargetWidget from '../components/EarningTargetWidget';
+import MaintenanceAlertPanel from '../components/MaintenanceAlertPanel';
+import PayoutScheduleWidget from '../components/PayoutScheduleWidget';
+import DriverPaymentMethodsPanel from '../components/DriverPaymentMethodsPanel';
+import { RidePoolingPanel } from '../components/RidePoolingPanel';
+import { TaxReportWidget } from '../components/TaxReportWidget';
+import { FavoritePassengersPanel } from '../components/FavoritePassengersPanel';
+import { ShiftScheduleCalendar } from '../components/ShiftScheduleCalendar';
+import { BadgesAchievementsWidget } from '../components/BadgesAchievementsWidget';
+import DriverTierBenefitsPanel from '../components/DriverTierBenefitsPanel';
+import DocumentExpiryAlertsPanel from '../components/DocumentExpiryAlertsPanel';
+import DriverSuspensionAppealPanel from '../components/DriverSuspensionAppealPanel';
+import DriverReferralPanel from '../components/DriverReferralPanel';
+import DemandHeatmapIntegration from '../components/DemandHeatmapIntegration';
+import TrafficAlerts from '../components/TrafficAlerts';
+import DriverPhotoVerificationPanel from '../components/DriverPhotoVerificationPanel';
+import PassengerSafetyRatingsPanel from '../components/PassengerSafetyRatingsPanel';
+import { useNotifications } from '../contexts/NotificationContext';
+import { usePreferences } from '../contexts/PreferencesContext';
 import { DRIVER_QUICK_ACTIONS } from '../constants/driverQuickActions';
 import { useKeralaSafety } from '../hooks/useKeralaSafety';
 import { useDriverRealtimeTracking } from '../hooks/useDriverRealtimeTracking';
+import { useDriverRideQueueSocket } from '../hooks/useDriverRideQueueSocket';
+import { useNotificationManager } from '../hooks/useNotificationManager';
+import { useSOSAlert } from '../hooks/useSOSAlert';
+import { useRequestCountdown } from '../hooks/useRequestCountdown';
+import { useExpenseTracking } from '../hooks/useExpenseTracking';
+import {
+  filterBlockedPassengers,
+  formatBlockedPassengerDate,
+  getBlockedPassengerRideSummary,
+  normalizeBlockedPassengerRows,
+} from '../lib/driverBlockedPassengers';
+import {
+  buildGoogleMapsDirectionsUrl,
+  canCancelRide,
+  getNextActionLabel,
+  getNextRideStatus,
+  getRideNavigationTarget,
+  getRideStatusMode,
+  runDriverQuickAction,
+} from '../lib/driverDashboardFlow';
+import { appendPickerAssetToFormData } from '../lib/uploadFormData';
+import {
+  extractDriverReadinessFromError,
+  formatDriverReadinessMessage,
+  getDriverReadinessTab,
+  isDriverReadyToDrive,
+} from '../lib/driverReadiness';
 
 const driverMapStyle = [
   { elementType: 'geometry', stylers: [{ color: '#242f3e' }] },
@@ -48,11 +120,83 @@ const DEFAULT_DRIVER_LOCATION = {
   address: 'Current location unavailable',
 };
 
-const STATUS_FLOW = ['accepted', 'driver_arrived', 'in_progress', 'completed'];
+const DEFAULT_DRIVER_SETTINGS = {
+  push_notifications: true,
+  email_notifications: true,
+  sms_alerts: true,
+  sound_enabled: true,
+  vibration_enabled: true,
+  quiet_hours_enabled: false,
+  quiet_hours_start: '22:00',
+  quiet_hours_end: '08:00',
+  language: 'en',
+  theme: 'light',
+  share_location: true,
+  accept_promo: true,
+};
+
 const DRIVER_MOVING_TRACK_INTERVAL_MS = 5000;
 const DRIVER_IDLE_TRACK_INTERVAL_MS = 20000;
 const DRIVER_IDLE_SPEED_THRESHOLD_KMH = 2;
 const AVAILABILITY_RETRY_WINDOW_MS = 300000;
+const AVAILABILITY_CONFIRMED_OVERRIDE_MS = 90000;
+const AVAILABILITY_TRANSIENT_MESSAGE_PARTS = [
+  'checking ready to drive',
+  'going online',
+  'going offline',
+];
+const AVAILABILITY_ONLINE_SUCCESS_MESSAGE_PARTS = [
+  'you are now online',
+  'you are online and discoverable',
+];
+const AVAILABILITY_OFFLINE_SUCCESS_MESSAGE_PARTS = [
+  'you are now offline',
+  'you are offline',
+];
+
+function isAvailabilityTransientMessage(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return AVAILABILITY_TRANSIENT_MESSAGE_PARTS.some((part) => normalized.includes(part));
+}
+
+function getVisibleAvailabilityMessage(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized || isAvailabilityTransientMessage(value)) {
+    return '';
+  }
+  if (
+    AVAILABILITY_ONLINE_SUCCESS_MESSAGE_PARTS.some((part) => normalized.includes(part)) ||
+    AVAILABILITY_OFFLINE_SUCCESS_MESSAGE_PARTS.some((part) => normalized.includes(part))
+  ) {
+    return '';
+  }
+  return value;
+}
+
+function normalizeDriverSettings(rawSettings = {}) {
+  const source =
+    rawSettings?.settings && typeof rawSettings.settings === 'object'
+      ? rawSettings.settings
+      : rawSettings;
+
+  if (!source || typeof source !== 'object') {
+    return DEFAULT_DRIVER_SETTINGS;
+  }
+
+  return {
+    ...DEFAULT_DRIVER_SETTINGS,
+    ...source,
+    share_location: source.share_location ?? DEFAULT_DRIVER_SETTINGS.share_location,
+  };
+}
+
+function resolveActiveVehicleId(payload) {
+  const vehicles = Array.isArray(payload) ? payload : payload?.vehicles;
+  if (!Array.isArray(vehicles) || vehicles.length === 0) {
+    return null;
+  }
+  return String((vehicles.find((vehicle) => vehicle?.is_active) || vehicles[0])?.id || '').trim() || null;
+}
 
 function isRetriableAvailabilityError(err) {
   const status = Number(err?.status || 0);
@@ -96,7 +240,54 @@ function getAvailabilityErrorMessage(err) {
   return err?.message || 'Failed to update availability status.';
 }
 
-export default function DriverDashboard({ token, user, onLogout, onProfilePress = undefined }) {
+function readDriverAvailability(payload, fallback = false) {
+  const onlineFlags = [
+    payload?.is_available,
+    payload?.is_online,
+    payload?.presence_online,
+    payload?.location_online,
+    payload?.is_live,
+  ].filter((value) => typeof value === 'boolean');
+
+  if (onlineFlags.some(Boolean)) {
+    return true;
+  }
+  if (onlineFlags.length > 0) {
+    return false;
+  }
+
+  const status = String(
+    payload?.availability_status ||
+      payload?.availability ||
+      payload?.online_status ||
+      payload?.status ||
+      '',
+  ).toLowerCase();
+
+  if (['online', 'available', 'active', 'ready'].includes(status)) {
+    return true;
+  }
+  if (['offline', 'unavailable', 'inactive', 'disabled'].includes(status)) {
+    return false;
+  }
+
+  return !!fallback;
+}
+
+function hasDriverAvailabilitySnapshot(payload) {
+  return (
+    typeof payload?.is_available === 'boolean' ||
+    typeof payload?.is_online === 'boolean' ||
+    typeof payload?.presence_online === 'boolean' ||
+    typeof payload?.location_online === 'boolean' ||
+    typeof payload?.is_live === 'boolean' ||
+    typeof payload?.availability_status === 'string' ||
+    typeof payload?.availability === 'string' ||
+    typeof payload?.online_status === 'string'
+  );
+}
+
+function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefined }) {
   const snapPoints = useMemo(() => ['26%', '55%'], []);
   const refreshInFlightRef = useRef(false);
   const initialLocationSyncAttemptedRef = useRef(false);
@@ -104,6 +295,9 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   const mapRef = useRef(null);
   const pendingRequestIdsRef = useRef(new Set());
   const pendingNotificationInitRef = useRef(false);
+  const rideRequestSocketRef = useRef(null);
+  const realtimeRideQueueRefreshInFlightRef = useRef(false);
+  const realtimeRideQueueRefreshQueuedRef = useRef(false);
   const locationSyncSuspendedUntilRef = useRef(0);
   const lastLocationPauseNoticeAtRef = useRef(0);
   const lastLocationPushAtRef = useRef(0);
@@ -111,9 +305,12 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   const reverseGeocodeInFlightRef = useRef(false);
   const reverseGeocodeCacheRef = useRef(new Map());
   const availabilityUiOverrideUntilRef = useRef(0);
+  const availabilityLocalChangeAtRef = useRef(0);
   const availabilityToggleRequestIdRef = useRef(0);
+  const availabilityToggleInFlightRef = useRef(null);
   const pendingAvailabilitySyncRef = useRef(null);
   const availabilityRetryInFlightRef = useRef(false);
+  const availabilitySyncPendingRef = useRef(false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -121,10 +318,21 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   const [isOnline, setIsOnline] = useState(false);
   const [serverIsOnline, setServerIsOnline] = useState(false);
   const [availabilitySyncPending, setAvailabilitySyncPending] = useState(false);
+  const [availabilityPendingDesired, setAvailabilityPendingDesired] = useState(null);
+  const [availabilityToggleInFlight, setAvailabilityToggleInFlight] = useState(null);
+  const [menuBadges, setMenuBadges] = useState({});
+  const [driverSettings, setDriverSettings] = useState(DEFAULT_DRIVER_SETTINGS);
+  useNotificationManager(token, user?.id, driverSettings);
+  const { unreadCount } = useNotifications();
+  const { updatePreference } = usePreferences();
   const [driverLocation, setDriverLocation] = useState(DEFAULT_DRIVER_LOCATION);
   const [pendingRequests, setPendingRequests] = useState([]);
+  const [upcomingRides, setUpcomingRides] = useState(null);
   const [blockedPassengerIds, setBlockedPassengerIds] = useState([]);
+  const [blockedPassengers, setBlockedPassengers] = useState([]);
+  const [blockedPassengerSearch, setBlockedPassengerSearch] = useState('');
   const [activeRide, setActiveRide] = useState(null);
+  const [activeVehicleId, setActiveVehicleId] = useState(null);
   const [earnings, setEarnings] = useState(null);
   const [pricingRules, setPricingRules] = useState(null);
   const [driverFareConfig, setDriverFareConfig] = useState({
@@ -143,19 +351,124 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   const [rideStartOtp, setRideStartOtp] = useState('');
   const [rideEndOtp, setRideEndOtp] = useState('');
   const [activeTab, setActiveTab] = useState('requests');
+  const [supportLaunchAction, setSupportLaunchAction] = useState('help');
+  const [earningsLaunchAction, setEarningsLaunchAction] = useState('summary');
   const [expandedRideCard, setExpandedRideCard] = useState(false);
+  const [cancelRidePanelVisible, setCancelRidePanelVisible] = useState(false);
+  const [cancelRideBookingId, setCancelRideBookingId] = useState(null);
   const [spinWinStatus, setSpinWinStatus] = useState(null);
   const [spinWinLoading, setSpinWinLoading] = useState(false);
   const [spinningNow, setSpinningNow] = useState(false);
   const [driverTrackingIntervalMs, setDriverTrackingIntervalMs] = useState(DRIVER_MOVING_TRACK_INTERVAL_MS);
-  const liveLocationRideStatuses = useMemo(() => new Set(['accepted', 'driver_arrived', 'in_progress']), []);
+  const [driverMetrics] = useState({
+    average_rating: 0,
+    acceptance_rate: 0,
+    completion_rate: 0,
+    total_rides: 0,
+    monthly_earnings: 0,
+    avg_distance: 0,
+    hours_online: 0,
+    cancellation_rate: 0,
+    weekly_avg_rating: 0,
+    avg_response_time: 0,
+  });
+  const [analyticsHistory] = useState([]);
+  const setAvailabilitySyncPendingState = useCallback((value) => {
+    const nextValue = !!value;
+    availabilitySyncPendingRef.current = nextValue;
+    setAvailabilitySyncPending(nextValue);
+  }, []);
+  const canApplyServerAvailabilitySnapshot = useCallback((requestStartedAt = Date.now()) => (
+    requestStartedAt >= availabilityLocalChangeAtRef.current &&
+    !availabilitySyncPendingRef.current &&
+    !availabilityToggleInFlightRef.current &&
+    !pendingAvailabilitySyncRef.current &&
+    Date.now() >= availabilityUiOverrideUntilRef.current
+  ), []);
+  const applyAvailabilitySnapshot = useCallback((payload, fallback = false, options = {}) => {
+    const nextStatus = readDriverAvailability(payload, fallback);
+    if (options.protect) {
+      const now = Date.now();
+      availabilityLocalChangeAtRef.current = now;
+      availabilityUiOverrideUntilRef.current = Math.max(
+        availabilityUiOverrideUntilRef.current,
+        now + AVAILABILITY_CONFIRMED_OVERRIDE_MS,
+      );
+    }
+    setServerIsOnline(nextStatus);
+    setIsOnline(nextStatus);
+    return nextStatus;
+  }, []);
   const activeRideStatus = String(activeRide?.status || '').toLowerCase();
   const activeRideId = String(activeRide?.id || '').trim() || null;
-  const navigatingToPickup = activeRideStatus === 'accepted' || activeRideStatus === 'driver_arrived';
-  const navigatingToDrop = activeRideStatus === 'in_progress';
-  const showStageRoute = navigatingToPickup || navigatingToDrop;
-  const shouldSyncDriverLocation = (isOnline && !availabilitySyncPending) || liveLocationRideStatuses.has(activeRideStatus);
-  const displayIsOnline = availabilitySyncPending ? isOnline : serverIsOnline;
+  const shareLocationWhileOnline = driverSettings.share_location !== false;
+  const {
+    navigatingToPickup,
+    navigatingToDrop,
+    showStageRoute,
+    sharesLocation: activeRideSharesLocation,
+  } = getRideStatusMode(activeRideStatus);
+  const shouldSyncDriverLocation =
+    (shareLocationWhileOnline && serverIsOnline && !availabilitySyncPending) || activeRideSharesLocation;
+  const shouldPushAvailabilityLocation = shareLocationWhileOnline || activeRideSharesLocation;
+
+  const driverAvailability = useMemo(() => buildDriverAvailabilityState({
+    serverIsOnline,
+    localIsOnline: isOnline,
+    activeRideId,
+    driverLocation,
+    availabilityPendingDesired,
+    availabilitySyncPending,
+    availabilityToggleInFlight,
+  }), [
+    activeRideId,
+    availabilityPendingDesired,
+    availabilitySyncPending,
+    availabilityToggleInFlight,
+    driverLocation,
+    isOnline,
+    serverIsOnline,
+  ]);
+  const displayIsOnline = driverAvailability.isOnline;
+  const resolvedDriverStatusLabel = useMemo(() => {
+    if (driverAvailability.label) {
+      return driverAvailability.label;
+    }
+    return driverAvailability.isOnline ? 'ONLINE & READY' : 'OFFLINE';
+  }, [driverAvailability.isOnline, driverAvailability.label]);
+  
+  const visibleMessage = getVisibleAvailabilityMessage(message);
+
+  const visibleBlockedPassengers = useMemo(
+    () => filterBlockedPassengers(blockedPassengers, blockedPassengerSearch),
+    [blockedPassengerSearch, blockedPassengers],
+  );
+  const upcomingRideCount = useMemo(() => {
+    const counts = upcomingRides?.counts;
+    if (counts && Number.isFinite(Number(counts.total))) {
+      return Number(counts.total);
+    }
+    return (
+      (Array.isArray(upcomingRides?.scheduled_requests) ? upcomingRides.scheduled_requests.length : 0) +
+      (Array.isArray(upcomingRides?.assigned_rides) ? upcomingRides.assigned_rides.length : 0)
+    );
+  }, [upcomingRides]);
+  useEffect(() => {
+    updatePreference('language', driverSettings.language || DEFAULT_DRIVER_SETTINGS.language);
+    updatePreference('notifications.bookingUpdates', driverSettings.push_notifications !== false);
+    updatePreference('notifications.promotions', driverSettings.accept_promo !== false);
+    updatePreference('notifications.sound', driverSettings.sound_enabled !== false);
+    updatePreference('notifications.vibration', driverSettings.vibration_enabled !== false);
+    updatePreference('privacy.shareLocation', driverSettings.share_location !== false);
+  }, [
+    driverSettings.accept_promo,
+    driverSettings.language,
+    driverSettings.push_notifications,
+    driverSettings.share_location,
+    driverSettings.sound_enabled,
+    driverSettings.vibration_enabled,
+    updatePreference,
+  ]);
   const keralaSafety = useKeralaSafety({
     token,
     userName: user?.name,
@@ -170,8 +483,105 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     activeRideId,
     enabled: shouldSyncDriverLocation,
     manageLocationWatch: false,
+    manageBackgroundTracking: shouldSyncDriverLocation,
   });
-  
+
+  const { sosActive, sosError, sosMessage, triggerSOS, cancelSOS } = useSOSAlert({
+    token,
+    driverId: user?.id,
+    rideId: activeRideId,
+    currentLocation: driverLocation,
+  });
+
+  const {
+    secondsRemaining,
+    isExpired,
+    formattedTime,
+    percentage,
+  } = useRequestCountdown({
+    rideId: pendingRequests[0]?.id,
+    initialSeconds: 60,
+    onExpire: (reason) => {
+      if (reason === 'timeout') {
+        setMessage('Ride request expired');
+        setPendingRequests((prev) => prev.slice(1));
+      }
+    },
+    autoStart: pendingRequests.length > 0,
+  });
+
+  const {
+    expenses,
+    totalExpense,
+    isLoading: expenseLoading,
+    error: expenseError,
+    addExpense,
+    removeExpense,
+    fetchExpenses,
+    expenseTypes,
+  } = useExpenseTracking({
+    token,
+    rideId: activeRideId,
+  });
+
+  useEffect(() => {
+    if (activeRideId) {
+      fetchExpenses().catch(() => null);
+    }
+  }, [activeRideId, fetchExpenses]);
+
+  const handleReceiptUpload = useCallback(async () => {
+    try {
+      if (!activeRideId) {
+        setError('Start or select a ride before attaching a receipt.');
+        return null;
+      }
+
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['image/*', 'application/pdf'],
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled || !result.assets?.length) {
+        return null;
+      }
+
+      const asset = result.assets[0];
+      if (asset.size && asset.size > 8 * 1024 * 1024) {
+        setError('Receipt file must be less than 8MB.');
+        return null;
+      }
+
+      const formData = new FormData();
+      await appendPickerAssetToFormData(
+        formData,
+        'file',
+        asset,
+        asset.name || `ride-${activeRideId}-receipt`,
+        asset.mimeType || 'application/octet-stream',
+      );
+
+      const response = await apiRequest(`/uploads/ride-receipt/${activeRideId}`, {
+        method: 'POST',
+        token,
+        body: formData,
+        isFormData: true,
+      });
+      const uploadData = response?.data || response || {};
+      const fileKey = uploadData.file_key || response?.resource_id;
+      const receiptUrl =
+        uploadData.file_url ||
+        uploadData.download_url ||
+        (fileKey ? `/api/uploads/download/${fileKey}` : null);
+      if (receiptUrl) {
+        setMessage('Receipt attached. Save the expense to keep it with this ride.');
+      }
+      return receiptUrl;
+    } catch (err) {
+      console.error('Receipt upload error:', err);
+      setError(err.message || 'Receipt upload failed.');
+      return null;
+    }
+  }, [activeRideId, token]);
 
   const runAction = useCallback(async (fn, successText) => {
     try {
@@ -190,6 +600,73 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       return null;
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  const refreshDriverMenuBadges = useCallback(async () => {
+    // Use retry logic to handle network failures
+    try {
+      const payload = await retryWithBackoff(
+        () => apiRequest('/drivers/menu-badges', { token }),
+        {
+          maxRetries: 3,
+          initialDelayMs: 500,
+          maxDelayMs: 10000,
+          backoffMultiplier: 2,
+        }
+      );
+      if (payload && typeof payload === 'object') {
+        setMenuBadges(payload);
+      }
+      return payload;
+    } catch (err) {
+      // Log error but don't throw - badges refresh is non-critical
+      console.warn('Failed to refresh menu badges after retries:', err.message);
+      return null;
+    }
+  }, [token]);
+
+  const handleDriverSettingsChange = useCallback((nextSettings = {}) => {
+    setDriverSettings((currentSettings) =>
+      normalizeDriverSettings({ ...currentSettings, ...(nextSettings || {}) }),
+    );
+  }, []);
+
+  const handleSettingsNavigateToTab = useCallback((tab, options = {}) => {
+    const nextTab = String(tab || '').trim();
+    if (!nextTab) {
+      return;
+    }
+    if (nextTab === 'support') {
+      setSupportLaunchAction(options?.supportAction === 'contact' ? 'contact' : 'help');
+    }
+    setActiveTab(nextTab);
+  }, []);
+
+  const handleDriverNotificationPress = useCallback((notification) => {
+    const data = notification?.data && typeof notification.data === 'object' ? notification.data : {};
+    const type = String(notification?.type || data.type || '').toLowerCase();
+
+    if (notification?.bookingId || data.booking_id || data.bookingId || type.includes('ride') || type.includes('booking')) {
+      setActiveTab('requests');
+      return;
+    }
+    if (type.includes('support') || data.ticket_id || data.ticketId) {
+      setSupportLaunchAction('contact');
+      setActiveTab('support');
+      return;
+    }
+    if (
+      type.includes('payout') ||
+      type.includes('payment') ||
+      type.includes('earning') ||
+      type.includes('withdraw')
+    ) {
+      setActiveTab('earnings');
+      return;
+    }
+    if (type.includes('kyc') || type.includes('document') || type.includes('trust')) {
+      setActiveTab('trust');
     }
   }, []);
 
@@ -227,6 +704,42 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
         `Lat ${Number(latitude.toFixed(6))}, Lng ${Number(longitude.toFixed(6))}`,
     };
   }, []);
+
+  const activeRideDestination = useMemo(() => {
+    if (!activeRide) {
+      return null;
+    }
+    return getRideNavigationTarget({
+      ride: activeRide,
+      status: activeRideStatus,
+      normalizeLocation,
+    }).destination;
+  }, [activeRide, activeRideStatus, normalizeLocation]);
+
+  const activePassengerId = useMemo(
+    () =>
+      String(
+        activeRide?.passenger_id ||
+          activeRide?.passengerId ||
+          pendingRequests?.[0]?.passenger_id ||
+          pendingRequests?.[0]?.passengerId ||
+          '',
+      ).trim(),
+    [activeRide, pendingRequests],
+  );
+
+  const handleNavigateToHotspot = useCallback(
+    (hotspot) => {
+      const destination = normalizeLocation(hotspot);
+      const mapsUrl = buildGoogleMapsDirectionsUrl({ origin: driverLocation, destination });
+      if (!mapsUrl) {
+        setError('Hotspot location unavailable.');
+        return;
+      }
+      Linking.openURL(mapsUrl).catch(() => setError('Could not open hotspot navigation.'));
+    },
+    [driverLocation, normalizeLocation],
+  );
 
   const readDeviceLocation = useCallback(async () => {
     try {
@@ -296,12 +809,22 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
         return locationToSend;
       }
 
+      const locationApiBody = toDriverLocationApiBody({
+        ...locationToSend,
+        speed:
+          Number.isFinite(Number(speedKmhOverride)) && Number(speedKmhOverride) >= 0
+            ? Number(speedKmhOverride)
+            : 0,
+        accuracy: null,
+        ride_id: activeRideId || null,
+        timestamp: new Date().toISOString(),
+      });
+      if (!locationApiBody) {
+        return null;
+      }
+
       try {
-        await apiRequest('/drivers/location', {
-          method: 'PUT',
-          token,
-          body: { location: locationToSend },
-        });
+        await driverAPI.updateLocation(locationApiBody);
         emitSocketLocationUpdate({
             booking_id: activeRideId || undefined,
             latitude: locationToSend.latitude,
@@ -346,7 +869,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
         return null;
       }
     },
-    [activeRideId, driverLocation, emitSocketLocationUpdate, normalizeLocation, readDeviceLocation, token],
+    [activeRideId, driverLocation, emitSocketLocationUpdate, normalizeLocation, readDeviceLocation],
   );
 
   const retryPendingAvailabilitySync = useCallback(async () => {
@@ -356,18 +879,11 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     }
     availabilityRetryInFlightRef.current = true;
     try {
-      const updated = await apiRequest('/drivers/availability', {
-        method: 'PUT',
-        token,
-        body: { is_available: !!pending.desired },
-      });
-      const savedStatus =
-        typeof updated?.is_available === 'boolean' ? updated.is_available : !!pending.desired;
+      const updated = await driverAPI.updateAvailability({ is_available: !!pending.desired });
+      const savedStatus = applyAvailabilitySnapshot(updated, !!pending.desired, { protect: true });
       pendingAvailabilitySyncRef.current = null;
-      setAvailabilitySyncPending(false);
-      availabilityUiOverrideUntilRef.current = Date.now() + 15000;
-      setServerIsOnline(savedStatus);
-      setIsOnline(savedStatus);
+      setAvailabilityPendingDesired(null);
+      setAvailabilitySyncPendingState(false);
       setError('');
       if (savedStatus) {
         await pushDriverLocation({
@@ -375,7 +891,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
           silent: true,
         });
       }
-      setMessage(savedStatus ? 'You are online and discoverable.' : 'You are offline.');
+      setMessage(savedStatus ? '' : 'You are offline.');
     } catch (err) {
       if (isRetriableAvailabilityError(err)) {
         pendingAvailabilitySyncRef.current = {
@@ -384,20 +900,22 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
           lastAttemptAt: Date.now(),
         };
         availabilityUiOverrideUntilRef.current = Date.now() + AVAILABILITY_RETRY_WINDOW_MS;
-        setAvailabilitySyncPending(true);
-        setIsOnline(!!pending.desired);
+        availabilityLocalChangeAtRef.current = Date.now();
+        setAvailabilityPendingDesired(!!pending.desired);
+        setAvailabilitySyncPendingState(true);
         setError(getAvailabilityErrorMessage(err));
         setMessage('Availability sync queued. Retrying automatically.');
       } else {
         pendingAvailabilitySyncRef.current = null;
-        setAvailabilitySyncPending(false);
+        setAvailabilityPendingDesired(null);
+        setAvailabilitySyncPendingState(false);
         setError(getAvailabilityErrorMessage(err));
         setMessage('');
       }
     } finally {
       availabilityRetryInFlightRef.current = false;
     }
-  }, [driverLocation, pushDriverLocation, token]);
+  }, [applyAvailabilitySnapshot, driverLocation, pushDriverLocation, setAvailabilitySyncPendingState]);
 
   const notifyWithVoice = useCallback((title, body) => {
     Alert.alert(title, body);
@@ -405,18 +923,21 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   }, []);
 
   const refreshDriverData = useCallback(async () => {
-    const profile = await runAction(() => apiRequest('/drivers/profile', { token }));
+    const refreshStartedAt = Date.now();
+    const profile = await runAction(() => driverAPI.getProfile());
+    const availabilitySnapshot = await apiRequest('/drivers/availability', { token }).catch(() => null);
+    const appliedAvailabilitySnapshot =
+      availabilitySnapshot &&
+      hasDriverAvailabilitySnapshot(availabilitySnapshot) &&
+      canApplyServerAvailabilitySnapshot(refreshStartedAt);
+    if (appliedAvailabilitySnapshot) {
+      applyAvailabilitySnapshot(availabilitySnapshot, serverIsOnline);
+    }
     if (profile) {
-      // Always update from server when we fetch profile
-      if (typeof profile.is_available === 'boolean') {
-        setServerIsOnline(profile.is_available);
-        const canApplyServerAvailability =
-          !availabilitySyncPending &&
-          !pendingAvailabilitySyncRef.current &&
-          Date.now() >= availabilityUiOverrideUntilRef.current;
+      if (!appliedAvailabilitySnapshot && hasDriverAvailabilitySnapshot(profile)) {
         // Avoid overriding an in-flight toggle with stale profile snapshots.
-        if (canApplyServerAvailability) {
-          setIsOnline(profile.is_available);
+        if (canApplyServerAvailabilitySnapshot(refreshStartedAt)) {
+          applyAvailabilitySnapshot(profile, false);
         }
       }
       const resolvedLocation = normalizeLocation(profile.current_location);
@@ -425,22 +946,24 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       }
     }
 
-    const [requests, ride, earningsSummary, pricing, fareCalc, blockedPassengers, spinStatus] = await Promise.all([
+    const [requests, scheduledPayload, ride, earningsSummary, pricing, fareCalc, blockedPassengersPayload, spinStatus, settingsPayload, menuBadgePayload, vehiclesPayload] = await Promise.all([
       apiRequest('/drivers/pending-requests', { token }).catch(() => []),
+      apiRequest('/drivers/upcoming-rides', { token }).catch(() => null),
       apiRequest('/drivers/active-ride', { token }).catch(() => null),
       apiRequest('/drivers/earnings', { token }).catch(() => null),
       apiRequest('/pricing/rules', { token }).catch(() => null),
       apiRequest('/drivers/fare-calculator', { token }).catch(() => null),
-      apiRequest('/drivers/blocked-passengers', { token }).catch(() => ({ passenger_ids: [] })),
+      apiRequest('/drivers/blocked-passengers', { token }).catch(() => ({ passenger_ids: [], passengers: [] })),
       apiRequest('/spin-win/config', { token }).catch(() => null),
+      apiRequest('/drivers/settings', { token }).catch(() => null),
+      apiRequest('/drivers/menu-badges', { token }).catch(() => null),
+      apiRequest('/drivers/vehicles', { token }).catch(() => null),
     ]);
-    await Promise.all([
-      apiRequest('/subscriptions/config', { token }).catch(() => null),
-      apiRequest('/subscriptions/me', { token }).catch(() => null),
-    ]);
-
     setPendingRequests(requests || []);
-    setBlockedPassengerIds(Array.isArray(blockedPassengers?.passenger_ids) ? blockedPassengers.passenger_ids : []);
+    setUpcomingRides(scheduledPayload || null);
+    const nextBlockedPassengers = normalizeBlockedPassengerRows(blockedPassengersPayload);
+    setBlockedPassengers(nextBlockedPassengers);
+    setBlockedPassengerIds(nextBlockedPassengers.map((item) => item.passenger_id));
     setActiveRide(ride || null);
     setEarnings(earningsSummary || null);
     setPricingRules(pricing || fareCalc?.default_pricing || null);
@@ -448,21 +971,53 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     setDriverFareRequestInfo(fareCalc?.request || null);
     hydrateDriverFareConfig(fareCalc?.request?.payload || fareCalc?.effective_pricing || fareCalc?.default_pricing || null);
     setSpinWinStatus(spinStatus || null);
+    if (settingsPayload) {
+      setDriverSettings(normalizeDriverSettings(settingsPayload));
+    }
+    if (menuBadgePayload) {
+      setMenuBadges(menuBadgePayload);
+    }
+    setActiveVehicleId(resolveActiveVehicleId(vehiclesPayload));
     setMessage('Driver dashboard refreshed.');
-  }, [hydrateDriverFareConfig, normalizeLocation, runAction, token, availabilitySyncPending]);
+  }, [
+    applyAvailabilitySnapshot,
+    canApplyServerAvailabilitySnapshot,
+    hydrateDriverFareConfig,
+    normalizeLocation,
+    runAction,
+    serverIsOnline,
+    token,
+  ]);
 
   const refreshDriverDataSilently = useCallback(async ({ includeProfile = false, includeMeta = false } = {}) => {
+    const refreshStartedAt = Date.now();
     if (refreshInFlightRef.current) {
       return;
     }
     refreshInFlightRef.current = true;
     try {
-      const [profile, requests, ride, blockedPassengers, spinStatus] = await Promise.all([
+      const [
+        availabilitySnapshot,
+        profile,
+        settingsPayload,
+        requests,
+        scheduledPayload,
+        ride,
+        blockedPassengersPayload,
+        spinStatus,
+        menuBadgePayload,
+        vehiclesPayload,
+      ] = await Promise.all([
+        apiRequest('/drivers/availability', { token }).catch(() => null),
         includeProfile ? apiRequest('/drivers/profile', { token }).catch(() => null) : Promise.resolve(null),
+        includeProfile ? apiRequest('/drivers/settings', { token }).catch(() => null) : Promise.resolve(null),
         apiRequest('/drivers/pending-requests', { token }).catch(() => []),
+        apiRequest('/drivers/upcoming-rides', { token }).catch(() => null),
         apiRequest('/drivers/active-ride', { token }).catch(() => null),
-        apiRequest('/drivers/blocked-passengers', { token }).catch(() => ({ passenger_ids: [] })),
+        apiRequest('/drivers/blocked-passengers', { token }).catch(() => ({ passenger_ids: [], passengers: [] })),
         apiRequest('/spin-win/config', { token }).catch(() => null),
+        apiRequest('/drivers/menu-badges', { token }).catch(() => null),
+        apiRequest('/drivers/vehicles', { token }).catch(() => null),
       ]);
       const [earningsSummary, pricing, fareCalc] = includeMeta
         ? await Promise.all([
@@ -472,15 +1027,15 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
         ])
         : [null, null, null];
 
-      if (includeProfile && profile && typeof profile.is_available === 'boolean') {
-        // Always sync server state, then update local state if no pending changes
-        setServerIsOnline(profile.is_available);
-        const canApplyServerAvailability =
-          !availabilitySyncPending &&
-          !pendingAvailabilitySyncRef.current &&
-          Date.now() >= availabilityUiOverrideUntilRef.current;
-        if (canApplyServerAvailability) {
-          setIsOnline(profile.is_available);
+      const appliedAvailabilitySnapshot =
+        availabilitySnapshot &&
+        hasDriverAvailabilitySnapshot(availabilitySnapshot) &&
+        canApplyServerAvailabilitySnapshot(refreshStartedAt);
+      if (appliedAvailabilitySnapshot) {
+        applyAvailabilitySnapshot(availabilitySnapshot, serverIsOnline);
+      } else if (includeProfile && profile && hasDriverAvailabilitySnapshot(profile)) {
+        if (canApplyServerAvailabilitySnapshot(refreshStartedAt)) {
+          applyAvailabilitySnapshot(profile, false);
         }
       }
       if (includeProfile) {
@@ -489,10 +1044,20 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
           setDriverLocation(resolvedLocation);
         }
       }
+      if (settingsPayload) {
+        setDriverSettings(normalizeDriverSettings(settingsPayload));
+      }
       setPendingRequests(Array.isArray(requests) ? requests : []);
-      setBlockedPassengerIds(Array.isArray(blockedPassengers?.passenger_ids) ? blockedPassengers.passenger_ids : []);
+      setUpcomingRides(scheduledPayload || null);
+      const nextBlockedPassengers = normalizeBlockedPassengerRows(blockedPassengersPayload);
+      setBlockedPassengers(nextBlockedPassengers);
+      setBlockedPassengerIds(nextBlockedPassengers.map((item) => item.passenger_id));
       setActiveRide(ride || null);
       setSpinWinStatus(spinStatus || null);
+      if (menuBadgePayload) {
+        setMenuBadges(menuBadgePayload);
+      }
+      setActiveVehicleId(resolveActiveVehicleId(vehiclesPayload));
       if (includeMeta) {
         setEarnings(earningsSummary || null);
         setPricingRules(pricing || fareCalc?.default_pricing || null);
@@ -505,24 +1070,54 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     } finally {
       refreshInFlightRef.current = false;
     }
-  }, [availabilitySyncPending, hydrateDriverFareConfig, normalizeLocation, token]);
+  }, [
+    applyAvailabilitySnapshot,
+    canApplyServerAvailabilitySnapshot,
+    hydrateDriverFareConfig,
+    normalizeLocation,
+    serverIsOnline,
+    token,
+  ]);
 
   const refreshRideStageValidation = useCallback(async () => {
-    const [ride, requests] = await Promise.all([
+    const [ride, requests, scheduledPayload] = await Promise.all([
       apiRequest('/drivers/active-ride', { token }).catch(() => null),
       apiRequest('/drivers/pending-requests', { token }).catch(() => []),
+      apiRequest('/drivers/upcoming-rides', { token }).catch(() => null),
     ]);
     setActiveRide(ride || null);
     setPendingRequests(Array.isArray(requests) ? requests : []);
+    setUpcomingRides(scheduledPayload || null);
   }, [token]);
+
+  const refreshDriverRideQueueFromRealtime = useCallback(async () => {
+    if (realtimeRideQueueRefreshInFlightRef.current) {
+      realtimeRideQueueRefreshQueuedRef.current = true;
+      return;
+    }
+
+    realtimeRideQueueRefreshInFlightRef.current = true;
+    try {
+      do {
+        realtimeRideQueueRefreshQueuedRef.current = false;
+        await refreshRideStageValidation();
+      } while (realtimeRideQueueRefreshQueuedRef.current);
+    } catch (err) {
+      console.warn('Driver realtime ride request refresh failed:', err);
+    } finally {
+      realtimeRideQueueRefreshInFlightRef.current = false;
+    }
+  }, [refreshRideStageValidation]);
 
   useEffect(() => {
     if (!showStageRoute || !mapRef.current || !activeRide) {
       return;
     }
-    const pickup = normalizeLocation(activeRide.pickup_location || activeRide.pickup || activeRide.pickup_location_details);
-    const drop = normalizeLocation(activeRide.dropoff_location || activeRide.dropoff || activeRide.dropoff_location_details);
-    const target = navigatingToDrop ? (drop || pickup) : (pickup || drop);
+    const { destination: target } = getRideNavigationTarget({
+      ride: activeRide,
+      status: activeRideStatus,
+      normalizeLocation,
+    });
     if (!target) return;
     try {
       mapRef.current.animateToRegion(
@@ -537,7 +1132,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     } catch (_e) {
       // ignore
     }
-  }, [activeRide, navigatingToDrop, normalizeLocation, showStageRoute]);
+  }, [activeRide, activeRideStatus, normalizeLocation, showStageRoute]);
 
   const refreshSpinWinStatus = useCallback(
     async ({ silent = false } = {}) => {
@@ -692,27 +1287,154 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
   };
 
   const handleQuickActionPress = (action) => {
-    if (!action || typeof action !== 'object') {
-      return;
-    }
-    if (action.type === 'earnings_report') {
-      requestDriverEarningsReport().catch(() => null);
-      return;
-    }
-    if (action.type === 'tab' && action.tab) {
-      setActiveTab(action.tab);
-    }
+    runDriverQuickAction(action, {
+      isOnline: displayIsOnline,
+      hasActiveRide: Boolean(activeRideId),
+      setError,
+      setMessage,
+      goOnline: () => toggleDriverAvailability(true).catch(() => null),
+      openRequests: () => setActiveTab('requests'),
+      resumeActiveRide: () => {
+        setActiveTab('requests');
+        setExpandedRideCard(true);
+        setMessage('Active ride controls opened.');
+      },
+      navigateActiveRide: () => openActiveRideNavigation().catch(() => null),
+      callPassenger: () => openActiveRideCall().catch(() => null),
+      activateSos: () => {
+        setActiveTab('safety');
+        keralaSafety.activateSos('Driver quick action SOS', 'driver_quick_action').catch(() => null);
+      },
+      contactSupport: () => {
+        setSupportLaunchAction('contact');
+        setActiveTab('support');
+        setMessage('Support ticket form opened.');
+      },
+      withdrawEarnings: () => {
+        setEarningsLaunchAction('withdraw');
+        setActiveTab('earnings');
+        setMessage('Withdrawal form opened. Enter the amount to submit a request.');
+        refreshDriverDataSilently({ includeMeta: true }).catch(() => null);
+      },
+      earningsReport: () => requestDriverEarningsReport().catch(() => null),
+      openTab: (tab) => {
+        if (tab === 'earnings') {
+          setEarningsLaunchAction('summary');
+        }
+        if (tab === 'support') {
+          setSupportLaunchAction('help');
+        }
+        setActiveTab(tab);
+      },
+    });
   };
 
-  
+  const handleDriverRideSocketError = useCallback((err) => {
+    console.warn('Driver ride request socket error:', err?.message || err);
+  }, []);
+
+  useDriverRideQueueSocket({
+    token,
+    socketRef: rideRequestSocketRef,
+    activeRideId,
+    heartbeatEnabled: displayIsOnline && !shouldSyncDriverLocation,
+    refreshDriverRideQueueFromRealtime,
+    onSocketError: handleDriverRideSocketError,
+  });
+
+  // Real-time ride request notifications
+  useEffect(() => {
+    const socket = rideRequestSocketRef.current;
+    if (!socket) return;
+
+    const handleNewRideRequest = (data) => {
+      const { id: rideId, passenger_name, destination, fare_amount, distance_km } = data || {};
+      if (!rideId) return;
+
+      // Play notification sound if enabled
+      if (driverSettings.sound_enabled !== false) {
+        try {
+          // Play a beep or notification sound
+          const audio = new Audio('data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEAQB8AAAB9AAACABAAZGF0YQIAAAAAAA==');
+          audio.play().catch(() => null);
+        } catch (_e) {
+          // Ignore sound errors
+        }
+      }
+
+      // Show notification alert
+      Alert.alert(
+        '🎉 New Ride Request!',
+        `${passenger_name || 'Passenger'} is requesting a ride to ${destination || 'destination'}\n\nFare: ₹${fare_amount || '??'} | Distance: ${distance_km || '??'}km`,
+        [
+          {
+            text: 'Decline',
+            style: 'destructive',
+            onPress: () => setPendingRequests(prev => prev.filter(r => r.id !== rideId))
+          },
+          {
+            text: 'View',
+            style: 'default',
+            onPress: () => {
+              setActiveTab('requests');
+              setMessage('Ride request ready to accept');
+            }
+          }
+        ],
+        { cancelable: true }
+      );
+
+      // Haptic feedback if enabled
+      if (driverSettings.vibration_enabled !== false) {
+        try {
+          require('react-native').Vibration.vibrate([100, 50, 100]);
+        } catch (_e) {
+          // Ignore haptic errors
+        }
+      }
+    };
+
+    socket.on('new_ride_request', handleNewRideRequest);
+    return () => {
+      socket.off('new_ride_request', handleNewRideRequest);
+    };
+  }, [driverSettings]);
+
+  // Listen to real-time availability updates from socket
+  useEffect(() => {
+    const socket = rideRequestSocketRef.current;
+    if (!socket) return;
+
+    const availabilityEvents = [
+      'availability_sync',
+      'driver_availability_changed',
+      'driver_status_update',
+      'driver_status_changed',
+    ];
+
+    const handleAvailabilityUpdate = (data) => {
+      if (data && typeof data === 'object') {
+        applyAvailabilitySnapshot(data, serverIsOnline);
+      }
+    };
+
+    availabilityEvents.forEach((event) => socket.on(event, handleAvailabilityUpdate));
+    
+    return () => {
+      availabilityEvents.forEach((event) => socket.off(event, handleAvailabilityUpdate));
+    };
+  }, [applyAvailabilitySnapshot, serverIsOnline]);
 
   useEffect(() => {
+    if (!shouldSyncDriverLocation) {
+      return;
+    }
     if (initialLocationSyncAttemptedRef.current) {
       return;
     }
     initialLocationSyncAttemptedRef.current = true;
     pushDriverLocation({ fallbackLocation: driverLocation, silent: true }).catch(() => null);
-  }, [driverLocation, pushDriverLocation]);
+  }, [driverLocation, pushDriverLocation, shouldSyncDriverLocation]);
 
   useEffect(() => {
     let unmounted = false;
@@ -865,112 +1587,178 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     };
   }, [driverTrackingIntervalMs, normalizeLocation, pushDriverLocation, shouldSyncDriverLocation]);
 
-  const toggleOnlineStatus = async (nextValue) => {
-    if (availabilitySyncPending) {
+  const toggleDriverAvailability = useCallback(async (wantOnline) => {
+    if (availabilityToggleInFlightRef.current) {
       return;
     }
-    const next = typeof nextValue === 'boolean' ? nextValue : !displayIsOnline;
-    if (next === displayIsOnline && !pendingAvailabilitySyncRef.current) {
+
+    if (!token) {
+      setError('Missing authentication token');
       return;
     }
+
+    const next = !!wantOnline;
+    const previousLocalStatus = isOnline;
+    const previousServerStatus = serverIsOnline;
     const requestId = availabilityToggleRequestIdRef.current + 1;
+    const toggledAt = Date.now();
     availabilityToggleRequestIdRef.current = requestId;
-    
-    // Immediately show optimistic UI
-    availabilityUiOverrideUntilRef.current = Date.now() + 15000;
-    pendingAvailabilitySyncRef.current = {
-      desired: next,
-      attempts: 0,
-      lastAttemptAt: Date.now(),
-    };
-    setIsOnline(next);
-    setAvailabilitySyncPending(true);
+    availabilityToggleInFlightRef.current = requestId;
+    setAvailabilityToggleInFlight(requestId);
+    availabilityLocalChangeAtRef.current = toggledAt;
+    availabilityUiOverrideUntilRef.current = toggledAt + 15000;
+    pendingAvailabilitySyncRef.current = null;
+
+    setAvailabilitySyncPendingState(true);
+    setAvailabilityPendingDesired(next);
     setError('');
-    setMessage(next ? 'Going online...' : 'Going offline...');
+    setMessage(next ? 'Checking Ready to Drive...' : 'Going offline...');
 
     try {
-      const updated = await apiRequest('/drivers/availability', {
+      if (next) {
+        const readiness = await apiRequest('/drivers/readiness', { token });
+        if (requestId !== availabilityToggleRequestIdRef.current) {
+          return;
+        }
+        if (!isDriverReadyToDrive(readiness)) {
+          const rollbackAt = Date.now();
+          availabilityLocalChangeAtRef.current = rollbackAt;
+          availabilityUiOverrideUntilRef.current = rollbackAt + 15000;
+          setAvailabilityPendingDesired(null);
+          setIsOnline(previousLocalStatus);
+          setServerIsOnline(previousServerStatus);
+          setActiveTab(getDriverReadinessTab(readiness));
+          setError(formatDriverReadinessMessage(readiness));
+          setMessage('Complete Ready to Drive before going online.');
+          refreshDriverMenuBadges().catch(() => null);
+          return;
+        }
+      }
+
+      setMessage(next ? 'Going online...' : 'Going offline...');
+
+      const response = await apiRequest('/drivers/availability', {
         method: 'PUT',
         token,
         body: { is_available: next },
       });
 
-      // Only process response if this is still the latest request
       if (requestId !== availabilityToggleRequestIdRef.current) {
         return;
       }
 
-      if (updated && typeof updated.is_available === 'boolean') {
-        const savedStatus = updated.is_available;
-        setServerIsOnline(savedStatus);
-        availabilityUiOverrideUntilRef.current = Date.now() + 15000;
-        setIsOnline(savedStatus);
-        setAvailabilitySyncPending(false);
-        pendingAvailabilitySyncRef.current = null;
-        setMessage(savedStatus ? 'You are online and discoverable.' : 'You are offline.');
-        
-        // If going online, push location
-        if (savedStatus) {
-          await pushDriverLocation({
-            fallbackLocation: updated?.current_location || driverLocation,
-            silent: true,
-          });
+      const savedStatus = readDriverAvailability(response, next);
+      let confirmedSnapshot = response;
+      try {
+        const availabilitySnapshot = await apiRequest('/drivers/availability', { token });
+        if (hasDriverAvailabilitySnapshot(availabilitySnapshot)) {
+          confirmedSnapshot = availabilitySnapshot;
         }
-        // Don't refresh profile immediately - trust the API response to avoid stale data overwriting correct state
-        await refreshDriverDataSilently({ includeProfile: false });
-      } else {
-        // Fallback: assume success if no error thrown
-        setServerIsOnline(next);
-        availabilityUiOverrideUntilRef.current = Date.now() + 15000;
-        setIsOnline(next);
-        setAvailabilitySyncPending(false);
-        pendingAvailabilitySyncRef.current = null;
-        setMessage(next ? 'You are online and discoverable.' : 'You are offline.');
-        // Don't refresh profile immediately - trust the API response to avoid stale data overwriting correct state
-        await refreshDriverDataSilently({ includeProfile: false });
+      } catch (_err) {
+        // Keep the successful PUT response when the follow-up read is unavailable.
+      }
+      const confirmedStatus = readDriverAvailability(confirmedSnapshot, savedStatus);
+
+      applyAvailabilitySnapshot(confirmedSnapshot, confirmedStatus, { protect: true });
+      setError('');
+
+      if (confirmedStatus !== next) {
+        setError(
+          next
+            ? 'Server did not confirm online status. Please retry after Ready to Drive is complete.'
+            : 'Server did not confirm offline status. Please retry.',
+        );
+        setMessage('');
+        return;
+      }
+
+      setMessage(confirmedStatus ? '' : 'You are now offline.');
+
+      if (confirmedStatus && shouldPushAvailabilityLocation) {
+        await pushDriverLocation({ silent: true });
       }
     } catch (err) {
       if (requestId !== availabilityToggleRequestIdRef.current) {
         return;
       }
 
-      const errorDisplay = getAvailabilityErrorMessage(err);
-      setError(errorDisplay);
+      const failedAt = Date.now();
+      availabilityLocalChangeAtRef.current = failedAt;
+
+      const readiness = extractDriverReadinessFromError(err);
+      if (next && !isDriverReadyToDrive(readiness)) {
+        availabilityUiOverrideUntilRef.current = failedAt + 15000;
+        pendingAvailabilitySyncRef.current = null;
+        setAvailabilityPendingDesired(null);
+        setIsOnline(previousLocalStatus);
+        setServerIsOnline(previousServerStatus);
+        setActiveTab(getDriverReadinessTab(readiness));
+        setError(formatDriverReadinessMessage(readiness));
+        setMessage('Complete Ready to Drive before going online.');
+        refreshDriverMenuBadges().catch(() => null);
+        return;
+      }
 
       if (isRetriableAvailabilityError(err)) {
         pendingAvailabilitySyncRef.current = {
           desired: next,
           attempts: 1,
-          lastAttemptAt: Date.now(),
+          lastAttemptAt: failedAt,
         };
-        availabilityUiOverrideUntilRef.current = Date.now() + AVAILABILITY_RETRY_WINDOW_MS;
+        availabilityUiOverrideUntilRef.current = failedAt + AVAILABILITY_RETRY_WINDOW_MS;
+        setAvailabilityPendingDesired(next);
+        setAvailabilitySyncPendingState(true);
         setIsOnline(next);
-        setAvailabilitySyncPending(true);
+        if (next && shouldPushAvailabilityLocation) {
+          pushDriverLocation({ silent: true }).catch(() => null);
+        }
+        setError(getAvailabilityErrorMessage(err));
         setMessage('Availability sync queued. Retrying automatically.');
         return;
       }
-      
-      setMessage('');
-      
-      // Try to fetch current state from server
-      try {
-        const profile = await apiRequest('/drivers/profile', { token });
-        if (profile && typeof profile.is_available === 'boolean') {
-          setServerIsOnline(profile.is_available);
-          setIsOnline(profile.is_available);
-        }
-      } catch (_profileErr) {
-        // If we can't fetch profile, revert to opposite of what we tried to set
-        setIsOnline(!next);
-        setServerIsOnline(!next);
-      }
-      
-      setAvailabilitySyncPending(false);
+
+      availabilityUiOverrideUntilRef.current = failedAt + 15000;
       pendingAvailabilitySyncRef.current = null;
+      setAvailabilityPendingDesired(null);
+      setIsOnline(previousLocalStatus);
+      setServerIsOnline(previousServerStatus);
+      setError(getAvailabilityErrorMessage(err));
+      setMessage('Failed to update status. Please try again.');
+    } finally {
+      if (availabilityToggleInFlightRef.current === requestId) {
+        const pendingAvailabilitySync = pendingAvailabilitySyncRef.current;
+        availabilityToggleInFlightRef.current = null;
+        setAvailabilityToggleInFlight(null);
+        if (pendingAvailabilitySync) {
+          setAvailabilityPendingDesired(!!pendingAvailabilitySync.desired);
+          setAvailabilitySyncPendingState(true);
+        } else {
+          setAvailabilityPendingDesired(null);
+          setAvailabilitySyncPendingState(false);
+        }
+      }
     }
-  };
+  }, [
+    applyAvailabilitySnapshot,
+    isOnline,
+    pushDriverLocation,
+    refreshDriverMenuBadges,
+    serverIsOnline,
+    setAvailabilityPendingDesired,
+    setAvailabilitySyncPendingState,
+    setAvailabilityToggleInFlight,
+    shouldPushAvailabilityLocation,
+    token,
+  ]);
 
   const acceptRequest = async (bookingId) => {
+    // Queue operation for offline support
+    await offlineQueueManager.queueOperation({
+      type: 'accept_ride',
+      bookingId,
+      timestamp: Date.now(),
+    });
+
     const accepted = await runAction(() =>
       apiRequest(`/bookings/${bookingId}/accept`, {
         method: 'PUT',
@@ -984,13 +1772,45 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     }
   };
 
-  const toggleBlockedPassenger = async (passengerId, isBlocked) => {
+  const rejectRequest = async (bookingId) => {
+    // Queue operation for offline support
+    await offlineQueueManager.queueOperation({
+      type: 'decline_ride',
+      bookingId,
+      timestamp: Date.now(),
+    });
+
+    const rejected = await runAction(
+      () =>
+        apiRequest(`/bookings/${bookingId}/reject`, {
+          method: 'PUT',
+          token,
+        }),
+      'Ride request declined.',
+    );
+    if (rejected) {
+      setPendingRequests((prev) => (Array.isArray(prev) ? prev.filter((item) => item?.id !== bookingId) : prev));
+      await refreshDriverDataSilently();
+    }
+  };
+
+  const toggleBlockedPassenger = async (passengerId, isBlocked, context = {}) => {
+    const body = { is_blocked: !isBlocked };
+    if (!isBlocked) {
+      if (context.reason) {
+        body.reason = context.reason;
+      }
+      if (context.bookingId) {
+        body.booking_id = context.bookingId;
+      }
+    }
+
     const done = await runAction(
       () =>
         apiRequest(`/drivers/blocked-passengers/${passengerId}`, {
           method: 'PUT',
           token,
-          body: { is_blocked: !isBlocked },
+          body,
         }),
       isBlocked ? 'Passenger unblocked.' : 'Passenger blocked.',
     );
@@ -1003,10 +1823,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     if (!activeRide?.id) {
       return;
     }
-    const currentIndex = STATUS_FLOW.indexOf(String(activeRide.status));
-    const nextStatus = currentIndex >= 0 && currentIndex < STATUS_FLOW.length - 1
-      ? STATUS_FLOW[currentIndex + 1]
-      : null;
+    const nextStatus = getNextRideStatus(activeRide.status);
     if (!nextStatus) {
       return;
     }
@@ -1090,18 +1907,310 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
     }
   };
 
-  const nextActionLabel = useMemo(() => {
-    if (!activeRide?.status) {
+  const performCancelActiveRide = async (cancelPayload = {}) => {
+    if (!activeRideId) {
+      return;
+    }
+    const cancelled = await runAction(
+      () =>
+        apiRequest(`/bookings/${activeRideId}/cancel`, {
+          method: 'PUT',
+          token,
+          body: cancelPayload,
+        }),
+      'Ride cancelled. You are available for new requests.',
+    );
+    if (cancelled) {
+      setCancelRidePanelVisible(false);
+      setCancelRideBookingId(null);
+      setRideStartOtp('');
+      setRideEndOtp('');
+      setActiveRide(null);
+      setIsOnline(true);
+      setServerIsOnline(true);
+      await refreshDriverDataSilently({ includeProfile: true, includeMeta: true });
+    }
+  };
+
+  const cancelActiveRide = () => {
+    if (!activeRideId) {
+      return;
+    }
+    setActiveTab('requests');
+    setExpandedRideCard(true);
+    setCancelRideBookingId(activeRideId);
+    setCancelRidePanelVisible(true);
+    setMessage('Choose a cancellation reason and confirm the policy acknowledgement.');
+  };
+
+  const nextActionLabel = useMemo(() => getNextActionLabel(activeRide?.status), [activeRide?.status]);
+  const canCancelActiveRide = Boolean(activeRideId) && canCancelRide(activeRideStatus);
+
+  const focusRideCommunication = useCallback(() => {
+    if (!activeRideId) {
+      return;
+    }
+    setActiveTab('requests');
+    setExpandedRideCard(true);
+    setMessage('Use the In-App Call & Chat panel below to message the passenger.');
+  }, [activeRideId]);
+
+  const openActiveRideCall = useCallback(async () => {
+    if (!activeRideId) {
+      return;
+    }
+    const payload = await runAction(() => apiRequest(`/bookings/${activeRideId}/call-room`, { token }));
+    const roomUrl = String(payload?.room_url || '').trim();
+    if (!roomUrl) {
+      setError('Call room URL unavailable.');
+      return;
+    }
+    try {
+      await WebBrowser.openBrowserAsync(roomUrl);
+    } catch {
+      await Linking.openURL(roomUrl);
+    }
+  }, [activeRideId, runAction, token]);
+
+  const focusActiveRideRoute = useCallback(() => {
+    if (!activeRide) {
+      return;
+    }
+    const { destination } = getRideNavigationTarget({
+      ride: activeRide,
+      status: activeRideStatus,
+      normalizeLocation,
+    });
+    if (!destination) {
+      setError('Ride location unavailable.');
+      return;
+    }
+
+    const routeCoords = [driverLocation, destination]
+      .filter(Boolean)
+      .map((location) => ({
+        latitude: location.latitude,
+        longitude: location.longitude,
+      }));
+
+    try {
+      if (mapRef.current?.fitToCoordinates && routeCoords.length >= 2) {
+        mapRef.current.fitToCoordinates(routeCoords, {
+          edgePadding: { top: 80, right: 60, bottom: 320, left: 60 },
+          animated: true,
+        });
+      } else {
+        mapRef.current?.animateToRegion(
+          {
+            latitude: destination.latitude,
+            longitude: destination.longitude,
+            latitudeDelta: 0.02,
+            longitudeDelta: 0.02,
+          },
+          500,
+        );
+      }
+      setMessage(navigatingToDrop ? 'Map focused on drop-off route.' : 'Map focused on pickup route.');
+    } catch {
+      setError('Could not focus ride route on map.');
+    }
+  }, [activeRide, activeRideStatus, driverLocation, navigatingToDrop, normalizeLocation]);
+
+  const openActiveRideNavigation = useCallback(async () => {
+    if (!activeRide) {
+      return;
+    }
+    const { destination } = getRideNavigationTarget({
+      ride: activeRide,
+      status: activeRideStatus,
+      normalizeLocation,
+    });
+    if (!destination) {
+      setError('Ride location unavailable.');
+      return;
+    }
+
+    const mapsUrl = buildGoogleMapsDirectionsUrl({ origin: driverLocation, destination });
+    try {
+      await Linking.openURL(mapsUrl);
+    } catch {
+      setError('Could not open navigation.');
+    }
+  }, [activeRide, activeRideStatus, driverLocation, normalizeLocation]);
+
+  const resumeScheduledRide = useCallback((ride) => {
+    if (!ride?.id) {
+      return;
+    }
+    setActiveRide((prev) => (prev?.id === ride.id ? { ...prev, ...ride } : ride));
+    setActiveTab('requests');
+    setExpandedRideCard(true);
+    setMessage('Scheduled ride controls opened.');
+  }, []);
+
+  const openScheduledRideNavigation = useCallback(async (ride) => {
+    const { destination } = getRideNavigationTarget({
+      ride,
+      status: ride?.status,
+      normalizeLocation,
+    });
+    if (!destination) {
+      setError('Scheduled ride location unavailable.');
+      return;
+    }
+    const mapsUrl = buildGoogleMapsDirectionsUrl({ origin: driverLocation, destination });
+    try {
+      await Linking.openURL(mapsUrl);
+    } catch {
+      setError('Could not open scheduled ride navigation.');
+    }
+  }, [driverLocation, normalizeLocation]);
+
+  const callScheduledPassenger = useCallback(async (ride) => {
+    const rideId = String(ride?.id || '').trim();
+    if (!rideId) {
+      return;
+    }
+    const payload = await runAction(() => apiRequest(`/bookings/${rideId}/call-room`, { token }));
+    const roomUrl = String(payload?.room_url || '').trim();
+    if (!roomUrl) {
+      setError('Call room URL unavailable.');
+      return;
+    }
+    try {
+      await WebBrowser.openBrowserAsync(roomUrl);
+    } catch {
+      await Linking.openURL(roomUrl);
+    }
+  }, [runAction, token]);
+
+  const cancelScheduledRide = useCallback((ride) => {
+    const rideId = String(ride?.id || '').trim();
+    if (!rideId) {
+      return;
+    }
+    Alert.alert(
+      'Cancel Scheduled Ride?',
+      'This will cancel the assigned scheduled ride and notify the passenger.',
+      [
+        { text: 'Keep Ride', style: 'cancel' },
+        {
+          text: 'Cancel Ride',
+          style: 'destructive',
+          onPress: async () => {
+            const cancelled = await runAction(
+              () =>
+                apiRequest(`/bookings/${rideId}/cancel`, {
+                  method: 'PUT',
+                  token,
+                }),
+              'Scheduled ride cancelled.',
+            );
+            if (cancelled) {
+              if (activeRideId === rideId) {
+                setActiveRide(null);
+              }
+              await refreshDriverDataSilently({ includeProfile: true, includeMeta: true });
+            }
+          },
+        },
+      ],
+    );
+  }, [activeRideId, refreshDriverDataSilently, runAction, token]);
+
+  const openScheduledRideSupport = useCallback((ride) => {
+    setSupportLaunchAction('contact');
+    setActiveTab('support');
+    setMessage(`Support opened for scheduled ride ${String(ride?.id || '').slice(0, 12) || 'ride'}.`);
+  }, []);
+
+  const handleStickyNextAction = () => {
+    if (activeRideStatus === 'driver_arrived' && !String(rideStartOtp || '').trim()) {
+      setActiveTab('requests');
+      setExpandedRideCard(true);
+      setError('Enter passenger OTP to start trip.');
+      return;
+    }
+    moveRideToNextStatus().catch(() => null);
+  };
+
+  const renderStickyActiveRideBar = () => {
+    if (!activeRide) {
       return null;
     }
-    const map = {
-      accepted: 'Mark Arrived',
-      driver_arrived: 'Start Trip',
-      in_progress: 'Complete Trip',
-      completed: null,
-    };
-    return map[String(activeRide.status)] || null;
-  }, [activeRide]);
+
+    const pickup = normalizeLocation(activeRide.pickup_location || activeRide.pickup || activeRide.pickup_location_details);
+    const drop = normalizeLocation(
+      activeRide.drop_location ||
+        activeRide.dropoff_location ||
+        activeRide.dropoff ||
+        activeRide.drop_location_details,
+    );
+    const statusLabel = String(activeRide.status || 'active').replace(/_/g, ' ');
+    const rideSuffix = String(activeRide.id || '').slice(-6) || 'N/A';
+    const fareValue = activeRide.final_fare ?? activeRide.estimated_fare ?? activeRide.fare;
+    const fareText = fareValue !== undefined && fareValue !== null && fareValue !== '' ? `INR ${fareValue}` : 'Fare pending';
+    const routeText = [pickup?.address, drop?.address].filter(Boolean).join(' -> ') || 'Route available in ride details';
+
+    return (
+      <View style={styles.stickyRideBar}>
+        <View style={styles.stickyRideHeader}>
+          <View style={styles.stickyRideTitleBlock}>
+            <Text style={styles.stickyRideEyebrow}>Active ride #{rideSuffix}</Text>
+            <Text style={styles.stickyRideTitle} numberOfLines={1}>
+              {activeRide.passenger_name || 'Passenger'} - {fareText}
+            </Text>
+            <Text style={styles.stickyRideMeta} numberOfLines={1}>{routeText}</Text>
+          </View>
+          <View style={styles.stickyRideStatusPill}>
+            <Text style={styles.stickyRideStatusText}>{statusLabel}</Text>
+          </View>
+        </View>
+        <View style={styles.stickyRideActions}>
+          <TouchableOpacity
+            style={[styles.stickyRideButton, loading && styles.stickyRideButtonDisabled]}
+            onPress={() => setActiveTab('requests')}
+            disabled={loading}>
+            <Text style={styles.stickyRideButtonText}>Open Ride</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.stickyRideButton, loading && styles.stickyRideButtonDisabled]}
+            onPress={focusRideCommunication}
+            disabled={loading}>
+            <Text style={styles.stickyRideButtonText}>Message</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.stickyRideButton, loading && styles.stickyRideButtonDisabled]}
+            onPress={openActiveRideCall}
+            disabled={loading}>
+            <Text style={styles.stickyRideButtonText}>Call</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.stickyRideButton, loading && styles.stickyRideButtonDisabled]}
+            onPress={focusActiveRideRoute}
+            disabled={loading}>
+            <Text style={styles.stickyRideButtonText}>Map</Text>
+          </TouchableOpacity>
+          {!!nextActionLabel && (
+            <TouchableOpacity
+              style={[styles.stickyRideButton, styles.stickyRideButtonPrimary, loading && styles.stickyRideButtonDisabled]}
+              onPress={handleStickyNextAction}
+              disabled={loading}>
+              <Text style={styles.stickyRideButtonPrimaryText}>{nextActionLabel}</Text>
+            </TouchableOpacity>
+          )}
+          {canCancelActiveRide && (
+            <TouchableOpacity
+              style={[styles.stickyRideButton, styles.stickyRideButtonDanger, loading && styles.stickyRideButtonDisabled]}
+              onPress={cancelActiveRide}
+              disabled={loading}>
+              <Text style={styles.stickyRideButtonDangerText}>Cancel</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -1124,8 +2233,8 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
             if (destination) routeCoords.push({ latitude: destination.latitude, longitude: destination.longitude });
             return (
               <>
-                {pickup && navigatingToPickup && <Marker coordinate={pickup} pinColor="green" />}
-                {drop && navigatingToDrop && <Marker coordinate={drop} pinColor="red" />}
+                {pickup && navigatingToPickup && <Marker coordinate={pickup} title="Passenger / Pickup" pinColor="#E53935" />}
+                {drop && navigatingToDrop && <Marker coordinate={drop} title="Destination" pinColor="#1E88E5" />}
                 {routeCoords.length >= 2 && (
                   <Polyline coordinates={routeCoords} strokeColor={COLORS.primary} strokeWidth={4} />
                 )}
@@ -1137,16 +2246,22 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
 
       <View style={styles.topBar}>
         <TouchableOpacity
-          style={[styles.statusBadgeButton, { backgroundColor: displayIsOnline ? '#E8F5E9' : '#F5F5F5', borderColor: displayIsOnline ? COLORS.primary : '#BDBDBD' }]}
-          onPress={() => toggleOnlineStatus()}
+          style={[
+            styles.statusBadgeButton,
+            {
+              backgroundColor: availabilitySyncPending ? '#FFF7E6' : displayIsOnline ? '#E8F5E9' : '#F5F5F5',
+              borderColor: availabilitySyncPending ? '#FFA500' : displayIsOnline ? COLORS.primary : '#BDBDBD',
+            },
+          ]}
+          onPress={() => toggleDriverAvailability(!displayIsOnline)}
           disabled={availabilitySyncPending}
         >
           <View style={[styles.statusDot, { backgroundColor: availabilitySyncPending ? '#FFA500' : displayIsOnline ? COLORS.primary : COLORS.textMuted }]} />
           <View style={styles.statusContent}>
-            <Text style={[styles.statusText, { color: displayIsOnline ? COLORS.primary : '#666' }]}>
-              {availabilitySyncPending ? (displayIsOnline ? 'GOING ONLINE...' : 'GOING OFFLINE...') : (displayIsOnline ? 'ONLINE & READY' : 'OFFLINE')}
+            <Text style={[styles.statusText, { color: availabilitySyncPending ? '#B26A00' : displayIsOnline ? COLORS.primary : '#666' }]}>
+              {resolvedDriverStatusLabel}
             </Text>
-            <Text style={styles.statusSub}>{user?.name || 'Driver'} • Tap to toggle</Text>
+            <Text style={styles.statusSub}>{user?.name || 'Driver'} - Tap to toggle</Text>
           </View>
           {availabilitySyncPending && <ActivityIndicator size="small" color="#FFA500" />}
         </TouchableOpacity>
@@ -1166,6 +2281,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
       </View>
 
       <BottomSheet index={0} snapPoints={snapPoints} backgroundStyle={styles.sheetBackground}>
+        {renderStickyActiveRideBar()}
         <ScrollView
           style={styles.sheetScroll}
           contentContainerStyle={styles.sheetContent}
@@ -1183,7 +2299,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
           </Text>
           {!!trackingError && <Text style={styles.warningText}>{trackingError}</Text>}
           {!!error && <Text style={styles.error}>{error}</Text>}
-          {!!message && <Text style={styles.message}>{message}</Text>}
+          {!!visibleMessage && <Text style={styles.message}>{visibleMessage}</Text>}
           {loading && <ActivityIndicator color={COLORS.primary} style={styles.loader} />}
 
           {/* Tab Navigation */}
@@ -1192,7 +2308,12 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
               activeTab={activeTab}
               onTabChange={setActiveTab}
               requestCount={pendingRequests.length}
+              upcomingCount={upcomingRideCount}
+              notificationCount={unreadCount}
+              menuBadges={menuBadges}
               isOnline={displayIsOnline}
+              statusLabel={resolvedDriverStatusLabel}
+              statusSyncing={availabilitySyncPending}
               compact={false}
             />
           </View>
@@ -1203,12 +2324,12 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
               <RideCard
                 ride={activeRide}
                 driverLocation={driverLocation}
-                onAccept={() => {}}
-                onDecline={() => {}}
-                onComplete={() => {}}
-                onMessage={() => {}}
-                onCall={() => {}}
-                onMapPress={() => {}}
+                onAccept={() => activeRide?.id && acceptRequest(activeRide.id)}
+                onDecline={() => activeRide?.id && rejectRequest(activeRide.id)}
+                onComplete={moveRideToNextStatus}
+                onMessage={focusRideCommunication}
+                onCall={openActiveRideCall}
+                onMapPress={focusActiveRideRoute}
                 loading={loading}
                 expanded={expandedRideCard}
                 onToggleExpand={setExpandedRideCard}
@@ -1222,6 +2343,15 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
               {activeRide ? (
                 <>
                   <View style={styles.requestCard}>
+                    <SOSButton
+                      onTriggerSOS={triggerSOS}
+                      onCancelSOS={cancelSOS}
+                      sosActive={sosActive}
+                      sosMessage={sosMessage}
+                      sosError={sosError}
+                      disabled={loading}
+                      compact={false}
+                    />
                     <Text style={styles.passengerName}>Active Ride: {activeRide.passenger_name || 'Passenger'}</Text>
                     <Text style={styles.requestDetails}>Status: {activeRide.status}</Text>
                     <Text style={styles.requestDetails}>
@@ -1239,8 +2369,14 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
                     )}
                     {String(activeRide.status) === 'driver_arrived' && (
                       <>
+                        <PassengerTrackingMap
+                          driverLocation={driverLocation}
+                          pickupLocation={normalizeLocation(activeRide.pickup_location)}
+                          status={activeRideStatus || 'driver_arrived'}
+                          onNavigateToPassenger={openActiveRideNavigation}
+                        />
                         <View style={styles.otpCard}>
-                          <Text style={styles.otpCardLabel}>🔐 PASSENGER OTP REQUIRED</Text>
+                          <Text style={styles.otpCardLabel}>PASSENGER OTP REQUIRED</Text>
                           <Text style={styles.otpCardHint}>Ask passenger to share their pickup OTP</Text>
                           <VoiceTextInput
                             value={rideStartOtp}
@@ -1258,8 +2394,27 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
                     )}
                     {String(activeRide.status) === 'in_progress' && (
                       <>
+                        <InTripNavigationDisplay
+                          origin={normalizeLocation(activeRide.pickup_location)}
+                          destination={normalizeLocation(activeRide.drop_location || activeRide.dropoff_location)}
+                          currentLocation={driverLocation}
+                          rideStatus={activeRideStatus}
+                          onOpenFullMap={openActiveRideNavigation}
+                        />
+                        <ExpenseTrackerAdvanced
+                          token={token}
+                          driverId={user?.id}
+                          expenses={expenses}
+                          totalExpense={totalExpense}
+                          onAddExpense={addExpense}
+                          onRemoveExpense={removeExpense}
+                          onUploadReceipt={handleReceiptUpload}
+                          isLoading={expenseLoading}
+                          error={expenseError}
+                          expenseTypes={expenseTypes}
+                        />
                         <View style={styles.otpCard}>
-                          <Text style={styles.otpCardLabel}>🏁 COMPLETION OTP (Optional)</Text>
+                          <Text style={styles.otpCardLabel}>COMPLETION OTP (Optional)</Text>
                           <Text style={styles.otpCardHint}>Passenger drop-off OTP if available</Text>
                           <VoiceTextInput
                             value={rideEndOtp}
@@ -1279,6 +2434,21 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
                         <Text style={styles.nextActionButtonText}>{nextActionLabel}</Text>
                       </TouchableOpacity>
                     )}
+                    {canCancelActiveRide && (
+                      <TouchableOpacity style={styles.cancelRideButton} onPress={cancelActiveRide} disabled={loading}>
+                        <Text style={styles.cancelRideButtonText}>Cancel Ride</Text>
+                      </TouchableOpacity>
+                    )}
+                    <DriverCancelRidePanel
+                      visible={cancelRidePanelVisible && canCancelActiveRide && cancelRideBookingId === activeRideId}
+                      booking={activeRide}
+                      loading={loading}
+                      onCancel={() => {
+                        setCancelRidePanelVisible(false);
+                        setCancelRideBookingId(null);
+                      }}
+                      onSubmit={(payload) => performCancelActiveRide(payload).catch(() => null)}
+                    />
                     <RideCommunicationCard
                       token={token}
                       booking={activeRide}
@@ -1296,7 +2466,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
                       <Text style={styles.offlineText}>No pending requests right now.</Text>
                     </View>
                   ) : (
-                    pendingRequests.map((req) => {
+                    pendingRequests.map((req, idx) => {
                       const pickup = normalizeLocation(
                         req.pickup_location || req.pickup || req.pickup_location_details,
                       );
@@ -1309,6 +2479,15 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
                       const isBlocked = blockedPassengerIds.includes(req.passenger_id);
                       return (
                         <View key={req.id} style={styles.requestCardNew}>
+                          {idx === 0 && (
+                            <RequestCountdownDisplay
+                              secondsRemaining={secondsRemaining}
+                              isExpired={isExpired}
+                              formattedTime={formattedTime}
+                              percentage={percentage}
+                              style={styles.countdownDisplay}
+                            />
+                          )}
                           <View style={styles.requestCardHeader}>
                             <View style={styles.requestCardTitle}>
                               <Text style={styles.passengerNameNew}>{req.passenger_name}</Text>
@@ -1319,7 +2498,7 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
                                 <Text style={styles.distanceBadgeText}>{req.distance_km} km</Text>
                               </View>
                               <View style={styles.fareBadge}>
-                                <Text style={styles.fareBadgeText}>₹{req.estimated_fare}</Text>
+                                <Text style={styles.fareBadgeText}>Rs. {req.estimated_fare}</Text>
                               </View>
                             </View>
                           </View>
@@ -1344,14 +2523,25 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
                               style={styles.acceptButtonNew}
                               onPress={() => acceptRequest(req.id)}
                               disabled={loading}>
-                              <Text style={styles.acceptTextNew}>✓ Accept</Text>
+                              <Text style={styles.acceptTextNew}>Accept</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={styles.declineButtonNew}
+                              onPress={() => rejectRequest(req.id)}
+                              disabled={loading}>
+                              <Text style={styles.declineButtonTextNew}>Decline</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
                               style={[styles.blockButtonNew, isBlocked && styles.blockButtonActive]}
-                              onPress={() => toggleBlockedPassenger(req.passenger_id, isBlocked)}
+                              onPress={() =>
+                                toggleBlockedPassenger(req.passenger_id, isBlocked, {
+                                  bookingId: req.id,
+                                  reason: 'Blocked from pending ride request',
+                                })
+                              }
                               disabled={loading}>
                               <Text style={[styles.blockButtonTextNew, isBlocked && styles.blockButtonTextActive]}>
-                                {isBlocked ? '✓ Blocked' : 'Block'}
+                                {isBlocked ? 'Blocked' : 'Block'}
                               </Text>
                             </TouchableOpacity>
                           </View>
@@ -1368,21 +2558,91 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
             </>
           )}
 
+          {activeTab === 'upcoming' && (
+            <ScheduledRidesPanel
+              upcomingRides={upcomingRides}
+              loading={loading}
+              onAcceptRequest={acceptRequest}
+              onRejectRequest={rejectRequest}
+              onResumeRide={resumeScheduledRide}
+              onNavigateRide={openScheduledRideNavigation}
+              onCallPassenger={callScheduledPassenger}
+              onCancelRide={cancelScheduledRide}
+              onOpenSupport={openScheduledRideSupport}
+              onRefresh={refreshRideStageValidation}
+            />
+          )}
+
           {/* Earnings Tab */}
           {activeTab === 'earnings' && (
             <>
               <RevenueCard token={token} role={user?.role} />
+              <DriverPerformanceDashboard
+                stats={{
+                  acceptanceRate: 0,
+                  cancellationRate: 0,
+                  onTimePercentage: 0,
+                  completionRate: 0,
+                  averageRating: Number(user?.rating || 0),
+                  rideCount: Number(earnings?.total_rides || 0),
+                  earningsToday: Number(earnings?.today_earnings || 0),
+                }}
+              />
               <View style={styles.earningsPanel}>
                 <EarningsPanel
                   earnings={earnings}
                   pricingRules={pricingRules}
                   driverFareConfig={driverFareConfig}
                   loading={loading}
+                  initialAction={earningsLaunchAction}
                   onRequestReport={requestDriverEarningsReport}
                   onRequestWithdraw={requestDriverWithdrawal}
+                  onManageBankDetails={() => setActiveTab('profile')}
                 />
               </View>
             </>
+          )}
+
+          {activeTab === 'targets' && (
+            <View style={styles.earningsPanel}>
+              <EarningTargetWidget token={token} driverId={user?.id} />
+            </View>
+          )}
+
+          {activeTab === 'payout' && (
+            <PayoutScheduleWidget
+              isVisible={true}
+              onClose={() => setActiveTab('earnings')}
+              token={token}
+              driverId={user?.id}
+            />
+          )}
+
+          {activeTab === 'paymethods' && (
+            <DriverPaymentMethodsPanel
+              isVisible={true}
+              onClose={() => setActiveTab('earnings')}
+              token={token}
+              driverId={user?.id}
+            />
+          )}
+
+          {activeTab === 'filters' && (
+            <RideFilterPanel
+              isVisible={true}
+              onClose={() => setActiveTab('requests')}
+              token={token}
+              driverId={user?.id}
+            />
+          )}
+
+          {activeTab === 'maintenance' && (
+            <MaintenanceAlertPanel
+              isVisible={true}
+              onClose={() => setActiveTab('vehicle')}
+              token={token}
+              vehicleId={activeVehicleId}
+            />
           )}
 
           {activeTab === 'spin' && (
@@ -1445,33 +2705,136 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
           {activeTab === 'blocked' && (
             <View style={styles.earningsCard}>
               <Text style={styles.fareTitle}>Blocked Passengers</Text>
-              {blockedPassengerIds.length === 0 ? (
+              <VoiceTextInput
+                style={[styles.input, styles.blockedSearchInput]}
+                value={blockedPassengerSearch}
+                onChangeText={setBlockedPassengerSearch}
+                placeholder="Search name, phone, reason, or ride"
+                placeholderTextColor={COLORS.textMuted}
+              />
+              {blockedPassengers.length === 0 ? (
                 <Text style={styles.requestDetails}>No blocked passengers.</Text>
+              ) : visibleBlockedPassengers.length === 0 ? (
+                <Text style={styles.requestDetails}>No blocked passengers match your search.</Text>
               ) : (
-                blockedPassengerIds.map((passengerId) => (
-                  <View key={passengerId} style={styles.blockedRow}>
-                    <Text style={styles.requestDetails}>Passenger ID: {passengerId}</Text>
-                    <TouchableOpacity
-                      style={styles.blockButtonNew}
-                      onPress={() => toggleBlockedPassenger(passengerId, true)}
-                      disabled={loading}>
-                      <Text style={styles.blockButtonTextNew}>Unblock</Text>
-                    </TouchableOpacity>
-                  </View>
-                ))
+                visibleBlockedPassengers.map((blockedPassenger) => {
+                  const fareValue = Number(blockedPassenger.estimated_fare);
+                  return (
+                    <View key={blockedPassenger.passenger_id} style={styles.blockedPassengerCard}>
+                      <View style={styles.blockedPassengerHeader}>
+                        <View style={styles.blockedPassengerTitleBlock}>
+                          <Text style={styles.blockedPassengerName}>{blockedPassenger.passenger_name}</Text>
+                          <Text style={styles.blockedPassengerMeta}>
+                            ID: {blockedPassenger.passenger_id}
+                          </Text>
+                          {!!blockedPassenger.passenger_phone && (
+                            <Text style={styles.blockedPassengerMeta}>
+                              Phone: {blockedPassenger.passenger_phone}
+                            </Text>
+                          )}
+                        </View>
+                        <TouchableOpacity
+                          style={styles.blockButtonNew}
+                          onPress={() => toggleBlockedPassenger(blockedPassenger.passenger_id, true)}
+                          disabled={loading}>
+                          <Text style={styles.blockButtonTextNew}>Unblock</Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      <View style={styles.blockedReasonBox}>
+                        <Text style={styles.blockedSectionLabel}>Why blocked</Text>
+                        <Text style={styles.blockedReasonText}>{blockedPassenger.reason}</Text>
+                      </View>
+
+                      <Text style={styles.blockedContextText}>
+                        Blocked: {formatBlockedPassengerDate(blockedPassenger.blocked_at)}
+                      </Text>
+                      <Text style={styles.blockedContextText}>
+                        Ride: {getBlockedPassengerRideSummary(blockedPassenger)}
+                      </Text>
+                      {!!blockedPassenger.last_booking_status && (
+                        <Text style={styles.blockedContextText}>
+                          Status: {blockedPassenger.last_booking_status}
+                        </Text>
+                      )}
+                      {Number.isFinite(fareValue) && (
+                        <Text style={styles.blockedContextText}>
+                          Fare: Rs. {fareValue.toFixed(2)}
+                        </Text>
+                      )}
+                    </View>
+                  );
+                })
               )}
             </View>
           )}
-
           {activeTab === 'safety' && (
             <KeralaSafetyCard safety={keralaSafety} />
           )}
 
+          {activeTab === 'heatmap' && (
+            <DemandHeatmapIntegration
+              currentLocation={driverLocation}
+              onNavigateToHotspot={handleNavigateToHotspot}
+              disabled={!displayIsOnline && !activeRideId}
+            />
+          )}
+
+          {activeTab === 'traffic' && (
+            <TrafficAlerts
+              currentLocation={driverLocation}
+              destinationLocation={activeRideDestination}
+              onRouteChange={(route) => setMessage(`Route selected: ${route.name || 'Recommended route'}`)}
+              disabled={!activeRideDestination}
+            />
+          )}
+
+          {activeTab === 'photoVerification' && (
+            <DriverPhotoVerificationPanel
+              driverId={user?.id}
+              onVerificationComplete={() => refreshDriverMenuBadges()}
+            />
+          )}
+
+          {activeTab === 'passengerSafety' && (
+            <PassengerSafetyRatingsPanel
+              passengerId={activePassengerId}
+              disabled={!activePassengerId}
+              onLoad={(rating) =>
+                setMessage(`Passenger safety score: ${rating.safetyScore || 'available'}`)
+              }
+            />
+          )}
+
           {activeTab === 'trust' && (
             <>
-              <DriverKycPanel token={token} />
+              <DriverKycPanel token={token} onDataChanged={refreshDriverMenuBadges} />
               <DriverTrustCard token={token} />
             </>
+          )}
+
+          {activeTab === 'subscription' && (
+            <SubscriptionPanel token={token} audience="driver" />
+          )}
+
+          {activeTab === 'history' && (
+            <RideHistoryPanel
+              token={token}
+              viewerRole="driver"
+              onSupportRequested={(booking) => {
+                setSupportLaunchAction('contact');
+                setActiveTab('support');
+                setMessage(`Support opened for booking ${String(booking?.id || '').slice(0, 12) || 'ride'}.`);
+              }}
+            />
+          )}
+
+          {activeTab === 'notifications' && (
+            <NotificationCenter
+              token={token}
+              onClose={() => setActiveTab('requests')}
+              onNotificationPress={handleDriverNotificationPress}
+            />
           )}
 
           {/* Actions Tab */}
@@ -1494,8 +2857,9 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
               token={token}
               loading={loading}
               displayIsOnline={displayIsOnline}
-              onToggleOnline={toggleOnlineStatus}
-              onNavigateToTab={setActiveTab}
+              onToggleOnline={() => toggleDriverAvailability(!displayIsOnline)}
+              onNavigateToTab={handleSettingsNavigateToTab}
+              onSettingsChange={handleDriverSettingsChange}
             />
           )}
 
@@ -1506,7 +2870,17 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
 
           {/* Documents Tab */}
           {activeTab === 'documents' && (
-            <DocumentUploadPanel token={token} loading={loading} />
+            <>
+              <DocumentUploadPanel token={token} loading={loading} onDataChanged={refreshDriverMenuBadges} />
+            </>
+          )}
+
+          {/* Fare Tab */}
+          {activeTab === 'fare' && (
+            <View style={{ flex: 1 }}>
+              <DriverFareDisplay />
+              <DriverFareProposal />
+            </View>
           )}
 
           {/* Vehicle Tab */}
@@ -1516,17 +2890,132 @@ export default function DriverDashboard({ token, user, onLogout, onProfilePress 
 
           {/* Support Tab */}
           {activeTab === 'support' && (
-            <SupportTicketPanel token={token} loading={loading} />
+            <>
+              <MessageTemplatesPanel
+                onSelectTemplate={(template) => {
+                  setMessage(`Template selected: ${template.text}`);
+                }}
+                onCustomMessage={(text) => {
+                  setMessage(`Template ready: ${text}`);
+                }}
+              />
+              <SupportTicketPanel
+                key={supportLaunchAction}
+                token={token}
+                loading={loading}
+                initialAction={supportLaunchAction}
+                onDataChanged={refreshDriverMenuBadges}
+              />
+            </>
           )}
 
           {/* Analytics Tab */}
           {activeTab === 'analytics' && (
-            <AnalyticsDashboard token={token} loading={loading} />
+            <AnalyticsDashboardAdvanced
+              driverId={user?.id}
+              token={token}
+              currentMetrics={driverMetrics}
+              historicalData={analyticsHistory}
+              isLoading={loading}
+            />
+          )}
+
+          {activeTab === 'reviews' && (
+            <DriverReviewsPanel
+              token={token}
+              onAppealReview={(review) => {
+                setSupportLaunchAction('contact');
+                setActiveTab('support');
+                setMessage(`Support opened for review ${String(review?.id || review?.booking_id || '').slice(0, 12)}.`);
+              }}
+            />
+          )}
+
+          {activeTab === 'pooling' && (
+            <RidePoolingPanel
+              isVisible={true}
+              onClose={() => setActiveTab('requests')}
+              token={token}
+              driverId={user?.id}
+            />
+          )}
+
+          {activeTab === 'taxreports' && (
+            <TaxReportWidget
+              isVisible={true}
+              onClose={() => setActiveTab('earnings')}
+              token={token}
+              driverId={user?.id}
+            />
+          )}
+
+          {activeTab === 'favorites' && (
+            <FavoritePassengersPanel
+              isVisible={true}
+              onClose={() => setActiveTab('requests')}
+              token={token}
+              driverId={user?.id}
+            />
+          )}
+
+          {activeTab === 'shifts' && (
+            <ShiftScheduleCalendar
+              isVisible={true}
+              onClose={() => setActiveTab('earnings')}
+              token={token}
+              driverId={user?.id}
+            />
+          )}
+
+          {activeTab === 'badges' && (
+            <BadgesAchievementsWidget
+              isVisible={true}
+              onClose={() => setActiveTab('earnings')}
+              token={token}
+              driverId={user?.id}
+            />
+          )}
+
+          {activeTab === 'tier' && (
+            <DriverTierBenefitsPanel
+              token={token}
+              onTierUpgrade={() => setMessage('Visit the app store for tier upgrades')}
+            />
+          )}
+
+          {activeTab === 'expiry' && (
+            <DocumentExpiryAlertsPanel
+              token={token}
+              onDocumentExpiring={({ critical, warning }) => {
+                setMessage(`Document alerts: ${critical} critical, ${warning} warnings`);
+              }}
+            />
+          )}
+
+          {activeTab === 'appeals' && (
+            <DriverSuspensionAppealPanel
+              token={token}
+              onAppealSubmitted={() => {
+                setMessage('Appeal submitted successfully. You will receive a response within 48 hours.');
+              }}
+            />
+          )}
+
+          {activeTab === 'referral' && (
+            <DriverReferralPanel
+              token={token}
+              driverId={user?.id}
+              onReferralShare={(code) => setMessage(`Referral code ${code} shared successfully!`)}
+            />
           )}
         </ScrollView>
       </BottomSheet>
     </View>
   );
+}
+
+export default function DriverDashboard(props) {
+  return <DriverDashboardContent {...props} />;
 }
 
 const styles = StyleSheet.create({
@@ -1578,7 +3067,7 @@ const styles = StyleSheet.create({
   driverMarker: {
     width: 24,
     height: 24,
-    backgroundColor: COLORS.secondary,
+    backgroundColor: '#0B8F3A',
     borderRadius: 12,
     borderWidth: 3,
     borderColor: '#fff',
@@ -1653,6 +3142,97 @@ const styles = StyleSheet.create({
   error: { color: COLORS.danger, marginBottom: 8 },
   message: { color: COLORS.secondary, marginBottom: 8 },
   loader: { marginVertical: 6 },
+  stickyRideBar: {
+    backgroundColor: COLORS.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 8,
+    zIndex: 20,
+    ...SHADOWS.soft,
+  },
+  stickyRideHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  stickyRideTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  stickyRideEyebrow: {
+    color: COLORS.textMuted,
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  stickyRideTitle: {
+    color: COLORS.textMain,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  stickyRideMeta: {
+    color: COLORS.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  stickyRideStatusPill: {
+    backgroundColor: '#E8F5E9',
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  stickyRideStatusText: {
+    color: COLORS.primaryDark,
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'capitalize',
+  },
+  stickyRideActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  stickyRideButton: {
+    minHeight: 36,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stickyRideButtonPrimary: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  stickyRideButtonDanger: {
+    backgroundColor: '#FFF5F5',
+    borderColor: COLORS.danger,
+  },
+  stickyRideButtonDisabled: {
+    opacity: 0.6,
+  },
+  stickyRideButtonText: {
+    color: COLORS.textMain,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  stickyRideButtonPrimaryText: {
+    color: COLORS.white,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  stickyRideButtonDangerText: {
+    color: COLORS.danger,
+    fontSize: 12,
+    fontWeight: '900',
+  },
   earningsCard: {
     backgroundColor: COLORS.background,
     borderWidth: 1,
@@ -1730,6 +3310,64 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 8,
   },
+  blockedSearchInput: {
+    marginTop: 6,
+    marginBottom: 12,
+  },
+  blockedPassengerCard: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+    gap: 8,
+  },
+  blockedPassengerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  blockedPassengerTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  blockedPassengerName: {
+    color: COLORS.textMain,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  blockedPassengerMeta: {
+    color: COLORS.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  blockedReasonBox: {
+    backgroundColor: COLORS.background,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    padding: 10,
+  },
+  blockedSectionLabel: {
+    color: COLORS.textMuted,
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    marginBottom: 3,
+  },
+  blockedReasonText: {
+    color: COLORS.textMain,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  blockedContextText: {
+    color: COLORS.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
+  },
   passengerName: { fontSize: 18, fontWeight: '700', color: COLORS.textMain },
   requestDetails: { fontSize: 14, color: COLORS.textMuted, marginTop: 4 },
   otpHint: { marginTop: 8, color: COLORS.textMain, fontWeight: '600' },
@@ -1797,6 +3435,17 @@ const styles = StyleSheet.create({
     ...SHADOWS.soft,
   },
   nextActionButtonText: { color: '#fff', fontWeight: '800', fontSize: 15 },
+  cancelRideButton: {
+    marginTop: 10,
+    backgroundColor: '#FFF5F5',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.danger,
+    alignItems: 'center',
+  },
+  cancelRideButtonText: { color: COLORS.danger, fontWeight: '800', fontSize: 15 },
   acceptButton: {
     marginTop: 8,
     backgroundColor: COLORS.primary,
@@ -1838,6 +3487,17 @@ const styles = StyleSheet.create({
   },
   acceptText: { color: '#fff', fontWeight: '700' },
   acceptTextNew: { color: '#fff', fontWeight: '800', fontSize: 14 },
+  declineButtonNew: {
+    backgroundColor: '#FFF5F5',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.danger,
+    alignItems: 'center',
+    minWidth: 90,
+  },
+  declineButtonTextNew: { color: COLORS.danger, fontWeight: '800', fontSize: 13 },
   blockButtonTextNew: { color: COLORS.textMain, fontWeight: '700', fontSize: 13 },
   blockButtonTextActive: { color: COLORS.danger, fontWeight: '800' },
   offlineState: { flex: 1, justifyContent: 'center', alignItems: 'center' },

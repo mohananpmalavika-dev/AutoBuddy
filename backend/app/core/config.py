@@ -187,7 +187,7 @@ def get_settings() -> Settings:
         allowed_origins=allowed_origins,
         cors_allow_origin_regex=os.environ.get(
             "ALLOWED_ORIGIN_REGEX",
-            r"^https://([a-z0-9-]+\.)?auto-buddy\.in$",
+            r"^https://([a-z0-9-]+\.)?auto-buddy\.in(:[0-9]+)?$",
         ).strip(),
         otp_expiry_minutes=_get_env_int("OTP_EXPIRY_MINUTES", 5, 1, 30),
         otp_resend_cooldown_seconds=_get_env_int("OTP_RESEND_COOLDOWN_SECONDS", 40, 10, 300),

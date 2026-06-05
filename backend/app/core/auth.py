@@ -4,7 +4,7 @@ Wraps existing RBAC with passenger-specific authentication
 """
 
 from fastapi import Depends, HTTPException
-from app.utils.rbac import get_current_user_secure
+from app.utils.rbac import get_current_user_secure, require_roles
 
 
 async def get_current_passenger(

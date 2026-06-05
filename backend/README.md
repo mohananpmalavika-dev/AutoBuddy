@@ -3,6 +3,7 @@
 Prerequisites:
 - Python 3.11 or later
 - MongoDB running locally (or a remote `MONGO_URL`; `DATABASE_URL` is also accepted)
+- Optional for passenger feature routes: PostgreSQL via `FEATURE_DATABASE_URL` in shared environments. Local development falls back to `sqlite:///./autobuddy_features.db`.
 
 Quick start (Windows PowerShell):
 
@@ -36,6 +37,7 @@ uvicorn server:app --reload --host 0.0.0.0 --port 8000
 
 Notes:
 - If `MONGO_URL` is not set, the app will raise an error on startup. `DATABASE_URL` is also supported as a fallback alias.
+- Passenger `/api/v1/passengers/*` feature routes use SQLAlchemy. Set `FEATURE_DATABASE_URL` (preferred), `PASSENGER_FEATURE_DATABASE_URL`, or `SQLALCHEMY_DATABASE_URL` for their store. `DATABASE_URL` is reserved for the primary Mongo alias and is intentionally not used for passenger features.
 - `JWT_SECRET` is required (minimum 32 chars). You can also provide `JWT_SECRET_FILE` for file-based secret loading.
 - `JWT_REFRESH_SECRET` is recommended (minimum 32 chars). In production/staging, it can fall back to `JWT_SECRET` unless `REQUIRE_REFRESH_SECRET_IN_PRODUCTION=true`.
 - `FERNET_SECRET` is used for encrypting sensitive values at rest; generate once and store securely. In production, fallback is ephemeral unless `REQUIRE_FERNET_SECRET_IN_PRODUCTION=true`.
@@ -51,6 +53,9 @@ Notes:
 
 - Set `ENVIRONMENT=production`.
 - Set `MONGO_URL` (or `DATABASE_URL`) to your MongoDB Atlas connection string.
+- Set `FEATURE_DATABASE_URL` to a durable PostgreSQL database for passenger features. The local SQLite fallback is disabled in production/staging.
+- Treat MongoDB and the passenger feature PostgreSQL database as separate production data stores: monitor both, back up both, and rehearse restore for both.
+- Run Mongo index migrations and PostgreSQL feature schema migrations as part of deployment. Do not rely on local SQLite data for shared environments.
 - Set a strong `JWT_SECRET` (minimum 32 chars).
 - Set a strong `JWT_REFRESH_SECRET` (minimum 32 chars). Optional strict mode: set `REQUIRE_REFRESH_SECRET_IN_PRODUCTION=true` to require a separate refresh secret.
 - Set `FERNET_SECRET` (generated via `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`). Optional strict mode: set `REQUIRE_FERNET_SECRET_IN_PRODUCTION=true`.

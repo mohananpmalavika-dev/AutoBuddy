@@ -11,8 +11,10 @@ import {
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { apiRequest } from '../lib/api';
+import { appendPickerAssetToFormData } from '../lib/uploadFormData';
 import { COLORS, SHADOWS } from '../theme';
 import VoiceTextInput from './VoiceTextInput';
+import { formatToIST } from '../utils/time';
 
 const CATEGORIES = [
   { value: 'all', label: 'All' },
@@ -42,11 +44,53 @@ const STATUSES = [
   { value: 'closed', label: 'Closed' },
 ];
 
+// Validation constants for support tickets
+const VALID_CATEGORIES = ['payment', 'booking', 'account', 'safety', 'vehicle', 'document', 'general'];
+const VALID_PRIORITIES = ['low', 'normal', 'high', 'urgent'];
+
+/**
+ * Validate support ticket input
+ * @returns {string[]} Array of validation error messages
+ */
+function validateTicketInput(subject, description, category, priority) {
+  const errors = [];
+
+  if (!subject || subject.trim().length === 0) {
+    errors.push('Subject is required');
+  } else if (subject.trim().length < 3) {
+    errors.push('Subject must be at least 3 characters');
+  } else if (subject.trim().length > 100) {
+    errors.push('Subject must be less than 100 characters');
+  }
+
+  if (!description || description.trim().length === 0) {
+    errors.push('Description is required');
+  } else if (description.trim().length < 10) {
+    errors.push('Description must be at least 10 characters');
+  } else if (description.trim().length > 5000) {
+    errors.push('Description must be less than 5000 characters');
+  }
+
+  if (!VALID_CATEGORIES.includes(String(category || '').trim().toLowerCase())) {
+    errors.push('Invalid category selected');
+  }
+
+  if (!VALID_PRIORITIES.includes(String(priority || '').trim().toLowerCase())) {
+    errors.push('Invalid priority selected');
+  }
+
+  return errors;
+}
+
 function formatDate(value) {
   if (!value) return 'Not available';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleString();
+  try {
+    return formatToIST(value);
+  } catch {
+    return new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata' }).format(date);
+  }
 }
 
 function getStatusColor(status) {
@@ -89,12 +133,19 @@ function AttachmentList({ attachments = [] }) {
   );
 }
 
-export default function SupportTicketPanel({ token, loading: parentLoading = false }) {
-  const [activeTab, setActiveTab] = useState('help');
+export default function SupportTicketPanel({
+  token,
+  loading: parentLoading = false,
+  initialAction = 'help',
+  onDataChanged,
+}) {
+  const normalizedInitialAction =
+    initialAction === 'contact' ? 'contact' : initialAction === 'tickets' ? 'tickets' : 'help';
+  const [activeTab, setActiveTab] = useState(normalizedInitialAction === 'help' ? 'help' : 'tickets');
   const [tickets, setTickets] = useState([]);
   const [faqs, setFaqs] = useState([]);
   const [selectedTicketId, setSelectedTicketId] = useState(null);
-  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [showCreateForm, setShowCreateForm] = useState(normalizedInitialAction === 'contact');
   const [loading, setLoading] = useState(false);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [error, setError] = useState('');
@@ -187,11 +238,13 @@ export default function SupportTicketPanel({ token, loading: parentLoading = fal
         setUploadingAttachment(true);
         setError('');
         const formDataPayload = new FormData();
-        formDataPayload.append('file', {
-          uri: asset.uri,
-          type: asset.mimeType || 'application/octet-stream',
-          name: asset.name || `support-${Date.now()}`,
-        });
+        await appendPickerAssetToFormData(
+          formDataPayload,
+          'file',
+          asset,
+          asset.name || `support-${Date.now()}`,
+          asset.mimeType || 'application/octet-stream',
+        );
         const response = await apiRequest('/drivers/support/attachments', {
           token,
           method: 'POST',
@@ -220,8 +273,16 @@ export default function SupportTicketPanel({ token, loading: parentLoading = fal
   );
 
   const createTicket = async () => {
-    if (!formData.subject.trim() || !formData.description.trim()) {
-      setError('Please fill in subject and description');
+    // Validate input
+    const validationErrors = validateTicketInput(
+      formData.subject,
+      formData.description,
+      formData.category,
+      formData.priority,
+    );
+
+    if (validationErrors.length > 0) {
+      setError(validationErrors.join(' / '));
       return;
     }
 
@@ -234,9 +295,9 @@ export default function SupportTicketPanel({ token, loading: parentLoading = fal
         body: {
           subject: formData.subject.trim(),
           description: formData.description.trim(),
-          category: formData.category,
-          priority: formData.priority,
-          attachment_urls: formData.attachment_urls,
+          category: String(formData.category || 'general').trim().toLowerCase(),
+          priority: String(formData.priority || 'normal').trim().toLowerCase(),
+          attachment_urls: formData.attachment_urls || [],
         },
       });
       setTimedMessage('Support ticket created. We will respond shortly.');
@@ -250,6 +311,7 @@ export default function SupportTicketPanel({ token, loading: parentLoading = fal
       setShowCreateForm(false);
       setActiveTab('tickets');
       await fetchTickets();
+      onDataChanged?.();
       if (response?.ticket?.id) {
         setSelectedTicketId(response.ticket.id);
       }
@@ -278,6 +340,7 @@ export default function SupportTicketPanel({ token, loading: parentLoading = fal
       setReplyText('');
       setReplyAttachments([]);
       await fetchTickets();
+      onDataChanged?.();
     } catch (err) {
       setError(err.message || 'Failed to add reply');
     } finally {
@@ -295,6 +358,7 @@ export default function SupportTicketPanel({ token, loading: parentLoading = fal
       });
       setTimedMessage('Ticket closed.');
       await fetchTickets();
+      onDataChanged?.();
       setSelectedTicketId(null);
     } catch (err) {
       setError(err.message || 'Failed to close ticket');
@@ -320,6 +384,7 @@ export default function SupportTicketPanel({ token, loading: parentLoading = fal
       setTimedMessage('Ticket escalated to senior support.');
       setEscalationReason('');
       await fetchTickets();
+      onDataChanged?.();
     } catch (err) {
       setError(err.message || 'Failed to escalate ticket');
     } finally {
@@ -327,7 +392,7 @@ export default function SupportTicketPanel({ token, loading: parentLoading = fal
     }
   };
 
-  const startContactSupport = (source = {}) => {
+  const startContactSupport = useCallback((source = {}) => {
     setFormData((previous) => ({
       ...previous,
       subject: source.subject || previous.subject,
@@ -338,7 +403,7 @@ export default function SupportTicketPanel({ token, loading: parentLoading = fal
     setShowCreateForm(true);
     setActiveTab('tickets');
     setSelectedTicketId(null);
-  };
+  }, []);
 
   const renderCreateForm = () => (
     <View style={styles.createForm}>

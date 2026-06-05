@@ -10,6 +10,23 @@ import {
 import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
 import VoiceTextInput from './VoiceTextInput';
+import { useVehicleTypes } from '../hooks/useVehicleTypes';
+
+const DEFAULT_VEHICLE_TYPE_ID = 'auto';
+const DEFAULT_SEATING_CAPACITY = 4;
+
+function getVehicleTypeId(vehicleType) {
+  return String(vehicleType?.vehicle_type_id || vehicleType?.id || '').trim();
+}
+
+function getDefaultVehicleTypeId(vehicleTypes = []) {
+  return getVehicleTypeId(vehicleTypes[0]) || DEFAULT_VEHICLE_TYPE_ID;
+}
+
+function parseIntegerField(value, fallback) {
+  const parsed = Number.parseInt(String(value || '').trim(), 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
 
 function normalizeVehicle(vehicle = {}) {
   return {
@@ -20,8 +37,9 @@ function normalizeVehicle(vehicle = {}) {
     color: vehicle.color || '',
     license_plate: vehicle.license_plate || vehicle.licensePlate || '',
     registration_number: vehicle.registration_number || vehicle.registrationNumber || '',
-    seating_capacity: Number(vehicle.seating_capacity || vehicle.seatingCapacity || 4),
-    vehicle_type: vehicle.vehicle_type || vehicle.vehicleType || 'auto',
+    seating_capacity: Number(vehicle.seating_capacity || vehicle.seatingCapacity || DEFAULT_SEATING_CAPACITY),
+    vehicle_type_id: vehicle.vehicle_type_id || vehicle.vehicle_type || vehicle.vehicleType || DEFAULT_VEHICLE_TYPE_ID,
+    vehicle_subtype_id: vehicle.vehicle_subtype_id || vehicle.vehicleSubtypeId || null,
     is_active: Boolean(vehicle.is_active),
   };
 }
@@ -39,6 +57,9 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
 
+  // Use vehicle types from backend
+  const { vehicleTypes, loading: vehicleTypesLoading } = useVehicleTypes();
+
   // Add/Edit form
   const [formData, setFormData] = useState({
     make: '',
@@ -47,11 +68,10 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
     color: '',
     license_plate: '',
     registration_number: '',
-    seating_capacity: '4',
-    vehicle_type: 'sedan',
+    seating_capacity: String(DEFAULT_SEATING_CAPACITY),
+    vehicle_type_id: '', // Will be vehicle_type_id from canonical backend
+    vehicle_subtype_id: '',
   });
-
-  const vehicleTypes = ['sedan', 'suv', 'hatchback', 'auto', 'van'];
 
   const fetchVehicles = useCallback(async () => {
     try {
@@ -75,6 +95,11 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
     Promise.resolve().then(fetchVehicles);
   }, [fetchVehicles]);
 
+  const getSelectedVehicleTypeId = useCallback(
+    () => String(formData.vehicle_type_id || '').trim() || getDefaultVehicleTypeId(vehicleTypes),
+    [formData.vehicle_type_id, vehicleTypes],
+  );
+
   const getEmptyFormData = () => ({
     make: '',
     model: '',
@@ -82,20 +107,26 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
     color: '',
     license_plate: '',
     registration_number: '',
-    seating_capacity: '4',
-    vehicle_type: 'sedan',
+    seating_capacity: String(DEFAULT_SEATING_CAPACITY),
+    vehicle_type_id: getDefaultVehicleTypeId(vehicleTypes),
+    vehicle_subtype_id: '',
   });
 
-  const buildVehiclePayload = () => ({
-    make: formData.make,
-    model: formData.model,
-    year: Number(formData.year),
-    color: formData.color,
-    license_plate: formData.license_plate,
-    registration_number: formData.registration_number || null,
-    seating_capacity: Number(formData.seating_capacity),
-    vehicle_type: formData.vehicle_type,
-  });
+  const buildVehiclePayload = () => {
+    const vehicleTypeId = getSelectedVehicleTypeId();
+    return {
+      make: formData.make.trim(),
+      model: formData.model.trim(),
+      year: parseIntegerField(formData.year, new Date().getFullYear()),
+      color: formData.color.trim(),
+      license_plate: formData.license_plate.trim(),
+      registration_number: formData.registration_number.trim() || null,
+      seating_capacity: parseIntegerField(formData.seating_capacity, DEFAULT_SEATING_CAPACITY),
+      vehicle_type: vehicleTypeId,
+      vehicle_type_id: vehicleTypeId,
+      vehicle_subtype_id: String(formData.vehicle_subtype_id || '').trim() || null,
+    };
+  };
 
   const resetVehicleForm = () => {
     setFormData(getEmptyFormData());
@@ -121,16 +152,29 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
       color: vehicle.color || '',
       license_plate: vehicle.license_plate || vehicle.licensePlate || '',
       registration_number: vehicle.registration_number || vehicle.registrationNumber || '',
-      seating_capacity: String(vehicle.seating_capacity || vehicle.seatingCapacity || '4'),
-      vehicle_type: vehicle.vehicle_type || vehicle.vehicleType || 'sedan',
+      seating_capacity: String(vehicle.seating_capacity || vehicle.seatingCapacity || DEFAULT_SEATING_CAPACITY),
+      vehicle_type_id: vehicle.vehicle_type_id || vehicle.vehicleType || DEFAULT_VEHICLE_TYPE_ID,
+      vehicle_subtype_id: vehicle.vehicle_subtype_id || '',
     });
     setEditingVehicleId(vehicle.id);
     setShowAddForm(true);
   };
 
   const handleSubmitVehicle = async () => {
-    if (!formData.make || !formData.model || !formData.license_plate) {
+    if (!formData.make.trim() || !formData.model.trim() || !formData.license_plate.trim()) {
       setError('Please fill in required fields: Make, Model, License Plate');
+      return;
+    }
+
+    const nextYear = parseIntegerField(formData.year, 0);
+    if (nextYear < 1900 || nextYear > 2100) {
+      setError('Please enter a valid vehicle year.');
+      return;
+    }
+
+    const nextCapacity = parseIntegerField(formData.seating_capacity, 0);
+    if (nextCapacity < 1 || nextCapacity > 12) {
+      setError('Please enter seating capacity between 1 and 12.');
       return;
     }
 
@@ -190,6 +234,14 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
+  const selectVehicleType = (typeId) => {
+    setFormData((prev) => ({
+      ...prev,
+      vehicle_type_id: typeId,
+      vehicle_subtype_id: '',
+    }));
+  };
+
   if (loading && vehicles.length === 0) {
     return (
       <View style={styles.container}>
@@ -200,7 +252,7 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <Text style={styles.title}>🚗 Vehicle Information</Text>
+      <Text style={styles.title}>Vehicle Information</Text>
       <Text style={styles.subtitle}>Manage your vehicle details</Text>
 
       {error && <Text style={[styles.message, styles.error]}>{error}</Text>}
@@ -209,26 +261,31 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
       {/* Active Vehicle Display */}
       {activeVehicle && (
         <View style={styles.activeVehicleCard}>
-          <Text style={styles.activeLabel}>🟢 ACTIVE VEHICLE</Text>
+          <Text style={styles.activeLabel}>🚗 ACTIVE VEHICLE</Text>
           <View style={styles.vehicleDetails}>
             <Text style={styles.vehicleTitle}>
               {activeVehicle.make} {activeVehicle.model} ({activeVehicle.year})
             </Text>
             <Text style={styles.vehicleInfo}>
-              📋 License: <Text style={styles.bold}>{activeVehicle.license_plate}</Text>
+              License: <Text style={styles.bold}>{activeVehicle.license_plate}</Text>
             </Text>
             <Text style={styles.vehicleInfo}>
-              🎨 Color: <Text style={styles.bold}>{activeVehicle.color}</Text>
+              Color: <Text style={styles.bold}>{activeVehicle.color}</Text>
             </Text>
             <Text style={styles.vehicleInfo}>
-              👥 Capacity: <Text style={styles.bold}>{activeVehicle.seating_capacity} seats</Text>
+              Capacity: <Text style={styles.bold}>{activeVehicle.seating_capacity} seats</Text>
             </Text>
             <Text style={styles.vehicleInfo}>
-              🚗 Type: <Text style={styles.bold}>{activeVehicle.vehicle_type}</Text>
+              Type: <Text style={styles.bold}>{activeVehicle.vehicle_type_id.toUpperCase()}</Text>
             </Text>
+            {activeVehicle.vehicle_subtype_id && (
+              <Text style={styles.vehicleInfo}>
+                Subtype: <Text style={styles.bold}>{activeVehicle.vehicle_subtype_id}</Text>
+              </Text>
+            )}
             {activeVehicle.registration_number && (
               <Text style={styles.vehicleInfo}>
-                📄 Registration: <Text style={styles.bold}>{activeVehicle.registration_number}</Text>
+                Registration: <Text style={styles.bold}>{activeVehicle.registration_number}</Text>
               </Text>
             )}
           </View>
@@ -271,14 +328,14 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
                     onPress={() => setActiveVehicleRequest(vehicle.id)}
                     disabled={parentLoading || loading}
                   >
-                    <Text style={styles.activateButtonText}>✓ Activate</Text>
+                    <Text style={styles.activateButtonText}>Activate</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.deleteButton}
                     onPress={() => deleteVehicle(vehicle.id)}
                     disabled={parentLoading || loading}
                   >
-                    <Text style={styles.deleteButtonText}>🗑️ Remove</Text>
+                    <Text style={styles.deleteButtonText}>Remove</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -358,27 +415,81 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
           />
 
           <Text style={styles.fieldLabel}>Vehicle Type</Text>
-          <View style={styles.typeSelection}>
-            {vehicleTypes.map((type) => (
-              <TouchableOpacity
-                key={type}
-                style={[
-                  styles.typeButton,
-                  formData.vehicle_type === type && styles.typeButtonActive,
-                ]}
-                onPress={() => updateFormData('vehicle_type', type)}
-              >
-                <Text
-                  style={[
-                    styles.typeButtonText,
-                    formData.vehicle_type === type && styles.typeButtonTextActive,
-                  ]}
-                >
-                  {type}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          {vehicleTypesLoading ? (
+            <ActivityIndicator size="small" color={COLORS.primary} />
+          ) : (
+            <>
+              <View style={styles.typeSelection}>
+                {vehicleTypes && vehicleTypes.length > 0 ? (
+                  vehicleTypes.map((type) => {
+                    const typeId = getVehicleTypeId(type);
+                    return (
+                      <TouchableOpacity
+                        key={typeId}
+                        style={[
+                          styles.typeButton,
+                          formData.vehicle_type_id === typeId && styles.typeButtonActive,
+                        ]}
+                        onPress={() => selectVehicleType(typeId)}
+                      >
+                        <Text style={styles.typeButtonIcon}>{type.icon || '🚗'}</Text>
+                        <View style={styles.typeButtonContent}>
+                          <Text
+                            style={[
+                              styles.typeButtonText,
+                              formData.vehicle_type_id === typeId && styles.typeButtonTextActive,
+                            ]}
+                          >
+                            {type.name}
+                          </Text>
+                          {type.capacity && (
+                            <Text style={styles.typeButtonSubtext}>
+                              {type.capacity} {type.capacity_unit || 'seats'}
+                            </Text>
+                          )}
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })
+                ) : (
+                  <Text style={styles.noTypesText}>No vehicle types available</Text>
+                )}
+              </View>
+
+              {/* Subtype Selection (if available) */}
+              {formData.vehicle_type_id && vehicleTypes && (
+                (() => {
+                  const selectedType = vehicleTypes.find((t) => getVehicleTypeId(t) === formData.vehicle_type_id);
+                  return selectedType?.subtypes && selectedType.subtypes.length > 0 ? (
+                    <View style={styles.subtypeSection}>
+                      <Text style={styles.fieldLabel}>Vehicle Subtype (Optional)</Text>
+                      <View style={styles.subtypeSelection}>
+                        {selectedType.subtypes.map((subtype) => (
+                          <TouchableOpacity
+                            key={subtype.id}
+                            style={[
+                              styles.subtypeButton,
+                              formData.vehicle_subtype_id === subtype.id && styles.subtypeButtonActive,
+                            ]}
+                            onPress={() => updateFormData('vehicle_subtype_id', subtype.id)}
+                          >
+                            <Text
+                              style={[
+                                styles.subtypeButtonText,
+                                formData.vehicle_subtype_id === subtype.id && styles.subtypeButtonTextActive,
+                              ]}
+                            >
+                              {subtype.name}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+                  ) : null;
+                })()
+              )}
+            </>
+          )}
 
           <View style={styles.formButtons}>
             <TouchableOpacity
@@ -387,7 +498,7 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
               disabled={parentLoading || loading}
             >
               <Text style={styles.submitButtonText}>
-                {editingVehicleId ? 'Save Changes' : '✓ Add Vehicle'}
+                {editingVehicleId ? 'Save Changes' : 'Add Vehicle'}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -395,7 +506,7 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
               onPress={resetVehicleForm}
               disabled={parentLoading || loading}
             >
-              <Text style={styles.cancelButtonText}>✕ Cancel</Text>
+              <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -410,12 +521,12 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
       )}
 
       <View style={styles.info}>
-        <Text style={styles.infoTitle}>💡 Vehicle Information</Text>
+        <Text style={styles.infoTitle}>Vehicle Information</Text>
         <Text style={styles.infoText}>
-          • You can have multiple vehicles registered{'\n'}
-          • Only one vehicle can be active at a time{'\n'}
-          • Passengers will see your active vehicle details{'\n'}
-          • Keep vehicle info updated for matching
+          - You can have multiple vehicles registered{'\n'}
+          - Only one vehicle can be active at a time{'\n'}
+          - Passengers will see your active vehicle details{'\n'}
+          - Keep vehicle info updated for matching
         </Text>
       </View>
     </ScrollView>
@@ -636,6 +747,51 @@ const styles = StyleSheet.create({
   },
   typeButtonTextActive: {
     color: '#fff',
+  },
+  typeButtonIcon: {
+    fontSize: 16,
+    marginBottom: 2,
+  },
+  typeButtonContent: {
+    alignItems: 'center',
+  },
+  typeButtonSubtext: {
+    fontSize: 10,
+    color: COLORS.textMuted,
+    marginTop: 2,
+  },
+  subtypeSection: {
+    marginTop: 16,
+  },
+  subtypeSelection: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  subtypeButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.background,
+  },
+  subtypeButtonActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  subtypeButtonText: {
+    fontSize: 12,
+    color: COLORS.textMain,
+    fontWeight: '600',
+  },
+  subtypeButtonTextActive: {
+    color: '#fff',
+  },
+  noTypesText: {
+    fontSize: 12,
+    color: COLORS.textMuted,
+    fontStyle: 'italic',
   },
   formButtons: {
     flexDirection: 'row',

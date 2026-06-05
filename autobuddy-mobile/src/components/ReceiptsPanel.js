@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   FlatList,
   ScrollView,
@@ -11,6 +12,7 @@ import {
 } from 'react-native';
 import { apiRequest } from '../lib/api';
 import { COLORS, SHADOWS } from '../theme';
+import { formatToIST } from '../utils/time';
 
 /**
  * ReceiptsPanel - Ride receipts and billing history
@@ -20,7 +22,9 @@ export default function ReceiptsPanel({ token }) {
   const [receipts, setReceipts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [filterPeriod, setFilterPeriod] = useState('all'); // all, month, quarter, year
+  const [message, setMessage] = useState('');
+  const [filterPeriod, setFilterPeriod] = useState('all');
+  const [downloadingId, setDownloadingId] = useState(null); // all, month, quarter, year
 
   const fetchReceipts = useCallback(async () => {
     try {
@@ -42,15 +46,26 @@ export default function ReceiptsPanel({ token }) {
     return () => clearTimeout(timer);
   }, [fetchReceipts]);
 
-  const downloadReceipt = async (receipt) => {
+  // Announce loading status for accessibility
+  useEffect(() => {
+    if (loading) {
+      AccessibilityInfo.announceForAccessibility('Loading receipts');
+    } else if (receipts.length > 0) {
+      AccessibilityInfo.announceForAccessibility(`${receipts.length} receipts loaded`);
+    } else if (!error) {
+      AccessibilityInfo.announceForAccessibility('No receipts found');
+    }
+  }, [loading, receipts.length, error]);
+
+  const shareTextReceipt = async (receipt) => {
     try {
       await Share.share({
-        title: `AutoBuddy Receipt - ${receipt.id}`,
+        title: `AutoBuddy Text Receipt - ${receipt.id}`,
         message: [
           `AutoBuddy Receipt #${receipt.id}`,
           `Booking: ${receipt.booking_id}`,
           `Ride: ${receipt.from} -> ${receipt.to}`,
-          `Date: ${new Date(receipt.date).toLocaleString()}`,
+          `Date: ${formatToIST(receipt.date, { dateStyle: 'medium', timeStyle: 'short' })}`,
           `Driver: ${receipt.driver_name}`,
           `Distance: ${receipt.distance_km} km`,
           `Total: INR ${receipt.total}`,
@@ -58,13 +73,13 @@ export default function ReceiptsPanel({ token }) {
         ].join('\n'),
       });
     } catch (err) {
-      setError(err.message || 'Failed to export receipt');
+      setError(err.message || 'Failed to share text receipt');
     }
   };
 
   const shareReceipt = async (receipt) => {
     try {
-      const shareMessage = `Receipt #${receipt.id}\n\nRide: ${receipt.from} → ${receipt.to}\nDate: ${new Date(receipt.date).toLocaleDateString()}\nFare: INR ${receipt.total}\n\nDriver: ${receipt.driver_name}\nDistance: ${receipt.distance_km} km`;
+      const shareMessage = `Receipt #${receipt.id}\n\nRide: ${receipt.from} -> ${receipt.to}\nDate: ${formatToIST(receipt.date, { dateStyle: 'short' })}\nFare: INR ${receipt.total}\n\nDriver: ${receipt.driver_name}\nDistance: ${receipt.distance_km} km`;
 
       await Share.share({
         message: shareMessage,
@@ -72,6 +87,25 @@ export default function ReceiptsPanel({ token }) {
       });
     } catch (err) {
       console.log('Share error:', err);
+    }
+  };
+
+  const downloadPDF = async (receipt) => {
+    try {
+      setDownloadingId(receipt.id);
+      setError('');
+      const response = await apiRequest(`/passengers/receipts/${receipt.id}/pdf`, { token });
+      if (response?.url) {
+        if (typeof window !== 'undefined') {
+          window.open(response.url, '_blank');
+        }
+        setMessage('PDF receipt downloaded successfully');
+        setTimeout(() => setMessage(''), 3000);
+      }
+    } catch (err) {
+      setError(err.message || 'PDF download not available');
+    } finally {
+      setDownloadingId(null);
     }
   };
 
@@ -93,7 +127,7 @@ export default function ReceiptsPanel({ token }) {
       <View style={styles.receiptHeader}>
         <View>
           <Text style={styles.receiptId}>{item.id}</Text>
-          <Text style={styles.receiptDate}>{new Date(item.date).toLocaleDateString()} · {new Date(item.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+          <Text style={styles.receiptDate}>{formatToIST(item.date, { dateStyle: 'short' })} · {formatToIST(item.date, { hour: '2-digit', minute: '2-digit' })}</Text>
         </View>
         <View style={[styles.statusBadge, { backgroundColor: getPaymentStatusColor(item.payment_status) + '20' }]}>
           <Text style={[styles.statusText, { color: getPaymentStatusColor(item.payment_status) }]}>
@@ -150,16 +184,27 @@ export default function ReceiptsPanel({ token }) {
 
       <View style={styles.actionButtons}>
         <TouchableOpacity
-          style={[styles.actionButton, { flex: 1, marginRight: 8 }]}
+          style={[styles.actionButton, { flex: 1, marginRight: 4 }]}
           onPress={() => shareReceipt(item)}
         >
           <Text style={styles.actionButtonText}>Share</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.actionButton, { flex: 1 }]}
-          onPress={() => downloadReceipt(item)}
+          style={[styles.actionButton, { flex: 1, marginRight: 4 }]}
+          onPress={() => shareTextReceipt(item)}
         >
-          <Text style={styles.actionButtonText}>Export</Text>
+          <Text style={styles.actionButtonText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+            📧 Text
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.actionButton, { flex: 1 }, downloadingId === item.id && styles.actionButtonDisabled]}
+          onPress={() => downloadPDF(item)}
+          disabled={downloadingId === item.id}
+        >
+          <Text style={styles.actionButtonText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+            {downloadingId === item.id ? '⏳' : '📄'} PDF
+          </Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -178,7 +223,8 @@ export default function ReceiptsPanel({ token }) {
 
   return (
     <ScrollView style={styles.container}>
-      {error && <Text style={styles.errorText}>{error}</Text>}
+      {error && <Text style={styles.errorText}>❌ {error}</Text>}
+      {message && <Text style={styles.messageText}>✓ {message}</Text>}
       {/* Summary Cards */}
       {receipts.length > 0 && (
         <View style={styles.summaryRow}>
@@ -244,13 +290,13 @@ export default function ReceiptsPanel({ token }) {
           • Each ride generates an automatic receipt
         </Text>
         <Text style={styles.infoText}>
-          • Receipts include detailed fare breakdown
+          • Text receipts include detailed fare breakdown
         </Text>
         <Text style={styles.infoText}>
-          • Download receipts in PDF format
+          • Share text receipts via email or messaging
         </Text>
         <Text style={styles.infoText}>
-          • Share receipts via email or messaging
+          • PDF export is not available yet
         </Text>
         <Text style={styles.infoText}>
           • Receipts are available for 2 years
@@ -338,5 +384,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { fontSize: 16, fontWeight: 'bold', color: COLORS.text, marginBottom: 8 },
   infoText: { fontSize: 12, color: COLORS.text, lineHeight: 18, marginBottom: 4 },
-  errorText: { color: '#F44336', fontSize: 12, marginBottom: 12, fontWeight: '600' },
+  messageText: { color: '#4CAF50', fontSize: 12, marginBottom: 12, fontWeight: '600', padding: 8, backgroundColor: '#E8F5E9', borderRadius: 4 },
+  errorText: { color: '#F44336', fontSize: 12, marginBottom: 12, fontWeight: '600', padding: 8, backgroundColor: '#FFEBEE', borderRadius: 4 },
+  actionButtonDisabled: { opacity: 0.6 },
 });

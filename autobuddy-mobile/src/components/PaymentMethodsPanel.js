@@ -32,10 +32,13 @@ function getMethodDisplay(method) {
 export default function PaymentMethodsPanel({ token, onDefaultMethodChange = () => {} }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
   const [paymentMethods, setPaymentMethods] = useState([]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [walletBalance, setWalletBalance] = useState(0);
   const [walletTopupAmount, setWalletTopupAmount] = useState('');
+  const [walletTopupReference, setWalletTopupReference] = useState('');
+  const [pendingWalletTopupOrder, setPendingWalletTopupOrder] = useState(null);
   const [selectedForBookingId, setSelectedForBookingId] = useState('');
 
   const [paymentType, setPaymentType] = useState('card');
@@ -173,27 +176,54 @@ export default function PaymentMethodsPanel({ token, onDefaultMethodChange = () 
   );
 
   const topupWallet = useCallback(async () => {
-    const amount = Number(walletTopupAmount);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      setError('Enter a valid top-up amount');
-      return;
-    }
     try {
       setLoading(true);
       setError('');
-      const response = await apiRequest('/wallet/topup', {
+
+      if (pendingWalletTopupOrder?.order_id) {
+        const reference = walletTopupReference.trim();
+        if (reference.length < 4) {
+          setError('Enter the UPI reference or transaction ID after payment.');
+          return;
+        }
+        const response = await apiRequest('/wallet/topup/verify', {
+          method: 'POST',
+          token,
+          body: {
+            order_id: pendingWalletTopupOrder.order_id,
+            transaction_ref: reference,
+          },
+        });
+        if (response?.status === 'paid') {
+          setWalletBalance(Number(response?.balance || 0));
+        }
+        setMessage(response?.message || 'Payment reference submitted for verification.');
+        setPendingWalletTopupOrder(null);
+        setWalletTopupAmount('');
+        setWalletTopupReference('');
+        await fetchWalletBalance();
+        return;
+      }
+
+      const amount = Number(walletTopupAmount);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        setError('Enter a valid top-up amount');
+        return;
+      }
+
+      const response = await apiRequest('/wallet/topup/order', {
         method: 'POST',
         token,
-        body: { amount },
+        body: { amount, payment_channel: 'upi' },
       });
-      setWalletBalance(Number(response?.balance || 0));
-      setWalletTopupAmount('');
+      setPendingWalletTopupOrder(response);
+      setMessage(response?.message || 'Wallet top-up order created. Pay first, then submit the reference.');
     } catch (err) {
-      setError(err.message || 'Failed to top up wallet');
+      setError(err.message || 'Failed to process wallet top-up');
     } finally {
       setLoading(false);
     }
-  }, [token, walletTopupAmount]);
+  }, [fetchWalletBalance, pendingWalletTopupOrder, token, walletTopupAmount, walletTopupReference]);
 
   const formatCardLastFour = (text) => {
     const cleaned = text.replace(/\D/g, '');
@@ -314,6 +344,7 @@ export default function PaymentMethodsPanel({ token, onDefaultMethodChange = () 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       {!!error && <Text style={styles.errorText}>{error}</Text>}
+      {!!message && <Text style={styles.messageText}>{message}</Text>}
 
       <TouchableOpacity style={styles.addButton} onPress={() => setShowAddForm(true)} disabled={loading}>
         <Text style={styles.addButtonText}>+ Add Payment Method</Text>
@@ -332,9 +363,34 @@ export default function PaymentMethodsPanel({ token, onDefaultMethodChange = () 
             placeholderTextColor={COLORS.textMuted}
           />
           <TouchableOpacity style={styles.addMoneyButton} onPress={topupWallet} disabled={loading}>
-            <Text style={styles.addMoneyButtonText}>Add Money</Text>
+            <Text style={styles.addMoneyButtonText}>
+              {pendingWalletTopupOrder ? 'Submit Ref' : 'Add Money'}
+            </Text>
           </TouchableOpacity>
         </View>
+        {pendingWalletTopupOrder && (
+          <View style={styles.topupOrderCard}>
+            <Text style={styles.topupOrderTitle}>Payment order {pendingWalletTopupOrder.order_id}</Text>
+            <Text style={styles.topupOrderText}>
+              Amount: INR {Number(pendingWalletTopupOrder.amount || walletTopupAmount || 0).toFixed(2)}
+            </Text>
+            {!!pendingWalletTopupOrder.upi_intent && (
+              <Text style={styles.topupOrderText} numberOfLines={2}>
+                UPI: {pendingWalletTopupOrder.upi_intent}
+              </Text>
+            )}
+            <VoiceTextInput
+              style={styles.referenceInput}
+              value={walletTopupReference}
+              onChangeText={setWalletTopupReference}
+              placeholder="UPI reference / UTR"
+              placeholderTextColor={COLORS.textMuted}
+            />
+            <Text style={styles.helperText}>
+              Balance is credited only after the payment reference is verified.
+            </Text>
+          </View>
+        )}
       </View>
 
       {loading && paymentMethods.length === 0 ? (
@@ -443,6 +499,27 @@ const styles = StyleSheet.create({
   },
   addMoneyButtonText: { color: '#2E7D32', fontWeight: '700', fontSize: 12 },
   errorText: { color: '#D32F2F', fontSize: 12, margin: 12 },
+  messageText: { color: '#1B5E20', fontSize: 12, marginHorizontal: 12, marginTop: 12 },
+  topupOrderCard: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#A5D6A7',
+  },
+  topupOrderTitle: { fontSize: 12, fontWeight: '800', color: '#1B5E20', marginBottom: 6 },
+  topupOrderText: { fontSize: 11, color: COLORS.textMain, marginBottom: 6 },
+  referenceInput: {
+    borderWidth: 1,
+    borderColor: '#2E7D32',
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    color: COLORS.textMain,
+    backgroundColor: '#FFFFFF',
+    marginTop: 4,
+  },
   loader: { marginVertical: 40 },
   emptyState: { alignItems: 'center', marginVertical: 40 },
   emptyStateText: { fontSize: 14, fontWeight: '700', color: COLORS.textMain },

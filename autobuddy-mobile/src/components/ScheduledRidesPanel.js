@@ -1,523 +1,506 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { apiRequest } from '../lib/api';
-import { formatScheduleInputFromDate, validateScheduledPickup } from '../lib/scheduling';
+import React, { useMemo } from 'react';
+import {
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { COLORS, SHADOWS } from '../theme';
-import ScheduledPickupPicker from './ScheduledPickupPicker';
+import { formatToIST } from '../utils/time';
 
-const RECURRENCE_OPTIONS = ['none', 'daily', 'weekly', 'monthly'];
-const REMINDER_OPTIONS = [
-  { label: 'None', value: null },
-  { label: '15 mins before', value: 15 },
-  { label: '30 mins before', value: 30 },
-  { label: '1 hour before', value: 60 },
-  { label: '2 hours before', value: 120 },
-];
-const FILTER_OPTIONS = ['upcoming', 'past', 'cancelled', 'all'];
+const EMPTY_UPCOMING = {
+  scheduled_requests: [],
+  assigned_rides: [],
+  counts: { scheduled_requests: 0, assigned_rides: 0, total: 0 },
+};
 
-export default function ScheduledRidesPanel({ token }) {
-  const [loading, setLoading] = useState(false);
-  const [rides, setRides] = useState([]);
-  const [showForm, setShowForm] = useState(false);
-  const [editingRideId, setEditingRideId] = useState(null);
-  const [filterStatus, setFilterStatus] = useState('upcoming');
-  const [formData, setFormData] = useState({
-    pickup_location: '',
-    dropoff_location: '',
-    scheduled_time: '',
-    scheduled_timezone: 'local',
-    recurrence_pattern: 'none',
-    reminder_minutes: 30,
-    ride_notes: '',
-  });
-  const [error, setError] = useState('');
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
 
-  const fetchScheduledRides = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError('');
-      const response = await apiRequest('/v1/passengers/scheduled-rides', { token });
-      setRides(Array.isArray(response?.data) ? response.data : Array.isArray(response) ? response : []);
-    } catch (err) {
-      setError(err.message || 'Failed to load scheduled rides');
-    } finally {
-      setLoading(false);
-    }
-  }, [token]);
-
-  useEffect(() => {
-    if (!token) {
-      return undefined;
-    }
-    const timer = setTimeout(() => {
-      fetchScheduledRides().catch(() => null);
-    }, 0);
-    return () => clearTimeout(timer);
-  }, [token, fetchScheduledRides]);
-
-  const scheduleRide = useCallback(async () => {
-    if (!formData.pickup_location.trim() || !formData.dropoff_location.trim() || !formData.scheduled_time.trim()) {
-      Alert.alert('Error', 'Please fill all required fields');
-      return;
-    }
-    const scheduleValidation = validateScheduledPickup(formData.scheduled_time, formData.scheduled_timezone);
-    if (!scheduleValidation.valid) {
-      Alert.alert('Error', scheduleValidation.message);
-      return;
-    }
-    try {
-      await apiRequest('/v1/passengers/scheduled-rides', {
-        method: 'POST',
-        token,
-        body: {
-          pickup_location: formData.pickup_location.trim(),
-          dropoff_location: formData.dropoff_location.trim(),
-          scheduled_time: scheduleValidation.iso,
-          ride_type: 'normal',
-          recurring: formData.recurrence_pattern !== 'none',
-          recurrence_pattern: formData.recurrence_pattern === 'none' ? null : formData.recurrence_pattern,
-          reminder_minutes: formData.reminder_minutes,
-          ride_notes: formData.ride_notes.trim() || null,
-        },
-      });
-      setFormData({
-        pickup_location: '',
-        dropoff_location: '',
-        scheduled_time: '',
-        scheduled_timezone: 'local',
-        recurrence_pattern: 'none',
-        reminder_minutes: 30,
-        ride_notes: '',
-      });
-      setShowForm(false);
-      setEditingRideId(null);
-      await fetchScheduledRides();
-    } catch (err) {
-      Alert.alert('Error', err.message || 'Failed to schedule ride');
-    }
-  }, [token, formData, fetchScheduledRides]);
-
-  const updateRide = useCallback(async () => {
-    if (!editingRideId) {
-      return;
-    }
-    if (!formData.pickup_location.trim() || !formData.dropoff_location.trim() || !formData.scheduled_time.trim()) {
-      Alert.alert('Error', 'Please fill all required fields');
-      return;
-    }
-    const scheduleValidation = validateScheduledPickup(formData.scheduled_time, formData.scheduled_timezone);
-    if (!scheduleValidation.valid) {
-      Alert.alert('Error', scheduleValidation.message);
-      return;
-    }
-    try {
-      await apiRequest(`/v1/passengers/scheduled-rides/${editingRideId}`, {
-        method: 'PATCH',
-        token,
-        body: {
-          pickup_location: formData.pickup_location.trim(),
-          dropoff_location: formData.dropoff_location.trim(),
-          scheduled_time: scheduleValidation.iso,
-          ride_type: 'normal',
-          recurring: formData.recurrence_pattern !== 'none',
-          recurrence_pattern: formData.recurrence_pattern === 'none' ? null : formData.recurrence_pattern,
-          reminder_minutes: formData.reminder_minutes,
-          ride_notes: formData.ride_notes.trim() || null,
-        },
-      });
-      setFormData({
-        pickup_location: '',
-        dropoff_location: '',
-        scheduled_time: '',
-        scheduled_timezone: 'local',
-        recurrence_pattern: 'none',
-        reminder_minutes: 30,
-        ride_notes: '',
-      });
-      setShowForm(false);
-      setEditingRideId(null);
-      await fetchScheduledRides();
-    } catch (err) {
-      Alert.alert('Error', err.message || 'Failed to reschedule ride');
-    }
-  }, [editingRideId, fetchScheduledRides, formData, token]);
-
-  const cancelRide = useCallback(
-    async (rideId) => {
-      Alert.alert('Cancel Ride', 'Cancel this scheduled ride?', [
-        { text: 'No' },
-        {
-          text: 'Yes',
-          onPress: async () => {
-            try {
-              await apiRequest(`/v1/passengers/scheduled-rides/${rideId}`, { method: 'DELETE', token });
-              await fetchScheduledRides();
-            } catch (_err) {
-              Alert.alert('Error', 'Failed to cancel ride');
-            }
-          },
-          style: 'destructive',
-        },
-      ]);
-    },
-    [token, fetchScheduledRides],
-  );
-
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'scheduled':
-        return '#2196F3';
-      case 'completed':
-        return '#4CAF50';
-      case 'cancelled':
-        return '#F44336';
-      default:
-        return COLORS.textMuted;
-    }
-  };
-
-  const getRecurringLabel = (recurrencePattern, recurring) => {
-    if (!recurring || !recurrencePattern) {
-      return 'One-time';
-    }
-    const labels = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly' };
-    return labels[recurrencePattern] || recurrencePattern;
-  };
-
-  const getReminderLabel = (minutes) => {
-    if (!minutes) return 'No reminder';
-    if (minutes === 15) return '15 mins before';
-    if (minutes === 30) return '30 mins before';
-    if (minutes === 60) return '1 hour before';
-    if (minutes === 120) return '2 hours before';
-    return `${minutes} mins before`;
-  };
-
-  const getFilteredRides = useCallback(() => {
-    const now = new Date();
-    return rides.filter((ride) => {
-      const rideTime = new Date(ride.scheduled_time);
-      switch (filterStatus) {
-        case 'upcoming':
-          return ride.status === 'scheduled' && rideTime > now;
-        case 'past':
-          return (ride.status === 'completed' || (ride.status === 'scheduled' && rideTime <= now));
-        case 'cancelled':
-          return ride.status === 'cancelled';
-        case 'all':
-        default:
-          return true;
-      }
-    });
-  }, [rides, filterStatus]);
-
-  if (loading && rides.length === 0) {
-    return <ActivityIndicator size="large" color={COLORS.primary} style={styles.loader} />;
+function formatDateTime(value) {
+  if (!value) {
+    return 'Time not set';
   }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return 'Time not set';
+  }
+  try {
+    return formatToIST(value, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  } catch {
+    return new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(date);
+  }
+}
 
-  const filteredRides = getFilteredRides();
+function formatMoney(value) {
+  const amount = Number(value || 0);
+  return `Rs. ${Number.isFinite(amount) ? amount.toFixed(2) : '0.00'}`;
+}
+
+function formatStatus(value) {
+  return String(value || 'scheduled')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function locationAddress(location, fallback) {
+  if (!location || typeof location !== 'object') {
+    return fallback;
+  }
+  return (
+    (typeof location.address === 'string' && location.address.trim()) ||
+    (Number.isFinite(Number(location.latitude)) && Number.isFinite(Number(location.longitude))
+      ? `${Number(location.latitude).toFixed(5)}, ${Number(location.longitude).toFixed(5)}`
+      : fallback)
+  );
+}
+
+function timeUntilLabel(minutesUntil) {
+  const minutes = Number(minutesUntil);
+  if (!Number.isFinite(minutes)) {
+    return null;
+  }
+  if (minutes < -15) {
+    return 'Past scheduled time';
+  }
+  if (minutes <= 0) {
+    return 'Due now';
+  }
+  if (minutes < 60) {
+    return `In ${minutes} min`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes ? `In ${hours}h ${remainingMinutes}m` : `In ${hours}h`;
+}
+
+function ScheduledRideCard({
+  ride,
+  type,
+  loading,
+  onAcceptRequest,
+  onRejectRequest,
+  onResumeRide,
+  onNavigateRide,
+  onCallPassenger,
+  onCancelRide,
+  onOpenSupport,
+}) {
+  const isRequest = type === 'request';
+  const pickup = locationAddress(ride.pickup_location, 'Pickup not available');
+  const drop = locationAddress(ride.drop_location, 'Drop not available');
+  const timeLabel = timeUntilLabel(ride.minutes_until);
+  const assignedActions = [
+    { key: 'resume', label: 'Resume', onPress: onResumeRide },
+    { key: 'navigate', label: 'Navigate', onPress: onNavigateRide },
+    { key: 'call', label: 'Call', onPress: onCallPassenger },
+    { key: 'support', label: 'Support', onPress: onOpenSupport },
+    { key: 'cancel', label: 'Cancel', onPress: onCancelRide, danger: true },
+  ];
+
+  return (
+    <View style={styles.rideCard}>
+      <View style={styles.rideHeader}>
+        <View style={styles.rideTitleBlock}>
+          <Text style={styles.rideTitle}>{ride.passenger_name || 'Passenger'}</Text>
+          <Text style={styles.rideMeta}>{formatDateTime(ride.scheduled_for)}</Text>
+          {!!timeLabel && <Text style={styles.rideCountdown}>{timeLabel}</Text>}
+        </View>
+        <View style={[styles.statusPill, isRequest ? styles.statusRequest : styles.statusAssigned]}>
+          <Text style={[styles.statusText, isRequest ? styles.statusRequestText : styles.statusAssignedText]}>
+            {isRequest ? 'Request' : formatStatus(ride.status)}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.routeBox}>
+        <Text style={styles.routeLabel}>From</Text>
+        <Text style={styles.routeText}>{pickup}</Text>
+        <Text style={styles.routeLabel}>To</Text>
+        <Text style={styles.routeText}>{drop}</Text>
+      </View>
+
+      <View style={styles.detailRow}>
+        <Text style={styles.detailText}>{formatMoney(ride.estimated_fare ?? ride.final_fare)}</Text>
+        {!!ride.distance_km && <Text style={styles.detailText}>{Number(ride.distance_km).toFixed(1)} km</Text>}
+        {!!ride.dispatch_status && <Text style={styles.detailText}>{formatStatus(ride.dispatch_status)}</Text>}
+      </View>
+
+      {isRequest && (
+        <View style={styles.actionRow}>
+          <TouchableOpacity
+            style={[styles.primaryButton, loading && styles.buttonDisabled]}
+            onPress={() => onAcceptRequest?.(ride.id)}
+            disabled={loading}>
+            <Text style={styles.primaryButtonText}>Accept</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.secondaryButton, loading && styles.buttonDisabled]}
+            onPress={() => onRejectRequest?.(ride.id)}
+            disabled={loading}>
+            <Text style={styles.secondaryButtonText}>Decline</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {!isRequest && (
+        <View style={styles.assignedActionGrid}>
+          {assignedActions.map((action) => (
+            <TouchableOpacity
+              key={action.key}
+              style={[
+                styles.assignedActionButton,
+                action.danger && styles.assignedDangerButton,
+                (loading || typeof action.onPress !== 'function') && styles.buttonDisabled,
+              ]}
+              onPress={() => action.onPress?.(ride)}
+              disabled={loading || typeof action.onPress !== 'function'}>
+              <Text style={[styles.assignedActionText, action.danger && styles.assignedDangerText]}>
+                {action.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+export default function ScheduledRidesPanel({
+  upcomingRides = EMPTY_UPCOMING,
+  loading = false,
+  onAcceptRequest,
+  onRejectRequest,
+  onResumeRide,
+  onNavigateRide,
+  onCallPassenger,
+  onCancelRide,
+  onOpenSupport,
+  onRefresh,
+}) {
+  const scheduledRequests = asArray(upcomingRides?.scheduled_requests);
+  const assignedRides = asArray(upcomingRides?.assigned_rides);
+  const counts = upcomingRides?.counts || EMPTY_UPCOMING.counts;
+  const nextRide = useMemo(
+    () => [...assignedRides, ...scheduledRequests]
+      .filter((ride) => ride?.scheduled_for)
+      .sort((a, b) => new Date(a.scheduled_for).getTime() - new Date(b.scheduled_for).getTime())[0],
+    [assignedRides, scheduledRequests],
+  );
 
   return (
     <View style={styles.container}>
-      {!!error && <Text style={styles.errorText}>{error}</Text>}
-
-      {/* Filter Chips */}
-      <View style={styles.filterRow}>
-        {FILTER_OPTIONS.map((option) => (
-          <TouchableOpacity
-            key={option}
-            style={[styles.filterChip, filterStatus === option && styles.filterChipActive]}
-            onPress={() => setFilterStatus(option)}>
-            <Text style={[styles.filterChipText, filterStatus === option && styles.filterChipTextActive]}>
-              {option === 'all' ? 'All' : option.charAt(0).toUpperCase() + option.slice(1)}
+      <View style={styles.summaryCard}>
+        <View style={styles.summaryHeader}>
+          <View style={styles.summaryTitleBlock}>
+            <Text style={styles.title}>Scheduled Jobs</Text>
+            <Text style={styles.subtitle}>
+              {nextRide ? `Next: ${formatDateTime(nextRide.scheduled_for)}` : 'No upcoming scheduled ride'}
             </Text>
+          </View>
+          <TouchableOpacity
+            style={[styles.refreshButton, loading && styles.buttonDisabled]}
+            onPress={onRefresh}
+            disabled={loading}>
+            <Text style={styles.refreshText}>Refresh</Text>
           </TouchableOpacity>
-        ))}
+        </View>
+
+        <View style={styles.countRow}>
+          <View style={styles.countItem}>
+            <Text style={styles.countValue}>{Number(counts.scheduled_requests || scheduledRequests.length)}</Text>
+            <Text style={styles.countLabel}>Open</Text>
+          </View>
+          <View style={styles.countItem}>
+            <Text style={styles.countValue}>{Number(counts.assigned_rides || assignedRides.length)}</Text>
+            <Text style={styles.countLabel}>Assigned</Text>
+          </View>
+          <View style={styles.countItem}>
+            <Text style={styles.countValue}>{Number(counts.total || scheduledRequests.length + assignedRides.length)}</Text>
+            <Text style={styles.countLabel}>Total</Text>
+          </View>
+        </View>
       </View>
 
-      {filteredRides.length === 0 && !showForm ? (
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyIcon}>Later</Text>
-          <Text style={styles.emptyTitle}>No {filterStatus === 'all' ? 'Scheduled Rides' : filterStatus + ' Rides'}</Text>
-          <Text style={styles.emptyText}>
-            {filterStatus === 'upcoming' ? 'Plan ahead by scheduling your rides in advance' : 'Nothing to show for this filter'}
-          </Text>
-          {filterStatus === 'upcoming' && (
-            <TouchableOpacity style={styles.addButton} onPress={() => setShowForm(true)}>
-              <Text style={styles.addButtonText}>Schedule a Ride</Text>
-            </TouchableOpacity>
-          )}
+      <Text style={styles.sectionTitle}>Open Scheduled Requests</Text>
+      {scheduledRequests.length === 0 ? (
+        <View style={styles.emptyCard}>
+          <Text style={styles.emptyText}>No open scheduled requests.</Text>
         </View>
       ) : (
-        <>
-          <FlatList
-            data={filteredRides}
-            keyExtractor={(item) => String(item.id)}
-            scrollEnabled={false}
-            renderItem={({ item }) => (
-              <View style={styles.rideCard}>
-                <View style={[styles.statusBadge, { backgroundColor: `${getStatusColor(item.status)}20`, borderColor: getStatusColor(item.status) }]}>
-                  <Text style={[styles.statusText, { color: getStatusColor(item.status) }]}>{String(item.status || '').toUpperCase()}</Text>
-                </View>
-
-                <View style={styles.rideDetails}>
-                  <View style={styles.locationRow}>
-                    <Text style={styles.locationLabel}>From</Text>
-                    <Text style={styles.location}>{item.pickup_location}</Text>
-                  </View>
-                  <View style={styles.locationRow}>
-                    <Text style={styles.locationLabel}>To</Text>
-                    <Text style={styles.location}>{item.dropoff_location}</Text>
-                  </View>
-
-                  <View style={styles.metaRow}>
-                    <View style={styles.metaItem}>
-                      <Text style={styles.metaLabel}>Time</Text>
-                      <Text style={styles.metaValue}>{new Date(item.scheduled_time).toLocaleString()}</Text>
-                    </View>
-                    <View style={styles.metaItem}>
-                      <Text style={styles.metaLabel}>Recurring</Text>
-                      <Text style={styles.metaValue}>{getRecurringLabel(item.recurrence_pattern, item.recurring)}</Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.metaRow}>
-                    <View style={styles.metaItem}>
-                      <Text style={styles.metaLabel}>Reminder</Text>
-                      <Text style={styles.metaValue}>{getReminderLabel(item.reminder_minutes)}</Text>
-                    </View>
-                  </View>
-
-                  {item.ride_notes && (
-                    <View style={styles.notesBlock}>
-                      <Text style={styles.notesLabel}>Notes</Text>
-                      <Text style={styles.notesText}>{item.ride_notes}</Text>
-                    </View>
-                  )}
-                </View>
-
-                {item.status === 'scheduled' && (
-                  <View style={styles.scheduledActions}>
-                    <TouchableOpacity
-                      onPress={() => {
-                        setEditingRideId(item.id);
-                        setFormData({
-                          pickup_location: String(item.pickup_location || ''),
-                          dropoff_location: String(item.dropoff_location || ''),
-                          scheduled_time: formatScheduleInputFromDate(new Date(item.scheduled_time), 'local'),
-                          scheduled_timezone: 'local',
-                          recurrence_pattern: item.recurring ? String(item.recurrence_pattern || 'weekly') : 'none',
-                          reminder_minutes: item.reminder_minutes || 30,
-                          ride_notes: String(item.ride_notes || ''),
-                        });
-                        setShowForm(true);
-                      }}
-                      style={styles.rescheduleBtn}>
-                      <Text style={styles.rescheduleBtnText}>Reschedule</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => cancelRide(item.id)} style={styles.cancelBtn}>
-                      <Text style={styles.cancelBtnText}>Cancel</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
-            )}
-            ListFooterComponent={
-              !showForm && (
-                <TouchableOpacity style={styles.addButton} onPress={() => setShowForm(true)}>
-                  <Text style={styles.addButtonText}>+ Schedule Another Ride</Text>
-                </TouchableOpacity>
-              )
-            }
+        scheduledRequests.map((ride) => (
+          <ScheduledRideCard
+            key={ride.id}
+            ride={ride}
+            type="request"
+            loading={loading}
+            onAcceptRequest={onAcceptRequest}
+            onRejectRequest={onRejectRequest}
           />
+        ))
+      )}
 
-          {showForm && (
-            <View style={styles.formCard}>
-              <Text style={styles.formTitle}>{editingRideId ? 'Reschedule Ride' : 'Schedule a Ride'}</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Pickup location"
-                value={formData.pickup_location}
-                onChangeText={(text) => setFormData({ ...formData, pickup_location: text })}
-                placeholderTextColor="#AAA"
-              />
-              <TextInput
-                style={styles.input}
-                placeholder="Dropoff location"
-                value={formData.dropoff_location}
-                onChangeText={(text) => setFormData({ ...formData, dropoff_location: text })}
-                placeholderTextColor="#AAA"
-              />
-              <ScheduledPickupPicker
-                value={formData.scheduled_time}
-                onChangeText={(text) => setFormData((prev) => ({ ...prev, scheduled_time: text }))}
-                timezone={formData.scheduled_timezone}
-                onTimezoneChange={(timezone) => setFormData((prev) => ({ ...prev, scheduled_timezone: timezone }))}
-                inputStyle={styles.input}
-              />
-
-              <Text style={styles.label}>Recurring</Text>
-              <View style={styles.recurringOptions}>
-                {RECURRENCE_OPTIONS.map((option) => (
-                  <TouchableOpacity
-                    key={option}
-                    style={[styles.optionChip, formData.recurrence_pattern === option && styles.optionChipActive]}
-                    onPress={() => setFormData({ ...formData, recurrence_pattern: option })}>
-                    <Text style={[styles.optionChipText, formData.recurrence_pattern === option && styles.optionChipTextActive]}>
-                      {option === 'none' ? 'One-time' : option}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              <Text style={styles.label}>Reminder</Text>
-              <View style={styles.reminderOptions}>
-                {REMINDER_OPTIONS.map((option) => (
-                  <TouchableOpacity
-                    key={String(option.value)}
-                    style={[styles.optionChip, formData.reminder_minutes === option.value && styles.optionChipActive]}
-                    onPress={() => setFormData({ ...formData, reminder_minutes: option.value })}>
-                    <Text style={[styles.optionChipText, formData.reminder_minutes === option.value && styles.optionChipTextActive]}>
-                      {option.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              <TextInput
-                style={[styles.input, styles.notesInput]}
-                placeholder="Add special instructions or notes (optional)"
-                value={formData.ride_notes}
-                onChangeText={(text) => setFormData({ ...formData, ride_notes: text })}
-                placeholderTextColor="#AAA"
-                multiline
-                numberOfLines={3}
-              />
-
-              <View style={styles.formActions}>
-                <TouchableOpacity
-                  style={styles.cancelBtn2}
-                  onPress={() => {
-                    setShowForm(false);
-                    setEditingRideId(null);
-                  }}>
-                  <Text style={styles.cancelBtnText2}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.saveBtn} onPress={editingRideId ? updateRide : scheduleRide}>
-                  <Text style={styles.saveBtnText}>{editingRideId ? 'Update' : 'Schedule'}</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-        </>
+      <Text style={styles.sectionTitle}>Assigned Upcoming Rides</Text>
+      {assignedRides.length === 0 ? (
+        <View style={styles.emptyCard}>
+          <Text style={styles.emptyText}>No assigned scheduled rides.</Text>
+        </View>
+      ) : (
+        assignedRides.map((ride) => (
+          <ScheduledRideCard
+            key={ride.id}
+            ride={ride}
+            type="assigned"
+            loading={loading}
+            onResumeRide={onResumeRide}
+            onNavigateRide={onNavigateRide}
+            onCallPassenger={onCallPassenger}
+            onCancelRide={onCancelRide}
+            onOpenSupport={onOpenSupport}
+          />
+        ))
       )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.background, padding: 12 },
-  loader: { flex: 1, justifyContent: 'center' },
-  errorText: { color: '#D32F2F', fontSize: 12, marginBottom: 10 },
-  emptyState: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20 },
-  emptyIcon: { fontSize: 20, fontWeight: '800', color: COLORS.primary, marginBottom: 12 },
-  emptyTitle: { fontSize: 16, fontWeight: '700', color: COLORS.textMain, marginBottom: 6 },
-  emptyText: { fontSize: 13, color: COLORS.textMuted, textAlign: 'center', marginBottom: 20 },
-  rideCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 10,
+  container: {
+    gap: 10,
+  },
+  summaryCard: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 12,
     padding: 12,
-    marginBottom: 10,
     ...SHADOWS.soft,
   },
-  statusBadge: {
-    alignSelf: 'flex-start',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 4,
-    borderWidth: 1,
-    marginBottom: 8,
+  summaryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 10,
   },
-  statusText: { fontSize: 10, fontWeight: '700' },
-  rideDetails: { marginBottom: 10 },
-  locationRow: { marginBottom: 8 },
-  locationLabel: { fontSize: 11, fontWeight: '700', color: COLORS.textMuted, marginBottom: 2 },
-  location: { fontSize: 13, fontWeight: '600', color: COLORS.textMain },
-  metaRow: { flexDirection: 'row', gap: 12, marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#EFEFEF' },
-  metaItem: { flex: 1 },
-  metaLabel: { fontSize: 11, fontWeight: '700', color: COLORS.textMuted },
-  metaValue: { fontSize: 12, fontWeight: '600', color: COLORS.textMain, marginTop: 2 },
-  scheduledActions: { flexDirection: 'row', gap: 8 },
-  rescheduleBtn: {
+  summaryTitleBlock: {
     flex: 1,
-    paddingVertical: 8,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: COLORS.primary,
-    alignItems: 'center',
+    minWidth: 0,
   },
-  rescheduleBtnText: { fontSize: 13, fontWeight: '600', color: COLORS.primary },
-  cancelBtn: { flex: 1, paddingVertical: 8, borderRadius: 6, borderWidth: 1, borderColor: '#F44336', alignItems: 'center' },
-  cancelBtnText: { fontSize: 13, fontWeight: '600', color: '#F44336' },
-  formCard: {
-    backgroundColor: '#FFFFFF',
+  title: {
+    color: COLORS.textMain,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  subtitle: {
+    color: COLORS.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 3,
+  },
+  refreshButton: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
     borderRadius: 10,
-    padding: 14,
-    marginBottom: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: COLORS.background,
+  },
+  refreshText: {
+    color: COLORS.textMain,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  countRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 12,
+  },
+  countItem: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    padding: 10,
+    backgroundColor: COLORS.background,
+  },
+  countValue: {
+    color: COLORS.primary,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  countLabel: {
+    color: COLORS.textMuted,
+    fontSize: 11,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  sectionTitle: {
+    color: COLORS.textMain,
+    fontSize: 14,
+    fontWeight: '900',
+    marginTop: 6,
+  },
+  rideCard: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    padding: 12,
+    gap: 10,
     ...SHADOWS.soft,
   },
-  formTitle: { fontSize: 14, fontWeight: '700', color: COLORS.textMain, marginBottom: 12 },
-  input: {
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 10,
-    fontSize: 13,
+  rideHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  rideTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  rideTitle: {
     color: COLORS.textMain,
+    fontSize: 16,
+    fontWeight: '900',
   },
-  label: { fontSize: 12, fontWeight: '700', color: COLORS.textMain, marginBottom: 8 },
-  recurringOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 12 },
-  optionChip: {
-    paddingVertical: 6,
+  rideMeta: {
+    color: COLORS.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  rideCountdown: {
+    color: COLORS.primary,
+    fontSize: 12,
+    fontWeight: '900',
+    marginTop: 2,
+  },
+  statusPill: {
+    borderWidth: 1,
+    borderRadius: 999,
     paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  statusRequest: {
+    backgroundColor: '#FFF8E1',
+    borderColor: COLORS.warning,
+  },
+  statusAssigned: {
+    backgroundColor: '#E8F5E9',
+    borderColor: COLORS.primary,
+  },
+  statusText: {
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  statusRequestText: {
+    color: '#8A5A00',
+  },
+  statusAssignedText: {
+    color: COLORS.primaryDark,
+  },
+  routeBox: {
     borderWidth: 1,
     borderColor: COLORS.border,
-    borderRadius: 6,
-    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    padding: 10,
+    backgroundColor: COLORS.background,
+    gap: 3,
   },
-  optionChipActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  optionChipText: { fontSize: 12, color: COLORS.textMain, fontWeight: '600', textTransform: 'capitalize' },
-  optionChipTextActive: { color: '#FFFFFF' },
-  formActions: { flexDirection: 'row', gap: 8 },
-  cancelBtn2: { flex: 1, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center' },
-  cancelBtnText2: { fontSize: 13, fontWeight: '600', color: COLORS.textMain },
-  saveBtn: { flex: 1, paddingVertical: 10, borderRadius: 8, backgroundColor: COLORS.primary, alignItems: 'center' },
-  saveBtnText: { fontSize: 13, fontWeight: '600', color: '#FFFFFF' },
-  addButton: {
-    paddingVertical: 12,
+  routeLabel: {
+    color: COLORS.textMuted,
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  routeText: {
+    color: COLORS.textMain,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  detailRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  detailText: {
+    color: COLORS.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  actionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  assignedActionGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  assignedActionButton: {
+    minWidth: 92,
+    flexGrow: 1,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    backgroundColor: COLORS.background,
+  },
+  assignedActionText: {
+    color: COLORS.textMain,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  assignedDangerButton: {
+    borderColor: COLORS.danger,
+    backgroundColor: '#FFF5F5',
+  },
+  assignedDangerText: {
+    color: COLORS.danger,
+  },
+  primaryButton: {
+    flex: 1,
     backgroundColor: COLORS.primary,
     borderRadius: 10,
+    paddingVertical: 11,
     alignItems: 'center',
-    marginTop: 12,
-    ...SHADOWS.soft,
   },
-  addButtonText: { fontSize: 14, fontWeight: '600', color: '#FFFFFF' },
-  filterRow: { flexDirection: 'row', gap: 6, marginBottom: 12, paddingHorizontal: 4 },
-  filterChip: {
-    paddingVertical: 6,
-    paddingHorizontal: 10,
+  primaryButtonText: {
+    color: COLORS.surface,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  secondaryButton: {
+    flex: 1,
+    backgroundColor: '#FFF5F5',
+    borderWidth: 1,
+    borderColor: COLORS.danger,
+    borderRadius: 10,
+    paddingVertical: 11,
+    alignItems: 'center',
+  },
+  secondaryButtonText: {
+    color: COLORS.danger,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+  emptyCard: {
+    backgroundColor: COLORS.background,
     borderWidth: 1,
     borderColor: COLORS.border,
-    borderRadius: 6,
-    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 14,
   },
-  filterChipActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  filterChipText: { fontSize: 12, color: COLORS.textMain, fontWeight: '600' },
-  filterChipTextActive: { color: '#FFFFFF' },
-  notesBlock: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#EFEFEF' },
-  notesLabel: { fontSize: 11, fontWeight: '700', color: COLORS.textMuted, marginBottom: 4 },
-  notesText: { fontSize: 12, color: COLORS.textMain, lineHeight: 18 },
-  notesInput: { minHeight: 80, paddingTop: 10, textAlignVertical: 'top' },
-  reminderOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 12 },
+  emptyText: {
+    color: COLORS.textMuted,
+    fontSize: 13,
+    fontWeight: '700',
+  },
 });

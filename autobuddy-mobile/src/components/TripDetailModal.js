@@ -13,6 +13,7 @@ import { COLORS, SHADOWS } from '../theme';
 import FareBreakdown from './FareBreakdown';
 import AddStopModal from './AddStopModal';
 import EditDestinationModal from './EditDestinationModal';
+import { formatToIST } from '../utils/time';
 
 /**
  * TripDetailModal - Complete trip details view with receipt and post-ride actions
@@ -85,15 +86,7 @@ export default function TripDetailModal({
 
   const formatDate = (dateStr) => {
     if (!dateStr) return '';
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('en-IN', {
-      weekday: 'short',
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    return formatToIST(dateStr, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
   const formatLocation = (location) => {
@@ -181,29 +174,53 @@ export default function TripDetailModal({
               </View>
             </View>
 
-            {/* Driver Info Card */}
-            {booking.driver_name && (
+            {/* Vehicle & Driver Info Card */}
+            {(booking.vehicle_type_id || booking.driver_name) && (
               <View style={[styles.card, SHADOWS.card]}>
-                <Text style={styles.cardTitle}>Driver</Text>
-                <View style={styles.driverInfo}>
-                  <View style={styles.driverAvatar}>
-                    <Text style={styles.driverAvatarText}>👤</Text>
-                  </View>
-                  <View style={styles.driverDetails}>
-                    <Text style={styles.driverName}>{booking.driver_name}</Text>
-                    {booking.rating && (
-                      <Text style={styles.driverRating}>⭐ {booking.rating}/5 rating</Text>
-                    )}
-                    {booking.vehicle_number && (
-                      <Text style={styles.vehicleNumber}>{booking.vehicle_number}</Text>
-                    )}
-                  </View>
-                  {booking.rating && (
-                    <View style={styles.ratingBadge}>
-                      <Text style={styles.ratingValue}>{booking.rating}</Text>
+                {/* Vehicle Info */}
+                {booking.vehicle_type_id && (
+                  <View style={styles.vehicleInfoSection}>
+                    <Text style={styles.cardTitle}>Vehicle</Text>
+                    <View style={styles.vehicleInfoBlock}>
+                      <Text style={styles.vehicleIcon}>{booking.vehicle_icon || '🚗'}</Text>
+                      <View style={styles.vehicleInfoContent}>
+                        <Text style={styles.vehicleTypeName}>{booking.vehicle_type_id.toUpperCase()}</Text>
+                        {booking.vehicle_name && (
+                          <Text style={styles.vehicleBrand}>{booking.vehicle_name}</Text>
+                        )}
+                        {booking.vehicle_number && (
+                          <Text style={styles.vehicleNumber}>📍 {booking.vehicle_number}</Text>
+                        )}
+                        {booking.vehicle_type_multiplier && booking.vehicle_type_multiplier !== 1 && (
+                          <Text style={styles.vehicleMultiplier}>Multiplier: {booking.vehicle_type_multiplier}x</Text>
+                        )}
+                      </View>
                     </View>
-                  )}
-                </View>
+                  </View>
+                )}
+                
+                {/* Driver Info */}
+                {booking.driver_name && (
+                  <View style={styles.driverInfoSection}>
+                    <Text style={styles.cardTitle}>Driver</Text>
+                    <View style={styles.driverInfo}>
+                      <View style={styles.driverAvatar}>
+                        <Text style={styles.driverAvatarText}>👤</Text>
+                      </View>
+                      <View style={styles.driverDetails}>
+                        <Text style={styles.driverName}>{booking.driver_name}</Text>
+                        {booking.rating && (
+                          <Text style={styles.driverRating}>⭐ {booking.rating}/5 rating</Text>
+                        )}
+                      </View>
+                      {booking.rating && (
+                        <View style={styles.ratingBadge}>
+                          <Text style={styles.ratingValue}>{booking.rating}</Text>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                )}
               </View>
             )}
 
@@ -322,6 +339,9 @@ export default function TripDetailModal({
                   <Text style={styles.paymentStatusDate}>
                     {formatDate(booking.created_at)}
                   </Text>
+                  {!!receipt?.id && (
+                    <Text style={styles.paymentStatusDate}>Receipt {receipt.id}</Text>
+                  )}
                 </View>
               </View>
             </View>
@@ -422,6 +442,9 @@ export default function TripDetailModal({
           surgeLongText={booking.surge_reason}
           promos={booking.promotions || []}
           taxes={booking.taxes || 0}
+          vehicleTypeId={booking.vehicle_type_id || ''}
+          vehicleTypeIcon={booking.vehicle_icon || '🚗'}
+          vehicleTypeMultiplier={booking.vehicle_type_multiplier || 1.0}
           onClose={() => setShowFareModal(false)}
         />
       </View>
@@ -571,7 +594,52 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 
+  // Vehicle Info
+  vehicleInfoSection: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  vehicleInfoBlock: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginTop: 8,
+  },
+  vehicleIcon: {
+    fontSize: 32,
+    marginRight: 12,
+  },
+  vehicleInfoContent: {
+    flex: 1,
+  },
+  vehicleTypeName: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.text,
+    marginBottom: 2,
+  },
+  vehicleBrand: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
+    marginBottom: 4,
+  },
+  vehicleMultiplier: {
+    fontSize: 11,
+    color: COLORS.primary,
+    fontWeight: '600',
+    backgroundColor: '#E3F2FD',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 3,
+    alignSelf: 'flex-start',
+  },
+
   // Driver Info
+  driverInfoSection: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
   driverInfo: {
     flexDirection: 'row',
     alignItems: 'center',

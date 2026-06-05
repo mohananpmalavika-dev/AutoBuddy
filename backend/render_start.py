@@ -89,31 +89,41 @@ def main() -> int:
         f"REDIS_URL={_is_set('REDIS_URL')}",
         flush=True,
     )
-    try:
-        _import_probe()
-    except BaseException:
-        print("[render_start] Import probe failed", flush=True)
-        sys.stdout.flush()
-        sys.stderr.flush()
-        traceback.print_exc(file=sys.stdout)
-        sys.stdout.flush()
-        sys.stderr.flush()
-        return 1
-    try:
-        _app_module_probe()
-    except BaseException:
-        print("[render_start] App module probe failed", flush=True)
-        sys.stdout.flush()
-        sys.stderr.flush()
-        traceback.print_exc(file=sys.stdout)
-        sys.stdout.flush()
-        sys.stderr.flush()
-        return 1
+    run_probes = os.environ.get("RENDER_START_PROBES", "false").strip().lower() in {"1", "true", "yes", "on"}
+    if run_probes:
+        try:
+            _import_probe()
+        except BaseException:
+            print("[render_start] Import probe failed", flush=True)
+            sys.stdout.flush()
+            sys.stderr.flush()
+            traceback.print_exc(file=sys.stdout)
+            sys.stdout.flush()
+            sys.stderr.flush()
+            return 1
+        try:
+            _app_module_probe()
+        except BaseException:
+            print("[render_start] App module probe failed", flush=True)
+            sys.stdout.flush()
+            sys.stderr.flush()
+            traceback.print_exc(file=sys.stdout)
+            sys.stdout.flush()
+            sys.stderr.flush()
+            return 1
+    else:
+        print("[render_start] Import probes disabled; set RENDER_START_PROBES=true to debug startup imports.", flush=True)
     try:
         # Force import now so full traceback is printed here if import-time fails.
         print("[render_start] Importing server:app...", flush=True)
         sys.stdout.flush()
-        from server import app
+        try:
+            from server import app
+        except Exception as e:
+            import traceback
+            print("[render_start] SERVER IMPORT FAILED:", repr(e))
+            traceback.print_exc()
+            raise
         print("[render_start] server:app imported successfully", flush=True)
         sys.stdout.flush()
     except BaseException:
@@ -131,7 +141,7 @@ def main() -> int:
             app,
             host="0.0.0.0",
             port=port,
-            log_level="debug",
+            log_level=os.environ.get("UVICORN_LOG_LEVEL", "info").strip() or "info",
             access_log=True,
         )
     except BaseException:

@@ -11,8 +11,10 @@ import {
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { apiRequest } from '../lib/api';
+import { appendPickerAssetToFormData } from '../lib/uploadFormData';
 import { COLORS, SHADOWS } from '../theme';
 import VoiceTextInput from './VoiceTextInput';
+import { formatToIST } from '../utils/time';
 
 export default function SupportTicketsPanel({ token }) {
   const [loading, setLoading] = useState(false);
@@ -228,11 +230,13 @@ export default function SupportTicketsPanel({ token }) {
         }
         setUploadingAttachment(true);
         const formData = new FormData();
-        formData.append('file', {
-          uri: asset.uri,
-          type: asset.mimeType || 'application/octet-stream',
-          name: asset.name || `attachment-${Date.now()}`,
-        });
+        await appendPickerAssetToFormData(
+          formData,
+          'file',
+          asset,
+          asset.name || 'support-attachment',
+          asset.mimeType || 'application/octet-stream',
+        );
         const response = await apiRequest('/passengers/support/attachments', {
           token,
           method: 'POST',
@@ -312,7 +316,7 @@ export default function SupportTicketsPanel({ token }) {
           <Text style={styles.ticketCategory}>{selectedTicket.category}</Text>
           <Text style={styles.ticketDescription}>{selectedTicket.description}</Text>
           <Text style={styles.createdDate}>
-            Created: {new Date(selectedTicket.created_at).toLocaleString()}
+            Created: {formatToIST(selectedTicket.created_at, { dateStyle: 'medium', timeStyle: 'short' })}
           </Text>
           <TouchableOpacity
             style={styles.statusActionButton}
@@ -341,7 +345,7 @@ export default function SupportTicketsPanel({ token }) {
                     <Text style={styles.messageAttachment}>Attachment: {msg.attachment_url}</Text>
                   )}
                   <Text style={styles.messageTime}>
-                    {new Date(msg.created_at).toLocaleString()}
+                    {formatToIST(msg.created_at, { dateStyle: 'medium', timeStyle: 'short' })}
                   </Text>
                 </View>
               ))
@@ -450,7 +454,7 @@ export default function SupportTicketsPanel({ token }) {
                   </View>
                   <Text style={styles.ticketCardCategory}>{ticket.category}</Text>
                   <Text style={styles.ticketCardDate}>
-                    {new Date(ticket.created_at).toLocaleDateString()}
+                    {formatToIST(ticket.created_at, { dateStyle: 'short' })}
                   </Text>
                 </TouchableOpacity>
               ))}

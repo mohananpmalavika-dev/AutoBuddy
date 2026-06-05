@@ -1,6 +1,7 @@
 import base64
 import hashlib
 from datetime import datetime, timedelta
+from app.utils.time_helpers import get_ist_now
 from typing import Any, Dict
 
 import bcrypt
@@ -39,8 +40,8 @@ def create_access_token(user_id: str, role: str, settings: Settings) -> str:
         "sub": user_id,
         "role": role,
         "type": "access",
-        "iat": datetime.utcnow(),
-        "exp": datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+        "iat": get_ist_now(),
+        "exp": get_ist_now() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
@@ -51,8 +52,8 @@ def create_refresh_token(user_id: str, role: str, token_id: str, settings: Setti
         "jti": token_id,
         "role": role,
         "type": "refresh",
-        "iat": datetime.utcnow(),
-        "exp": datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
+        "iat": get_ist_now(),
+        "exp": get_ist_now() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
     }
     return jwt.encode(payload, _resolve_refresh_secret(settings), algorithm=settings.jwt_algorithm)
 

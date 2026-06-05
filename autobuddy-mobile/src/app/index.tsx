@@ -1,18 +1,24 @@
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 
 import { SubscriptionGate } from '@/components/app/SubscriptionGate';
 import { WebSetupCard } from '@/components/app/WebSetupCard';
 import AutoBuddyBrand from '../components/AutoBuddyBrand';
 import { getErrorMessage, isAuthSessionInvalid } from '../lib/auth';
 import { apiRequest } from '../lib/api-client';
+import { normalizeAuthSessionFromPayload } from '../lib/authSession';
 import type { ApiNotification, AppSession, PlanOption, SubscriptionConfigPayload, SubscriptionStatusPayload, UserRole } from '../lib/models';
 import { resolveRoleScreenKey } from '../lib/navigation';
 import { getPlanOptions } from '../lib/subscriptions';
 import { clearSession, loadSession, saveSession } from '../lib/session';
+import { loadSession as loadPersistentSession, saveSession as savePersistentSession, clearSession as clearPersistentSession, subscribeSession as subscribePersistentSession, extendSessionExpiry, isSessionValid } from '../lib/persistentSessionManager';
+import { initializeBackgroundNotifications } from '../lib/backgroundNotificationService';
+import { disconnectSocket } from '../services/socketClient';
 import '../services/driverBackgroundTracking';
-import { AdminDashboard, AuthScreen, DriverDashboard, PassengerMap } from '../screens';
+import * as Sentry from '@sentry/react-native';
+import { AdminDashboard, AuthScreen, DriverDashboard, OperatorDashboard, PassengerMap } from '../screens';
 import { COLORS } from '../theme';
 
 type BeforeInstallPromptEvent = Event & {
@@ -20,12 +26,53 @@ type BeforeInstallPromptEvent = Event & {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
 };
 
+type StoredSessionCandidate = Partial<AppSession> & {
+  access_token?: string;
+  accessToken?: string;
+  refreshToken?: string;
+};
+
 const WEB_INSTALL_DISMISSED_KEY = 'autobuddy_web_install_dismissed_v1';
 const WEB_ALERTS_ENABLED_KEY = 'autobuddy_web_alerts_enabled_v1';
 const WEB_SEEN_NOTIFICATION_KEY_PREFIX = 'autobuddy_seen_notifications_v1_';
+const WEB_APP_UPDATE_CHECK_MS = 60 * 1000;
+const WEB_APP_UPDATE_RELOAD_KEY = 'autobuddy_last_update_reload_at';
+const WEB_NOTIFICATION_POLL_MS = 60 * 1000;
+const WEB_NOTIFICATION_AUTH_RETRY_COOLDOWN_MS = 60 * 1000;
+const WEB_NOTIFICATION_AUTH_EXPIRED_COOLDOWN_MS = 5 * 60 * 1000;
+const WEB_NOTIFICATION_ERROR_COOLDOWN_MS = 2 * 60 * 1000;
+
+function extractWebBundleIds(source: string): string[] {
+  return Array.from(new Set(source.match(/entry-[a-f0-9][^"']*\.js/g) || []));
+}
+
+function getCurrentWebBundleIds(): string[] {
+  if (typeof document === 'undefined') {
+    return [];
+  }
+  return Array.from(document.querySelectorAll<HTMLScriptElement>('script[src]'))
+    .map((script) => script.getAttribute('src') || '')
+    .flatMap(extractWebBundleIds);
+}
+
+function normalizeStoredSession(candidate: StoredSessionCandidate | null | undefined): AppSession | null {
+  return normalizeAuthSessionFromPayload(candidate);
+}
+
+function pickStoredSession(
+  persistentSession: StoredSessionCandidate | null,
+  legacySession: StoredSessionCandidate | null,
+): AppSession | null {
+  const persistent = normalizeStoredSession(persistentSession);
+  const legacy = normalizeStoredSession(legacySession);
+
+  return persistent?.refresh_token ? persistent : legacy?.refresh_token ? legacy : persistent || legacy;
+}
 
 export default function HomeScreen() {
   const isWeb = Platform.OS === 'web';
+  const { width, height } = useWindowDimensions();
+  const isCompactWeb = isWeb && (width < 640 || height < 720);
   const [booting, setBooting] = useState(true);
   const [session, setSession] = useState<AppSession | null>(null);
   const [checkingSubscriptionGate, setCheckingSubscriptionGate] = useState(false);
@@ -34,6 +81,7 @@ export default function HomeScreen() {
   const [planOptions, setPlanOptions] = useState<PlanOption[]>([]);
   const [planSelectionError, setPlanSelectionError] = useState('');
   const [planSubmitting, setPlanSubmitting] = useState(false);
+  const [homeResetKey, setHomeResetKey] = useState(0);
   const [installPromptEvent, setInstallPromptEvent] = useState<BeforeInstallPromptEvent | null>(null);
   const [webSetupMessage, setWebSetupMessage] = useState('');
   const [webSetupDismissed, setWebSetupDismissed] = useState(() => {
@@ -51,6 +99,7 @@ export default function HomeScreen() {
   const swRegistrationRef = useRef<ServiceWorkerRegistration | null>(null);
   const seededNotificationsRef = useRef(false);
   const seenNotificationIdsRef = useRef<Set<string>>(new Set());
+  const webNotificationPollPausedUntilRef = useRef(0);
 
   const isStandaloneInstalled = useCallback(() => {
     if (!isWeb || typeof window === 'undefined') {
@@ -135,29 +184,121 @@ export default function HomeScreen() {
   }, [isWeb]);
 
   useEffect(() => {
+    if (!isWeb || typeof window === 'undefined') {
+      return undefined;
+    }
+
+    let cancelled = false;
+    let checkInFlight = false;
+
+    const reloadWhenSafe = () => {
+      if (cancelled) {
+        return;
+      }
+      const lastReloadAt = Number(window.localStorage.getItem(WEB_APP_UPDATE_RELOAD_KEY) || 0);
+      if (Date.now() - lastReloadAt < 30000) {
+        return;
+      }
+      window.localStorage.setItem(WEB_APP_UPDATE_RELOAD_KEY, String(Date.now()));
+      setWebSetupMessage('Updating AutoBuddy to the latest version...');
+      window.setTimeout(() => {
+        if (!cancelled) {
+          window.location.reload();
+        }
+      }, 250);
+    };
+
+    const checkForNewWebBundle = async () => {
+      if (checkInFlight || cancelled) {
+        return;
+      }
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
+      const currentBundles = getCurrentWebBundleIds();
+      if (currentBundles.length === 0) {
+        return;
+      }
+
+      checkInFlight = true;
+      try {
+        const response = await fetch(`/app?autobuddy_version_check=${Date.now()}`, {
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-store',
+            Pragma: 'no-cache',
+          },
+        });
+        if (!response.ok) {
+          return;
+        }
+        const html = await response.text();
+        const latestBundles = extractWebBundleIds(html);
+        if (latestBundles.some((bundleId) => !currentBundles.includes(bundleId))) {
+          reloadWhenSafe();
+        }
+      } catch {
+        // Version checks must never interrupt the app.
+      } finally {
+        checkInFlight = false;
+      }
+    };
+
+    const startupTimer = window.setTimeout(checkForNewWebBundle, 10000);
+    const interval = window.setInterval(checkForNewWebBundle, WEB_APP_UPDATE_CHECK_MS);
+    window.addEventListener('focus', checkForNewWebBundle);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(startupTimer);
+      window.clearInterval(interval);
+      window.removeEventListener('focus', checkForNewWebBundle);
+    };
+  }, [isWeb]);
+
+  useEffect(() => {
     async function hydrate() {
       try {
-        const stored = await loadSession();
+        const persistentStored = await loadPersistentSession();
+        const legacyStored = await loadSession();
+        const stored = pickStoredSession(persistentStored, legacyStored);
 
         if (!stored?.token) {
           setSession(null);
           return;
         }
+        let activeSession: AppSession | null = stored;
 
-        // Keep previously saved user for resilient web sessions across browser restarts,
+        // Keep previously saved user for resilient sessions across restarts,
         // even when backend is temporarily unavailable at boot.
         if (stored?.user) {
           setSession(stored);
+          if (stored.user?.id) {
+            Sentry.setUser({ id: String(stored.user.id) });
+          }
         }
 
         try {
           const user = await apiRequest<AppSession['user']>('/auth/me', { token: stored.token });
-          const nextSession = { ...stored, token: stored.token, user };
+          const refreshedStored = pickStoredSession(await loadPersistentSession(), await loadSession()) || stored;
+          const nextSession = { ...stored, ...refreshedStored, token: refreshedStored.token || stored.token, user };
+          activeSession = nextSession;
           setSession(nextSession);
+          
+          // Save to both persistent and legacy session
+          await savePersistentSession(nextSession);
           await saveSession(nextSession);
+          
+          // Extend session expiry on successful auth
+          await extendSessionExpiry();
         } catch (err: unknown) {
           if (isAuthSessionInvalid(err)) {
+            const localSessionStillValid = await isSessionValid().catch(() => false);
+            if (localSessionStillValid) {
+              return;
+            }
             setSession(null);
+            await clearPersistentSession();
             await clearSession();
             return;
           }
@@ -165,6 +306,11 @@ export default function HomeScreen() {
           if (!stored?.user) {
             setSession(null);
           }
+        }
+
+        // Initialize background services for persistent connectivity
+        if (activeSession?.token) {
+          await initializeBackgroundNotifications();
         }
       } catch {
         setSession(null);
@@ -177,23 +323,73 @@ export default function HomeScreen() {
   }, []);
 
   const handleAuthenticated = useCallback(async (nextSession: AppSession) => {
-    setSession(nextSession);
-    await saveSession(nextSession);
+    const normalizedSession = normalizeStoredSession(nextSession);
+    if (!normalizedSession) {
+      setSession(null);
+      return;
+    }
+
+    setSession(normalizedSession);
+    // Persist session data
+    await savePersistentSession(normalizedSession);
+    await saveSession(normalizedSession);
+    await extendSessionExpiry();
+
+    // Provide persistent Sentry context for user/driver issues
+    if (normalizedSession?.user?.id) {
+      Sentry.setUser({ id: String(normalizedSession.user.id) });
+    }
   }, []);
 
+  /**
+   * Handle logout - ONLY CLEARS SESSION ON EXPLICIT USER ACTION
+   * Closing browser/app does NOT trigger logout
+   */
   const handleLogout = useCallback(async () => {
     setSession(null);
     setShowPlanGate(false);
     setGateRole(null);
     setPlanOptions([]);
     setPlanSelectionError('');
+
+    // Clear Sentry user context when the session is ended
+    Sentry.setUser(null);
+
+    // Only clear when user explicitly logs out
+    await clearPersistentSession();
     await clearSession();
+
+    // Disconnect socket
+    disconnectSocket();
+  }, []);
+
+  const handleGoHome = useCallback(() => {
+    setHomeResetKey((current) => current + 1);
+    if (isWeb && typeof window !== 'undefined' && window.location.pathname !== '/app') {
+      window.history.replaceState(null, '', '/app');
+    }
+  }, [isWeb]);
+
+  // Subscribe to persistent session changes for auto-restore functionality
+  useEffect(() => {
+    const unsubscribe = subscribePersistentSession((session: AppSession | null) => {
+      if (session && session.token) {
+        setSession(session);
+      } else {
+        // Session was explicitly cleared
+        setSession(null);
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
     let unmounted = false;
     async function evaluateSubscriptionGate() {
-      if (!session || !['driver', 'passenger'].includes(session.user.role)) {
+      if (!session || !['driver', 'operator', 'passenger'].includes(session.user.role)) {
         setShowPlanGate(false);
         setGateRole(null);
         setPlanOptions([]);
@@ -239,7 +435,12 @@ export default function HomeScreen() {
   }, [session]);
 
   useEffect(() => {
-    if (!isWeb || typeof window === 'undefined' || !session?.token) {
+    if (
+      !isWeb ||
+      typeof window === 'undefined' ||
+      !session?.token ||
+      notificationPermission !== 'granted'
+    ) {
       seededNotificationsRef.current = false;
       seenNotificationIdsRef.current.clear();
       return;
@@ -280,14 +481,20 @@ export default function HomeScreen() {
     };
 
     const pollNotifications = async () => {
+      if (Date.now() < webNotificationPollPausedUntilRef.current) {
+        return;
+      }
+
       try {
         const rows = await apiRequest<Record<string, unknown>[]>('/users/notifications', {
           token: session.token,
           timeoutMs: 10000,
+          query: { unread_only: true, limit: 40 },
         });
         if (stopped || !Array.isArray(rows)) {
           return;
         }
+        webNotificationPollPausedUntilRef.current = 0;
 
         const normalized: ApiNotification[] = rows
           .map((item) => ({
@@ -318,21 +525,30 @@ export default function HomeScreen() {
         if (incoming.length > 0) {
           persistSeenIds();
         }
-      } catch {
-        // Keep silent polling.
+      } catch (err: unknown) {
+        const apiError = err as { status?: number; code?: string; sessionPreserved?: boolean };
+        const status = Number(apiError?.status || 0);
+        const code = String(apiError?.code || '').toUpperCase();
+        if (code === 'AUTH_RETRY_REQUIRED' || apiError?.sessionPreserved) {
+          webNotificationPollPausedUntilRef.current = Date.now() + WEB_NOTIFICATION_AUTH_RETRY_COOLDOWN_MS;
+        } else if (code === 'AUTH_EXPIRED' || status === 401 || status === 403) {
+          webNotificationPollPausedUntilRef.current = Date.now() + WEB_NOTIFICATION_AUTH_EXPIRED_COOLDOWN_MS;
+        } else if (status === 429 || status >= 500 || status === 0) {
+          webNotificationPollPausedUntilRef.current = Date.now() + WEB_NOTIFICATION_ERROR_COOLDOWN_MS;
+        }
       }
     };
 
     void pollNotifications();
     const timer = window.setInterval(() => {
       void pollNotifications();
-    }, 15000);
+    }, WEB_NOTIFICATION_POLL_MS);
 
     return () => {
       stopped = true;
       window.clearInterval(timer);
     };
-  }, [isWeb, session, showSystemNotification]);
+  }, [isWeb, notificationPermission, session, showSystemNotification]);
 
   const handlePlanSelection = useCallback(
     async (planType: PlanOption['planType']) => {
@@ -423,6 +639,7 @@ export default function HomeScreen() {
     return {
       passenger: (
         <PassengerMap
+          key={`passenger-${homeResetKey}`}
           token={session.token}
           user={session.user}
           onLogout={handleLogout}
@@ -430,22 +647,41 @@ export default function HomeScreen() {
       ),
       driver: (
         <DriverDashboard
+          key={`driver-${homeResetKey}`}
           token={session.token}
           user={session.user}
           onLogout={handleLogout}
         />
       ),
-      admin: <AdminDashboard token={session.token} user={session.user} onLogout={handleLogout} />,
+      operator: (
+        <OperatorDashboard
+          key={`operator-${homeResetKey}`}
+          token={session.token}
+          user={session.user}
+          onLogout={handleLogout}
+        />
+      ),
+      admin: <AdminDashboard key={`admin-${homeResetKey}`} token={session.token} user={session.user} onLogout={handleLogout} />,
     };
-  }, [handleLogout, session]);
+  }, [handleLogout, homeResetKey, session]);
+
+  const renderCenteredShell = (subtitle: string, children: ReactNode) => (
+    <ScrollView
+      style={styles.launchScroll}
+      contentContainerStyle={[styles.loader, isCompactWeb && styles.loaderCompact]}
+      keyboardShouldPersistTaps="handled">
+      <AutoBuddyBrand subtitle={subtitle} compact={isCompactWeb} />
+      {children}
+    </ScrollView>
+  );
 
   if (booting) {
-    return (
-      <View style={styles.loader}>
-        <AutoBuddyBrand subtitle="Loading AutoBuddy..." />
+    return renderCenteredShell(
+      'Loading AutoBuddy...',
+      <>
         <ActivityIndicator size="large" color={COLORS.primary} />
         <Text style={styles.loaderText}>Preparing secure ride experience</Text>
-      </View>
+      </>,
     );
   }
 
@@ -454,33 +690,28 @@ export default function HomeScreen() {
   }
 
   if (checkingSubscriptionGate) {
-    return (
-      <View style={styles.loader}>
-        <AutoBuddyBrand subtitle="Checking subscription..." />
-        <ActivityIndicator size="large" color={COLORS.primary} />
-      </View>
-    );
+    return renderCenteredShell('Checking subscription...', <ActivityIndicator size="large" color={COLORS.primary} />);
   }
 
-  if (showPlanGate && (session.user.role === 'driver' || session.user.role === 'passenger')) {
-    return (
-      <View style={styles.loader}>
-        <AutoBuddyBrand subtitle="Choose Subscription Plan" />
+  if (showPlanGate && ['driver', 'operator', 'passenger'].includes(session.user.role)) {
+    return renderCenteredShell(
+      'Choose Subscription Plan',
+      <View style={[styles.shellCardWrap, isCompactWeb && styles.shellCardWrapCompact]}>
         <SubscriptionGate
-          role={gateRole === 'driver' ? 'driver' : 'passenger'}
+          role={gateRole || 'passenger'}
           planOptions={planOptions}
           errorMessage={planSelectionError}
           isSubmitting={planSubmitting}
           onSelectPlan={handlePlanSelection}
         />
-      </View>
+      </View>,
     );
   }
 
   if (session && showWebSetupCard) {
-    return (
-      <View style={styles.loader}>
-        <AutoBuddyBrand subtitle="Set Up Web Alerts" />
+    return renderCenteredShell(
+      'Set Up Web Alerts',
+      <View style={[styles.shellCardWrap, isCompactWeb && styles.shellCardWrapCompact]}>
         <WebSetupCard
           notificationPermission={notificationPermission}
           message={webSetupMessage}
@@ -488,20 +719,93 @@ export default function HomeScreen() {
           onInstallShortcut={installWebShortcut}
           onContinue={dismissWebSetup}
         />
-      </View>
+      </View>,
     );
   }
 
-  return roleScreens[resolveRoleScreenKey(session.user.role)] ?? roleScreens.passenger;
+  const activeRoleScreen = roleScreens[resolveRoleScreenKey(session.user.role)] ?? roleScreens.passenger;
+
+  return (
+    <View style={styles.appShell}>
+      {activeRoleScreen}
+      <View pointerEvents="box-none" style={[styles.homeButtonWrap, isCompactWeb && styles.homeButtonWrapCompact]}>
+        <Pressable
+          accessibilityLabel="Go to home"
+          accessibilityRole="button"
+          onPress={handleGoHome}
+          style={({ pressed }) => [styles.homeButton, isCompactWeb && styles.homeButtonCompact, pressed && styles.homeButtonPressed]}>
+          <MaterialIcons name="home" size={20} color="#FFFFFF" />
+          <Text style={styles.homeButtonText}>Home</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
-  loader: {
+  appShell: {
     flex: 1,
+    backgroundColor: COLORS.bg,
+  },
+  launchScroll: {
+    flex: 1,
+    backgroundColor: COLORS.bg,
+  },
+  loader: {
+    flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: COLORS.bg,
     paddingHorizontal: 20,
+    paddingVertical: 24,
+  },
+  loaderCompact: {
+    justifyContent: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 12,
   },
   loaderText: { marginTop: 12, color: COLORS.muted, fontWeight: '700' },
+  shellCardWrap: {
+    width: '100%',
+    maxWidth: 520,
+  },
+  shellCardWrapCompact: {
+    maxWidth: '100%',
+  },
+  homeButtonWrap: {
+    position: 'absolute',
+    left: 16,
+    bottom: 16,
+    zIndex: 100,
+  },
+  homeButtonWrapCompact: {
+    left: 10,
+    bottom: 10,
+  },
+  homeButton: {
+    minHeight: 46,
+    minWidth: 46,
+    borderRadius: 24,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: COLORS.primary,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
+  },
+  homeButtonCompact: {
+    minHeight: 42,
+    minWidth: 42,
+    paddingHorizontal: 12,
+  },
+  homeButtonPressed: {
+    opacity: 0.82,
+  },
+  homeButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 14,
+  },
 });

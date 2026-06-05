@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   Alert,
   FlatList,
@@ -11,7 +12,9 @@ import {
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { apiRequest } from '../lib/api';
+import { appendPickerAssetToFormData } from '../lib/uploadFormData';
 import { COLORS, SHADOWS } from '../theme';
+import { formatToIST } from '../utils/time';
 
 /**
  * PassengerDocumentsPanel - Document uploads and management
@@ -23,6 +26,7 @@ export default function PassengerDocumentsPanel({ token }) {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [uploading, setUploading] = useState(null); // null or document type being uploaded
+  const [expiryWarnings, setExpiryWarnings] = useState({}); // Track expiry warnings per document
 
   const DOCUMENT_TYPES = [
     { key: 'address_proof', label: 'Proof of Address', icon: '🏠' },
@@ -80,11 +84,13 @@ export default function PassengerDocumentsPanel({ token }) {
 
       const formData = new FormData();
       formData.append('document_type', docType);
-      formData.append('file', {
-        uri: asset.uri,
-        type: asset.mimeType || 'application/octet-stream',
-        name: asset.name,
-      });
+      await appendPickerAssetToFormData(
+        formData,
+        'file',
+        asset,
+        asset.name || `${docType}-document`,
+        asset.mimeType || 'application/octet-stream',
+      );
 
       const response = await apiRequest('/passengers/documents/upload', {
         token,
@@ -142,32 +148,124 @@ export default function PassengerDocumentsPanel({ token }) {
     return doc ? doc.icon : '📄';
   };
 
-  const renderDocumentItem = ({ item }) => (
-    <View style={[styles.documentCard, SHADOWS.card]}>
-      <View style={styles.documentHeader}>
-        <Text style={styles.documentIcon}>{getDocTypeIcon(item.type)}</Text>
-        <View style={styles.documentInfo}>
-          <Text style={styles.documentType}>{getDocTypeLabel(item.type)}</Text>
-          <Text style={styles.documentFilename}>{item.filename}</Text>
-          <Text style={styles.documentDate}>
-            Uploaded: {new Date(item.uploaded_at).toLocaleDateString()}
-          </Text>
+  const calculateExpiryWarning = (docId, expiryDate) => {
+    if (!expiryDate) {
+      setExpiryWarnings((prev) => ({
+        ...prev,
+        [docId]: { daysLeft: null, warning: '' },
+      }));
+      return;
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const expiry = new Date(expiryDate);
+    expiry.setHours(0, 0, 0, 0);
+    const daysUntilExpiry = Math.floor((expiry - today) / (1000 * 60 * 60 * 24));
+
+    let warning = '';
+    if (daysUntilExpiry < 0) {
+      warning = `Expired ${Math.abs(daysUntilExpiry)} days ago`;
+    } else if (daysUntilExpiry === 0) {
+      warning = 'Expires today';
+    } else if (daysUntilExpiry <= 30) {
+      warning = `Expires in ${daysUntilExpiry} days`;
+    }
+
+    setExpiryWarnings((prev) => ({
+      ...prev,
+      [docId]: { daysLeft: daysUntilExpiry, warning },
+    }));
+  };
+
+  useEffect(() => {
+    documents.forEach((doc) => {
+      if (doc.expiry_date) {
+        calculateExpiryWarning(doc.id, doc.expiry_date);
+      }
+    });
+  }, [documents]);
+
+  // Announce document status changes for accessibility
+  useEffect(() => {
+    const expiredCount = documents.filter((d) => {
+      const expiry = expiryWarnings[d.id];
+      return expiry?.daysLeft !== null && expiry.daysLeft < 0;
+    }).length;
+    
+    const expiringCount = documents.filter((d) => {
+      const expiry = expiryWarnings[d.id];
+      return expiry?.daysLeft !== null && expiry.daysLeft <= 30 && expiry.daysLeft >= 0;
+    }).length;
+
+    if (expiredCount > 0) {
+      AccessibilityInfo.announceForAccessibility(`${expiredCount} document(s) expired. Please renew.`);
+    } else if (expiringCount > 0) {
+      AccessibilityInfo.announceForAccessibility(`${expiringCount} document(s) expiring soon. Please renew.`);
+    }
+  }, [documents, expiryWarnings]);
+
+  const renderDocumentItem = ({ item }) => {
+    const expiry = expiryWarnings[item.id];
+    const isExpired = expiry?.daysLeft !== null && expiry.daysLeft < 0;
+    const isExpiringSoon = expiry?.daysLeft !== null && expiry.daysLeft <= 30 && expiry.daysLeft >= 0;
+
+    return (
+      <View style={[styles.documentCard, SHADOWS.card]}>
+        <View style={styles.documentHeader}>
+          <Text style={styles.documentIcon}>{getDocTypeIcon(item.type)}</Text>
+          <View style={styles.documentInfo}>
+            <Text style={styles.documentType}>{getDocTypeLabel(item.type)}</Text>
+            <Text style={styles.documentFilename}>{item.filename}</Text>
+            <Text style={styles.documentDate}>
+              Uploaded: {formatToIST(item.uploaded_at, { dateStyle: 'short' })}
+            </Text>
+            {item.expiry_date && (
+              <Text style={styles.documentDate}>
+                Expires: {formatToIST(item.expiry_date, { dateStyle: 'short' })}
+              </Text>
+            )}
+          </View>
+        </View>
+
+        {(isExpired || isExpiringSoon) && expiry?.warning && (
+          <View style={[styles.warningBanner, isExpired && styles.warningBannerExpired]}>
+            <Text style={[styles.warningText, isExpired && styles.warningTextExpired]}>
+              {isExpired ? '⚠️' : '⏰'} {expiry.warning}
+            </Text>
+          </View>
+        )}
+
+        <View style={styles.documentFooter}>
+          <View
+            style={[
+              styles.verificationBadge,
+              item.verification_status === 'verified' && styles.verificationBadgeVerified,
+              item.verification_status === 'rejected' && styles.verificationBadgeRejected,
+            ]}
+          >
+            <Text
+              style={[
+                styles.verificationText,
+                item.verification_status === 'verified' && styles.verificationTextVerified,
+                item.verification_status === 'rejected' && styles.verificationTextRejected,
+              ]}
+            >
+              {item.verification_status === 'verified'
+                ? '✓ Verified'
+                : item.verification_status === 'rejected'
+                ? '✗ Rejected'
+                : '⏳ Pending'}
+            </Text>
+          </View>
+
+          <TouchableOpacity onPress={() => deleteDocument(item.id)} style={styles.deleteButton}>
+            <Text style={styles.deleteButtonText}>Remove</Text>
+          </TouchableOpacity>
         </View>
       </View>
-
-      <View style={styles.documentFooter}>
-        <View style={[styles.verificationBadge, item.verified && styles.verificationBadgeVerified]}>
-          <Text style={styles.verificationText}>
-            {item.verified ? '✓ Verified' : '⏳ Pending'}
-          </Text>
-        </View>
-
-        <TouchableOpacity onPress={() => deleteDocument(item.id)} style={styles.deleteButton}>
-          <Text style={styles.deleteButtonText}>Remove</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
+    );
+  };
 
   if (loading && documents.length === 0) {
     return (
@@ -186,7 +284,7 @@ export default function PassengerDocumentsPanel({ token }) {
       <View style={[styles.infoBlock, SHADOWS.card]}>
         <Text style={styles.sectionTitle}>Document Management</Text>
         <Text style={styles.descriptionText}>
-          Upload important documents to your AutoBuddy profile. All documents are encrypted and stored securely. Keep your profile updated with current documents for better safety and service quality.
+          Upload important documents to your AutoBuddy profile. Documents are stored in protected upload storage and used only for verification. Keep your profile updated with current documents for better safety and service quality.
         </Text>
       </View>
 
@@ -246,7 +344,7 @@ export default function PassengerDocumentsPanel({ token }) {
         </View>
         <View style={styles.guidelineItem}>
           <Text style={styles.guidelineTitle}>✓ Privacy</Text>
-          <Text style={styles.guidelineText}>Your documents are encrypted and only used for verification</Text>
+          <Text style={styles.guidelineText}>Your documents are protected and only used for verification</Text>
         </View>
       </View>
 
@@ -314,7 +412,24 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   verificationBadgeVerified: { backgroundColor: '#E8F5E9' },
+  verificationBadgeRejected: { backgroundColor: '#FFEBEE' },
   verificationText: { fontSize: 11, fontWeight: '600', color: '#FF9800' },
+  verificationTextVerified: { color: '#4CAF50' },
+  verificationTextRejected: { color: '#F44336' },
+  warningBanner: {
+    backgroundColor: '#FFF3E0',
+    borderRadius: 4,
+    padding: 8,
+    marginBottom: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: '#FF9800',
+  },
+  warningBannerExpired: {
+    backgroundColor: '#FFEBEE',
+    borderLeftColor: '#F44336',
+  },
+  warningText: { fontSize: 12, fontWeight: '600', color: '#FF9800' },
+  warningTextExpired: { color: '#F44336' },
   deleteButton: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#FFEBEE', borderRadius: 4 },
   deleteButtonText: { fontSize: 11, fontWeight: '600', color: '#F44336' },
   emptyBlock: {
@@ -342,6 +457,6 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   recommendationText: { fontSize: 12, color: COLORS.text, lineHeight: 20, marginBottom: 8 },
-  errorText: { color: '#F44336', fontSize: 12, marginBottom: 12, fontWeight: '600' },
-  messageText: { color: '#4CAF50', fontSize: 12, marginBottom: 12, fontWeight: '600' },
+  errorText: { color: '#F44336', fontSize: 12, marginBottom: 12, fontWeight: '600', padding: 8, backgroundColor: '#FFEBEE', borderRadius: 4 },
+  messageText: { color: '#4CAF50', fontSize: 12, marginBottom: 12, fontWeight: '600', padding: 8, backgroundColor: '#E8F5E9', borderRadius: 4 },
 });

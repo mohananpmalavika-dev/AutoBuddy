@@ -29,27 +29,38 @@ export function useDriverActions({ token, onStatusChange } = {}) {
   useEffect(() => {
     if (!token) return;
 
+    const statusEvents = [
+      'driver_status_update',
+      'availability_sync',
+      'driver_availability_changed',
+      'driver_status_changed',
+    ];
+
     try {
       socketRef.current = createAutoBuddySocket(token);
 
       // Listen for online status changes
       statusListenerRef.current = (status) => {
-        if (status?.online !== undefined) {
-          setServerIsOnline(status.online);
-          onStatusChange?.(status.online);
+        const online =
+          status?.online ??
+          status?.is_available ??
+          status?.isAvailable ??
+          (typeof status?.status === 'string' ? status.status.toLowerCase() === 'online' : undefined);
+
+        if (online !== undefined) {
+          setServerIsOnline(online);
+          onStatusChange?.(online);
         }
       };
 
-      socketRef.current.on('driver_status_update', statusListenerRef.current);
-      socketRef.current.on('availability_sync', statusListenerRef.current);
+      statusEvents.forEach((event) => socketRef.current.on(event, statusListenerRef.current));
     } catch (err) {
       console.warn('Failed to initialize actions socket:', err);
     }
 
     return () => {
       if (socketRef.current && statusListenerRef.current) {
-        socketRef.current.off('driver_status_update', statusListenerRef.current);
-        socketRef.current.off('availability_sync', statusListenerRef.current);
+        statusEvents.forEach((event) => socketRef.current.off(event, statusListenerRef.current));
       }
     };
   }, [token, onStatusChange]);

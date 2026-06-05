@@ -3,7 +3,9 @@ import * as Location from 'expo-location';
 import { Platform } from 'react-native';
 
 import { createAutoBuddySocket } from '../lib/socket';
+import { emitDriverLocation } from '../services/socketClient';
 import { apiRequest } from '../lib/api';
+import { toDriverLocationApiBody } from '../lib/driverAvailabilityStatus';
 import {
   startBackgroundDriverTracking,
   stopBackgroundDriverTracking,
@@ -22,6 +24,7 @@ export function useDriverRealtimeTracking({
   activeRideId,
   enabled = true,
   manageLocationWatch = true,
+  manageBackgroundTracking = manageLocationWatch,
 }) {
   const socketRef = useRef(null);
   const locationSubRef = useRef(null);
@@ -72,7 +75,12 @@ export function useDriverRealtimeTracking({
     setCurrentSpeed(normalizedSpeed);
     updateAdaptiveIntervalFromKmh(normalizedSpeed);
     if (socketRef.current?.connected) {
-      socketRef.current.emit('driver_location_update', payload);
+      try {
+        emitDriverLocation(payload.booking_id || activeRideId, payload.latitude, payload.longitude, payload.accuracy);
+      } catch {
+        // Fallback to raw socket emit if helper fails
+        socketRef.current.emit('driver_location_update', payload);
+      }
     }
     clearTimeout(telemetryTimerRef.current);
     telemetryTimerRef.current = setTimeout(() => {
@@ -83,7 +91,7 @@ export function useDriverRealtimeTracking({
         timestamp: Date.now(),
       }).catch(() => null);
     }, 0);
-  }, [emitTelemetry, updateAdaptiveIntervalFromKmh]);
+  }, [activeRideId, emitTelemetry, updateAdaptiveIntervalFromKmh]);
 
   const emitLocation = useCallback(
     async (location) => {
@@ -108,18 +116,14 @@ export function useDriverRealtimeTracking({
       emitSocketLocationUpdate(payload);
 
       try {
+        const body = toDriverLocationApiBody(payload);
+        if (!body) {
+          return;
+        }
         await apiRequest('/drivers/location', {
-          method: 'PUT',
+          method: 'POST',
           token,
-          body: {
-            location: {
-              latitude: payload.latitude,
-              longitude: payload.longitude,
-              heading: payload.heading,
-              speed: payload.speed,
-              accuracy: payload.accuracy,
-            },
-          },
+          body,
         });
       } catch {
         // Socket still handles live tracking; REST retry can be added later.
@@ -146,19 +150,6 @@ export function useDriverRealtimeTracking({
       return;
     }
 
-    if (!hasRequestedBgPermRef.current) {
-      hasRequestedBgPermRef.current = true;
-      const bg = await Location.requestBackgroundPermissionsAsync();
-      if (bg.status !== 'granted') {
-        setTrackingError('Background location not granted. Live tracking works only while app is open.');
-      } else if (Platform.OS !== 'web' && activeRideId) {
-        await startBackgroundDriverTracking({
-          token,
-          activeRideId,
-        });
-      }
-    }
-
     const current = await Location.getCurrentPositionAsync({
       accuracy: Location.Accuracy.High,
     });
@@ -172,7 +163,36 @@ export function useDriverRealtimeTracking({
       },
       emitLocation,
     );
-  }, [activeRideId, emitLocation, manageLocationWatch, token, trackingInterval]);
+  }, [emitLocation, manageLocationWatch, trackingInterval]);
+
+  const startBackgroundTracking = useCallback(async () => {
+    if (!manageBackgroundTracking || Platform.OS === 'web' || !token || !enabled) {
+      return;
+    }
+
+    const fg = await Location.requestForegroundPermissionsAsync();
+    if (fg.status !== 'granted') {
+      setTrackingError('Location permission denied.');
+      return;
+    }
+
+    let bg = await Location.getBackgroundPermissionsAsync().catch(() => null);
+    if (bg?.status !== 'granted' && !hasRequestedBgPermRef.current) {
+      hasRequestedBgPermRef.current = true;
+      bg = await Location.requestBackgroundPermissionsAsync();
+    }
+
+    if (bg?.status !== 'granted') {
+      setTrackingError('Background location not granted. Live tracking works only while app is open.');
+      await stopBackgroundDriverTracking().catch(() => null);
+      return;
+    }
+
+    await startBackgroundDriverTracking({
+      token,
+      activeRideId: activeRideId || '',
+    });
+  }, [activeRideId, enabled, manageBackgroundTracking, token]);
 
   useEffect(() => {
     if (!token || !enabled) {
@@ -189,7 +209,11 @@ export function useDriverRealtimeTracking({
         socket.emit('request_ride_sync', { booking_id: activeRideId });
       }
       if (lastLocationRef.current) {
-        socket.emit('driver_location_update', lastLocationRef.current);
+        try {
+          emitDriverLocation(lastLocationRef.current.booking_id || activeRideId, lastLocationRef.current.latitude, lastLocationRef.current.longitude, lastLocationRef.current.accuracy);
+        } catch {
+          socket.emit('driver_location_update', lastLocationRef.current);
+        }
       }
     };
 
@@ -234,7 +258,7 @@ export function useDriverRealtimeTracking({
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [token, enabled, activeRideId, manageLocationWatch, startLocationWatch]);
+  }, [token, enabled, activeRideId]);
 
   useEffect(() => {
     if (!token || !enabled || !manageLocationWatch) {
@@ -251,6 +275,30 @@ export function useDriverRealtimeTracking({
       }
     };
   }, [token, enabled, manageLocationWatch, trackingInterval, startLocationWatch]);
+
+  useEffect(() => {
+    if (Platform.OS === 'web' || !manageBackgroundTracking) {
+      return undefined;
+    }
+
+    if (!token || !enabled) {
+      stopBackgroundDriverTracking().catch(() => null);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const startTimer = setTimeout(() => {
+      if (!cancelled) {
+        startBackgroundTracking().catch(() => null);
+      }
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(startTimer);
+      stopBackgroundDriverTracking().catch(() => null);
+    };
+  }, [activeRideId, enabled, manageBackgroundTracking, startBackgroundTracking, token]);
 
   return {
     connected,

@@ -1,3 +1,5 @@
+import os
+
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
 from app.core.config import Settings
@@ -5,7 +7,7 @@ from app.core.config import Settings
 
 def create_mongo_client(settings: Settings) -> AsyncIOMotorClient:
     """Create MongoDB client with production-ready connection pooling."""
-    return AsyncIOMotorClient(
+    mongo_client = AsyncIOMotorClient(
         settings.mongo_url,
         # Timeouts
         serverSelectionTimeoutMS=max(5000, settings.mongo_server_selection_timeout_ms),
@@ -21,7 +23,28 @@ def create_mongo_client(settings: Settings) -> AsyncIOMotorClient:
         # Health monitoring
         heartbeatFrequencyMS=10000,  # Health check every 10 seconds
     )
+    globals()["client"] = mongo_client
+    return mongo_client
 
 
 def create_database(client: AsyncIOMotorClient, settings: Settings) -> AsyncIOMotorDatabase:
-    return client[settings.db_name]
+    database = client[settings.db_name]
+    globals()["db"] = database
+    return database
+
+
+async def get_db():
+    """
+    FastAPI dependency for MongoDB database access.
+    Used by admin routers.
+    """
+    db = globals().get("db", None)
+    if db is not None:
+        return db
+
+    client = globals().get("client", None)
+    if client is not None:
+        db_name = os.getenv("DB_NAME", "Autobuddy_db")
+        return client[db_name]
+
+    raise RuntimeError("MongoDB client is not initialized")

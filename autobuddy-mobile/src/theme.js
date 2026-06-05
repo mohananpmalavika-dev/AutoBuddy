@@ -1,9 +1,14 @@
+import { Spacing } from '@/constants/theme';
+import { getISTHour } from './utils/time';
+
+export const SPACING = Spacing;
+
 const resolveDirectSunlightIndex = () => {
   const envValue = Number(process.env.EXPO_PUBLIC_OUTDOOR_DIRECT_SUNLIGHT_INDEX);
   if (Number.isFinite(envValue) && envValue >= 0) {
     return envValue;
   }
-  const hour = new Date().getHours();
+  const hour = getISTHour();
   // Midday fallback heuristic when explicit index is not provided.
   return hour >= 11 && hour <= 15 ? 8 : 4;
 };
@@ -37,10 +42,49 @@ export const COLORS = {
   surface: '#FFFFFF',
   textMain: '#102018',
   textMuted: '#6B756F',
+  textSecondary: TEXT_CONTRAST_OVERRIDES.textMuted || '#6B756F',
+  textTertiary: TEXT_CONTRAST_OVERRIDES.textMuted || '#8B9891',
+  lightGray: '#DDE5DF',
   secondary: '#1B8A4B',
   overlaySoft: 'rgba(6, 78, 42, 0.06)',
   overlayStrong: 'rgba(6, 78, 42, 0.12)',
   ...TEXT_CONTRAST_OVERRIDES,
+};
+
+const LEGACY_COLORS = {
+  PRIMARY: COLORS.primary,
+  SECONDARY: COLORS.secondary,
+  SUCCESS: COLORS.success,
+  WARNING: COLORS.warning,
+  DANGER: COLORS.danger,
+  ERROR: COLORS.danger,
+  BACKGROUND: COLORS.background,
+  SURFACE: COLORS.surface,
+  CARD: COLORS.card,
+  TEXT: COLORS.textMain,
+  TEXT_SECONDARY: COLORS.textMuted,
+  TEXT_MUTED: COLORS.textMuted,
+  LIGHT_GRAY: COLORS.border,
+  BORDER: COLORS.border,
+  OVERLAY_SOFT: COLORS.overlaySoft,
+  OVERLAY_STRONG: COLORS.overlayStrong,
+  white: '#FFFFFF',
+  black: '#102018',
+  grey1: '#F4F7F5',
+  grey2: '#DDE5DF',
+  grey3: '#B8C4BD',
+  grey4: '#8B9891',
+  grey5: '#6B756F',
+};
+
+export const theme = {
+  COLORS: {
+    ...COLORS,
+    ...LEGACY_COLORS,
+  },
+  SHADOWS: {},
+  RADIUS: {},
+  TYPOGRAPHY: {},
 };
 
 export const SHADOWS = {
@@ -94,3 +138,7 @@ export const TYPOGRAPHY = {
     lineHeight: 21,
   },
 };
+
+theme.SHADOWS = SHADOWS;
+theme.RADIUS = RADIUS;
+theme.TYPOGRAPHY = TYPOGRAPHY;

@@ -3,11 +3,35 @@
   "outputDirectory": "dist",
   "routes": [
     { "src": "^/$", "dest": "/index.html" },
-    { "src": "^/app(/.*)?$", "dest": "/app/index.html" },
+    {
+      "src": "^/app(/.*)?$",
+      "headers": {
+        "Cache-Control": "no-store, max-age=0, must-revalidate"
+      },
+      "dest": "/app/index.html"
+    },
     { "src": "^/api/(.*)$", "dest": "https://autobuddy-z1vx.onrender.com/api/$1" },
     { "src": "^/(.*)$", "dest": "/$1" }
   ],
   "headers": [
+    {
+      "source": "/app",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store, max-age=0, must-revalidate" }
+      ]
+    },
+    {
+      "source": "/app/:path*",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store, max-age=0, must-revalidate" }
+      ]
+    },
+    {
+      "source": "/sw.js",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store, max-age=0, must-revalidate" }
+      ]
+    },
     {
       "source": "/(.*)",
       "headers": [
@@ -15,8 +39,11 @@
       ]
     }
   ],
-  "env": {
+  "env": { 
     "EXPO_PUBLIC_API_BASE_URL": "https://autobuddy-z1vx.onrender.com/api",
+    "EXPO_PUBLIC_SOCKET_BASE_URL": "https://autobuddy-z1vx.onrender.com",
+    "EXPO_PUBLIC_SOCKET_PATH": "/socket.io",
+    "EXPO_PUBLIC_SOCKET_TRANSPORTS": "websocket,polling",
     "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "475485627719-lgd8c3sgr1d5unie68d2qjcifjoolt5f.apps.googleusercontent.com"
   }
 }

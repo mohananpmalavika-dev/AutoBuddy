@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
-import DriverDashboardNative from './DriverDashboard.native';
-import DriverDashboardWeb from './DriverDashboard.web';
+import DriverCommandPageNative from './DriverCommandPage.native';
+import DriverCommandPageWeb from './DriverCommandPage.web';
 
-const DriverDashboard = Platform.OS === 'web' ? DriverDashboardWeb : DriverDashboardNative;
+const DriverDashboard = Platform.OS === 'web' ? DriverCommandPageWeb : DriverCommandPageNative;
 
 export default DriverDashboard;

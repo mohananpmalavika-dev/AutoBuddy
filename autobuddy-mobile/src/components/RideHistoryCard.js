@@ -1,6 +1,7 @@
 import React from 'react';
-import { TouchableOpacity, View, Text } from 'react-native';
+import { TouchableOpacity, View, Text, StyleSheet } from 'react-native';
 import { SHADOWS } from '../theme';
+import { formatToIST } from '../utils/time';
 
 /**
  * RideHistoryCard - Reusable card for ride history entries
@@ -19,10 +20,9 @@ function RideHistoryCard({ booking, onPress, isLoading }) {
   }[booking.status] || '#757575';
 
   const formatDate = (dateStr) => {
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' }) +
-      ' ' +
-      date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+    const datePart = formatToIST(dateStr, { month: 'short', day: 'numeric' });
+    const timePart = formatToIST(dateStr, { hour: '2-digit', minute: '2-digit' });
+    return `${datePart} ${timePart}`;
   };
 
   const formatLocation = (location) => {
@@ -44,6 +44,20 @@ function RideHistoryCard({ booking, onPress, isLoading }) {
         </View>
         <Text style={styles.cardTime}>{formatDate(booking.created_at)}</Text>
       </View>
+      
+      {/* Vehicle Info */}
+      {booking.vehicle_type_id && (
+        <View style={styles.vehicleInfoRow}>
+          <Text style={styles.vehicleIcon}>{booking.vehicle_icon || '🚗'}</Text>
+          <Text style={styles.vehicleType}>{booking.vehicle_type_id.toUpperCase()}</Text>
+          {booking.vehicle_type_multiplier && booking.vehicle_type_multiplier !== 1 && (
+            <View style={styles.vehicleMultiplierBadge}>
+              <Text style={styles.vehicleMultiplierText}>{booking.vehicle_type_multiplier}x</Text>
+            </View>
+          )}
+        </View>
+      )}
+      
       <View style={styles.cardContent}>
         <View style={styles.routeSection}>
           <Text style={styles.routeText} numberOfLines={1}>
@@ -83,7 +97,120 @@ function RideHistoryCard({ booking, onPress, isLoading }) {
   );
 }
 
-const styles = {};
-// TODO: Move styles from RideHistoryPanel.js or define here
+const styles = StyleSheet.create({
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 6,
+  },
+  statusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  statusText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  cardTime: {
+    fontSize: 12,
+    color: '#999',
+    fontWeight: '500',
+  },
+  vehicleInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    backgroundColor: '#F5F5F5',
+    borderBottomWidth: 1,
+    borderBottomColor: '#EFEFEF',
+  },
+  vehicleIcon: {
+    fontSize: 18,
+    marginRight: 8,
+  },
+  vehicleType: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#333',
+    flex: 1,
+  },
+  vehicleMultiplierBadge: {
+    backgroundColor: '#E3F2FD',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 3,
+  },
+  vehicleMultiplierText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#1976D2',
+  },
+  cardContent: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  routeSection: {
+    marginBottom: 10,
+  },
+  routeText: {
+    fontSize: 13,
+    color: '#333',
+    fontWeight: '500',
+  },
+  detailsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  detailItem: {
+    width: '48%',
+    marginBottom: 8,
+  },
+  detailLabel: {
+    fontSize: 11,
+    color: '#999',
+    fontWeight: '500',
+    marginBottom: 2,
+  },
+  detailValue: {
+    fontSize: 12,
+    color: '#333',
+    fontWeight: '600',
+  },
+  fareText: {
+    color: '#4CAF50',
+    fontWeight: '700',
+  },
+  cardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#EFEFEF',
+    backgroundColor: '#FAFAFA',
+  },
+  bookingId: {
+    fontSize: 11,
+    color: '#999',
+  },
+  tapHint: {
+    fontSize: 11,
+    color: '#999',
+  },
+});
 
 export default RideHistoryCard;
