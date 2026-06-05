@@ -5518,7 +5518,9 @@ async def refresh_access_token_legacy(payload: RefreshTokenRequest, request: Req
     stored = await db.refresh_tokens.find_one({"token_hash": token_hash, "revoked": False})
     if not stored:
         raise HTTPException(status_code=401, detail="Refresh token revoked")
-    if stored.get("expires_at") and stored["expires_at"] < get_ist_now():
+    expires_at = as_utc_naive(stored.get("expires_at"))
+    now = as_utc_naive(get_ist_now()) or get_ist_now()
+    if expires_at and expires_at < now:
         raise HTTPException(status_code=401, detail="Refresh token expired")
     user = await db.users.find_one({"id": decoded["sub"]}, {"_id": 0})
     if not user:

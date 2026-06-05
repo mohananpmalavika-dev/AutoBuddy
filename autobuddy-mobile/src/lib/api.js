@@ -489,8 +489,12 @@ export async function apiRequest(path, options = {}, legacyPath = undefined, leg
       }
 
       if (!response.ok) {
-        if (response.status === 429 && requestDedupeKey) {
-          getRateLimitCooldowns.set(requestDedupeKey, Date.now() + getRetryAfterCooldownMs(response));
+        let retryAfterMs = 0;
+        if (response.status === 429) {
+          retryAfterMs = getRetryAfterCooldownMs(response);
+          if (requestDedupeKey) {
+            getRateLimitCooldowns.set(requestDedupeKey, Date.now() + retryAfterMs);
+          }
         }
         if (response.status >= 500) {
           consecutiveServerErrors += 1;
@@ -529,6 +533,14 @@ export async function apiRequest(path, options = {}, legacyPath = undefined, leg
         const error = new Error(message);
         error.status = response.status;
         error.payload = data;
+        if (response.status === 429) {
+          error.rateLimitCooldown = true;
+          error.retryAfterMs = retryAfterMs;
+        }
+        if (response.status >= 500 && backendOutageUntilMs > Date.now()) {
+          error.backendOutage = true;
+          error.retryAfterMs = Math.max(Number(error.retryAfterMs || 0), backendOutageUntilMs - Date.now());
+        }
         throw error;
       }
 

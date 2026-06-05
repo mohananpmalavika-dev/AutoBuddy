@@ -153,6 +153,60 @@ function PassengerMenuIcon({ symbol, selected, size = 16 }) {
 const DEFAULT_REGION = { latitude: 13.0827, longitude: 80.2707, latitudeDelta: 0.05, longitudeDelta: 0.05 };
 const passengerMapStyle = [];
 const SHOW_LEGACY_ONE_PAGE_BOOKING_FLOW = false;
+const PASSENGER_POLL_UNCHANGED = Symbol('passenger-poll-unchanged');
+const PASSENGER_POLL_INTERVAL_MS = 30000;
+const PASSENGER_POLL_RATE_LIMIT_COOLDOWN_MS = 30000;
+const PASSENGER_POLL_BACKEND_COOLDOWN_MS = 20000;
+const PASSENGER_POLL_AUTH_RETRY_COOLDOWN_MS = 60000;
+const PASSENGER_POLL_AUTH_EXPIRED_COOLDOWN_MS = 5 * 60 * 1000;
+
+function getApiErrorCode(error) {
+  return String(error?.code || '').toUpperCase();
+}
+
+function getApiRetryAfterMs(error, fallbackMs) {
+  const retryAfterMs = Number(error?.retryAfterMs);
+  if (Number.isFinite(retryAfterMs) && retryAfterMs > 0) {
+    return retryAfterMs;
+  }
+  return fallbackMs;
+}
+
+function getPassengerPollBackoffMs(error) {
+  const status = Number(error?.status || 0);
+  const code = getApiErrorCode(error);
+  if (code === 'AUTH_RETRY_REQUIRED' || error?.sessionPreserved) {
+    return PASSENGER_POLL_AUTH_RETRY_COOLDOWN_MS;
+  }
+  if (code === 'AUTH_EXPIRED' || error?.authExpired || status === 401 || status === 403) {
+    return PASSENGER_POLL_AUTH_EXPIRED_COOLDOWN_MS;
+  }
+  if (status === 429 || error?.rateLimitCooldown) {
+    return getApiRetryAfterMs(error, PASSENGER_POLL_RATE_LIMIT_COOLDOWN_MS);
+  }
+  if (status >= 500 || status === 0 || error?.backendOutage) {
+    return getApiRetryAfterMs(error, PASSENGER_POLL_BACKEND_COOLDOWN_MS);
+  }
+  return 0;
+}
+
+function getPassengerSyncDelayMessage(
+  error,
+  fallbackMessage = 'Passenger sync is paused briefly. Please try again in a moment.',
+) {
+  const status = Number(error?.status || 0);
+  const code = getApiErrorCode(error);
+  if (code === 'AUTH_RETRY_REQUIRED' || error?.sessionPreserved || status === 401 || status === 403) {
+    return 'Could not confirm your login right now. Please try again in a moment.';
+  }
+  if (status === 429 || error?.rateLimitCooldown) {
+    return 'Server is busy. Slowing passenger sync briefly.';
+  }
+  if (status >= 500 || status === 0 || error?.backendOutage) {
+    return 'Backend is temporarily unavailable. Retrying passenger sync automatically.';
+  }
+  return fallbackMessage;
+}
 
 export function PassengerMapContent({ token, user, onLogout, onProfilePress = undefined }) {
   const autoPickupInitializedRef = useRef(false);
@@ -961,22 +1015,19 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       let backedOff = false;
 
       const applyPassengerPollBackoff = (err) => {
-        const status = Number(err?.status || 0);
-        if (status === 429) {
+        const cooldownMs = getPassengerPollBackoffMs(err);
+        if (cooldownMs > 0) {
           backedOff = true;
-          passengerPollCooldownUntilRef.current = Date.now() + 30000;
+          passengerPollCooldownUntilRef.current = Date.now() + cooldownMs;
           const now = Date.now();
           if (!unmounted && now - passengerPollNoticeAtRef.current > 15000) {
-            setMessage('Server is busy. Slowing passenger sync for 30 seconds.');
+            setMessage(getPassengerSyncDelayMessage(err));
             passengerPollNoticeAtRef.current = now;
           }
-        } else if (status === 503) {
-          backedOff = true;
-          passengerPollCooldownUntilRef.current = Date.now() + 20000;
         }
       };
 
-      const quietPollRequest = (promise, fallback) =>
+      const quietPollRequest = (promise, fallback = PASSENGER_POLL_UNCHANGED) =>
         promise.catch((err) => {
           applyPassengerPollBackoff(err);
           return fallback;
@@ -984,18 +1035,20 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
 
       try {
         const [active, bookings, spinStatus] = await Promise.all([
-          quietPollRequest(apiRequest('/bookings/active', { token }), null),
-          includeBookings ? quietPollRequest(apiRequest('/bookings', { token }), []) : Promise.resolve(null),
-          includeSpinStatus ? quietPollRequest(apiRequest('/spin-win/config', { token }), null) : Promise.resolve(null),
+          quietPollRequest(apiRequest('/bookings/active', { token })),
+          includeBookings ? quietPollRequest(apiRequest('/bookings', { token })) : Promise.resolve(null),
+          includeSpinStatus ? quietPollRequest(apiRequest('/spin-win/config', { token })) : Promise.resolve(null),
         ]);
         if (unmounted) {
           return;
         }
-        setActiveBooking(active || null);
-        if (includeBookings) {
+        if (active !== PASSENGER_POLL_UNCHANGED) {
+          setActiveBooking(active || null);
+        }
+        if (includeBookings && bookings !== PASSENGER_POLL_UNCHANGED) {
           setPassengerBookings(Array.isArray(bookings) ? bookings : []);
         }
-        if (includeSpinStatus) {
+        if (includeSpinStatus && spinStatus !== PASSENGER_POLL_UNCHANGED) {
           setSpinWinStatus(spinStatus || null);
         }
         if (!backedOff) {
@@ -1010,7 +1063,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     };
 
     refreshSilently();
-    const timer = setInterval(refreshSilently, 12000);
+    const timer = setInterval(refreshSilently, PASSENGER_POLL_INTERVAL_MS);
     return () => {
       unmounted = true;
       clearInterval(timer);
@@ -1518,7 +1571,19 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       return;
     }
 
-    const existingActive = await apiRequest('/bookings/active', { token }).catch(() => null);
+    let existingActive = null;
+    try {
+      existingActive = await apiRequest('/bookings/active', { token });
+    } catch (err) {
+      const cooldownMs = getPassengerPollBackoffMs(err);
+      if (cooldownMs > 0) {
+        passengerPollCooldownUntilRef.current = Date.now() + cooldownMs;
+        setError(
+          getPassengerSyncDelayMessage(err, 'Could not confirm active ride status. Please try again.'),
+        );
+        return;
+      }
+    }
     let allowParallel = false;
     if (existingActive) {
       const shouldCreateAnother = await confirmCreateParallelBooking();

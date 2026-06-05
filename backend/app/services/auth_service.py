@@ -3,7 +3,7 @@ import hashlib
 import logging
 import random
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from app.utils.time_helpers import get_ist_now
 from typing import Any, Dict, Optional
 
@@ -91,6 +91,27 @@ def normalize_email(raw_email: str) -> str:
 
 def _hash_refresh_token(refresh_token: str) -> str:
     return hashlib.sha256(refresh_token.encode("utf-8")).hexdigest()
+
+
+def _as_utc_naive(value: Any) -> Optional[datetime]:
+    if not value:
+        return None
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if not isinstance(value, datetime):
+        return None
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _is_before_now(value: Any) -> bool:
+    timestamp = _as_utc_naive(value)
+    now = _as_utc_naive(get_ist_now())
+    return bool(timestamp and now and timestamp < now)
 
 
 async def _store_refresh_token(
@@ -961,7 +982,7 @@ async def refresh_access_token(
             path="/api/auth/refresh",
         )
         raise HTTPException(status_code=401, detail="Refresh token reuse detected. Please login again.")
-    if stored.get("expires_at") and stored["expires_at"] < get_ist_now():
+    if _is_before_now(stored.get("expires_at")):
         await _audit_auth_event(
             db=db,
             action="REFRESH_FAILED",
