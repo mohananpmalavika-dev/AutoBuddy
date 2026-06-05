@@ -98,7 +98,7 @@ from app.routers.operator_portal import (
     router as modular_operator_portal_router,
 )
 from app.services.email_delivery import send_otp_email_message
-from app.models.canonical_vehicle_model import CANONICAL_VEHICLES_COLLECTION
+from app.models.canonical_vehicle_model import CANONICAL_VEHICLES_COLLECTION, get_vehicle_by_id
 from app.models.document_catalog import (
     document_mandatory_pause_active,
     effective_is_mandatory,
@@ -2626,11 +2626,23 @@ def build_driver_vehicle_info(vehicle: Dict[str, Any]) -> Dict[str, Any]:
 
 async def resolve_driver_vehicle_catalog_selection(payload: DriverVehiclePayload) -> Dict[str, Any]:
     vehicle_type_id = payload.vehicle_type_id or payload.vehicle_type or "auto"
-    vehicle = await db[CANONICAL_VEHICLES_COLLECTION].find_one({
-        "vehicle_type_id": vehicle_type_id,
-        "active": True,
-    })
+    catalog_lookup_failed = False
+    try:
+        vehicle = await db[CANONICAL_VEHICLES_COLLECTION].find_one({
+            "vehicle_type_id": vehicle_type_id,
+            "active": True,
+        })
+    except (ServerSelectionTimeoutError, PyMongoError) as exc:
+        catalog_lookup_failed = True
+        vehicle = None
+        logger.warning("Canonical vehicle catalog lookup failed for %s: %s", vehicle_type_id, exc)
+
+    if not vehicle and catalog_lookup_failed:
+        vehicle = get_vehicle_by_id(vehicle_type_id)
+
     if not vehicle:
+        if catalog_lookup_failed:
+            raise HTTPException(status_code=503, detail="Vehicle catalog temporarily unavailable. Please retry.")
         raise HTTPException(status_code=400, detail=f"Invalid vehicle type: {vehicle_type_id}")
 
     subtype = None

@@ -12,6 +12,22 @@ import { COLORS, SHADOWS } from '../theme';
 import VoiceTextInput from './VoiceTextInput';
 import { useVehicleTypes } from '../hooks/useVehicleTypes';
 
+const DEFAULT_VEHICLE_TYPE_ID = 'auto';
+const DEFAULT_SEATING_CAPACITY = 4;
+
+function getVehicleTypeId(vehicleType) {
+  return String(vehicleType?.vehicle_type_id || vehicleType?.id || '').trim();
+}
+
+function getDefaultVehicleTypeId(vehicleTypes = []) {
+  return getVehicleTypeId(vehicleTypes[0]) || DEFAULT_VEHICLE_TYPE_ID;
+}
+
+function parseIntegerField(value, fallback) {
+  const parsed = Number.parseInt(String(value || '').trim(), 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 function normalizeVehicle(vehicle = {}) {
   return {
     id: vehicle.id,
@@ -21,8 +37,8 @@ function normalizeVehicle(vehicle = {}) {
     color: vehicle.color || '',
     license_plate: vehicle.license_plate || vehicle.licensePlate || '',
     registration_number: vehicle.registration_number || vehicle.registrationNumber || '',
-    seating_capacity: Number(vehicle.seating_capacity || vehicle.seatingCapacity || 4),
-    vehicle_type_id: vehicle.vehicle_type_id || vehicle.vehicle_type || vehicle.vehicleType || 'auto',
+    seating_capacity: Number(vehicle.seating_capacity || vehicle.seatingCapacity || DEFAULT_SEATING_CAPACITY),
+    vehicle_type_id: vehicle.vehicle_type_id || vehicle.vehicle_type || vehicle.vehicleType || DEFAULT_VEHICLE_TYPE_ID,
     vehicle_subtype_id: vehicle.vehicle_subtype_id || vehicle.vehicleSubtypeId || null,
     is_active: Boolean(vehicle.is_active),
   };
@@ -52,7 +68,7 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
     color: '',
     license_plate: '',
     registration_number: '',
-    seating_capacity: '4',
+    seating_capacity: String(DEFAULT_SEATING_CAPACITY),
     vehicle_type_id: '', // Will be vehicle_type_id from canonical backend
     vehicle_subtype_id: '',
   });
@@ -79,35 +95,38 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
     Promise.resolve().then(fetchVehicles);
   }, [fetchVehicles]);
 
-  const getEmptyFormData = () => {
-    const defaultVehicleType = vehicleTypes && vehicleTypes.length > 0 
-      ? vehicleTypes[0].vehicle_type_id || vehicleTypes[0].id
-      : '';
+  const getSelectedVehicleTypeId = useCallback(
+    () => String(formData.vehicle_type_id || '').trim() || getDefaultVehicleTypeId(vehicleTypes),
+    [formData.vehicle_type_id, vehicleTypes],
+  );
+
+  const getEmptyFormData = () => ({
+    make: '',
+    model: '',
+    year: new Date().getFullYear().toString(),
+    color: '',
+    license_plate: '',
+    registration_number: '',
+    seating_capacity: String(DEFAULT_SEATING_CAPACITY),
+    vehicle_type_id: getDefaultVehicleTypeId(vehicleTypes),
+    vehicle_subtype_id: '',
+  });
+
+  const buildVehiclePayload = () => {
+    const vehicleTypeId = getSelectedVehicleTypeId();
     return {
-      make: '',
-      model: '',
-      year: new Date().getFullYear().toString(),
-      color: '',
-      license_plate: '',
-      registration_number: '',
-      seating_capacity: '4',
-      vehicle_type_id: defaultVehicleType,
-      vehicle_subtype_id: '',
+      make: formData.make.trim(),
+      model: formData.model.trim(),
+      year: parseIntegerField(formData.year, new Date().getFullYear()),
+      color: formData.color.trim(),
+      license_plate: formData.license_plate.trim(),
+      registration_number: formData.registration_number.trim() || null,
+      seating_capacity: parseIntegerField(formData.seating_capacity, DEFAULT_SEATING_CAPACITY),
+      vehicle_type: vehicleTypeId,
+      vehicle_type_id: vehicleTypeId,
+      vehicle_subtype_id: String(formData.vehicle_subtype_id || '').trim() || null,
     };
   };
-
-  const buildVehiclePayload = () => ({
-    make: formData.make,
-    model: formData.model,
-    year: Number(formData.year),
-    color: formData.color,
-    license_plate: formData.license_plate,
-    registration_number: formData.registration_number || null,
-    seating_capacity: Number(formData.seating_capacity),
-    vehicle_type: formData.vehicle_type_id,
-    vehicle_type_id: formData.vehicle_type_id,
-    vehicle_subtype_id: formData.vehicle_subtype_id || null,
-  });
 
   const resetVehicleForm = () => {
     setFormData(getEmptyFormData());
@@ -133,8 +152,8 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
       color: vehicle.color || '',
       license_plate: vehicle.license_plate || vehicle.licensePlate || '',
       registration_number: vehicle.registration_number || vehicle.registrationNumber || '',
-      seating_capacity: String(vehicle.seating_capacity || vehicle.seatingCapacity || '4'),
-      vehicle_type_id: vehicle.vehicle_type_id || vehicle.vehicleType || 'auto',
+      seating_capacity: String(vehicle.seating_capacity || vehicle.seatingCapacity || DEFAULT_SEATING_CAPACITY),
+      vehicle_type_id: vehicle.vehicle_type_id || vehicle.vehicleType || DEFAULT_VEHICLE_TYPE_ID,
       vehicle_subtype_id: vehicle.vehicle_subtype_id || '',
     });
     setEditingVehicleId(vehicle.id);
@@ -142,8 +161,20 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
   };
 
   const handleSubmitVehicle = async () => {
-    if (!formData.make || !formData.model || !formData.license_plate) {
+    if (!formData.make.trim() || !formData.model.trim() || !formData.license_plate.trim()) {
       setError('Please fill in required fields: Make, Model, License Plate');
+      return;
+    }
+
+    const nextYear = parseIntegerField(formData.year, 0);
+    if (nextYear < 1900 || nextYear > 2100) {
+      setError('Please enter a valid vehicle year.');
+      return;
+    }
+
+    const nextCapacity = parseIntegerField(formData.seating_capacity, 0);
+    if (nextCapacity < 1 || nextCapacity > 12) {
+      setError('Please enter seating capacity between 1 and 12.');
       return;
     }
 
@@ -201,6 +232,14 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
 
   const updateFormData = (field, value) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const selectVehicleType = (typeId) => {
+    setFormData((prev) => ({
+      ...prev,
+      vehicle_type_id: typeId,
+      vehicle_subtype_id: '',
+    }));
   };
 
   if (loading && vehicles.length === 0) {
@@ -383,7 +422,7 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
               <View style={styles.typeSelection}>
                 {vehicleTypes && vehicleTypes.length > 0 ? (
                   vehicleTypes.map((type) => {
-                    const typeId = type.vehicle_type_id || type.id;
+                    const typeId = getVehicleTypeId(type);
                     return (
                       <TouchableOpacity
                         key={typeId}
@@ -391,7 +430,7 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
                           styles.typeButton,
                           formData.vehicle_type_id === typeId && styles.typeButtonActive,
                         ]}
-                        onPress={() => updateFormData('vehicle_type_id', typeId)}
+                        onPress={() => selectVehicleType(typeId)}
                       >
                         <Text style={styles.typeButtonIcon}>{type.icon || '🚗'}</Text>
                         <View style={styles.typeButtonContent}>
@@ -420,9 +459,7 @@ export default function VehicleManagementPanel({ token, loading: parentLoading =
               {/* Subtype Selection (if available) */}
               {formData.vehicle_type_id && vehicleTypes && (
                 (() => {
-                  const selectedType = vehicleTypes.find(
-                    (t) => (t.vehicle_type_id || t.id) === formData.vehicle_type_id
-                  );
+                  const selectedType = vehicleTypes.find((t) => getVehicleTypeId(t) === formData.vehicle_type_id);
                   return selectedType?.subtypes && selectedType.subtypes.length > 0 ? (
                     <View style={styles.subtypeSection}>
                       <Text style={styles.fieldLabel}>Vehicle Subtype (Optional)</Text>
