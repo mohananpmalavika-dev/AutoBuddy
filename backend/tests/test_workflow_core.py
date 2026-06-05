@@ -190,10 +190,14 @@ def test_driver_location_update_accepts_flat_and_nested_payloads():
 
 def test_driver_dispatch_uses_background_accepting_location_window():
     server_source = (Path(__file__).resolve().parents[1] / 'server.py').read_text(encoding='utf-8')
+    dispatch_source = server_source[
+        server_source.index('async def find_nearest_drivers_mongo_geo'):
+        server_source.index('def calculate_tracking_segment_km')
+    ]
 
     assert 'DRIVER_ACCEPTING_BACKGROUND_SECONDS' in server_source
     assert 'is_recent_driver_location(driver_profile, DRIVER_ACCEPTING_BACKGROUND_SECONDS)' in server_source
-    assert '"is_online": True' not in server_source[server_source.index('async def find_nearest_drivers_mongo_geo'):server_source.index('def calculate_tracking_segment_km')]
+    assert '"is_online": True' not in dispatch_source
     assert 'notify_driver_ride_request(driver_id, booking_id)' in server_source
 
 
