@@ -16,6 +16,7 @@ import { SymbolView } from 'expo-symbols';
 import { apiRequest } from '../lib/api';
 import { createAutoBuddySocket } from '../lib/socket';
 import { getDisplayText } from '../lib/displayText';
+import { getFavoriteDriverIds } from '../lib/favoriteDrivers';
 import {
   getPlaceLocation,
   isPlacesConfigured,
@@ -142,10 +143,10 @@ const PASSENGER_MENU_OPTIONS = [
 const PRIMARY_PASSENGER_MENU_KEY = 'ride';
 const buildPassengerMenuOptions = (keys) =>
   keys.map((key) => PASSENGER_MENU_OPTIONS.find((menu) => menu.key === key)).filter(Boolean);
-const PINNED_PASSENGER_MENU_OPTIONS = buildPassengerMenuOptions(['drivers', 'favorites', 'safety', 'wallet']);
+const PINNED_PASSENGER_MENU_OPTIONS = buildPassengerMenuOptions(['drivers', 'favorites']);
 const SECONDARY_PASSENGER_MENU_GROUPS = [
   { key: 'trip', title: 'Trip', keys: ['scheduled', 'history', 'stats', 'notes', 'ratings', 'receipts'] },
-  { key: 'deals', title: 'Deals & Payment', keys: ['spin', 'promo', 'payment', 'subscription'] },
+  { key: 'deals', title: 'Deals & Payment', keys: ['wallet', 'spin', 'promo', 'payment', 'subscription'] },
   { key: 'account', title: 'Account', keys: ['profile', 'kyc', 'documents', 'preferences', 'places', 'accessibility', 'sharing'] },
   { key: 'help', title: 'Help', keys: ['notifications', 'support', 'emergency'] },
 ].map((section) => ({
@@ -1504,13 +1505,16 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   };
 
   const applyDriverRelationshipState = useCallback((favorites, blocked) => {
-    const favoriteIds = (Array.isArray(favorites) ? favorites : [])
-      .map((item) => item?.driver_id)
-      .filter(Boolean);
+    const favoriteIds = getFavoriteDriverIds(favorites);
     const blockedIds = Array.isArray(blocked?.driver_ids) ? blocked.driver_ids : [];
     setFavoriteDriverIds(favoriteIds.filter((driverId) => !blockedIds.includes(driverId)));
     setBlockedDriverIds(blockedIds);
   }, []);
+
+  const handleFavoriteDriversChange = useCallback((favorites) => {
+    const favoriteIds = getFavoriteDriverIds(favorites);
+    setFavoriteDriverIds(favoriteIds.filter((driverId) => !blockedDriverIds.includes(driverId)));
+  }, [blockedDriverIds]);
 
   const refreshPassengerBookings = useCallback(async ({ silent = false } = {}) => {
     try {
@@ -1965,8 +1969,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   };
 
   const applyNearbyDrivers = useCallback((drivers, favorites, blocked) => {
-    const favoritesList = Array.isArray(favorites) ? favorites : [];
-    const favoriteIds = favoritesList.map((item) => item.driver_id).filter(Boolean);
+    const favoriteIds = getFavoriteDriverIds(favorites);
     setFavoriteDriverIds(favoriteIds);
     const blockedIds = Array.isArray(blocked?.driver_ids) ? blocked.driver_ids : [];
     setBlockedDriverIds(blockedIds);
@@ -2934,14 +2937,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             onMapPress={handleMapPress}
             onMarkerDragEnd={handleMarkerDragEnd}
             selectingPoint={selectingPoint}
-            showStatusOverlay={!isMobileWeb}
+            showStatusOverlay={false}
           />
-          {!isMobileWeb && <View style={styles.mapOverlayWrap} pointerEvents="none">
-            <GlassCard style={styles.mapOverlayCard}>
-              <Text style={[styles.mapOverlayTitle, accessibilityUi.textStyle]}>{t.mapTitle}</Text>
-              <Text style={[styles.mapOverlayMalayalam, accessibilityUi.textStyle]}>{t.mapSubtitle}</Text>
-            </GlassCard>
-          </View>}
         </View>
 
         <View style={[styles.panel, isMobileWeb && styles.panelMobile, accessibilityUi.panelStyle]}>
@@ -2969,6 +2966,11 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             )}
             <TouchableOpacity onPress={handleProfilePress} style={[styles.profileButton, isMobileWeb && styles.profileButtonMobile]}>
               <Text style={styles.profileText}>{t.profile}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => handleMenuSelection('safety', t.safety)}
+              style={[styles.logoutButton, styles.safetyHeaderButton, isMobileWeb && styles.logoutButtonMobile]}>
+              <Text style={[styles.logoutText, styles.safetyHeaderText]}>{t.safety}</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={onLogout} style={[styles.logoutButton, isMobileWeb && styles.logoutButtonMobile]}>
               <Text style={styles.logoutText}>{t.logout}</Text>
@@ -3875,6 +3877,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                           dropoffLocation={normalizeLocation(activeBooking.drop_location || activeBooking.dropoff_location)}
                           eta={etaToPickup || etaToDrop}
                           status={activeBookingStatus}
+                          showStatusOverlay={false}
                         />
                       </View>
                     )}
@@ -4103,7 +4106,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               <PaymentMethodsPanel token={token} onDefaultMethodChange={handleDefaultMethodChange} />
             )}
             {activePassengerMenu === 'ratings' && <PassengerRatingsPanel token={token} />}
-            {activePassengerMenu === 'favorites' && <FavoriteDriversPanel token={token} />}
+            {activePassengerMenu === 'favorites' && (
+              <FavoriteDriversPanel token={token} onFavoriteDriversChange={handleFavoriteDriversChange} />
+            )}
             {activePassengerMenu === 'preferences' && (
               <PreferencesPanel token={token} onPreferencesChange={handlePreferencesChange} />
             )}
@@ -4226,26 +4231,6 @@ const styles = StyleSheet.create({
     borderRadius: 0,
     borderWidth: 0,
   },
-  mapOverlayWrap: {
-    position: 'absolute',
-    left: 10,
-    right: 10,
-    bottom: 10,
-  },
-  mapOverlayCard: {
-    paddingVertical: 9,
-    paddingHorizontal: 10,
-  },
-  mapOverlayTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: COLORS.textMain,
-  },
-  mapOverlayMalayalam: {
-    marginTop: 2,
-    ...TYPOGRAPHY.malayalam,
-    fontSize: 12,
-  },
   mapIframe: {
     width: '100%',
     height: '100%',
@@ -4340,6 +4325,11 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   logoutText: { color: COLORS.textMain, fontWeight: '700' },
+  safetyHeaderButton: {
+    backgroundColor: '#FFF8E7',
+    borderColor: '#E0A82E',
+  },
+  safetyHeaderText: { color: '#73510A' },
   loader: { marginVertical: 8 },
   error: { color: COLORS.danger, marginTop: 8 },
   message: { color: '#1B5E20', marginTop: 8 },

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Alert,
   View,
@@ -8,6 +8,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   SafeAreaView,
+  Platform,
 } from 'react-native';
 import { COLORS, SHADOWS } from '../theme';
 import { useNotifications } from '../contexts/NotificationContext';
@@ -26,6 +27,8 @@ export default function NotificationCenter({ token, onClose, onNotificationPress
   const { notifications, unreadCount, addNotification, markAsRead, removeNotification, clearAll, setIsInitialized } =
     useNotifications();
   const [loading, setLoading] = useState(false);
+  const [actionError, setActionError] = useState('');
+  const loadGenerationRef = useRef(0);
 
   useEffect(() => {
     let isMounted = true;
@@ -34,11 +37,12 @@ export default function NotificationCenter({ token, onClose, onNotificationPress
         isMounted = false;
       };
     }
+    const loadGeneration = loadGenerationRef.current;
 
     notificationService
       .fetchNotifications(token, { limit: 80 })
       .then((rows) => {
-        if (!isMounted) {
+        if (!isMounted || loadGeneration !== loadGenerationRef.current) {
           return;
         }
         rows
@@ -86,6 +90,7 @@ export default function NotificationCenter({ token, onClose, onNotificationPress
 
   const handleMarkAllAsRead = useCallback(async () => {
     setLoading(true);
+    setActionError('');
     try {
       // Mark all in UI
       notifications.forEach((n) => {
@@ -103,28 +108,50 @@ export default function NotificationCenter({ token, onClose, onNotificationPress
     }
   }, [token, notifications, markAsRead]);
 
-  const handleClearAll = useCallback(async () => {
-    if (notifications.length === 0) return;
+  const handleClearAllConfirmed = useCallback(async () => {
+    if (notifications.length === 0 || loading) return;
 
-    // Confirm before clearing
+    setLoading(true);
+    setActionError('');
+    loadGenerationRef.current += 1;
+    try {
+      const didClear = await notificationService.clearAll(token);
+      if (didClear) {
+        clearAll();
+      } else {
+        setActionError('Could not clear notifications. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error clearing notifications:', error);
+      setActionError('Could not clear notifications. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }, [token, notifications.length, loading, clearAll]);
+
+  const handleClearAll = useCallback(() => {
+    if (notifications.length === 0 || loading) return;
+
+    if (Platform.OS === 'web') {
+      const confirmed =
+        typeof window === 'undefined' ||
+        typeof window.confirm !== 'function' ||
+        window.confirm('Clear all notifications?');
+      if (confirmed) {
+        handleClearAllConfirmed();
+      }
+      return;
+    }
+
     Alert.alert('Clear all notifications?', '', [
-      { text: 'Cancel', onPress: () => {} },
+      { text: 'Cancel', style: 'cancel', onPress: () => {} },
       {
         text: 'Clear',
-        onPress: async () => {
-          setLoading(true);
-          try {
-            clearAll();
-            await notificationService.clearAll(token);
-          } catch (error) {
-            console.error('Error clearing notifications:', error);
-          } finally {
-            setLoading(false);
-          }
-        },
+        style: 'destructive',
+        onPress: handleClearAllConfirmed,
       },
     ]);
-  }, [token, notifications, clearAll]);
+  }, [notifications.length, loading, handleClearAllConfirmed]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -168,6 +195,8 @@ export default function NotificationCenter({ token, onClose, onNotificationPress
             </TouchableOpacity>
           </View>
         )}
+
+        {!!actionError && <Text style={styles.actionError}>{actionError}</Text>}
 
         {loading && (
           <View style={styles.loaderContainer}>
@@ -280,6 +309,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: COLORS.primary,
+  },
+  actionError: {
+    color: COLORS.danger,
+    fontSize: 13,
+    fontWeight: '600',
+    paddingHorizontal: 16,
+    paddingTop: 10,
   },
   loaderContainer: {
     flex: 1,

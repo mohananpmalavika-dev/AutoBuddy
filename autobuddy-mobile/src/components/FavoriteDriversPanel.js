@@ -1,9 +1,28 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator } from 'react-native';
 import { apiRequest } from '../lib/api';
+import { normalizeFavoriteDriversPayload } from '../lib/favoriteDrivers';
 import { COLORS, SHADOWS } from '../theme';
 
-export default function FavoriteDriversPanel({ token }) {
+function getVehicleLabel(driver) {
+  const vehicleInfo = driver?.vehicle_info || {};
+  const vehicleModel = vehicleInfo.vehicle_model || driver?.vehicle_model || '';
+  const vehicleNumber = vehicleInfo.vehicle_number || driver?.vehicle_number || '';
+  const label = [vehicleModel, vehicleNumber].filter(Boolean).join(' | ');
+  return label || 'Vehicle not available';
+}
+
+function getAvailabilityLabel(driver) {
+  if (driver?.in_active_ride) {
+    return 'On another ride';
+  }
+  if (driver?.has_live_location || driver?.location) {
+    return driver?.is_available ? 'Available now' : 'Saved, currently offline';
+  }
+  return 'Saved favorite';
+}
+
+export default function FavoriteDriversPanel({ token, onFavoriteDriversChange }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [drivers, setDrivers] = useState([]);
@@ -13,13 +32,15 @@ export default function FavoriteDriversPanel({ token }) {
     setError('');
     try {
       const response = await apiRequest('/passengers/favorite-drivers', { token });
-      setDrivers(Array.isArray(response) ? response : response?.data || []);
+      const nextDrivers = normalizeFavoriteDriversPayload(response);
+      setDrivers(nextDrivers);
+      onFavoriteDriversChange?.(nextDrivers);
     } catch (err) {
       setError(err.message || 'Failed to load favorite drivers');
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [onFavoriteDriversChange, token]);
 
   useEffect(() => {
     let isMounted = true;
@@ -42,7 +63,11 @@ export default function FavoriteDriversPanel({ token }) {
     setError('');
     try {
       await apiRequest(`/passengers/favorite-drivers/${driverId}`, { method: 'PUT', token, body: { is_favorite: false } });
-      setDrivers((prev) => prev.filter((d) => d.driver_id !== driverId));
+      setDrivers((prev) => {
+        const nextDrivers = prev.filter((d) => d.driver_id !== driverId);
+        onFavoriteDriversChange?.(nextDrivers);
+        return nextDrivers;
+      });
     } catch (err) {
       setError(err.message || 'Failed to remove favorite');
     } finally {
@@ -61,7 +86,10 @@ export default function FavoriteDriversPanel({ token }) {
         drivers.map((driver) => (
           <View key={driver.driver_id} style={styles.driverCard}>
             <Text style={styles.driverName}>{driver.name || driver.driver_id}</Text>
-            <Text style={styles.driverInfo}>⭐ {driver.rating || '-'} | {driver.vehicle_number || 'No vehicle'}</Text>
+            <Text style={styles.driverInfo}>
+              Rating {driver.rating || '-'} | {getVehicleLabel(driver)}
+            </Text>
+            <Text style={styles.driverStatus}>{getAvailabilityLabel(driver)}</Text>
             <TouchableOpacity style={styles.removeButton} onPress={() => removeFavorite(driver.driver_id)}>
               <Text style={styles.removeButtonText}>Remove</Text>
             </TouchableOpacity>
@@ -87,6 +115,7 @@ const styles = StyleSheet.create({
   },
   driverName: { fontSize: 15, fontWeight: '700', color: COLORS.textMain },
   driverInfo: { fontSize: 13, color: COLORS.textMuted, marginBottom: 8 },
+  driverStatus: { fontSize: 12, color: COLORS.primary, fontWeight: '700', marginBottom: 8 },
   removeButton: {
     alignSelf: 'flex-start',
     backgroundColor: COLORS.primary,

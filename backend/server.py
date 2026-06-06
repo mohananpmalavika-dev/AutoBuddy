@@ -35,6 +35,7 @@ from urllib.parse import urlparse, parse_qs
 from cryptography.fernet import Fernet
 from pymongo.errors import ServerSelectionTimeoutError, PyMongoError
 from bson import ObjectId
+from bson.binary import Binary
 from bson.errors import InvalidId
 from app.core.config import get_settings
 from app.db.retry import retry_on_db_error
@@ -6949,6 +6950,153 @@ async def get_passenger_rating_eligible_rides(
         )
     return {"rides": rides, "has_more": len(rides) == limit, "limit": limit, "skip": skip}
 
+
+@api_router.get("/passengers/ride-stats")
+async def get_passenger_ride_stats(period: str = "month", current_user: dict = Depends(get_current_user)):
+    require_passenger(current_user)
+    normalized_period = str(period or "month").strip().lower()
+    if normalized_period not in {"month", "quarter", "year", "all"}:
+        normalized_period = "month"
+
+    now = as_utc_naive(get_ist_now()) or datetime.utcnow()
+    start_at: Optional[datetime] = None
+    if normalized_period == "month":
+        start_at = now - timedelta(days=31)
+    elif normalized_period == "quarter":
+        start_at = now - timedelta(days=92)
+    elif normalized_period == "year":
+        start_at = now - timedelta(days=366)
+
+    query = {
+        "passenger_id": current_user["id"],
+        "status": {"$in": [BookingStatus.COMPLETED, BookingStatus.COMPLETED.value]},
+    }
+    bookings = await db.bookings.find(query, {"_id": 0}).sort(
+        [("trip_completed_at", -1), ("updated_at", -1), ("created_at", -1)]
+    ).to_list(5000)
+
+    def ride_completed_at(booking: Dict[str, Any]) -> datetime:
+        value = booking.get("trip_completed_at") or booking.get("updated_at") or booking.get("created_at")
+        normalized = as_utc_naive(value) if isinstance(value, (datetime, str)) else None
+        return normalized or datetime.min
+
+    filtered_bookings = [
+        booking for booking in bookings
+        if start_at is None or ride_completed_at(booking) >= start_at
+    ]
+
+    total_rides = len(filtered_bookings)
+    total_spent = round(sum(booking_fare_value(booking) for booking in filtered_bookings), 2)
+    total_distance = round(sum(booking_distance_value(booking) for booking in filtered_bookings), 2)
+    durations = [
+        safe_float(booking.get("duration_minutes"), safe_float(booking.get("eta_minutes"), 0.0))
+        for booking in filtered_bookings
+    ]
+    durations = [value for value in durations if value > 0]
+
+    driver_counts: Dict[str, Dict[str, Any]] = {}
+    day_counts: Dict[str, int] = {}
+    hour_counts: Dict[int, int] = {}
+    route_counts: Dict[str, int] = {}
+    vehicle_counts: Dict[str, int] = {}
+
+    for booking in filtered_bookings:
+        completed_at = ride_completed_at(booking)
+        if completed_at != datetime.min:
+            day_name = completed_at.strftime("%A")
+            day_counts[day_name] = day_counts.get(day_name, 0) + 1
+            hour_counts[completed_at.hour] = hour_counts.get(completed_at.hour, 0) + 1
+
+        pickup_address = str((booking.get("pickup_location") or {}).get("address") or "").strip()
+        drop_address = str((booking.get("drop_location") or {}).get("address") or "").strip()
+        if pickup_address and drop_address:
+            route_label = f"{pickup_address} -> {drop_address}"
+            route_counts[route_label] = route_counts.get(route_label, 0) + 1
+
+        vehicle_label = (
+            booking.get("vehicle_type_name")
+            or booking.get("vehicle_type_id")
+            or booking.get("ride_type")
+            or booking.get("ride_product")
+        )
+        if vehicle_label:
+            vehicle_key = str(vehicle_label).replace("_", " ").title()
+            vehicle_counts[vehicle_key] = vehicle_counts.get(vehicle_key, 0) + 1
+
+        driver_id = str(booking.get("driver_id") or "").strip()
+        if driver_id:
+            entry = driver_counts.setdefault(
+                driver_id,
+                {
+                    "driver_id": driver_id,
+                    "driver_name": booking.get("driver_name") or "Driver",
+                    "ride_count": 0,
+                    "rating": 5.0,
+                },
+            )
+            entry["ride_count"] += 1
+
+    driver_ids = list(driver_counts.keys())
+    if driver_ids:
+        users = {
+            user["id"]: user
+            for user in await db.users.find(
+                {"id": {"$in": driver_ids}},
+                {"_id": 0, "id": 1, "name": 1, "rating": 1, "average_rating": 1},
+            ).to_list(None)
+        }
+        for driver_id, entry in driver_counts.items():
+            user = users.get(driver_id) or {}
+            entry["driver_name"] = user.get("name") or entry.get("driver_name") or "Driver"
+            entry["rating"] = round(safe_float(user.get("average_rating"), safe_float(user.get("rating"), 5.0)), 1)
+
+    top_drivers = sorted(
+        driver_counts.values(),
+        key=lambda item: (int(item.get("ride_count") or 0), safe_float(item.get("rating"), 0.0)),
+        reverse=True,
+    )[:5]
+
+    insights: List[str] = []
+    if total_rides == 0:
+        insights.append("No completed rides found for this period.")
+    else:
+        insights.append(f"You completed {total_rides} ride{'s' if total_rides != 1 else ''} in this period.")
+        if total_distance > 0:
+            insights.append(f"You travelled about {round(total_distance, 1)} km.")
+        if total_spent > 0:
+            insights.append(f"Average fare was Rs {round(total_spent / max(total_rides, 1), 0):.0f}.")
+
+    stats = {
+        "period": normalized_period,
+        "total_rides": total_rides,
+        "total_spent": total_spent,
+        "avg_fare": round(total_spent / max(total_rides, 1), 2) if total_rides else 0.0,
+        "total_distance_km": total_distance,
+        "avg_distance_km": round(total_distance / max(total_rides, 1), 2) if total_rides else 0.0,
+        "total_duration_hours": round(sum(durations) / 60.0, 2) if durations else 0.0,
+        "avg_duration_minutes": round(sum(durations) / max(len(durations), 1), 2) if durations else 0.0,
+        "avg_rating": round(
+            sum(safe_float(item.get("rating"), 0.0) for item in top_drivers) / max(len(top_drivers), 1),
+            2,
+        ) if top_drivers else 0.0,
+        "top_drivers": top_drivers,
+        "ride_patterns": {
+            "peak_day": max(day_counts, key=day_counts.get) if day_counts else None,
+            "peak_hour": max(hour_counts, key=hour_counts.get) if hour_counts else None,
+            "favorite_route": max(route_counts, key=route_counts.get) if route_counts else None,
+            "preferred_vehicle_type": max(vehicle_counts, key=vehicle_counts.get) if vehicle_counts else None,
+        },
+        "achievements": [],
+        "savings_and_rewards": {
+            "total_savings": 0.0,
+            "promo_discounts": 0.0,
+            "loyalty_points": float(total_rides * 10),
+        },
+        "insights": insights,
+    }
+    return {"stats": stats}
+
+
 @api_router.get("/passengers/receipts")
 async def get_passenger_receipts(period: str = "all", current_user: dict = Depends(get_current_user)):
     require_passenger(current_user)
@@ -9624,16 +9772,13 @@ async def get_favorite_drivers(
     if not driver_ids:
         return []
 
-    drivers = await db.drivers.find(
-        {
-            "user_id": {"$in": driver_ids},
-            "vehicle_info": {"$ne": None},
-            "kyc_status": KYCStatus.APPROVED,
-        }
-    ).to_list(200)
+    drivers = await db.drivers.find({"user_id": {"$in": driver_ids}}).to_list(200)
     users = await db.users.find({"id": {"$in": driver_ids}}).to_list(200)
     users_by_id = {u["id"]: u for u in users}
     drivers_by_id = {d["user_id"]: d for d in drivers}
+    favorite_docs_by_driver_id = {
+        item.get("driver_id"): item for item in favorite_docs if item.get("driver_id")
+    }
 
     active_statuses = [BookingStatus.ACCEPTED, BookingStatus.DRIVER_ARRIVED, BookingStatus.IN_PROGRESS]
     active_bookings = await db.bookings.find(
@@ -9646,35 +9791,52 @@ async def get_favorite_drivers(
     for driver_id in driver_ids:
         if excluded_driver_ids and driver_id in excluded_driver_ids:
             continue
-        if driver_id in active_driver_ids:
-            # Requirement: show favorite if not in active ride.
-            continue
         driver = drivers_by_id.get(driver_id)
         user = users_by_id.get(driver_id)
-        if not driver or not user:
+        if not user:
             continue
-        live_location = await get_effective_driver_location(driver)
-        if not live_location:
-            continue
-        driver_loc = Location(**live_location)
-        distance = calculate_distance(pickup_loc, driver_loc) if pickup_loc else None
+
+        vehicle_info = driver.get("vehicle_info") if driver else None
+        live_location = await get_effective_driver_location(driver) if driver else None
+        distance = None
+        if live_location and pickup_loc:
+            driver_loc = Location(**live_location)
+            distance = calculate_distance(pickup_loc, driver_loc)
+
+        kyc_status = driver.get("kyc_status") if driver else None
+        is_approved = kyc_status in {KYCStatus.APPROVED, KYCStatus.APPROVED.value}
+        in_active_ride = driver_id in active_driver_ids
+        driver_online = bool(driver and driver.get("is_available", False))
+        is_dispatch_available = bool(driver_online and vehicle_info and is_approved and live_location and not in_active_ride)
+        favorite_doc = favorite_docs_by_driver_id.get(driver_id) or {}
         results.append(
             {
                 "driver_id": driver_id,
                 "name": user.get("name", "Unknown"),
                 "phone": user.get("phone", ""),
-                "vehicle_info": driver.get("vehicle_info"),
-                "rating": float(driver.get("rating", 5.0)),
+                "vehicle_info": vehicle_info,
+                "rating": float(driver.get("rating", 5.0)) if driver else 5.0,
                 "distance_km": distance,
-                "fare_multiplier": float(driver.get("fare_multiplier", 1.0)),
+                "fare_multiplier": float(driver.get("fare_multiplier", 1.0)) if driver else 1.0,
                 "location": live_location,
-                "is_available": bool(driver.get("is_available", False)),
+                "is_available": is_dispatch_available,
                 "is_favorite": True,
-                "in_active_ride": False,
+                "has_driver_profile": bool(driver),
+                "has_live_location": bool(live_location),
+                "is_dispatch_available": is_dispatch_available,
+                "in_active_ride": in_active_ride,
+                "favorite_since": favorite_doc.get("created_at"),
+                "updated_at": favorite_doc.get("updated_at"),
             }
         )
 
-    results.sort(key=lambda item: (99999 if item.get("distance_km") is None else item["distance_km"]))
+    results.sort(
+        key=lambda item: (
+            0 if item.get("is_dispatch_available") else 1,
+            99999 if item.get("distance_km") is None else item["distance_km"],
+            str(item.get("name") or ""),
+        )
+    )
     return results
 
 @api_router.get("/drivers/pending-requests")

@@ -19,6 +19,7 @@ import MapView, { Marker } from 'react-native-maps';
 
 import { apiRequest } from '../lib/api';
 import { getDisplayText } from '../lib/displayText';
+import { getFavoriteDriverIds } from '../lib/favoriteDrivers';
 import {
   getPlaceLocation, 
   isPlacesConfigured,
@@ -123,10 +124,10 @@ const PASSENGER_MENU_OPTIONS = [
 const PRIMARY_PASSENGER_MENU_KEY = 'ride';
 const buildPassengerMenuOptions = (keys) =>
   keys.map((key) => PASSENGER_MENU_OPTIONS.find((menu) => menu.key === key)).filter(Boolean);
-const PINNED_PASSENGER_MENU_OPTIONS = buildPassengerMenuOptions(['drivers', 'favorites', 'safety', 'wallet']);
+const PINNED_PASSENGER_MENU_OPTIONS = buildPassengerMenuOptions(['drivers', 'favorites']);
 const SECONDARY_PASSENGER_MENU_GROUPS = [
   { key: 'trip', title: 'Trip', keys: ['scheduled', 'history', 'stats', 'notes', 'ratings', 'receipts'] },
-  { key: 'deals', title: 'Deals & Payment', keys: ['spin', 'promo', 'payment', 'subscription'] },
+  { key: 'deals', title: 'Deals & Payment', keys: ['wallet', 'spin', 'promo', 'payment', 'subscription'] },
   { key: 'account', title: 'Account', keys: ['profile', 'kyc', 'documents', 'preferences', 'places', 'accessibility', 'sharing'] },
   { key: 'help', title: 'Help', keys: ['notifications', 'support', 'emergency'] },
 ].map((section) => ({
@@ -1012,13 +1013,16 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   };
 
   const applyDriverRelationshipState = useCallback((favorites, blocked) => {
-    const favoriteIds = (Array.isArray(favorites) ? favorites : [])
-      .map((item) => item?.driver_id)
-      .filter(Boolean);
+    const favoriteIds = getFavoriteDriverIds(favorites);
     const blockedIds = Array.isArray(blocked?.driver_ids) ? blocked.driver_ids : [];
     setFavoriteDriverIds(favoriteIds.filter((driverId) => !blockedIds.includes(driverId)));
     setBlockedDriverIds(blockedIds);
   }, []);
+
+  const handleFavoriteDriversChange = useCallback((favorites) => {
+    const favoriteIds = getFavoriteDriverIds(favorites);
+    setFavoriteDriverIds(favoriteIds.filter((driverId) => !blockedDriverIds.includes(driverId)));
+  }, [blockedDriverIds]);
 
   const refreshPassengerBookings = useCallback(async ({ silent = false } = {}) => {
     try {
@@ -1465,8 +1469,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   }, [animateMapToLocation]);
 
   const applyNearbyDrivers = useCallback((drivers, favorites, blocked) => {
-    const favoritesList = Array.isArray(favorites) ? favorites : [];
-    const favoriteIds = favoritesList.map((item) => item.driver_id).filter(Boolean);
+    const favoriteIds = getFavoriteDriverIds(favorites);
     setFavoriteDriverIds(favoriteIds);
     const blockedIds = Array.isArray(blocked?.driver_ids) ? blocked.driver_ids : [];
     setBlockedDriverIds(blockedIds);
@@ -2459,6 +2462,11 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               <Text style={styles.logoutText}>Profile</Text>
             </TouchableOpacity>
           )}
+          <TouchableOpacity
+            onPress={() => handleMenuSelection('safety', 'Safety')}
+            style={[styles.logoutButton, styles.safetyHeaderButton]}>
+            <Text style={[styles.logoutText, styles.safetyHeaderText]}>Safety</Text>
+          </TouchableOpacity>
           <TouchableOpacity onPress={onLogout} style={styles.logoutButton}>
             <Text style={styles.logoutText}>Logout</Text>
           </TouchableOpacity>
@@ -3406,7 +3414,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             <PaymentMethodsPanel token={token} onDefaultMethodChange={handleDefaultMethodChange} />
           )}
           {activePassengerMenu === 'ratings' && <PassengerRatingsPanel token={token} />}
-          {activePassengerMenu === 'favorites' && <FavoriteDriversPanel token={token} />}
+          {activePassengerMenu === 'favorites' && (
+            <FavoriteDriversPanel token={token} onFavoriteDriversChange={handleFavoriteDriversChange} />
+          )}
           {activePassengerMenu === 'preferences' && (
             <PreferencesPanel token={token} onPreferencesChange={handlePreferencesChange} />
           )}
@@ -3544,6 +3554,11 @@ const styles = StyleSheet.create({
     ...SHADOWS.soft,
   },
   logoutText: { color: COLORS.textMain, fontWeight: '700' },
+  safetyHeaderButton: {
+    backgroundColor: '#FFF8E7',
+    borderColor: '#E0A82E',
+  },
+  safetyHeaderText: { color: '#73510A' },
   bottomCard: {
     position: 'absolute',
     left: 10,

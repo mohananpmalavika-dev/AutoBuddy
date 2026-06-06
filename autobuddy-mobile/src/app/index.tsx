@@ -675,6 +675,15 @@ export default function HomeScreen() {
     </ScrollView>
   );
 
+  const renderWebSetupShell = (children: ReactNode) => (
+    <View style={styles.launchViewport}>
+      <View style={[styles.setupLoader, isCompactWeb && styles.setupLoaderCompact]}>
+        <AutoBuddyBrand subtitle="Set Up Web Alerts" compact={isCompactWeb} />
+        {children}
+      </View>
+    </View>
+  );
+
   if (booting) {
     return renderCenteredShell(
       'Loading AutoBuddy...',
@@ -709,12 +718,12 @@ export default function HomeScreen() {
   }
 
   if (session && showWebSetupCard) {
-    return renderCenteredShell(
-      'Set Up Web Alerts',
+    return renderWebSetupShell(
       <View style={[styles.shellCardWrap, isCompactWeb && styles.shellCardWrapCompact]}>
         <WebSetupCard
           notificationPermission={notificationPermission}
           message={webSetupMessage}
+          compact={isCompactWeb}
           onEnableAlerts={enableWebAlerts}
           onInstallShortcut={installWebShortcut}
           onContinue={dismissWebSetup}
@@ -751,6 +760,10 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.bg,
   },
+  launchViewport: {
+    flex: 1,
+    backgroundColor: COLORS.bg,
+  },
   loader: {
     flexGrow: 1,
     justifyContent: 'center',
@@ -763,6 +776,20 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     paddingHorizontal: 10,
     paddingVertical: 12,
+  },
+  setupLoader: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: COLORS.bg,
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+  },
+  setupLoaderCompact: {
+    justifyContent: 'flex-start',
+    paddingHorizontal: 10,
+    paddingTop: 16,
+    paddingBottom: 8,
   },
   loaderText: { marginTop: 12, color: COLORS.muted, fontWeight: '700' },
   shellCardWrap: {

@@ -33,7 +33,7 @@ export default function RideStatsPanel({ token }) {
     try {
       setLoading(true);
       setError('');
-      const data = await apiRequest('/passengers/ride-stats', { token, params: { period: timePeriod } });
+      const data = await apiRequest('/passengers/ride-stats', { token, query: { period: timePeriod } });
       setStats(data?.stats || {});
     } catch (err) {
       setError(err.message || 'Failed to load ride statistics');
