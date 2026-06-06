@@ -10658,6 +10658,107 @@ async def create_booking(
         passenger_name=current_user["name"]
     )
 
+
+def normalize_booking_enum_value(value: Any, enum_cls: type[Enum], default: str) -> str:
+    raw_value = enum_response_value(value)
+    normalized = str(raw_value or "").strip()
+    if "." in normalized:
+        normalized = normalized.split(".")[-1]
+    normalized = normalized.lower()
+    valid_values = {item.value for item in enum_cls}
+    return normalized if normalized in valid_values else default
+
+
+def booking_response_location(value: Any, fallback_address: str) -> Location:
+    if isinstance(value, dict):
+        latitude = value.get("latitude", value.get("lat"))
+        longitude = value.get("longitude", value.get("lng"))
+        try:
+            return Location(
+                latitude=float(latitude),
+                longitude=float(longitude),
+                address=value.get("address") or value.get("name") or fallback_address,
+            )
+        except (TypeError, ValueError):
+            pass
+    return Location(latitude=0.0, longitude=0.0, address=fallback_address)
+
+
+def booking_response_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value if value is not None else default)
+    except (TypeError, ValueError):
+        return default
+
+
+def booking_response_datetime(value: Any, fallback: datetime) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return fallback
+    return fallback
+
+
+def booking_response_vehicle_info(driver_profile: Optional[Dict[str, Any]]) -> Optional[VehicleInfo]:
+    if not driver_profile or not isinstance(driver_profile.get("vehicle_info"), dict):
+        return None
+    try:
+        return VehicleInfo(**driver_profile["vehicle_info"])
+    except Exception as exc:
+        logger.warning(
+            "Skipping invalid vehicle_info on booking history response for driver_id=%s: %s",
+            driver_profile.get("user_id"),
+            exc,
+        )
+        return None
+
+
+def build_booking_history_response(
+    booking: Dict[str, Any],
+    passenger: Optional[Dict[str, Any]],
+    driver: Optional[Dict[str, Any]],
+    driver_profile: Optional[Dict[str, Any]],
+) -> BookingResponse:
+    now = get_ist_now()
+    created_at = booking_response_datetime(booking.get("created_at"), now)
+    updated_at = booking_response_datetime(booking.get("updated_at"), created_at)
+    booking_id = str(booking.get("id") or booking.get("_id") or uuid.uuid4())
+    passenger_id = str(booking.get("passenger_id") or "")
+    if not passenger_id:
+        raise ValueError("booking is missing passenger_id")
+
+    return BookingResponse(
+        id=booking_id,
+        passenger_id=passenger_id,
+        passenger_name=passenger.get("name") if passenger else None,
+        driver_id=booking.get("driver_id"),
+        driver_name=driver.get("name") if driver else None,
+        driver_phone=driver.get("phone") if driver else None,
+        vehicle_info=booking_response_vehicle_info(driver_profile),
+        pickup_location=booking_response_location(booking.get("pickup_location"), "Pickup unavailable"),
+        drop_location=booking_response_location(booking.get("drop_location"), "Drop unavailable"),
+        status=normalize_booking_enum_value(booking.get("status"), BookingStatus, BookingStatus.PENDING.value),
+        estimated_fare=booking_response_float(booking.get("estimated_fare")),
+        pickup_surcharge=booking_response_float(booking.get("pickup_surcharge")),
+        extra_pickup_distance_km=booking_response_float(booking.get("extra_pickup_distance_km")),
+        final_fare=booking_response_float(booking.get("final_fare")) if booking.get("final_fare") is not None else None,
+        actual_distance_km=booking_response_float(booking.get("actual_distance_km")),
+        distance_km=booking_response_float(booking.get("distance_km")),
+        payment_method=normalize_booking_enum_value(booking.get("payment_method"), PaymentMethod, PaymentMethod.CASH.value),
+        scheduled_for=booking_response_datetime(booking.get("scheduled_for"), now) if booking.get("scheduled_for") else None,
+        created_at=created_at,
+        updated_at=updated_at,
+        route_polyline=[
+            booking_response_location(point, "Route point")
+            for point in (booking.get("route_polyline") or [])
+            if isinstance(point, dict)
+        ] or None,
+    )
+
+
 @api_router.get("/bookings", response_model=List[BookingResponse])
 async def get_bookings(
     current_user: dict = Depends(get_current_user),
@@ -10701,7 +10802,7 @@ async def get_bookings(
     bookings = await db.bookings.find(query).sort("created_at", -1).skip(skip).to_list(limit)
     
     # Batch fetch all unique user IDs and driver IDs
-    passenger_ids = list(set([b["passenger_id"] for b in bookings]))
+    passenger_ids = list(set([b.get("passenger_id") for b in bookings if b.get("passenger_id")]))
     driver_ids = list(set([b["driver_id"] for b in bookings if b.get("driver_id")]))
     all_user_ids = list(set(passenger_ids + driver_ids))
     
@@ -10711,32 +10812,17 @@ async def get_bookings(
     
     results = []
     for b in bookings:
-        passenger = users.get(b["passenger_id"])
+        passenger = users.get(b.get("passenger_id"))
         driver = users.get(b.get("driver_id")) if b.get("driver_id") else None
         driver_profile = driver_profiles.get(b.get("driver_id")) if b.get("driver_id") else None
-        
-        results.append(BookingResponse(
-            id=b["id"],
-            passenger_id=b["passenger_id"],
-            passenger_name=passenger["name"] if passenger else None,
-            driver_id=b.get("driver_id"),
-            driver_name=driver["name"] if driver else None,
-            driver_phone=driver["phone"] if driver else None,
-            vehicle_info=VehicleInfo(**driver_profile["vehicle_info"]) if driver_profile and driver_profile.get("vehicle_info") else None,
-            pickup_location=Location(**b["pickup_location"]),
-            drop_location=Location(**b["drop_location"]),
-            status=b["status"],
-            estimated_fare=b["estimated_fare"],
-            pickup_surcharge=float(b.get("pickup_surcharge", 0.0) or 0.0),
-            extra_pickup_distance_km=float(b.get("extra_pickup_distance_km", 0.0) or 0.0),
-            final_fare=b.get("final_fare"),
-            actual_distance_km=float(b.get("actual_distance_km", 0.0) or 0.0),
-            distance_km=b["distance_km"],
-            payment_method=b["payment_method"],
-            scheduled_for=b.get("scheduled_for"),
-            created_at=b["created_at"],
-            updated_at=b["updated_at"]
-        ))
+        try:
+            results.append(build_booking_history_response(b, passenger, driver, driver_profile))
+        except Exception as exc:
+            logger.warning(
+                "Skipping malformed booking in /bookings response: booking_id=%s error=%s",
+                b.get("id") or b.get("_id"),
+                exc,
+            )
     
     return results
 

@@ -93,7 +93,17 @@ function buildReceiptLines(booking, viewerRole) {
   ].filter(Boolean);
 }
 
-function RideHistoryCard({ booking, onPress, isLoading, viewerRole = 'passenger' }) {
+function RideHistoryCard({
+  booking,
+  onPress,
+  isLoading,
+  viewerRole = 'passenger',
+  isCounterpartFavorite = false,
+  isCounterpartBlocked = false,
+  actionBusy = false,
+  onToggleFavorite,
+  onToggleBlock,
+}) {
   const statusColor = {
     completed: '#4CAF50',
     cancelled: '#F44336',
@@ -107,6 +117,7 @@ function RideHistoryCard({ booking, onPress, isLoading, viewerRole = 'passenger'
     const timePart = formatToIST(dateStr, { hour: '2-digit', minute: '2-digit' });
     return `${datePart} ${timePart}`;
   };
+  const showDriverRelationshipActions = viewerRole === 'driver' && !!booking?.passenger_id;
 
   return (
     <TouchableOpacity
@@ -173,6 +184,46 @@ function RideHistoryCard({ booking, onPress, isLoading, viewerRole = 'passenger'
         </View>
       </View>
 
+      {showDriverRelationshipActions && (
+        <View style={styles.cardActionRow}>
+          <TouchableOpacity
+            style={[
+              styles.historyActionButton,
+              isCounterpartFavorite && styles.historyActionButtonActive,
+              isCounterpartBlocked && styles.historyActionButtonDisabled,
+            ]}
+            onPress={(event) => {
+              event?.stopPropagation?.();
+              onToggleFavorite?.(booking);
+            }}
+            disabled={isLoading || actionBusy || isCounterpartBlocked}>
+            <Text style={[
+              styles.historyActionText,
+              isCounterpartFavorite && styles.historyActionTextActive,
+            ]}>
+              {isCounterpartFavorite ? 'Unfavorite' : 'Favorite'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.historyActionButton,
+              isCounterpartBlocked && styles.historyBlockActionActive,
+            ]}
+            onPress={(event) => {
+              event?.stopPropagation?.();
+              onToggleBlock?.(booking);
+            }}
+            disabled={isLoading || actionBusy}>
+            <Text style={[
+              styles.historyActionText,
+              isCounterpartBlocked && styles.historyBlockActionText,
+            ]}>
+              {isCounterpartBlocked ? 'Unblock' : 'Block'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       <View style={styles.cardFooter}>
         <Text style={styles.bookingId}>ID: {String(booking.id || 'N/A').substring(0, 12)}</Text>
         <Text style={styles.tapHint}>Tap for details</Text>
@@ -193,6 +244,9 @@ export default function RideHistoryPanel({
   const [error, setError] = useState('');
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [serverHasMore, setServerHasMore] = useState(false);
+  const [favoritePassengerIds, setFavoritePassengerIds] = useState([]);
+  const [blockedPassengerIds, setBlockedPassengerIds] = useState([]);
+  const [relationshipActionId, setRelationshipActionId] = useState('');
 
   // Filter state
   const [statusFilter, setStatusFilter] = useState('all');
@@ -224,6 +278,27 @@ export default function RideHistoryPanel({
     }
   }, [statusFilter, token, viewerRole]);
 
+  const refreshDriverPassengerRelationships = useCallback(async () => {
+    if (viewerRole !== 'driver' || !token) {
+      return;
+    }
+    try {
+      const [favoritePayload, blockedPayload] = await Promise.all([
+        apiRequest('/drivers-tier3/favorite-passengers?limit=200', { method: 'GET', token }).catch(() => ({ favorites: [] })),
+        apiRequest('/drivers/blocked-passengers', { token }).catch(() => ({ passenger_ids: [] })),
+      ]);
+      const blockedIds = Array.isArray(blockedPayload?.passenger_ids) ? blockedPayload.passenger_ids : [];
+      const favoriteIds = (Array.isArray(favoritePayload?.favorites) ? favoritePayload.favorites : [])
+        .map((favorite) => favorite?.passenger_id)
+        .filter((passengerId) => passengerId && !blockedIds.includes(passengerId));
+      setBlockedPassengerIds(blockedIds);
+      setFavoritePassengerIds(favoriteIds);
+    } catch {
+      setBlockedPassengerIds([]);
+      setFavoritePassengerIds([]);
+    }
+  }, [token, viewerRole]);
+
   useEffect(() => {
     let isMounted = true;
 
@@ -231,7 +306,10 @@ export default function RideHistoryPanel({
       try {
         setLoading(true);
         setError('');
-        const data = await fetchBookings();
+        const [data] = await Promise.all([
+          fetchBookings(),
+          refreshDriverPassengerRelationships(),
+        ]);
         if (isMounted) {
           setBookings(data);
           setServerHasMore(data.length === SERVER_PAGE_SIZE);
@@ -255,7 +333,7 @@ export default function RideHistoryPanel({
     return () => {
       isMounted = false;
     };
-  }, [fetchBookings]);
+  }, [fetchBookings, refreshDriverPassengerRelationships]);
 
   // Filter and sort bookings
   const filteredAndSortedBookings = useMemo(() => {
@@ -345,7 +423,10 @@ export default function RideHistoryPanel({
     try {
       setLoading(true);
       setError('');
-      const data = await fetchBookings();
+      const [data] = await Promise.all([
+        fetchBookings(),
+        refreshDriverPassengerRelationships(),
+      ]);
       setBookings(data);
       setServerHasMore(data.length === SERVER_PAGE_SIZE);
       setSelectedBooking(null);
@@ -355,7 +436,7 @@ export default function RideHistoryPanel({
     } finally {
       setLoading(false);
     }
-  }, [fetchBookings]);
+  }, [fetchBookings, refreshDriverPassengerRelationships]);
 
   const handleTripPress = useCallback((booking) => {
     if (typeof onTripSelected === 'function') {
@@ -375,6 +456,75 @@ export default function RideHistoryPanel({
       setError(err.message || 'Could not share receipt');
     }
   }, [viewerRole]);
+
+  const toggleFavoritePassengerFromHistory = useCallback(async (booking) => {
+    const passengerId = booking?.passenger_id;
+    if (!passengerId || viewerRole !== 'driver') {
+      return;
+    }
+    const isFavorite = favoritePassengerIds.includes(passengerId);
+    setRelationshipActionId(`favorite:${passengerId}`);
+    setError('');
+    try {
+      if (isFavorite) {
+        await apiRequest(`/drivers-tier3/favorite-passengers/${passengerId}`, {
+          method: 'DELETE',
+          token,
+        });
+        setFavoritePassengerIds((prev) => prev.filter((item) => item !== passengerId));
+      } else {
+        await apiRequest('/drivers-tier3/favorite-passengers', {
+          method: 'POST',
+          token,
+          body: {
+            passenger_id: passengerId,
+            rating: 5,
+            notes: `Added from ride history ${String(booking?.id || '').slice(0, 12)}`,
+          },
+        });
+        setFavoritePassengerIds((prev) => (prev.includes(passengerId) ? prev : [...prev, passengerId]));
+      }
+    } catch (err) {
+      setError(err.message || 'Could not update favorite passenger');
+    } finally {
+      setRelationshipActionId('');
+    }
+  }, [favoritePassengerIds, token, viewerRole]);
+
+  const toggleBlockedPassengerFromHistory = useCallback(async (booking) => {
+    const passengerId = booking?.passenger_id;
+    if (!passengerId || viewerRole !== 'driver') {
+      return;
+    }
+    const isBlocked = blockedPassengerIds.includes(passengerId);
+    setRelationshipActionId(`block:${passengerId}`);
+    setError('');
+    try {
+      await apiRequest(`/drivers/blocked-passengers/${passengerId}`, {
+        method: 'PUT',
+        token,
+        body: {
+          is_blocked: !isBlocked,
+          booking_id: booking?.id,
+          reason: isBlocked ? undefined : 'Blocked from ride history',
+        },
+      });
+      if (isBlocked) {
+        setBlockedPassengerIds((prev) => prev.filter((item) => item !== passengerId));
+      } else {
+        setBlockedPassengerIds((prev) => (prev.includes(passengerId) ? prev : [...prev, passengerId]));
+        setFavoritePassengerIds((prev) => prev.filter((item) => item !== passengerId));
+        await apiRequest(`/drivers-tier3/favorite-passengers/${passengerId}`, {
+          method: 'DELETE',
+          token,
+        }).catch(() => null);
+      }
+    } catch (err) {
+      setError(err.message || 'Could not update blocked passenger');
+    } finally {
+      setRelationshipActionId('');
+    }
+  }, [blockedPassengerIds, token, viewerRole]);
 
   const selectedTotalFare = getFareAmount(selectedBooking);
   const selectedPickupSurcharge = Number(selectedBooking?.pickup_surcharge || 0);
@@ -576,6 +726,11 @@ export default function RideHistoryPanel({
               key={booking.id}
               booking={booking}
               viewerRole={viewerRole}
+              isCounterpartFavorite={favoritePassengerIds.includes(booking.passenger_id)}
+              isCounterpartBlocked={blockedPassengerIds.includes(booking.passenger_id)}
+              actionBusy={relationshipActionId.endsWith(`:${booking.passenger_id}`)}
+              onToggleFavorite={toggleFavoritePassengerFromHistory}
+              onToggleBlock={toggleBlockedPassengerFromHistory}
               onPress={() => handleTripPress(booking)}
             />
           ))}
@@ -940,6 +1095,44 @@ const styles = StyleSheet.create({
   },
   fareText: {
     color: '#4CAF50',
+  },
+
+  cardActionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingBottom: 10,
+  },
+  historyActionButton: {
+    borderWidth: 1,
+    borderColor: '#CBD9D0',
+    borderRadius: 7,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    backgroundColor: '#F6FAF7',
+  },
+  historyActionButtonActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: '#E3F2E8',
+  },
+  historyBlockActionActive: {
+    borderColor: '#C62828',
+    backgroundColor: '#FDECEC',
+  },
+  historyActionButtonDisabled: {
+    opacity: 0.55,
+  },
+  historyActionText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#355243',
+  },
+  historyActionTextActive: {
+    color: COLORS.primaryDark,
+  },
+  historyBlockActionText: {
+    color: '#C62828',
   },
 
   cardFooter: {

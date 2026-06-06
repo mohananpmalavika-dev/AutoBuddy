@@ -1011,10 +1011,24 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     }
   };
 
+  const applyDriverRelationshipState = useCallback((favorites, blocked) => {
+    const favoriteIds = (Array.isArray(favorites) ? favorites : [])
+      .map((item) => item?.driver_id)
+      .filter(Boolean);
+    const blockedIds = Array.isArray(blocked?.driver_ids) ? blocked.driver_ids : [];
+    setFavoriteDriverIds(favoriteIds.filter((driverId) => !blockedIds.includes(driverId)));
+    setBlockedDriverIds(blockedIds);
+  }, []);
+
   const refreshPassengerBookings = useCallback(async ({ silent = false } = {}) => {
     try {
       setError(''); // Clear any previous errors
-      const bookings = await apiRequest('/bookings', { token, limit: 100, offset: 0 });
+      const [bookings, favorites, blocked] = await Promise.all([
+        apiRequest('/bookings', { token, query: { limit: historyPageSize, skip: 0 } }),
+        apiRequest('/passengers/favorite-drivers', { token }).catch(() => []),
+        apiRequest('/passengers/blocked-drivers', { token }).catch(() => ({ driver_ids: [] })),
+      ]);
+      applyDriverRelationshipState(favorites, blocked);
       setPassengerBookings(Array.isArray(bookings) ? bookings : []);
       setHistoryPaginationOffset(0);
       setHistoryHasMore((Array.isArray(bookings) ? bookings.length : 0) >= historyPageSize);
@@ -1030,7 +1044,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       setPassengerBookings([]);
       return [];
     }
-  }, [historyPageSize, token]);
+  }, [applyDriverRelationshipState, historyPageSize, token]);
 
   useEffect(() => {
     refreshPassengerBookingsRef.current = refreshPassengerBookings;
@@ -1040,7 +1054,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     try {
       setError(''); // Clear any previous errors
       const nextOffset = historyPaginationOffset + historyPageSize;
-      const newBookings = await apiRequest('/bookings', { token, limit: 100, offset: nextOffset });
+      const newBookings = await apiRequest('/bookings', { token, query: { limit: historyPageSize, skip: nextOffset } });
       const allBookings = [...passengerBookings, ...(Array.isArray(newBookings) ? newBookings : [])];
       setPassengerBookings(allBookings);
       setHistoryPaginationOffset(nextOffset);
@@ -1450,6 +1464,112 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     }
   }, [animateMapToLocation]);
 
+  const applyNearbyDrivers = useCallback((drivers, favorites, blocked) => {
+    const favoritesList = Array.isArray(favorites) ? favorites : [];
+    const favoriteIds = favoritesList.map((item) => item.driver_id).filter(Boolean);
+    setFavoriteDriverIds(favoriteIds);
+    const blockedIds = Array.isArray(blocked?.driver_ids) ? blocked.driver_ids : [];
+    setBlockedDriverIds(blockedIds);
+
+    const nearbyList = (Array.isArray(drivers) ? drivers : []).map((driver) => ({
+      ...driver,
+      is_favorite: favoriteIds.includes(driver.driver_id),
+      source: 'nearby',
+    })).filter((driver) => !blockedIds.includes(driver.driver_id));
+    const merged = nearbyList.slice(0, 5);
+    setNearbyDrivers(merged);
+    setSelectedDriverId((previousSelectedId) =>
+      previousSelectedId && !merged.some((item) => item.driver_id === previousSelectedId)
+        ? ''
+        : previousSelectedId,
+    );
+    return merged;
+  }, []);
+
+  const resolveNearbyDriverLookupLocation = useCallback(async () => {
+    const routeLocation = normalizeLocation(pickupLocation || activeBooking?.pickup_location);
+    if (routeLocation) {
+      return routeLocation;
+    }
+    try {
+      setLocatingPickup(true);
+      setError('');
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== 'granted') {
+        return null;
+      }
+      const current = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      const latitude = Number(current.coords.latitude.toFixed(6));
+      const longitude = Number(current.coords.longitude.toFixed(6));
+      return { latitude, longitude, address: `Lat ${latitude}, Lng ${longitude}` };
+    } catch {
+      return null;
+    } finally {
+      setLocatingPickup(false);
+    }
+  }, [activeBooking?.pickup_location, normalizeLocation, pickupLocation]);
+
+  const refreshNearbyDriversForMenu = useCallback(async ({ silent = false } = {}) => {
+    const lookupLocation = await resolveNearbyDriverLookupLocation();
+    if (!lookupLocation) {
+      setNearbyDrivers([]);
+      setSelectedDriverId('');
+      if (!silent) {
+        setError('Select pickup or allow current location to find nearby drivers.');
+      }
+      return null;
+    }
+
+    setAutoFetchingTripData(true);
+    try {
+      const query = {
+        latitude: lookupLocation.latitude,
+        longitude: lookupLocation.longitude,
+        radius_km: 2,
+        vehicle_type_id: effectiveSelectedVehicleTypeId || undefined,
+        vehicle_subtype_id: selectedVehicleModel?.id || undefined,
+        ride_type: effectiveRideProduct || undefined,
+      };
+      if (dropoffLocation) {
+        query.drop_latitude = dropoffLocation.latitude;
+        query.drop_longitude = dropoffLocation.longitude;
+      }
+      const [drivers, favorites, blocked] = await Promise.all([
+        apiRequest('/drivers/nearby', { token, query }),
+        apiRequest('/passengers/favorite-drivers', {
+          token,
+          query: {
+            latitude: lookupLocation.latitude,
+            longitude: lookupLocation.longitude,
+          },
+        }).catch(() => []),
+        apiRequest('/passengers/blocked-drivers', { token }).catch(() => ({ driver_ids: [] })),
+      ]);
+      const merged = applyNearbyDrivers(drivers, favorites, blocked);
+      if (!silent) {
+        setMessage(merged.length > 0 ? `${merged.length} drivers found within 2 km.` : 'No drivers within 2 km right now.');
+      }
+      return merged;
+    } catch (err) {
+      if (!silent) {
+        setError(err.message || 'Could not fetch nearby drivers.');
+      }
+      return null;
+    } finally {
+      setAutoFetchingTripData(false);
+    }
+  }, [
+    applyNearbyDrivers,
+    dropoffLocation,
+    effectiveRideProduct,
+    effectiveSelectedVehicleTypeId,
+    resolveNearbyDriverLookupLocation,
+    selectedVehicleModel,
+    token,
+  ]);
+
   const refreshDriverDiscovery = useCallback(async ({ silent = false } = {}) => {
     if (!pickupLocation || !dropoffLocation) {
       setFare(null);
@@ -1475,6 +1595,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             drop_latitude: dropoffLocation.latitude,
             drop_longitude: dropoffLocation.longitude,
             radius_km: 2,
+            vehicle_type_id: effectiveSelectedVehicleTypeId || undefined,
+            vehicle_subtype_id: selectedVehicleModel?.id || undefined,
+            ride_type: effectiveRideProduct || undefined,
           },
         }),
         apiRequest('/passengers/favorite-drivers', {
@@ -1488,24 +1611,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       ]);
 
       setFare(estimate || null);
-      const favoritesList = Array.isArray(favorites) ? favorites : [];
-      const favoriteIds = favoritesList.map((item) => item.driver_id).filter(Boolean);
-      setFavoriteDriverIds(favoriteIds);
-      const blockedIds = Array.isArray(blocked?.driver_ids) ? blocked.driver_ids : [];
-      setBlockedDriverIds(blockedIds);
-
-      const nearbyList = (Array.isArray(drivers) ? drivers : []).map((driver) => ({
-        ...driver,
-        is_favorite: favoriteIds.includes(driver.driver_id),
-        source: 'nearby',
-      })).filter((driver) => !blockedIds.includes(driver.driver_id));
-      const merged = nearbyList.slice(0, 5);
-      setNearbyDrivers(merged);
-      setSelectedDriverId((previousSelectedId) =>
-        previousSelectedId && !merged.some((item) => item.driver_id === previousSelectedId)
-          ? ''
-          : previousSelectedId,
-      );
+      applyNearbyDrivers(drivers, favorites, blocked);
     } catch (err) {
       if (!silent) {
         setError(err.message || 'Could not auto-calculate fare or drivers.');
@@ -1513,16 +1619,49 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     } finally {
       setAutoFetchingTripData(false);
     }
-  }, [dropoffLocation, pickupLocation, token]);
+  }, [
+    applyNearbyDrivers,
+    dropoffLocation,
+    effectiveRideProduct,
+    effectiveSelectedVehicleTypeId,
+    pickupLocation,
+    selectedVehicleModel,
+    token,
+  ]);
 
   useEffect(() => {
+    if (!pickupLocation || !dropoffLocation) {
+      return undefined;
+    }
     const timer = setTimeout(() => {
       refreshDriverDiscovery({ silent: false }).catch(() => null);
     }, 450);
     return () => {
       clearTimeout(timer);
     };
-  }, [refreshDriverDiscovery]);
+  }, [dropoffLocation, pickupLocation, refreshDriverDiscovery]);
+
+  useEffect(() => {
+    if (activePassengerMenu !== 'drivers') {
+      return undefined;
+    }
+    const timer = setTimeout(() => {
+      if (pickupLocation && dropoffLocation) {
+        refreshDriverDiscovery({ silent: true }).catch(() => null);
+      } else {
+        refreshNearbyDriversForMenu({ silent: false }).catch(() => null);
+      }
+    }, 150);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [
+    activePassengerMenu,
+    dropoffLocation,
+    pickupLocation,
+    refreshDriverDiscovery,
+    refreshNearbyDriversForMenu,
+  ]);
 
   useEffect(() => {
     if (selectedDriverId && !visibleDrivers.some((item) => item.driver_id === selectedDriverId)) {
@@ -1654,8 +1793,17 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         }),
       isFavorite ? 'Removed favorite driver.' : 'Driver marked as favorite.',
     );
-    if (done && pickupLocation && dropoffLocation) {
-      await refreshDriverDiscovery({ silent: true });
+    if (done) {
+      setFavoriteDriverIds((prev) => (
+        isFavorite
+          ? prev.filter((item) => item !== driverId)
+          : prev.includes(driverId) ? prev : [...prev, driverId]
+      ));
+      if (pickupLocation && dropoffLocation) {
+        await refreshDriverDiscovery({ silent: true });
+      } else if (activePassengerMenu === 'drivers') {
+        await refreshNearbyDriversForMenu({ silent: true });
+      }
     }
   };
 
@@ -1669,8 +1817,20 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         }),
       isBlocked ? 'Driver unblocked.' : 'Driver blocked.',
     );
-    if (done && pickupLocation && dropoffLocation) {
-      await refreshDriverDiscovery({ silent: true });
+    if (done) {
+      setBlockedDriverIds((prev) => (
+        isBlocked
+          ? prev.filter((item) => item !== driverId)
+          : prev.includes(driverId) ? prev : [...prev, driverId]
+      ));
+      if (!isBlocked) {
+        setFavoriteDriverIds((prev) => prev.filter((item) => item !== driverId));
+      }
+      if (pickupLocation && dropoffLocation) {
+        await refreshDriverDiscovery({ silent: true });
+      } else if (activePassengerMenu === 'drivers') {
+        await refreshNearbyDriversForMenu({ silent: true });
+      }
     }
   };
 
@@ -2818,7 +2978,11 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                       </TouchableOpacity>
                     )}
                   </View>
-                  {visibleDrivers.map((driver) => (
+                  {visibleDrivers.map((driver) => {
+                    const driverFare = estimateDriverFare(driver);
+                    const showDriverFare =
+                      Number(driver?.projected_fare || 0) > 0 || Number(fare?.total_fare || 0) > 0;
+                    return (
                     <View key={driver.driver_id} style={styles.driverRow}>
                       <View style={styles.driverInfoBlock}>
                         <Text style={styles.driverNameText}>
@@ -2828,9 +2992,11 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                         <Text style={styles.infoText}>
                           {Number(driver.distance_km || 0).toFixed(2)} km | rating {driver.rating}
                         </Text>
-                        <Text style={styles.infoText}>
-                          Projected fare: INR {estimateDriverFare(driver).toFixed(2)}
-                        </Text>
+                        {showDriverFare && (
+                          <Text style={styles.infoText}>
+                            Projected fare: INR {driverFare.toFixed(2)}
+                          </Text>
+                        )}
                       </View>
                       <View style={styles.driverActionBlock}>
                         <TouchableOpacity
@@ -2868,7 +3034,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                         </TouchableOpacity>
                       </View>
                     </View>
-                  ))}
+                    );
+                  })}
                   {visibleDrivers.length === 0 && (
                     <Text style={styles.hint}>
                       No drivers match your fare expectation. Increase expectation or reset opt-outs.
@@ -2877,7 +3044,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                 </View>
               ) : (
                 <View style={styles.infoBlock}>
-                  <Text style={styles.infoText}>No nearby drivers yet. Create a booking first.</Text>
+                  <Text style={styles.infoText}>
+                    No drivers found within 2 km. Select pickup or allow current location, then try refresh.
+                  </Text>
                 </View>
               )}
 
@@ -3099,7 +3268,11 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                 <Text style={styles.infoText}>No rides yet.</Text>
               ) : (
                 <>
-                  {passengerBookings.map((booking) => (
+                  {passengerBookings.map((booking) => {
+                    const historyDriverId = booking.driver_id;
+                    const isFavoriteDriver = !!historyDriverId && favoriteDriverIds.includes(historyDriverId);
+                    const isBlockedDriver = !!historyDriverId && blockedDriverIds.includes(historyDriverId);
+                    return (
                     <View key={booking.id} style={[styles.historyCard, { borderLeftColor: booking.status === 'completed' ? '#4CAF50' : booking.status === 'cancelled' ? '#F44336' : '#2196F3', borderLeftWidth: 4 }]}>
                       <View style={styles.historyCardRow}>
                         <Text style={styles.historyCardStatus}>{booking.status.toUpperCase()}</Text>
@@ -3114,8 +3287,42 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                           {normalizeLocation(booking.pickup_location)?.address || 'Pickup'} → {normalizeLocation(booking.drop_location)?.address || 'Drop'}
                         </Text>
                       )}
+                      {!!historyDriverId && (
+                        <View style={styles.historyActionRow}>
+                          <TouchableOpacity
+                            style={[
+                              styles.driverChip,
+                              isFavoriteDriver && styles.driverChipSelected,
+                              isBlockedDriver && styles.historyActionDisabled,
+                            ]}
+                            onPress={() => toggleFavoriteDriver(historyDriverId, isFavoriteDriver)}
+                            disabled={loading || isBlockedDriver}>
+                            <Text style={[
+                              styles.driverChipText,
+                              isFavoriteDriver && styles.driverChipTextSelected,
+                            ]}>
+                              {isFavoriteDriver ? 'Unfavorite' : 'Favorite'}
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[
+                              styles.driverChip,
+                              isBlockedDriver && styles.driverChipSelected,
+                            ]}
+                            onPress={() => toggleBlockedDriver(historyDriverId, isBlockedDriver)}
+                            disabled={loading}>
+                            <Text style={[
+                              styles.driverChipText,
+                              isBlockedDriver && styles.driverChipTextSelected,
+                            ]}>
+                              {isBlockedDriver ? 'Unblock' : 'Block'}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
                     </View>
-                  ))}
+                    );
+                  })}
                   {historyHasMore && (
                     <TouchableOpacity 
                       style={styles.loadMoreButton}
@@ -4337,6 +4544,15 @@ const styles = StyleSheet.create({
     color: '#666666',
     marginTop: 6,
     lineHeight: 16,
+  },
+  historyActionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 10,
+  },
+  historyActionDisabled: {
+    opacity: 0.55,
   },
   vehicleTypeSection: {
     marginBottom: 16,
