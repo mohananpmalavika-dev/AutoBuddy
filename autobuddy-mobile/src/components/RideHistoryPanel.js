@@ -278,9 +278,9 @@ export default function RideHistoryPanel({
     }
   }, [statusFilter, token, viewerRole]);
 
-  const refreshDriverPassengerRelationships = useCallback(async () => {
+  const fetchDriverPassengerRelationships = useCallback(async () => {
     if (viewerRole !== 'driver' || !token) {
-      return;
+      return { favoriteIds: [], blockedIds: [] };
     }
     try {
       const [favoritePayload, blockedPayload] = await Promise.all([
@@ -291,11 +291,9 @@ export default function RideHistoryPanel({
       const favoriteIds = (Array.isArray(favoritePayload?.favorites) ? favoritePayload.favorites : [])
         .map((favorite) => favorite?.passenger_id)
         .filter((passengerId) => passengerId && !blockedIds.includes(passengerId));
-      setBlockedPassengerIds(blockedIds);
-      setFavoritePassengerIds(favoriteIds);
+      return { favoriteIds, blockedIds };
     } catch {
-      setBlockedPassengerIds([]);
-      setFavoritePassengerIds([]);
+      return { favoriteIds: [], blockedIds: [] };
     }
   }, [token, viewerRole]);
 
@@ -306,15 +304,17 @@ export default function RideHistoryPanel({
       try {
         setLoading(true);
         setError('');
-        const [data] = await Promise.all([
+        const [data, relationships] = await Promise.all([
           fetchBookings(),
-          refreshDriverPassengerRelationships(),
+          fetchDriverPassengerRelationships(),
         ]);
         if (isMounted) {
           setBookings(data);
           setServerHasMore(data.length === SERVER_PAGE_SIZE);
           setSelectedBooking(null);
           setDisplayedCount(10);
+          setFavoritePassengerIds(relationships.favoriteIds);
+          setBlockedPassengerIds(relationships.blockedIds);
         }
       } catch (err) {
         if (isMounted) {
@@ -333,7 +333,7 @@ export default function RideHistoryPanel({
     return () => {
       isMounted = false;
     };
-  }, [fetchBookings, refreshDriverPassengerRelationships]);
+  }, [fetchBookings, fetchDriverPassengerRelationships]);
 
   // Filter and sort bookings
   const filteredAndSortedBookings = useMemo(() => {
@@ -423,20 +423,22 @@ export default function RideHistoryPanel({
     try {
       setLoading(true);
       setError('');
-      const [data] = await Promise.all([
+      const [data, relationships] = await Promise.all([
         fetchBookings(),
-        refreshDriverPassengerRelationships(),
+        fetchDriverPassengerRelationships(),
       ]);
       setBookings(data);
       setServerHasMore(data.length === SERVER_PAGE_SIZE);
       setSelectedBooking(null);
       setDisplayedCount(10);
+      setFavoritePassengerIds(relationships.favoriteIds);
+      setBlockedPassengerIds(relationships.blockedIds);
     } catch (err) {
       setError(err.message || 'Failed to load ride history');
     } finally {
       setLoading(false);
     }
-  }, [fetchBookings, refreshDriverPassengerRelationships]);
+  }, [fetchBookings, fetchDriverPassengerRelationships]);
 
   const handleTripPress = useCallback((booking) => {
     if (typeof onTripSelected === 'function') {
