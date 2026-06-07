@@ -208,25 +208,133 @@ function defaultRolewiseUserReportState() {
   };
 }
 
-function toOverviewNumber(value) {
+function parseOverviewNumber(value) {
+  if (value === null || value === undefined || value === '' || Array.isArray(value) || typeof value === 'object') {
+    return null;
+  }
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function toOverviewNumber(value) {
+  return parseOverviewNumber(value) ?? 0;
+}
+
+function collectAdminDashboardSources(payload) {
+  const sources = [];
+  const seen = new Set();
+  const push = (candidate, depth = 0) => {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate) || seen.has(candidate) || depth > 2) {
+      return;
+    }
+    seen.add(candidate);
+    sources.push(candidate);
+    [
+      'data',
+      'dashboard',
+      'overview',
+      'stats',
+      'metrics',
+      'summary',
+      'counts',
+      'totals',
+      'investor_kpi_dashboard',
+    ].forEach((key) => push(candidate[key], depth + 1));
+  };
+  push(payload);
+  return sources.length > 0 ? sources : [{}];
+}
+
+function firstOverviewNumber(sources, keys) {
+  for (const source of sources) {
+    for (const key of keys) {
+      const parsed = parseOverviewNumber(source?.[key]);
+      if (parsed !== null) {
+        return parsed;
+      }
+    }
+  }
+  return 0;
 }
 
 function normalizeAdminDashboardStats(payload) {
-  const source =
-    payload?.data && payload.data !== payload && typeof payload.data === 'object'
-      ? payload.data
-      : payload || {};
+  const sources = collectAdminDashboardSources(payload);
   return {
-    total_users: toOverviewNumber(source.total_users),
-    total_drivers: toOverviewNumber(source.total_drivers),
-    total_passengers: toOverviewNumber(source.total_passengers),
-    total_operators: toOverviewNumber(source.total_operators),
-    total_bookings: toOverviewNumber(source.total_bookings),
-    completed_bookings: toOverviewNumber(source.completed_bookings),
-    active_bookings: toOverviewNumber(source.active_bookings),
-    total_revenue: toOverviewNumber(source.total_revenue),
+    total_users: firstOverviewNumber(sources, [
+      'total_users',
+      'totalUsers',
+      'users_total',
+      'usersTotal',
+      'user_count',
+      'userCount',
+      'total_accounts',
+      'totalAccounts',
+    ]),
+    total_drivers: firstOverviewNumber(sources, [
+      'total_drivers',
+      'totalDrivers',
+      'drivers_total',
+      'driversTotal',
+      'driver_count',
+      'driverCount',
+      'drivers',
+    ]),
+    total_passengers: firstOverviewNumber(sources, [
+      'total_passengers',
+      'totalPassengers',
+      'passengers_total',
+      'passengersTotal',
+      'passenger_count',
+      'passengerCount',
+      'passengers',
+    ]),
+    total_operators: firstOverviewNumber(sources, [
+      'total_operators',
+      'totalOperators',
+      'operators_total',
+      'operatorsTotal',
+      'operator_count',
+      'operatorCount',
+      'operators',
+    ]),
+    total_bookings: firstOverviewNumber(sources, [
+      'total_bookings',
+      'totalBookings',
+      'bookings_total',
+      'bookingsTotal',
+      'booking_count',
+      'bookingCount',
+      'total_rides',
+      'totalRides',
+      'bookings',
+      'rides',
+    ]),
+    completed_bookings: firstOverviewNumber(sources, [
+      'completed_bookings',
+      'completedBookings',
+      'completed_rides',
+      'completedRides',
+      'completed',
+    ]),
+    active_bookings: firstOverviewNumber(sources, [
+      'active_bookings',
+      'activeBookings',
+      'active_rides',
+      'activeRides',
+      'ongoing_bookings',
+      'ongoingBookings',
+      'active',
+    ]),
+    total_revenue: firstOverviewNumber(sources, [
+      'total_revenue',
+      'totalRevenue',
+      'revenue_total',
+      'revenueTotal',
+      'total_earnings',
+      'totalEarnings',
+      'revenue',
+      'gmv',
+    ]),
   };
 }
 

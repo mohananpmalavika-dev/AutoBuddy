@@ -2530,7 +2530,14 @@ def _enum_query_values(*values: Any) -> List[Any]:
         if value not in variants:
             variants.append(value)
         raw = str(getattr(value, "value", value) or "").strip()
-        for candidate in {raw, raw.lower(), raw.upper()}:
+        enum_name = str(getattr(value, "name", "") or "").strip()
+        enum_class = value.__class__.__name__ if enum_name else ""
+        enum_variants = {
+            f"{enum_class}.{enum_name}" if enum_class and enum_name else "",
+            f"{enum_class}.{enum_name}".lower() if enum_class and enum_name else "",
+            f"{enum_class}.{enum_name}".upper() if enum_class and enum_name else "",
+        }
+        for candidate in {raw, raw.lower(), raw.upper(), *enum_variants}:
             if candidate and candidate not in variants:
                 variants.append(candidate)
     return variants
@@ -15434,7 +15441,7 @@ async def get_admin_dashboard(current_user: dict = Depends(get_current_user)):
     ]).to_list(1)
     total_revenue = revenue_result[0]["total"] if revenue_result else 0
     
-    return {
+    dashboard_stats = {
         "total_users": total_users,
         "total_drivers": total_drivers,
         "total_passengers": total_passengers,
@@ -15443,6 +15450,26 @@ async def get_admin_dashboard(current_user: dict = Depends(get_current_user)):
         "completed_bookings": completed_bookings,
         "active_bookings": active_bookings,
         "total_revenue": round(total_revenue, 2)
+    }
+    dashboard_aliases = {
+        "totalUsers": dashboard_stats["total_users"],
+        "totalDrivers": dashboard_stats["total_drivers"],
+        "totalPassengers": dashboard_stats["total_passengers"],
+        "totalOperators": dashboard_stats["total_operators"],
+        "totalBookings": dashboard_stats["total_bookings"],
+        "completedBookings": dashboard_stats["completed_bookings"],
+        "activeBookings": dashboard_stats["active_bookings"],
+        "active_rides": dashboard_stats["active_bookings"],
+        "activeRides": dashboard_stats["active_bookings"],
+        "totalRevenue": dashboard_stats["total_revenue"],
+        "revenue": dashboard_stats["total_revenue"],
+    }
+    return {
+        **dashboard_stats,
+        **dashboard_aliases,
+        "overview": {**dashboard_stats, **dashboard_aliases},
+        "stats": {**dashboard_stats, **dashboard_aliases},
+        "generated_at": get_ist_now(),
     }
 
 @api_router.get("/admin/users")
