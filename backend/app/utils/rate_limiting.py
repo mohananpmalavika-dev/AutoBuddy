@@ -1,7 +1,6 @@
 """
 Rate limiting utilities for production
 """
-import hashlib
 import time
 import logging
 import asyncio
@@ -9,6 +8,8 @@ import os
 from dataclasses import dataclass
 from datetime import datetime
 from app.utils.time_helpers import get_ist_now
+from app.core.config import get_settings
+from app.utils.security import decode_token
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -317,7 +318,7 @@ class RateLimitConfig:
 def get_rate_limit_key(request) -> str:
     """
     Generate rate limit key based on request
-    Prefers authenticated user ID or bearer-token identity, falls back to IP address
+    Prefers authenticated user ID or verified JWT subject, falls back to IP address
     """
     # Try to get user ID from AuthenticationMiddleware without forcing
     # Starlette's request.user property when that middleware is not installed.
@@ -328,8 +329,13 @@ def get_rate_limit_key(request) -> str:
     auth_header = str(getattr(request, "headers", {}).get("authorization") or "").strip()
     scheme, _, token = auth_header.partition(" ")
     if scheme.lower() == "bearer" and token.strip():
-        token_hash = hashlib.sha256(token.strip().encode("utf-8")).hexdigest()[:24]
-        return f"token:{token_hash}"
+        try:
+            payload = decode_token(token.strip(), get_settings())
+            user_id = str(payload.get("sub") or payload.get("id") or payload.get("user_id") or "").strip()
+            if user_id:
+                return f"user:{user_id}"
+        except Exception:
+            pass
     
     # Fall back to IP address
     client_ip = request.client.host if request.client else "unknown"

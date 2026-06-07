@@ -138,6 +138,20 @@ const PASSENGER_MENU_BY_KEY = PASSENGER_MENU_OPTIONS.reduce(
   (acc, menu) => ({ ...acc, [menu.key]: menu }),
   {},
 );
+const DRIVER_GENDER_OPTIONS = [
+  { label: 'Any', value: 'any' },
+  { label: 'Female', value: 'female' },
+  { label: 'Male', value: 'male' },
+];
+
+function normalizeDriverGenderPreference(value) {
+  const raw = String(value || 'any').trim().toLowerCase();
+  return ['any', 'female', 'male'].includes(raw) ? raw : 'any';
+}
+
+function driverGenderPreferenceLabel(value) {
+  return DRIVER_GENDER_OPTIONS.find((option) => option.value === normalizeDriverGenderPreference(value))?.label || 'Any';
+}
 
 function resolvePassengerMenuSymbol(symbol) {
   if (typeof symbol === 'string') {
@@ -258,8 +272,21 @@ function titleFromId(value, fallback = 'Option') {
 function getVehicleTypeName(vehicleType) {
   return getDisplayText(
     vehicleType?.name || vehicleType?.label || vehicleType?.vehicle_type_name,
-    titleFromId(vehicleType?.id || vehicleType?.vehicle_type_id, 'Auto'),
+    titleFromId(getVehicleTypeId(vehicleType), 'Auto'),
   );
+}
+
+function getVehicleTypeId(vehicleType) {
+  if (typeof vehicleType === 'string') {
+    return vehicleType.trim();
+  }
+  return String(
+    vehicleType?.vehicle_type_id ||
+      vehicleType?.type_id ||
+      vehicleType?.key ||
+      vehicleType?.id ||
+      '',
+  ).trim();
 }
 
 function normalizeVehicleModelOption(option, fallbackId) {
@@ -301,7 +328,7 @@ function getVehicleModelOptions(vehicleType) {
     return normalized;
   }
   const typeName = getVehicleTypeName(vehicleType);
-  const typeId = String(vehicleType?.id || vehicleType?.vehicle_type_id || 'auto').trim() || 'auto';
+  const typeId = getVehicleTypeId(vehicleType) || 'auto';
   return [{ id: `${typeId}_standard`, name: `${typeName} Standard`, description: 'Standard model' }];
 }
 
@@ -359,6 +386,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [passengerCountInput, setPassengerCountInput] = useState('1');
   const [scheduledAtInput, setScheduledAtInput] = useState('');
   const [scheduledTimeZone, setScheduledTimeZone] = useState('local');
+  const [scheduledDriverGenderPreference, setScheduledDriverGenderPreference] = useState(null);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('cash');
   const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState(null);
   const [selectedPaymentChannel, setSelectedPaymentChannel] = useState(null);
@@ -462,8 +490,11 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   // Initialize default vehicle type when available types are loaded
   useEffect(() => {
     if (availableVehicleTypes && availableVehicleTypes.length > 0 && !selectedVehicleTypeId) {
+      const defaultVehicleTypeId = getVehicleTypeId(availableVehicleTypes[0]);
       const timer = setTimeout(() => {
-        setSelectedVehicleTypeId(availableVehicleTypes[0].id);
+        if (defaultVehicleTypeId) {
+          setSelectedVehicleTypeId(defaultVehicleTypeId);
+        }
       }, 0);
       return () => clearTimeout(timer);
     }
@@ -635,6 +666,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const canScheduleBooking = enabledRideProducts.includes('scheduled');
   const effectiveRideProduct = rideProduct || 'normal';
   const isScheduledBookingMode = effectiveRideProduct === 'scheduled' && canScheduleBooking;
+  const effectiveScheduledDriverGenderPreference = normalizeDriverGenderPreference(
+    scheduledDriverGenderPreference || passengerPreferences?.driver_gender_preference,
+  );
   const keralaSafety = useKeralaSafety({
     token,
     userName: user?.name,
@@ -691,9 +725,11 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const shouldShowPassengerMenuRails =
     activePassengerMenu !== PRIMARY_PASSENGER_MENU_KEY ||
     showPassengerMenus;
-  const effectiveSelectedVehicleTypeId = selectedVehicleTypeId || availableVehicleTypes?.[0]?.id || '';
+  const effectiveSelectedVehicleTypeId = selectedVehicleTypeId || getVehicleTypeId(availableVehicleTypes?.[0]) || '';
   const selectedVehicleType = useMemo(
-    () => (availableVehicleTypes || []).find((type) => type.id === effectiveSelectedVehicleTypeId) || null,
+    () =>
+      (availableVehicleTypes || []).find((type) => getVehicleTypeId(type) === effectiveSelectedVehicleTypeId) ||
+      null,
     [availableVehicleTypes, effectiveSelectedVehicleTypeId],
   );
   const selectedVehicleModelOptions = useMemo(
@@ -808,17 +844,28 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   }, []);
 
   const handleVehicleTypeSelect = useCallback(
-    (typeId) => {
-      setSelectedVehicleTypeId(typeId);
-      setSelectedVehicleModelId('');
+    (vehicleTypeOrId) => {
+      const nextTypeId = getVehicleTypeId(vehicleTypeOrId);
+      if (!nextTypeId) {
+        return;
+      }
+      const nextVehicleType =
+        (availableVehicleTypes || []).find((type) => getVehicleTypeId(type) === nextTypeId) || null;
+      const nextVehicleModelId = getVehicleModelOptions(nextVehicleType)[0]?.id || '';
+      setSelectedVehicleTypeId(nextTypeId);
+      setSelectedVehicleModelId(nextVehicleModelId);
       clearRideSelectionResults();
     },
-    [clearRideSelectionResults],
+    [availableVehicleTypes, clearRideSelectionResults],
   );
 
   const handleVehicleModelSelect = useCallback(
     (modelId) => {
-      setSelectedVehicleModelId(modelId);
+      const nextModelId = String(modelId || '').trim();
+      if (!nextModelId) {
+        return;
+      }
+      setSelectedVehicleModelId(nextModelId);
       clearRideSelectionResults();
     },
     [clearRideSelectionResults],
@@ -1886,6 +1933,11 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       }
       scheduledForIso = scheduleValidation.iso;
     }
+    const bookingDriverGenderPreference = effectiveRideProduct === 'women_only'
+      ? 'female'
+      : isScheduledMode
+        ? effectiveScheduledDriverGenderPreference
+        : normalizeDriverGenderPreference(passengerPreferences?.driver_gender_preference);
 
     const passengerCountValue = Number(String(passengerCountInput || '').trim());
     const passengerCount = Number.isFinite(passengerCountValue)
@@ -1987,6 +2039,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           intercity_return_trip: effectiveRideProduct === 'intercity' ? intercityReturnTrip : false,
           tourism_package: effectiveRideProduct === 'tourism' ? tourismPackage.trim() : undefined,
           women_only_required: effectiveRideProduct === 'women_only',
+          driver_gender_preference: bookingDriverGenderPreference,
           rental_hours: effectiveRideProduct === 'rental_hourly' ? rentalHours : undefined,
           safe_ride_priority: effectiveRideProduct === 'school_elderly_safe' ? safeRidePriority : undefined,
           vehicle_type_id: effectiveSelectedVehicleTypeId || undefined,
@@ -2208,12 +2261,13 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               ) : (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                   {(availableVehicleTypes || []).map((type) => {
-                    const active = effectiveSelectedVehicleTypeId === type.id;
+                    const typeId = getVehicleTypeId(type);
+                    const active = effectiveSelectedVehicleTypeId === typeId;
                     return (
                       <TouchableOpacity
-                        key={type.id}
+                        key={typeId || getVehicleTypeName(type)}
                         style={[styles.rideDetailsOptionChip, active && styles.rideDetailsOptionChipActive]}
-                        onPress={() => handleVehicleTypeSelect(type.id)}>
+                        onPress={() => handleVehicleTypeSelect(type)}>
                         {!!type.icon && <Text style={styles.rideDetailsOptionIcon}>{type.icon}</Text>}
                         <Text
                           style={[
@@ -2805,38 +2859,64 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                       style={styles.vehicleTypeScrollView}
                       showsHorizontalScrollIndicator={false}
                     >
-                      {availableVehicleTypes && availableVehicleTypes.map((type) => (
-                        <TouchableOpacity
-                          key={type.id}
-                          style={[
-                            styles.vehicleTypeChip,
-                            selectedVehicleTypeId === type.id && styles.vehicleTypeChipActive,
-                          ]}
-                          onPress={() => handleVehicleTypeSelect(type.id)}
-                        >
-                          <Text style={styles.vehicleTypeChipIcon}>{type.icon}</Text>
-                          <Text
+                      {availableVehicleTypes && availableVehicleTypes.map((type) => {
+                        const typeId = getVehicleTypeId(type);
+                        const active = effectiveSelectedVehicleTypeId === typeId;
+                        return (
+                          <TouchableOpacity
+                            key={typeId || getVehicleTypeName(type)}
                             style={[
-                              styles.vehicleTypeChipText,
-                              selectedVehicleTypeId === type.id && styles.vehicleTypeChipTextActive,
+                              styles.vehicleTypeChip,
+                              active && styles.vehicleTypeChipActive,
                             ]}
+                            onPress={() => handleVehicleTypeSelect(type)}
                           >
-                            {type.name}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
+                            <Text style={styles.vehicleTypeChipIcon}>{type.icon}</Text>
+                            <Text
+                              style={[
+                                styles.vehicleTypeChipText,
+                                active && styles.vehicleTypeChipTextActive,
+                              ]}
+                            >
+                              {type.name}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
                     </ScrollView>
                   )}
                 </View>
 
                 {isScheduledBookingMode && (
-                  <ScheduledPickupPicker
-                    value={scheduledAtInput}
-                    onChangeText={setScheduledAtInput}
-                    timezone={scheduledTimeZone}
-                    onTimezoneChange={setScheduledTimeZone}
-                    inputStyle={styles.input}
-                  />
+                  <View>
+                    <ScheduledPickupPicker
+                      value={scheduledAtInput}
+                      onChangeText={setScheduledAtInput}
+                      timezone={scheduledTimeZone}
+                      onTimezoneChange={setScheduledTimeZone}
+                      inputStyle={styles.input}
+                    />
+                    <Text style={styles.infoText}>Driver Gender Preference</Text>
+                    <View style={styles.modeRow}>
+                      {DRIVER_GENDER_OPTIONS.map((option) => (
+                        <TouchableOpacity
+                          key={option.value}
+                          style={[
+                            styles.modeChip,
+                            effectiveScheduledDriverGenderPreference === option.value && styles.modeChipActive,
+                          ]}
+                          onPress={() => setScheduledDriverGenderPreference(option.value)}>
+                          <Text
+                            style={[
+                              styles.modeChipText,
+                              effectiveScheduledDriverGenderPreference === option.value && styles.modeChipTextActive,
+                            ]}>
+                            {option.label}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
                 )}
                 <Text style={styles.infoText}>Passengers (optional)</Text>
                 <VoiceTextInput
@@ -2954,6 +3034,11 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                 {!!selectedPaymentChannel && (
                   <Text style={styles.infoText}>
                     Channel: {String(selectedPaymentChannel).toUpperCase()}
+                  </Text>
+                )}
+                {isScheduledBookingMode && (
+                  <Text style={styles.infoText}>
+                    Driver: {driverGenderPreferenceLabel(effectiveScheduledDriverGenderPreference)}
                   </Text>
                 )}
                 {appliedPromo?.code ? (

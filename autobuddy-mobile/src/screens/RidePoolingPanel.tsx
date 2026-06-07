@@ -21,15 +21,24 @@ type Coordinate = {
   longitude: number;
 };
 
+type PoolModel = 'SYSTEM_CREATED' | 'PASSENGER_CREATED' | 'DRIVER_CREATED';
+
 type RidePool = {
   _id?: string;
   id?: string;
+  pool_id?: string;
+  pool_model?: PoolModel;
   pickup_location: string;
   dropoff_location: string;
   estimated_fare: number;
+  fare_per_passenger?: number;
   current_passengers: number;
   max_passengers: number;
   discount_percentage: number;
+  max_wait_minutes?: number;
+  route_name?: string;
+  route_polyline?: string;
+  driver_id?: string;
   passengers?: string[];
   status?: string;
 };
@@ -46,6 +55,17 @@ type PoolSocketEvent = {
   passenger_id?: string;
 };
 
+type PoolFormData = {
+  pickup_location: string;
+  dropoff_location: string;
+  estimated_fare: number;
+  max_passengers: number;
+  discount_percentage: number;
+  max_wait_minutes: number;
+  route_name: string;
+  route_polyline: string;
+};
+
 const ICONS: Record<string, string> = {
   add: '+',
   close: 'x',
@@ -56,6 +76,17 @@ const ICONS: Record<string, string> = {
   'car-multiple': 'Cars',
   car: 'Car',
 };
+
+const POOL_MODEL_LABELS: Record<PoolModel, string> = {
+  SYSTEM_CREATED: 'Auto Match',
+  PASSENGER_CREATED: 'My Pool',
+  DRIVER_CREATED: 'Shared Route',
+};
+
+const PASSENGER_POOL_OPTIONS: { model: PoolModel; label: string }[] = [
+  { model: 'SYSTEM_CREATED', label: 'Auto Match Pool' },
+  { model: 'PASSENGER_CREATED', label: 'Create My Pool' },
+];
 
 const MaterialIcons = ({
   name,
@@ -73,17 +104,46 @@ const MaterialIcons = ({
 
 const MaterialCommunityIcons = MaterialIcons;
 
-const getPoolId = (pool: Pick<RidePool, '_id' | 'id'>) => pool._id || pool.id || '';
+const getPoolId = (pool: Pick<RidePool, '_id' | 'id' | 'pool_id'>) => pool.pool_id || pool._id || pool.id || '';
+
+const normalizePoolModel = (model: unknown): PoolModel => {
+  const value = String(model || '').toUpperCase();
+  if (value === 'PASSENGER_CREATED') {
+    return 'PASSENGER_CREATED';
+  }
+  if (value === 'DRIVER_CREATED') {
+    return 'DRIVER_CREATED';
+  }
+  return 'SYSTEM_CREATED';
+};
+
+const getInitialFormData = (): PoolFormData => ({
+  pickup_location: '',
+  dropoff_location: '',
+  estimated_fare: 500,
+  max_passengers: 4,
+  discount_percentage: 20,
+  max_wait_minutes: 10,
+  route_name: '',
+  route_polyline: '',
+});
 
 const normalizePool = (pool: any): RidePool => ({
   _id: pool?._id || pool?.id || pool?.pool_id,
   id: pool?.id || pool?._id || pool?.pool_id,
+  pool_id: pool?.pool_id,
+  pool_model: normalizePoolModel(pool?.pool_model),
   pickup_location: String(pool?.pickup_location || ''),
   dropoff_location: String(pool?.dropoff_location || ''),
   estimated_fare: Number(pool?.estimated_fare || 0),
-  current_passengers: Number(pool?.current_passengers ?? pool?.passengers?.length ?? 1),
+  fare_per_passenger: Number(pool?.fare_per_passenger || 0),
+  current_passengers: Number(pool?.current_passengers ?? pool?.passengers?.length ?? 0),
   max_passengers: Number(pool?.max_passengers || 4),
   discount_percentage: Number(pool?.discount_percentage || 0),
+  max_wait_minutes: Number(pool?.max_wait_minutes || 10),
+  route_name: String(pool?.route_name || ''),
+  route_polyline: String(pool?.route_polyline || ''),
+  driver_id: pool?.driver_id ? String(pool.driver_id) : undefined,
   passengers: Array.isArray(pool?.passengers) ? pool.passengers.map(String) : [],
   status: pool?.status,
 });
@@ -99,29 +159,37 @@ const RidePoolingPanel: React.FC<RidePoolingPanelProps> = ({
   const [userPools, setUserPools] = useState<RidePool[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState('available');
+  const [activeTab, setActiveTab] = useState(userType === 'driver' ? 'my-pools' : 'available');
   const [showPoolDetail, setShowPoolDetail] = useState(false);
   const [showCreatePool, setShowCreatePool] = useState(false);
   const [selectedPool, setSelectedPool] = useState<RidePool | null>(null);
+  const [selectedPoolModel, setSelectedPoolModel] = useState<PoolModel>(
+    userType === 'driver' ? 'DRIVER_CREATED' : 'SYSTEM_CREATED'
+  );
+  const effectivePoolModel: PoolModel =
+    userType === 'driver'
+      ? 'DRIVER_CREATED'
+      : selectedPoolModel === 'DRIVER_CREATED'
+        ? 'SYSTEM_CREATED'
+        : selectedPoolModel;
+  const activePoolTab = userType === 'driver' ? 'my-pools' : activeTab;
 
-  const [formData, setFormData] = useState({
-    pickup_location: '',
-    dropoff_location: '',
-    estimated_fare: 500,
-    max_passengers: 4,
-    discount_percentage: 20,
-  });
+  const [formData, setFormData] = useState<PoolFormData>(getInitialFormData());
 
   const loadPools = useCallback(async () => {
     try {
       setLoading(true);
-      const result = await ridePoolingAPI.findAvailablePools(
-        currentLocation?.latitude,
-        currentLocation?.longitude,
-        radiusKm
-      );
-      const availablePools = (result.pools || []).map(normalizePool);
-      setPools(availablePools);
+      if (userType === 'passenger') {
+        const result = await ridePoolingAPI.findAvailablePools(
+          currentLocation?.latitude,
+          currentLocation?.longitude,
+          radiusKm
+        );
+        const availablePools = (result.pools || []).map(normalizePool);
+        setPools(availablePools);
+      } else {
+        setPools([]);
+      }
 
       // Get user's pools
       const userPoolsResult = await ridePoolingAPI.listUserPools();
@@ -133,7 +201,7 @@ const RidePoolingPanel: React.FC<RidePoolingPanelProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [currentLocation, radiusKm]);
+  }, [currentLocation, radiusKm, userType]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -146,7 +214,13 @@ const RidePoolingPanel: React.FC<RidePoolingPanelProps> = ({
     if (!socket) {return;}
 
     socket.on('pool_created', (data: unknown) => {
-      setPools((prev) => [normalizePool(data), ...prev]);
+      const nextPool = normalizePool(data);
+      if (userType === 'passenger') {
+        setPools((prev) => [nextPool, ...prev]);
+      }
+      if (userType === 'driver' && nextPool.driver_id === userId) {
+        setUserPools((prev) => [nextPool, ...prev]);
+      }
     });
 
     socket.on('pool_joined', (data: PoolSocketEvent) => {
@@ -170,8 +244,23 @@ const RidePoolingPanel: React.FC<RidePoolingPanelProps> = ({
       setPools((prev) =>
         prev.map((pool) => (getPoolId(pool) === data.pool_id ? normalizePool(data) : pool))
       );
+      setUserPools((prev) =>
+        prev.map((pool) => (getPoolId(pool) === data.pool_id ? normalizePool(data) : pool))
+      );
     });
-  }, []);
+  }, [userId, userType]);
+
+  const openCreatePool = () => {
+    const nextModel = userType === 'driver' ? 'DRIVER_CREATED' : effectivePoolModel;
+    setSelectedPoolModel(nextModel);
+    setFormData(getInitialFormData());
+    setShowCreatePool(true);
+  };
+
+  const resetCreateForm = () => {
+    setFormData(getInitialFormData());
+    setSelectedPoolModel(userType === 'driver' ? 'DRIVER_CREATED' : 'SYSTEM_CREATED');
+  };
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -198,24 +287,41 @@ const RidePoolingPanel: React.FC<RidePoolingPanelProps> = ({
 
     try {
       setLoading(true);
-      const newPool = await ridePoolingAPI.createPool({
+      const payload = {
         pickup_location: formData.pickup_location,
         dropoff_location: formData.dropoff_location,
-        estimated_fare: formData.estimated_fare,
-        max_passengers: formData.max_passengers,
-        discount_percentage: formData.discount_percentage,
-      });
+        estimated_fare: Number(formData.estimated_fare) || 0,
+        max_passengers: Number(formData.max_passengers) || 4,
+        discount_percentage: Number(formData.discount_percentage) || 0,
+        max_wait_minutes: Number(formData.max_wait_minutes) || 10,
+        route_name: formData.route_name.trim() || undefined,
+        route_polyline: formData.route_polyline.trim() || undefined,
+        pool_model: effectivePoolModel,
+      };
 
-      setUserPools([normalizePool(newPool), ...userPools]);
-      setFormData({
-        pickup_location: '',
-        dropoff_location: '',
-        estimated_fare: 500,
-        max_passengers: 4,
-        discount_percentage: 20,
-      });
+      const newPool =
+        effectivePoolModel === 'DRIVER_CREATED'
+          ? await ridePoolingAPI.createDriverPool(payload)
+          : effectivePoolModel === 'PASSENGER_CREATED'
+            ? await ridePoolingAPI.createPassengerPool(payload)
+            : await ridePoolingAPI.requestSystemPool(payload);
+
+      const normalizedNewPool = normalizePool(newPool);
+      setUserPools((prev) => [normalizedNewPool, ...prev.filter((pool) => getPoolId(pool) !== getPoolId(normalizedNewPool))]);
+      if (userType === 'passenger') {
+        setPools((prev) => [normalizedNewPool, ...prev.filter((pool) => getPoolId(pool) !== getPoolId(normalizedNewPool))]);
+      }
+      resetCreateForm();
       setShowCreatePool(false);
-      Alert.alert('Success', 'Ride pool created successfully!');
+      setActiveTab('my-pools');
+      Alert.alert(
+        'Success',
+        effectivePoolModel === 'SYSTEM_CREATED'
+          ? 'Pool request sent for auto matching.'
+          : effectivePoolModel === 'DRIVER_CREATED'
+            ? 'Shared route started.'
+            : 'Ride pool created successfully!'
+      );
     } catch (error) {
       console.error('Error creating pool:', error);
       Alert.alert('Error', 'Failed to create ride pool');
@@ -226,7 +332,8 @@ const RidePoolingPanel: React.FC<RidePoolingPanelProps> = ({
 
   const handleJoinPool = async (poolId: string) => {
     try {
-      await ridePoolingAPI.joinPool(poolId);
+      const response = await ridePoolingAPI.joinPool(poolId);
+      const updatedPool = normalizePool(response?.pool || response);
 
       // Update pools list
       setPools((prev) =>
@@ -234,8 +341,9 @@ const RidePoolingPanel: React.FC<RidePoolingPanelProps> = ({
           getPoolId(pool) === poolId
             ? {
                 ...pool,
-                current_passengers: (pool.current_passengers || 0) + 1,
-                passengers: [...(pool.passengers || []), userId],
+                ...updatedPool,
+                current_passengers: updatedPool.current_passengers || (pool.current_passengers || 0) + 1,
+                passengers: updatedPool.passengers?.length ? updatedPool.passengers : [...(pool.passengers || []), userId],
               }
             : pool
         )
@@ -244,7 +352,7 @@ const RidePoolingPanel: React.FC<RidePoolingPanelProps> = ({
       // Add to user's pools
       const poolDetail = pools.find((p) => getPoolId(p) === poolId);
       if (poolDetail) {
-        setUserPools([{ ...poolDetail, status: 'joined' }, ...userPools]);
+        setUserPools([{ ...poolDetail, ...updatedPool, status: updatedPool.status || 'joined' }, ...userPools]);
       }
 
       Alert.alert('Success', 'Joined the ride pool!');
@@ -285,10 +393,31 @@ const RidePoolingPanel: React.FC<RidePoolingPanelProps> = ({
     ]);
   };
 
+  const handleAssignDriver = async (poolId: string) => {
+    try {
+      const response = await ridePoolingAPI.assignDriver(poolId);
+      const updatedPool = normalizePool(response?.pool || response);
+      setUserPools((prev) =>
+        prev.map((pool) => (getPoolId(pool) === poolId ? { ...pool, ...updatedPool } : pool))
+      );
+      setPools((prev) =>
+        prev.map((pool) => (getPoolId(pool) === poolId ? { ...pool, ...updatedPool } : pool))
+      );
+      setSelectedPool((prev) => (prev && getPoolId(prev) === poolId ? { ...prev, ...updatedPool } : prev));
+      Alert.alert('Success', 'Driver assigned to pool');
+    } catch (error) {
+      console.error('Error assigning driver:', error);
+      Alert.alert('Error', 'Failed to assign driver');
+    }
+  };
+
   const calculatePerPersonFare = (pool: RidePool) => {
+    if (pool.fare_per_passenger && pool.fare_per_passenger > 0) {
+      return pool.fare_per_passenger.toFixed(0);
+    }
     const discount = (pool.estimated_fare * pool.discount_percentage) / 100;
     const discountedFare = pool.estimated_fare - discount;
-    const perPerson = discountedFare / (pool.current_passengers || 1);
+    const perPerson = discountedFare / Math.max(1, pool.current_passengers || 1);
     return perPerson.toFixed(0);
   };
 
@@ -298,8 +427,10 @@ const RidePoolingPanel: React.FC<RidePoolingPanelProps> = ({
   };
 
   const PoolCard = ({ pool, isUserPool = false }: { pool: RidePool; isUserPool?: boolean }) => {
-    const passengers = pool.current_passengers || 1;
+    const passengers = Math.max(0, pool.current_passengers || 0);
     const isFull = passengers >= pool.max_passengers;
+    const model = normalizePoolModel(pool.pool_model);
+    const routeTitle = pool.route_name || pool.pickup_location;
 
     return (
       <TouchableOpacity
@@ -311,11 +442,15 @@ const RidePoolingPanel: React.FC<RidePoolingPanelProps> = ({
       >
         <View style={styles.poolHeader}>
           <View style={styles.poolRoute}>
-            <Text style={styles.routeFrom}>📍 {pool.pickup_location}</Text>
+            <View style={styles.poolMetaRow}>
+              <Text style={styles.modelBadgeText}>{POOL_MODEL_LABELS[model]}</Text>
+              <Text style={styles.poolStatusText}>{String(pool.status || 'waiting').replace(/_/g, ' ')}</Text>
+            </View>
+            <Text style={styles.routeFrom}>Pin {routeTitle}</Text>
             <View style={styles.routeArrow}>
               <MaterialIcons name="arrow-downward" size={16} color="#4ECDC4" />
             </View>
-            <Text style={styles.routeTo}>🏁 {pool.dropoff_location}</Text>
+            <Text style={styles.routeTo}>Drop {pool.dropoff_location}</Text>
           </View>
 
           <View style={styles.poolStatus}>
@@ -370,10 +505,19 @@ const RidePoolingPanel: React.FC<RidePoolingPanelProps> = ({
           </Text>
         </View>
 
+        {model === 'DRIVER_CREATED' && pool.driver_id && (
+          <View style={styles.userPoolBadge}>
+            <MaterialCommunityIcons name="car" size={14} color="#4ECDC4" />
+            <Text style={styles.userPoolText}>Driver route active</Text>
+          </View>
+        )}
+
         {isUserPool && (
           <View style={styles.userPoolBadge}>
             <MaterialCommunityIcons name="account-check" size={14} color="#51CF66" />
-            <Text style={styles.userPoolText}>You are in this pool</Text>
+            <Text style={styles.userPoolText}>
+              {userType === 'driver' ? 'Your shared route' : 'You are in this pool'}
+            </Text>
           </View>
         )}
       </TouchableOpacity>
@@ -398,51 +542,53 @@ const RidePoolingPanel: React.FC<RidePoolingPanelProps> = ({
         <Text style={styles.headerTitle}>{panelAudience} Ride Pooling</Text>
         <TouchableOpacity
           style={styles.createButton}
-          onPress={() => setShowCreatePool(true)}
+          onPress={openCreatePool}
         >
           <MaterialIcons name="add" size={24} color="white" />
         </TouchableOpacity>
       </View>
 
       {/* Tabs */}
-      <View style={styles.tabs}>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'available' && styles.activeTab]}
-          onPress={() => setActiveTab('available')}
-        >
-          <Text
-            style={[
-              styles.tabText,
-              activeTab === 'available' && styles.activeTabText,
-            ]}
+      {userType === 'passenger' && (
+        <View style={styles.tabs}>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'available' && styles.activeTab]}
+            onPress={() => setActiveTab('available')}
           >
-            Available
-          </Text>
-        </TouchableOpacity>
+            <Text
+              style={[
+                styles.tabText,
+                activeTab === 'available' && styles.activeTabText,
+              ]}
+            >
+              Available
+            </Text>
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'my-pools' && styles.activeTab]}
-          onPress={() => setActiveTab('my-pools')}
-        >
-          <Text
-            style={[
-              styles.tabText,
-              activeTab === 'my-pools' && styles.activeTabText,
-            ]}
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'my-pools' && styles.activeTab]}
+            onPress={() => setActiveTab('my-pools')}
           >
-            My Pools
-          </Text>
-        </TouchableOpacity>
-      </View>
+            <Text
+              style={[
+                styles.tabText,
+                activeTab === 'my-pools' && styles.activeTabText,
+              ]}
+            >
+              My Pools
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Content */}
-      {activeTab === 'available' ? (
+      {userType === 'passenger' && activePoolTab === 'available' ? (
         pools.length === 0 ? (
           <View style={styles.emptyContainer}>
             <MaterialCommunityIcons name="car-multiple" size={64} color="#ddd" />
             <Text style={styles.emptyText}>No available pools</Text>
             <Text style={styles.emptySubText}>
-              Create one or check back soon
+              Use Auto Match to queue one
             </Text>
           </View>
         ) : (
@@ -457,8 +603,12 @@ const RidePoolingPanel: React.FC<RidePoolingPanelProps> = ({
       ) : userPools.length === 0 ? (
         <View style={styles.emptyContainer}>
           <MaterialCommunityIcons name="car" size={64} color="#ddd" />
-          <Text style={styles.emptyText}>No active pools</Text>
-          <Text style={styles.emptySubText}>Join a pool to get started</Text>
+          <Text style={styles.emptyText}>
+            {userType === 'driver' ? 'No shared routes' : 'No active pools'}
+          </Text>
+          <Text style={styles.emptySubText}>
+            {userType === 'driver' ? 'Start a shared route' : 'Join a pool to get started'}
+          </Text>
         </View>
       ) : (
         <FlatList
@@ -477,11 +627,53 @@ const RidePoolingPanel: React.FC<RidePoolingPanelProps> = ({
             <TouchableOpacity onPress={() => setShowCreatePool(false)}>
               <MaterialIcons name="close" size={24} color="#333" />
             </TouchableOpacity>
-            <Text style={styles.modalTitle}>Create Ride Pool</Text>
+            <Text style={styles.modalTitle}>
+              {effectivePoolModel === 'DRIVER_CREATED' ? 'Start Shared Route' : 'Pool Ride'}
+            </Text>
             <View style={{ width: 24 }} />
           </View>
 
           <ScrollView style={styles.modalContent}>
+            {userType === 'passenger' && (
+              <View style={styles.modelSelector}>
+                {PASSENGER_POOL_OPTIONS.map((option) => (
+                  <TouchableOpacity
+                    key={option.model}
+                    style={[
+                      styles.modelOption,
+                      effectivePoolModel === option.model && styles.activeModelOption,
+                    ]}
+                    onPress={() => setSelectedPoolModel(option.model)}
+                  >
+                    <Text
+                      style={[
+                        styles.modelOptionText,
+                        effectivePoolModel === option.model && styles.activeModelOptionText,
+                      ]}
+                    >
+                      {option.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            {effectivePoolModel === 'DRIVER_CREATED' && (
+              <>
+                <Text style={styles.formLabel}>Route Name</Text>
+                <View style={styles.locationInput}>
+                  <MaterialIcons name="car" size={20} color="#4ECDC4" />
+                  <TextInput
+                    style={styles.locationTextInput}
+                    placeholder="Kazhakkoottam to Technopark"
+                    placeholderTextColor="#999"
+                    value={formData.route_name}
+                    onChangeText={(route_name) => setFormData({ ...formData, route_name })}
+                  />
+                </View>
+              </>
+            )}
+
             <Text style={styles.formLabel}>Pickup Location *</Text>
             <View style={styles.locationInput}>
               <MaterialIcons name="location-on" size={20} color="#4ECDC4" />
@@ -507,19 +699,102 @@ const RidePoolingPanel: React.FC<RidePoolingPanelProps> = ({
             </View>
 
             <Text style={styles.formLabel}>Estimated Base Fare</Text>
-            <View style={styles.sliderContainer}>
-              <Text style={styles.sliderValue}>₹{formData.estimated_fare}</Text>
+            <View style={styles.locationInput}>
+              <Text style={styles.inputPrefix}>Rs.</Text>
+              <TextInput
+                style={styles.locationTextInput}
+                keyboardType="numeric"
+                value={String(formData.estimated_fare)}
+                onChangeText={(value) =>
+                  setFormData({ ...formData, estimated_fare: Number(value.replace(/[^0-9]/g, '')) || 0 })
+                }
+              />
             </View>
 
             <Text style={styles.formLabel}>Max Passengers</Text>
-            <View style={styles.sliderContainer}>
-              <Text style={styles.sliderValue}>{formData.max_passengers} people</Text>
+            <View style={styles.numberStepper}>
+              {[2, 3, 4].map((count) => (
+                <TouchableOpacity
+                  key={count}
+                  style={[
+                    styles.stepperOption,
+                    formData.max_passengers === count && styles.activeStepperOption,
+                  ]}
+                  onPress={() => setFormData({ ...formData, max_passengers: count })}
+                >
+                  <Text
+                    style={[
+                      styles.stepperText,
+                      formData.max_passengers === count && styles.activeStepperText,
+                    ]}
+                  >
+                    {count}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
 
             <Text style={styles.formLabel}>Discount Percentage</Text>
-            <View style={styles.sliderContainer}>
-              <Text style={styles.sliderValue}>{formData.discount_percentage}%</Text>
+            <View style={styles.numberStepper}>
+              {[10, 20, 30].map((discount) => (
+                <TouchableOpacity
+                  key={discount}
+                  style={[
+                    styles.stepperOption,
+                    formData.discount_percentage === discount && styles.activeStepperOption,
+                  ]}
+                  onPress={() => setFormData({ ...formData, discount_percentage: discount })}
+                >
+                  <Text
+                    style={[
+                      styles.stepperText,
+                      formData.discount_percentage === discount && styles.activeStepperText,
+                    ]}
+                  >
+                    {discount}%
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
+
+            <Text style={styles.formLabel}>Max Wait Time</Text>
+            <View style={styles.numberStepper}>
+              {[5, 10, 15].map((minutes) => (
+                <TouchableOpacity
+                  key={minutes}
+                  style={[
+                    styles.stepperOption,
+                    formData.max_wait_minutes === minutes && styles.activeStepperOption,
+                  ]}
+                  onPress={() => setFormData({ ...formData, max_wait_minutes: minutes })}
+                >
+                  <Text
+                    style={[
+                      styles.stepperText,
+                      formData.max_wait_minutes === minutes && styles.activeStepperText,
+                    ]}
+                  >
+                    {minutes} min
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {effectivePoolModel === 'DRIVER_CREATED' && (
+              <>
+                <Text style={styles.formLabel}>Route Polyline</Text>
+                <View style={[styles.locationInput, styles.multilineInput]}>
+                  <TextInput
+                    style={[styles.locationTextInput, styles.multilineTextInput]}
+                    placeholder="Optional encoded route"
+                    placeholderTextColor="#999"
+                    value={formData.route_polyline}
+                    multiline
+                    onChangeText={(route_polyline) => setFormData({ ...formData, route_polyline })}
+                  />
+                </View>
+              </>
+            )}
 
             <TouchableOpacity
               style={styles.submitButton}
@@ -529,7 +804,13 @@ const RidePoolingPanel: React.FC<RidePoolingPanelProps> = ({
               {loading ? (
                 <ActivityIndicator color="white" />
               ) : (
-                <Text style={styles.submitButtonText}>Create Pool</Text>
+                <Text style={styles.submitButtonText}>
+                  {effectivePoolModel === 'SYSTEM_CREATED'
+                    ? 'Auto Match Pool'
+                    : effectivePoolModel === 'DRIVER_CREATED'
+                      ? 'Start Shared Route'
+                      : 'Create My Pool'}
+                </Text>
               )}
             </TouchableOpacity>
           </ScrollView>
@@ -551,11 +832,40 @@ const RidePoolingPanel: React.FC<RidePoolingPanelProps> = ({
             <ScrollView style={styles.modalContent}>
               <View style={styles.detailSection}>
                 <Text style={styles.routeTitle}>Route</Text>
-                <Text style={styles.routeDetail}>📍 {selectedPool.pickup_location}</Text>
+                {selectedPool.route_name ? (
+                  <Text style={styles.routeDetail}>{selectedPool.route_name}</Text>
+                ) : null}
+                <Text style={styles.routeDetail}>Pin {selectedPool.pickup_location}</Text>
                 <View style={styles.routeArrow}>
                   <MaterialIcons name="arrow-downward" size={20} color="#4ECDC4" />
                 </View>
-                <Text style={styles.routeDetail}>🏁 {selectedPool.dropoff_location}</Text>
+                <Text style={styles.routeDetail}>Drop {selectedPool.dropoff_location}</Text>
+              </View>
+
+              <View style={styles.detailSection}>
+                <Text style={styles.sectionTitle}>Pool Model</Text>
+                <View style={styles.priceDetailRow}>
+                  <Text style={styles.detailLabel}>Model</Text>
+                  <Text style={styles.detailValue}>
+                    {POOL_MODEL_LABELS[normalizePoolModel(selectedPool.pool_model)]}
+                  </Text>
+                </View>
+                <View style={styles.priceDetailRow}>
+                  <Text style={styles.detailLabel}>Status</Text>
+                  <Text style={styles.detailValue}>
+                    {String(selectedPool.status || 'waiting').replace(/_/g, ' ')}
+                  </Text>
+                </View>
+                <View style={styles.priceDetailRow}>
+                  <Text style={styles.detailLabel}>Max Wait</Text>
+                  <Text style={styles.detailValue}>{selectedPool.max_wait_minutes || 10} min</Text>
+                </View>
+                {selectedPool.driver_id ? (
+                  <View style={styles.priceDetailRow}>
+                    <Text style={styles.detailLabel}>Driver</Text>
+                    <Text style={styles.detailValue}>Assigned</Text>
+                  </View>
+                ) : null}
               </View>
 
               <View style={styles.detailSection}>
@@ -598,7 +908,8 @@ const RidePoolingPanel: React.FC<RidePoolingPanelProps> = ({
 
               {/* Action buttons */}
               <View style={styles.actionButtons}>
-                {!userPools.find((p) => getPoolId(p) === getPoolId(selectedPool)) &&
+                {userType === 'passenger' &&
+                  !userPools.find((p) => getPoolId(p) === getPoolId(selectedPool)) &&
                   selectedPool.current_passengers < selectedPool.max_passengers && (
                     <TouchableOpacity
                       style={[styles.actionBtn, styles.joinBtn]}
@@ -612,7 +923,7 @@ const RidePoolingPanel: React.FC<RidePoolingPanelProps> = ({
                     </TouchableOpacity>
                   )}
 
-                {userPools.find((p) => getPoolId(p) === getPoolId(selectedPool)) && (
+                {userType === 'passenger' && userPools.find((p) => getPoolId(p) === getPoolId(selectedPool)) && (
                   <TouchableOpacity
                     style={[styles.actionBtn, styles.leaveBtn]}
                     onPress={() => {
@@ -622,6 +933,19 @@ const RidePoolingPanel: React.FC<RidePoolingPanelProps> = ({
                   >
                     <MaterialIcons name="close" size={20} color="white" />
                     <Text style={styles.actionBtnText}>Leave Pool</Text>
+                  </TouchableOpacity>
+                )}
+
+                {userType === 'driver' && !selectedPool.driver_id && (
+                  <TouchableOpacity
+                    style={[styles.actionBtn, styles.joinBtn]}
+                    onPress={() => {
+                      handleAssignDriver(getPoolId(selectedPool));
+                      setShowPoolDetail(false);
+                    }}
+                  >
+                    <MaterialIcons name="check" size={20} color="white" />
+                    <Text style={styles.actionBtnText}>Assign to Me</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -735,6 +1059,30 @@ const styles = StyleSheet.create({
   },
   poolRoute: {
     flex: 1,
+  },
+  poolMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    marginBottom: 8,
+  },
+  modelBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#0B7A3B',
+    backgroundColor: '#E8F6EF',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    marginRight: 6,
+    marginBottom: 4,
+  },
+  poolStatusText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#6B756F',
+    textTransform: 'capitalize',
+    marginBottom: 4,
   },
   routeFrom: {
     fontSize: 13,
@@ -876,6 +1224,32 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 16,
   },
+  modelSelector: {
+    flexDirection: 'row',
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+    padding: 4,
+    marginBottom: 16,
+  },
+  modelOption: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+  },
+  activeModelOption: {
+    backgroundColor: '#4ECDC4',
+  },
+  modelOptionText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#666',
+    textAlign: 'center',
+  },
+  activeModelOptionText: {
+    color: 'white',
+  },
   formLabel: {
     fontSize: 14,
     fontWeight: '600',
@@ -897,6 +1271,44 @@ const styles = StyleSheet.create({
     color: '#333',
     marginLeft: 8,
     paddingVertical: 0,
+  },
+  inputPrefix: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#4ECDC4',
+  },
+  multilineInput: {
+    minHeight: 84,
+    alignItems: 'flex-start',
+  },
+  multilineTextInput: {
+    minHeight: 64,
+    textAlignVertical: 'top',
+  },
+  numberStepper: {
+    flexDirection: 'row',
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+    padding: 4,
+    marginBottom: 16,
+  },
+  stepperOption: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 40,
+    borderRadius: 6,
+  },
+  activeStepperOption: {
+    backgroundColor: '#4ECDC4',
+  },
+  stepperText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#666',
+  },
+  activeStepperText: {
+    color: 'white',
   },
   sliderContainer: {
     backgroundColor: '#f5f5f5',

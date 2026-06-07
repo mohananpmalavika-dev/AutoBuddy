@@ -3,6 +3,7 @@ import { apiRequest } from '../lib/api';
 
 export function useRidePooling({ token, driverId }) {
   const [poolOpportunities, setPoolOpportunities] = useState([]);
+  const [driverPools, setDriverPools] = useState([]);
   const [poolAnalytics, setPoolAnalytics] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -75,6 +76,83 @@ export function useRidePooling({ token, driverId }) {
     }
   }, [token, driverId]);
 
+  const loadDriverPools = useCallback(async () => {
+    if (!token || !driverId) return [];
+
+    setIsLoading(true);
+    setError('');
+
+    try {
+      const response = await apiRequest('/ride-pooling/my-pools', {
+        method: 'GET',
+        token,
+      });
+      const payload = response?.data || response;
+      const pools = Array.isArray(payload) ? payload : payload?.pools || [];
+      setDriverPools(pools);
+      return pools;
+    } catch (err) {
+      setError(`Failed to load shared routes: ${err.message}`);
+      console.warn('Driver pools error:', err);
+      return [];
+    } finally {
+      setIsLoading(false);
+    }
+  }, [driverId, token]);
+
+  const createDriverPoolRoute = useCallback(async (routePayload) => {
+    if (!token || !driverId) return null;
+
+    setIsLoading(true);
+    setError('');
+
+    try {
+      const response = await apiRequest('/ride-pooling/driver-create', {
+        method: 'POST',
+        token,
+        body: {
+          ...routePayload,
+          pool_model: 'DRIVER_CREATED',
+        },
+      });
+      const payload = response?.data || response;
+      const pool = payload?.pool || payload;
+      if (pool) {
+        setDriverPools((prev) => [pool, ...prev.filter((item) => (item.pool_id || item.id) !== (pool.pool_id || pool.id))]);
+      }
+      return payload;
+    } catch (err) {
+      setError(`Failed to start shared route: ${err.message}`);
+      console.warn('Create driver pool error:', err);
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [driverId, token]);
+
+  const assignDriverToPool = useCallback(async (poolId) => {
+    if (!token || !poolId) return null;
+
+    try {
+      const response = await apiRequest(`/ride-pooling/${poolId}/assign-driver`, {
+        method: 'POST',
+        token,
+      });
+      const payload = response?.data || response;
+      const pool = payload?.pool || payload;
+      if (pool) {
+        setDriverPools((prev) =>
+          prev.map((item) => ((item.pool_id || item.id) === (pool.pool_id || pool.id) ? pool : item))
+        );
+      }
+      return payload;
+    } catch (err) {
+      setError(`Failed to assign shared route: ${err.message}`);
+      console.warn('Assign driver pool error:', err);
+      return null;
+    }
+  }, [token]);
+
   // Accept pooling offer
   const acceptPoolingOffer = useCallback(async (poolId) => {
     if (!token) return null;
@@ -98,11 +176,15 @@ export function useRidePooling({ token, driverId }) {
 
   return {
     poolOpportunities,
+    driverPools,
     poolAnalytics,
     isLoading,
     error,
     detectPoolingOpportunity,
     loadPoolingAnalytics,
+    loadDriverPools,
+    createDriverPoolRoute,
+    assignDriverToPool,
     acceptPoolingOffer,
   };
 }

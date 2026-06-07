@@ -18,6 +18,7 @@ import { getSocket } from '@/services/socketClient';
 import { formatToIST } from '../utils/time';
 
 type ScheduledRideStatus = 'scheduled' | 'confirmed' | 'cancelled' | 'completed' | 'pending_confirmation';
+type DriverGenderPreference = 'any' | 'female' | 'male';
 
 type ScheduledRide = {
   _id?: string;
@@ -27,6 +28,7 @@ type ScheduledRide = {
   scheduled_datetime: string;
   status: ScheduledRideStatus | string;
   vehicle_type?: string;
+  driver_gender_preference?: DriverGenderPreference | string;
   recurring?: boolean;
 };
 
@@ -70,6 +72,16 @@ const MaterialIcons = ({
 );
 
 const toScheduledRideId = (ride: Pick<ScheduledRide, '_id' | 'id'>) => ride._id || ride.id || '';
+const DRIVER_GENDER_OPTIONS: { label: string; value: DriverGenderPreference }[] = [
+  { label: 'Any', value: 'any' },
+  { label: 'Female', value: 'female' },
+  { label: 'Male', value: 'male' },
+];
+
+const driverGenderPreferenceLabel = (value?: string) => {
+  const option = DRIVER_GENDER_OPTIONS.find((item) => item.value === String(value || 'any').toLowerCase());
+  return option?.label || 'Any';
+};
 
 const ScheduledRidesPanel: React.FC<ScheduledRidesPanelProps> = ({
   userId,
@@ -90,6 +102,7 @@ const ScheduledRidesPanel: React.FC<ScheduledRidesPanelProps> = ({
     scheduled_datetime: new Date(),
     recurring: false,
     vehicle_type: 'standard',
+    driver_gender_preference: 'any' as DriverGenderPreference,
   });
 
   const loadScheduledRides = useCallback(async () => {
@@ -177,6 +190,7 @@ const ScheduledRidesPanel: React.FC<ScheduledRidesPanelProps> = ({
         scheduled_datetime: formData.scheduled_datetime.toISOString(),
         recurring: formData.recurring,
         vehicle_type: formData.vehicle_type,
+        driver_gender_preference: formData.driver_gender_preference,
       });
 
       setScheduledRides([...scheduledRides, newRide]);
@@ -187,6 +201,7 @@ const ScheduledRidesPanel: React.FC<ScheduledRidesPanelProps> = ({
         scheduled_datetime: new Date(),
         recurring: false,
         vehicle_type: 'standard',
+        driver_gender_preference: 'any',
       });
       setShowCreateModal(false);
       Alert.alert('Success', 'Scheduled ride created');
@@ -209,6 +224,7 @@ const ScheduledRidesPanel: React.FC<ScheduledRidesPanelProps> = ({
           try {
             const updated = await scheduledRidesAPI.updateScheduledRide(toScheduledRideId(selectedRide), {
               scheduled_datetime: formData.scheduled_datetime.toISOString(),
+              driver_gender_preference: formData.driver_gender_preference,
             });
             setScheduledRides((prev) => prev.map((r) => (toScheduledRideId(r) === toScheduledRideId(selectedRide) ? updated : r)));
             setSelectedRide(updated);
@@ -278,6 +294,7 @@ const ScheduledRidesPanel: React.FC<ScheduledRidesPanelProps> = ({
         setFormData({
           ...formData,
           scheduled_datetime: new Date(ride.scheduled_datetime),
+          driver_gender_preference: (String(ride.driver_gender_preference || 'any').toLowerCase() as DriverGenderPreference),
         });
         setShowDetailModal(true);
       }}
@@ -302,6 +319,9 @@ const ScheduledRidesPanel: React.FC<ScheduledRidesPanelProps> = ({
       </View>
       <View style={styles.rideDetails}>
         <Text style={styles.vehicleType}>{ride.vehicle_type || 'Standard'}</Text>
+        <Text style={styles.preferenceBadge}>
+          Driver: {driverGenderPreferenceLabel(ride.driver_gender_preference)}
+        </Text>
         {ride.recurring && <Text style={styles.recurringBadge}>🔄 Recurring</Text>}
       </View>
     </TouchableOpacity>
@@ -451,6 +471,29 @@ const ScheduledRidesPanel: React.FC<ScheduledRidesPanelProps> = ({
               ))}
             </View>
 
+            <Text style={styles.formLabel}>Driver Gender Preference</Text>
+            <View style={styles.preferenceOptions}>
+              {DRIVER_GENDER_OPTIONS.map((option) => (
+                <TouchableOpacity
+                  key={option.value}
+                  style={[
+                    styles.preferenceOption,
+                    formData.driver_gender_preference === option.value && styles.preferenceOptionActive,
+                  ]}
+                  onPress={() => setFormData({ ...formData, driver_gender_preference: option.value })}
+                >
+                  <Text
+                    style={[
+                      styles.preferenceOptionText,
+                      formData.driver_gender_preference === option.value && styles.preferenceOptionTextActive,
+                    ]}
+                  >
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
             <TouchableOpacity
               style={styles.submitButton}
               onPress={handleCreateScheduledRide}
@@ -489,6 +532,11 @@ const ScheduledRidesPanel: React.FC<ScheduledRidesPanelProps> = ({
                 <Text style={[styles.detailLabel, { marginTop: 16 }]}>Scheduled</Text>
                 <Text style={styles.detailValue}>
                   {formatToIST(selectedRide.scheduled_datetime, { dateStyle: 'medium', timeStyle: 'short' })}
+                </Text>
+
+                <Text style={[styles.detailLabel, { marginTop: 16 }]}>Driver Gender Preference</Text>
+                <Text style={styles.detailValue}>
+                  {driverGenderPreferenceLabel(selectedRide.driver_gender_preference)}
                 </Text>
 
                 <Text style={[styles.detailLabel, { marginTop: 16 }]}>Status</Text>
@@ -660,11 +708,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 8,
   },
   vehicleType: {
     fontSize: 12,
     fontWeight: '500',
     color: '#4ECDC4',
+  },
+  preferenceBadge: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#5D6D7E',
   },
   recurringBadge: {
     fontSize: 12,
@@ -746,6 +801,33 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   vehicleOptionTextActive: {
+    color: 'white',
+  },
+  preferenceOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: -4,
+    marginBottom: 16,
+  },
+  preferenceOption: {
+    minWidth: 84,
+    flexGrow: 1,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+    paddingVertical: 10,
+    marginHorizontal: 4,
+    marginBottom: 8,
+    alignItems: 'center',
+  },
+  preferenceOptionActive: {
+    backgroundColor: '#4ECDC4',
+  },
+  preferenceOptionText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#666',
+  },
+  preferenceOptionTextActive: {
     color: 'white',
   },
   submitButton: {

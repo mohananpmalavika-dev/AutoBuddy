@@ -26,7 +26,7 @@ const DEFAULT_LABELS = {
 const DEFAULT_MESSAGES = {
   required: 'Select pickup time for scheduled ride.',
   invalid: 'Enter a valid pickup date and time.',
-  future: 'Scheduled pickup time must be at least 2 minutes in the future.',
+  future: 'Scheduled pickup time must be at least 30 minutes in the future.',
 };
 
 function shortDateLabel(date, timezone) {
@@ -49,10 +49,11 @@ export default function ScheduledPickupPicker({
   inputStyle,
   labels = {},
   messages = {},
+  minAdvanceMinutes = 30,
 }) {
   const mergedLabels = { ...DEFAULT_LABELS, ...labels };
   const mergedMessages = { ...DEFAULT_MESSAGES, ...messages };
-  const validation = validateScheduledPickup(value, timezone, mergedMessages);
+  const validation = validateScheduledPickup(value, timezone, mergedMessages, new Date(), minAdvanceMinutes);
   const readyLabel = describeScheduledPickup(value, timezone);
 
   const dateOptions = useMemo(() => {
@@ -66,15 +67,16 @@ export default function ScheduledPickupPicker({
 
   const timeOptions = useMemo(() => {
     const now = new Date();
+    const firstQuickPickMinutes = Math.max(45, Number(minAdvanceMinutes || 30) + 15);
     return [
-      { label: '+30 min', date: addMinutes(now, 30), kind: 'relative' },
+      { label: `+${firstQuickPickMinutes} min`, date: addMinutes(now, firstQuickPickMinutes), kind: 'relative' },
       { label: '+1 hr', date: addMinutes(now, 60), kind: 'relative' },
       { label: '+2 hr', date: addMinutes(now, 120), kind: 'relative' },
       { label: '09:00', hour: 9, minute: 0, kind: 'fixed' },
       { label: '14:00', hour: 14, minute: 0, kind: 'fixed' },
       { label: '18:00', hour: 18, minute: 0, kind: 'fixed' },
     ];
-  }, []);
+  }, [minAdvanceMinutes]);
 
   const applyDate = (option) => {
     const currentParts = getSelectedParts(value, timezone);
@@ -102,7 +104,7 @@ export default function ScheduledPickupPicker({
     };
     const candidateDate = dateFromZonedParts(candidateParts, timezone);
     const safeDate =
-      candidateDate.getTime() <= addMinutes(new Date(), 2).getTime()
+      candidateDate.getTime() <= addMinutes(new Date(), minAdvanceMinutes).getTime()
         ? addMinutes(candidateDate, 24 * 60)
         : candidateDate;
 

@@ -13,6 +13,11 @@ const EMPTY_UPCOMING = {
   assigned_rides: [],
   counts: { scheduled_requests: 0, assigned_rides: 0, total: 0 },
 };
+const DRIVER_GENDER_OPTIONS = [
+  { label: 'Any', value: 'any' },
+  { label: 'Female', value: 'female' },
+  { label: 'Male', value: 'male' },
+];
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
@@ -42,6 +47,11 @@ function formatStatus(value) {
   return String(value || 'scheduled')
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function driverGenderPreferenceLabel(value) {
+  const raw = String(value || 'any').trim().toLowerCase();
+  return DRIVER_GENDER_OPTIONS.find((option) => option.value === raw)?.label || 'Any';
 }
 
 function locationAddress(location, fallback) {
@@ -125,6 +135,9 @@ function ScheduledRideCard({
         <Text style={styles.detailText}>{formatMoney(ride.estimated_fare ?? ride.final_fare)}</Text>
         {!!ride.distance_km && <Text style={styles.detailText}>{Number(ride.distance_km).toFixed(1)} km</Text>}
         {!!ride.dispatch_status && <Text style={styles.detailText}>{formatStatus(ride.dispatch_status)}</Text>}
+        <Text style={styles.detailText}>
+          Driver: {driverGenderPreferenceLabel(ride.driver_gender_preference)}
+        </Text>
       </View>
 
       {isRequest && (

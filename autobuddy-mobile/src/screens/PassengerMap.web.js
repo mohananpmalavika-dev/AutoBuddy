@@ -157,8 +157,22 @@ const PASSENGER_MENU_BY_KEY = PASSENGER_MENU_OPTIONS.reduce(
   (acc, menu) => ({ ...acc, [menu.key]: menu }),
   {},
 );
+const DRIVER_GENDER_OPTIONS = [
+  { label: 'Any', value: 'any' },
+  { label: 'Female', value: 'female' },
+  { label: 'Male', value: 'male' },
+];
 const LIVE_DRIVER_TRACKING_STATUSES = new Set(['accepted', 'driver_arrived', 'in_progress']);
 const CLOSED_BOOKING_STATUSES = new Set(['completed', 'cancelled', 'rejected', 'no_driver_found', 'booking_failed']);
+
+function normalizeDriverGenderPreference(value) {
+  const raw = String(value || 'any').trim().toLowerCase();
+  return ['any', 'female', 'male'].includes(raw) ? raw : 'any';
+}
+
+function driverGenderPreferenceLabel(value) {
+  return DRIVER_GENDER_OPTIONS.find((option) => option.value === normalizeDriverGenderPreference(value))?.label || 'Any';
+}
 
 function resolvePassengerMenuSymbol(symbol) {
   if (typeof symbol === 'string') {
@@ -302,8 +316,21 @@ function titleFromId(value, fallback = 'Option') {
 function getVehicleTypeName(vehicleType) {
   return getDisplayText(
     vehicleType?.name || vehicleType?.label || vehicleType?.vehicle_type_name,
-    titleFromId(vehicleType?.id || vehicleType?.vehicle_type_id, 'Auto'),
+    titleFromId(getVehicleTypeId(vehicleType), 'Auto'),
   );
+}
+
+function getVehicleTypeId(vehicleType) {
+  if (typeof vehicleType === 'string') {
+    return vehicleType.trim();
+  }
+  return String(
+    vehicleType?.vehicle_type_id ||
+      vehicleType?.type_id ||
+      vehicleType?.key ||
+      vehicleType?.id ||
+      '',
+  ).trim();
 }
 
 function normalizeVehicleModelOption(option, fallbackId) {
@@ -345,7 +372,7 @@ function getVehicleModelOptions(vehicleType) {
     return normalized;
   }
   const typeName = getVehicleTypeName(vehicleType);
-  const typeId = String(vehicleType?.id || vehicleType?.vehicle_type_id || 'auto').trim() || 'auto';
+  const typeId = getVehicleTypeId(vehicleType) || 'auto';
   return [{ id: `${typeId}_standard`, name: `${typeName} Standard`, description: 'Standard model' }];
 }
 
@@ -408,6 +435,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [autoFetchingTripData, setAutoFetchingTripData] = useState(false);
   const [scheduledAtInput, setScheduledAtInput] = useState('');
   const [scheduledTimeZone, setScheduledTimeZone] = useState('local');
+  const [scheduledDriverGenderPreference, setScheduledDriverGenderPreference] = useState(null);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('cash');
   const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState(null);
   const [selectedPaymentChannel, setSelectedPaymentChannel] = useState(null);
@@ -477,12 +505,13 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [selectedVehicleTypeId, setSelectedVehicleTypeId] = useState('');
   const [selectedVehicleModelId, setSelectedVehicleModelId] = useState('');
   const effectiveSelectedVehicleTypeId = useMemo(
-    () => selectedVehicleTypeId || availableVehicleTypes?.[0]?.id || '',
+    () => selectedVehicleTypeId || getVehicleTypeId(availableVehicleTypes?.[0]) || '',
     [availableVehicleTypes, selectedVehicleTypeId],
   );
   const resolveEffectiveVehicleModelId = useCallback(() => {
     const vehicleType =
-      (availableVehicleTypes || []).find((type) => type.id === effectiveSelectedVehicleTypeId) || null;
+      (availableVehicleTypes || []).find((type) => getVehicleTypeId(type) === effectiveSelectedVehicleTypeId) ||
+      null;
     const modelOptions = getVehicleModelOptions(vehicleType);
     if (modelOptions.some((model) => model.id === selectedVehicleModelId)) {
       return selectedVehicleModelId;
@@ -832,6 +861,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const canScheduleBooking = enabledRideProducts.includes('scheduled');
   const effectiveRideProduct = rideProduct || 'normal';
   const isScheduledBookingMode = effectiveRideProduct === 'scheduled' && canScheduleBooking;
+  const effectiveScheduledDriverGenderPreference = normalizeDriverGenderPreference(
+    scheduledDriverGenderPreference || passengerPreferences?.driver_gender_preference,
+  );
 
   const estimateDriverFare = useCallback(
     (driver) => {
@@ -1045,17 +1077,28 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   }, []);
 
   const handleVehicleTypeSelect = useCallback(
-    (typeId) => {
-      setSelectedVehicleTypeId(typeId);
-      setSelectedVehicleModelId('');
+    (vehicleTypeOrId) => {
+      const nextTypeId = getVehicleTypeId(vehicleTypeOrId);
+      if (!nextTypeId) {
+        return;
+      }
+      const nextVehicleType =
+        (availableVehicleTypes || []).find((type) => getVehicleTypeId(type) === nextTypeId) || null;
+      const nextVehicleModelId = getVehicleModelOptions(nextVehicleType)[0]?.id || '';
+      setSelectedVehicleTypeId(nextTypeId);
+      setSelectedVehicleModelId(nextVehicleModelId);
       clearRideSelectionResults();
     },
-    [clearRideSelectionResults],
+    [availableVehicleTypes, clearRideSelectionResults],
   );
 
   const handleVehicleModelSelect = useCallback(
     (modelId) => {
-      setSelectedVehicleModelId(modelId);
+      const nextModelId = String(modelId || '').trim();
+      if (!nextModelId) {
+        return;
+      }
+      setSelectedVehicleModelId(nextModelId);
       clearRideSelectionResults();
     },
     [clearRideSelectionResults],
@@ -2378,6 +2421,11 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       }
       scheduledForIso = scheduleValidation.iso;
     }
+    const bookingDriverGenderPreference = effectiveRideProduct === 'women_only'
+      ? 'female'
+      : isScheduledMode
+        ? effectiveScheduledDriverGenderPreference
+        : normalizeDriverGenderPreference(passengerPreferences?.driver_gender_preference);
 
     let existingActive = null;
     try {
@@ -2476,6 +2524,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           intercity_return_trip: effectiveRideProduct === 'intercity' ? intercityReturnTrip : false,
           tourism_package: effectiveRideProduct === 'tourism' ? tourismPackage.trim() : undefined,
           women_only_required: effectiveRideProduct === 'women_only',
+          driver_gender_preference: bookingDriverGenderPreference,
           rental_hours: effectiveRideProduct === 'rental_hourly' ? rentalHours : undefined,
           safe_ride_priority:
             effectiveRideProduct === 'school_elderly_safe' ? safeRidePriority : undefined,
@@ -2568,7 +2617,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     activePassengerMenu !== PRIMARY_PASSENGER_MENU_KEY ||
     showPassengerMenus;
   const selectedVehicleType = useMemo(
-    () => (availableVehicleTypes || []).find((type) => type.id === effectiveSelectedVehicleTypeId) || null,
+    () =>
+      (availableVehicleTypes || []).find((type) => getVehicleTypeId(type) === effectiveSelectedVehicleTypeId) ||
+      null,
     [availableVehicleTypes, effectiveSelectedVehicleTypeId],
   );
   const selectedVehicleModelOptions = useMemo(
@@ -2586,17 +2637,13 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     selectedVehicleModelOptions.find((model) => model.id === effectiveSelectedVehicleModelId) ||
     selectedVehicleModelOptions[0] ||
     null;
-  const selectedRideChoiceLabel = useMemo(
-    () =>
-      [
-        getVehicleTypeName(selectedVehicleType),
-        selectedVehicleModel?.name,
-        getRideProductName(effectiveRideProduct, rideProductLabels),
-      ]
-        .filter(Boolean)
-        .join(' / '),
-    [effectiveRideProduct, rideProductLabels, selectedVehicleModel, selectedVehicleType],
-  );
+  const selectedRideChoiceLabel = [
+    getVehicleTypeName(selectedVehicleType),
+    selectedVehicleModel?.name,
+    getRideProductName(effectiveRideProduct, rideProductLabels),
+  ]
+    .filter(Boolean)
+    .join(' / ');
   const recentDestinationOptions = useMemo(() => {
     const seen = new Set();
     return (passengerBookings || [])
@@ -2713,12 +2760,13 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               ) : (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                   {(availableVehicleTypes || []).map((type) => {
-                    const active = effectiveSelectedVehicleTypeId === type.id;
+                    const typeId = getVehicleTypeId(type);
+                    const active = effectiveSelectedVehicleTypeId === typeId;
                     return (
                       <TouchableOpacity
-                        key={type.id}
+                        key={typeId || getVehicleTypeName(type)}
                         style={[styles.rideDetailsOptionChip, active && styles.rideDetailsOptionChipActive]}
-                        onPress={() => handleVehicleTypeSelect(type.id)}>
+                        onPress={() => handleVehicleTypeSelect(type)}>
                         {!!type.icon && <Text style={styles.rideDetailsOptionIcon}>{type.icon}</Text>}
                         <Text
                           style={[
@@ -3522,26 +3570,30 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                         style={{ marginVertical: 12 }}
                         showsHorizontalScrollIndicator={false}
                       >
-                        {availableVehicleTypes && availableVehicleTypes.map((type) => (
-                          <TouchableOpacity
-                            key={type.id}
-                            style={[
-                              styles.vehicleTypeChip,
-                              effectiveSelectedVehicleTypeId === type.id && styles.vehicleTypeChipActive,
-                            ]}
-                            onPress={() => handleVehicleTypeSelect(type.id)}
-                          >
-                            <Text style={styles.vehicleTypeChipIcon}>{type.icon}</Text>
-                            <Text
+                        {availableVehicleTypes && availableVehicleTypes.map((type) => {
+                          const typeId = getVehicleTypeId(type);
+                          const active = effectiveSelectedVehicleTypeId === typeId;
+                          return (
+                            <TouchableOpacity
+                              key={typeId || getVehicleTypeName(type)}
                               style={[
-                                styles.vehicleTypeChipText,
-                                effectiveSelectedVehicleTypeId === type.id && styles.vehicleTypeChipTextActive,
+                                styles.vehicleTypeChip,
+                                active && styles.vehicleTypeChipActive,
                               ]}
+                              onPress={() => handleVehicleTypeSelect(type)}
                             >
-                              {type.name}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
+                              <Text style={styles.vehicleTypeChipIcon}>{type.icon}</Text>
+                              <Text
+                                style={[
+                                  styles.vehicleTypeChipText,
+                                  active && styles.vehicleTypeChipTextActive,
+                                ]}
+                              >
+                                {type.name}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
                       </ScrollView>
                     )}
                   </View>
@@ -3602,26 +3654,48 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                   )}
 
                   {isScheduledBookingMode && (
-                    <ScheduledPickupPicker
-                      value={scheduledAtInput}
-                      onChangeText={setScheduledAtInput}
-                      timezone={scheduledTimeZone}
-                      onTimezoneChange={setScheduledTimeZone}
-                      inputStyle={styles.input}
-                      labels={{
-                        title: t.setPickupTime,
-                        date: t.date || 'Date',
-                        time: t.time || 'Time',
-                        timezone: t.timezone || 'Timezone',
-                        manual: t.manual || 'Manual',
-                        ready: t.ready || 'Ready',
-                      }}
-                      messages={{
-                        required: t.selectPickupTimeScheduled,
-                        invalid: t.enterValidPickupDateTime,
-                        future: t.scheduledPickupFuture,
-                      }}
+                    <View>
+                      <ScheduledPickupPicker
+                        value={scheduledAtInput}
+                        onChangeText={setScheduledAtInput}
+                        timezone={scheduledTimeZone}
+                        onTimezoneChange={setScheduledTimeZone}
+                        inputStyle={styles.input}
+                        labels={{
+                          title: t.setPickupTime,
+                          date: t.date || 'Date',
+                          time: t.time || 'Time',
+                          timezone: t.timezone || 'Timezone',
+                          manual: t.manual || 'Manual',
+                          ready: t.ready || 'Ready',
+                        }}
+                        messages={{
+                          required: t.selectPickupTimeScheduled,
+                          invalid: t.enterValidPickupDateTime,
+                          future: t.scheduledPickupFuture,
+                        }}
                       />
+                      <Text style={styles.infoText}>Driver Gender Preference</Text>
+                      <View style={styles.modeRow}>
+                        {DRIVER_GENDER_OPTIONS.map((option) => (
+                          <TouchableOpacity
+                            key={option.value}
+                            style={[
+                              styles.modeChip,
+                              effectiveScheduledDriverGenderPreference === option.value && styles.modeChipActive,
+                            ]}
+                            onPress={() => setScheduledDriverGenderPreference(option.value)}>
+                            <Text
+                              style={[
+                                styles.modeChipText,
+                                effectiveScheduledDriverGenderPreference === option.value && styles.modeChipTextActive,
+                              ]}>
+                              {option.label}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
                   )}
 
                   <Text style={styles.infoText}>{t.passengerCount || 'Passengers'} (optional)</Text>
@@ -3742,6 +3816,11 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                     <Text style={styles.infoText}>Payment: {paymentMethodLabel}</Text>
                     {!!selectedPaymentChannel && (
                       <Text style={styles.hint}>Channel: {String(selectedPaymentChannel).toUpperCase()}</Text>
+                    )}
+                    {isScheduledBookingMode && (
+                      <Text style={styles.hint}>
+                        Driver: {driverGenderPreferenceLabel(effectiveScheduledDriverGenderPreference)}
+                      </Text>
                     )}
                     {appliedPromo?.code ? (
                       <Text style={styles.infoText}>

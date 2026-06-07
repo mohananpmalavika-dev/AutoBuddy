@@ -6,8 +6,9 @@ export const SCHEDULE_TIMEZONES = [
 const DEFAULT_MESSAGES = {
   required: 'Select pickup time for scheduled ride.',
   invalid: 'Enter a valid pickup date and time.',
-  future: 'Scheduled pickup time must be at least 2 minutes in the future.',
+  future: 'Scheduled pickup time must be at least 30 minutes in the future.',
 };
+const DEFAULT_MIN_ADVANCE_MINUTES = 30;
 
 function pad2(value) {
   return String(value).padStart(2, '0');
@@ -105,9 +106,16 @@ export function parseScheduleInput(value, timezoneKey = 'local') {
   return { valid: true, date, iso: date.toISOString(), parts };
 }
 
-export function validateScheduledPickup(value, timezoneKey = 'local', messages = {}, now = new Date()) {
+export function validateScheduledPickup(
+  value,
+  timezoneKey = 'local',
+  messages = {},
+  now = new Date(),
+  minAdvanceMinutes = DEFAULT_MIN_ADVANCE_MINUTES,
+) {
   const text = String(value || '').trim();
   const mergedMessages = { ...DEFAULT_MESSAGES, ...messages };
+  const minimumMinutes = Math.max(0, Number(minAdvanceMinutes || 0));
   if (!text) {
     return { valid: false, reason: 'required', message: mergedMessages.required };
   }
@@ -117,7 +125,7 @@ export function validateScheduledPickup(value, timezoneKey = 'local', messages =
     return { ...parsed, message: mergedMessages.invalid };
   }
 
-  if (parsed.date.getTime() <= now.getTime() + 2 * 60 * 1000) {
+  if (parsed.date.getTime() <= now.getTime() + minimumMinutes * 60 * 1000) {
     return { ...parsed, valid: false, reason: 'future', message: mergedMessages.future };
   }
 

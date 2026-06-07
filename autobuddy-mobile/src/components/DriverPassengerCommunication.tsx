@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import { COLORS, SHADOWS } from '../theme';
+import { apiRequest } from '../lib/api';
 
 interface DriverPassengerCommunicationProps {
   passengerId: string;
@@ -32,6 +33,7 @@ export default function DriverPassengerCommunication({
   const [callActive, setCallActive] = useState(false);
   const [callType, setCallType] = useState<'voice' | 'video' | null>(null);
   const [callDuration, setCallDuration] = useState(0);
+  const [activeCallRoom, setActiveCallRoom] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const callTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -58,13 +60,26 @@ export default function DriverPassengerCommunication({
 
   const handleVoiceCall = async () => {
     setLoading(true);
+    setCallType('voice');
     setError('');
     try {
+      if (rideId) {
+        const room = await apiRequest(`/bookings/${rideId}/call-room`);
+        const roomUrl = String(room?.room_url || '').trim();
+        if (roomUrl) {
+          setActiveCallRoom(String(room?.room_name || roomUrl));
+          setCallActive(true);
+          setCallDuration(0);
+          await Linking.openURL(`${roomUrl}#config.startWithVideoMuted=true`);
+          return;
+        }
+      }
+
       if (!passengerPhone) {
         throw new Error('Passenger phone number is not available.');
       }
       await Linking.openURL(`tel:${passengerPhone}`);
-      Alert.alert('📞 Voice Call', 'Opening the native phone dialer to contact the passenger.');
+      Alert.alert('Voice Call', 'Opening the native phone dialer to contact the passenger.');
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to start voice call';
       setError(errorMessage);
@@ -76,12 +91,21 @@ export default function DriverPassengerCommunication({
 
   const handleVideoCall = async () => {
     setLoading(true);
+    setCallType('video');
     setError('');
     try {
-      Alert.alert(
-        '📹 Video Calling Not Available',
-        'Video calling is not configured yet. Please use the direct phone call option or integrate a VoIP provider.'
-      );
+      if (!rideId) {
+        throw new Error('Ride ID is required to start an in-app video call.');
+      }
+      const room = await apiRequest(`/bookings/${rideId}/call-room`);
+      const roomUrl = String(room?.room_url || '').trim();
+      if (!roomUrl) {
+        throw new Error('Call room is not available for this ride.');
+      }
+      setActiveCallRoom(String(room?.room_name || roomUrl));
+      setCallActive(true);
+      setCallDuration(0);
+      await Linking.openURL(roomUrl);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to start video call';
       setError(errorMessage);
@@ -94,15 +118,13 @@ export default function DriverPassengerCommunication({
   const handleEndCall = async () => {
     setLoading(true);
     try {
-      // TODO: Call API to end call
-      // await driverCommunicationAPI.endCall(rideId);
-
       setCallActive(false);
       setCallType(null);
+      setActiveCallRoom('');
       setCallDuration(0);
 
       Alert.alert(
-        '📞 Call Ended',
+        'Call Ended',
         `Call duration: ${formatCallDuration(callDuration)}`
       );
     } catch (err) {
@@ -139,7 +161,7 @@ export default function DriverPassengerCommunication({
             <Text style={styles.videoPlaceholderEmoji}>📹</Text>
             <Text style={styles.videoPlaceholderText}>Passenger Video Stream</Text>
             <Text style={styles.videoPlaceholderSubtext}>
-              (Integration with Twilio Video/Vonage)
+              {activeCallRoom ? `Room: ${activeCallRoom}` : 'Opening secure call room'}
             </Text>
           </View>
         )}
@@ -147,7 +169,9 @@ export default function DriverPassengerCommunication({
         {callType === 'voice' && (
           <View style={styles.voiceCallContainer}>
             <Text style={styles.voiceCallEmoji}>🎤</Text>
-            <Text style={styles.voiceCallText}>Passenger listening...</Text>
+            <Text style={styles.voiceCallText}>
+              {activeCallRoom ? `Connected room: ${activeCallRoom}` : 'Voice session active'}
+            </Text>
           </View>
         )}
 

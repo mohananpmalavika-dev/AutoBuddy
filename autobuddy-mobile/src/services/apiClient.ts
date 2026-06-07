@@ -362,6 +362,11 @@ const normalizePool = (pool: any) => {
   };
 };
 
+const normalizePoolResponse = (data: any, response: any, overrides: AnyRecord = {}) => {
+  const nestedPool = isRecord(response?.pool) ? response.pool : {};
+  return attachLegacyDataAlias(normalizePool({ ...data, ...nestedPool, ...response, ...overrides }));
+};
+
 const normalizePoolCollection = (payload: any) => {
   const pools = Array.isArray(payload) ? payload : payload?.pools || payload?.data || [];
   const normalizedPools = Array.isArray(pools) ? pools.map(normalizePool) : [];
@@ -390,6 +395,7 @@ const normalizeScheduledRide = (ride: any) => {
     pickup_location: locationText(pickup),
     dropoff_location: locationText(dropoff),
     scheduled_datetime: normalized.scheduled_datetime || normalized.scheduled_time,
+    driver_gender_preference: normalized.driver_gender_preference || 'any',
     status: normalized.status === 'pending' ? 'scheduled' : normalized.status,
   };
 };
@@ -415,6 +421,7 @@ const normalizeScheduledRidePayload = (data: any) => {
     dropoff_location: toLocationObject(data?.dropoff_location || data?.dropoff, 'Dropoff'),
     scheduled_time: scheduledTime,
     trip_type: data?.trip_type || data?.vehicle_type || 'ride',
+    driver_gender_preference: data?.driver_gender_preference || 'any',
     is_recurring: isRecurring,
     recurring_pattern: data?.recurring_pattern || data?.repeat_pattern || (isRecurring ? 'weekly' : undefined),
     recurring_days: data?.recurring_days,
@@ -978,11 +985,29 @@ export const demandTrafficAPI = {
 // =====================================================================
 
 export const ridePoolingAPI = {
-  // Create pooled ride request
+  // Default AutoBuddy flow: system-created auto-match pool request
   createPool: (data: any) =>
     axiosInstance
       .post('/api/ride-pooling', normalizePoolPayload(data))
-      .then((pool) => attachLegacyDataAlias(normalizePool({ ...data, ...pool, current_passengers: 1 }))),
+      .then((pool) => normalizePoolResponse(data, pool, { current_passengers: pool?.current_passengers ?? 1 })),
+
+  // Explicit system-created pool request
+  requestSystemPool: (data: any) =>
+    axiosInstance
+      .post('/api/ride-pooling/system-request', normalizePoolPayload(data))
+      .then((pool) => normalizePoolResponse(data, pool)),
+
+  // Explicit passenger-created pool
+  createPassengerPool: (data: any) =>
+    axiosInstance
+      .post('/api/ride-pooling/passenger-create', normalizePoolPayload(data))
+      .then((pool) => normalizePoolResponse(data, pool, { current_passengers: pool?.current_passengers ?? 1 })),
+
+  // Driver opens a shared route
+  createDriverPool: (data: any) =>
+    axiosInstance
+      .post('/api/ride-pooling/driver-create', normalizePoolPayload(data))
+      .then((pool) => normalizePoolResponse(data, pool)),
 
   // Find available pools
   findAvailablePools: (latitude?: number, longitude?: number, radius_km?: number) => {
@@ -1024,6 +1049,10 @@ export const ridePoolingAPI = {
   // Leave pool
   leavePool: (poolId: string) =>
     axiosInstance.post(`/api/ride-pooling/${poolId}/leave`, {}),
+
+  // Assign driver to pool
+  assignDriver: (poolId: string, driverId?: string) =>
+    axiosInstance.post(`/api/ride-pooling/${poolId}/assign-driver`, driverId ? { driver_id: driverId } : {}),
 };
 
 // =====================================================================

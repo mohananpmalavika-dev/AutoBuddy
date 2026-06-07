@@ -322,9 +322,12 @@ ssl_certificate_key /etc/letsencrypt/live/api.yourdomain.com/privkey.pem;
 ```
 
 ### API Key Rotation
-- Implement quarterly key rotation
-- Use secrets management (Vault, AWS Secrets Manager)
-- Monitor API key usage
+- Rotate production secrets every quarter and immediately after any suspected exposure.
+- Generate replacement keys for JWT, refresh JWT, Fernet, Stripe, Google Maps, FCM, AWS/S3, monitoring, and webhook secrets in the provider console or secret manager.
+- Add new values to the deployment secret store first, deploy/restart the backend, and verify login, payments, maps, notifications, uploads, and webhooks.
+- Revoke the previous keys only after the replacement deployment is healthy.
+- Record the rotation date, owner, affected services, verification result, and next due date in the operations log.
+- Review provider dashboards for unusual key usage during and after rotation.
 
 ### Database Security
 - Enable encrypted connections

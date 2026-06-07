@@ -21,6 +21,11 @@ const TERMINAL_STATUSES = new Set([
   'booking_failed',
 ]);
 const CANCELLABLE_STATUSES = new Set(['scheduled', 'pending']);
+const DRIVER_GENDER_OPTIONS = [
+  { label: 'Any', value: 'any' },
+  { label: 'Female', value: 'female' },
+  { label: 'Male', value: 'male' },
+];
 
 function asArray(value) {
   if (Array.isArray(value)) {
@@ -37,6 +42,16 @@ function asArray(value) {
 
 function normalizedStatus(value) {
   return String(value || 'scheduled').trim().toLowerCase() || 'scheduled';
+}
+
+function normalizedDriverGenderPreference(value) {
+  const raw = String(value || 'any').trim().toLowerCase();
+  return DRIVER_GENDER_OPTIONS.some((option) => option.value === raw) ? raw : 'any';
+}
+
+function driverGenderPreferenceLabel(value) {
+  const normalized = normalizedDriverGenderPreference(value);
+  return DRIVER_GENDER_OPTIONS.find((option) => option.value === normalized)?.label || 'Any';
 }
 
 function formatStatus(value) {
@@ -135,6 +150,7 @@ function normalizeScheduledRide(row) {
     fare: row?.estimated_fare ?? row?.final_fare ?? row?.estimatedFare,
     distanceKm: row?.distance_km ?? row?.actual_distance_km,
     paymentMethod: row?.payment_method || '',
+    driverGenderPreference: row?.driver_gender_preference || row?.driverPreference || 'any',
     createdAt: row?.created_at || row?.createdAt || '',
   };
 }
@@ -190,6 +206,9 @@ function ScheduledRideCard({ ride, cancelling, onCancel, onOpenRide }) {
         {!!fare && <Text style={styles.detailText}>{fare}</Text>}
         {!!distance && <Text style={styles.detailText}>{distance}</Text>}
         {!!ride.paymentMethod && <Text style={styles.detailText}>{String(ride.paymentMethod).toUpperCase()}</Text>}
+        <Text style={styles.detailText}>
+          Driver: {driverGenderPreferenceLabel(ride.driverGenderPreference)}
+        </Text>
       </View>
 
       {!!ride.driverName && (

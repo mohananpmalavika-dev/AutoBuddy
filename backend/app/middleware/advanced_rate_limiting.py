@@ -280,6 +280,18 @@ async def setup_advanced_rate_limiting(
     adaptive_limiter = AdaptiveRateLimiter(base_limiter)
     reputation_manager = ReputationManager(base_limiter)
     cost_limiter = CostBasedRateLimiter(base_limiter)
+    limiter_bundle = {
+        "base": base_limiter,
+        "adaptive": adaptive_limiter,
+        "reputation": reputation_manager,
+        "cost": cost_limiter,
+        "base_limiter": base_limiter,
+        "adaptive_limiter": adaptive_limiter,
+        "reputation_manager": reputation_manager,
+        "cost_limiter": cost_limiter,
+    }
+    app.state.advanced_rate_limiters = limiter_bundle
+    app.state.advanced_rate_limiter = base_limiter
     
     # Add middleware
     app.add_middleware(
@@ -306,9 +318,4 @@ async def setup_advanced_rate_limiting(
         }
     )
     
-    return {
-        "base_limiter": base_limiter,
-        "adaptive_limiter": adaptive_limiter,
-        "reputation_manager": reputation_manager,
-        "cost_limiter": cost_limiter
-    }
+    return limiter_bundle

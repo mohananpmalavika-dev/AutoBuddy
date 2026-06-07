@@ -23,6 +23,7 @@ from app.utils.rbac import get_current_user_secure
 
 router = APIRouter(prefix="/api", tags=["ride_products"])
 PER_TRIP_BLOCK_GRACE_RIDES = 2
+SCHEDULED_MIN_ADVANCE_MINUTES = 30
 PASSENGER_KYC_REQUIRED_FOR_BOOKING = (
     os.environ.get("PASSENGER_KYC_REQUIRED_FOR_BOOKING", "false").strip().lower()
     not in {"0", "false", "no", "off"}
@@ -56,6 +57,7 @@ class AdvancedBookingRequest(BaseModel):
     intercity_return_trip: bool = False
     tourism_package: Optional[str] = Field(default=None, max_length=120)
     women_only_required: bool = False
+    driver_gender_preference: Optional[str] = Field(default="any", max_length=20)
     rental_hours: Optional[int] = Field(default=None, ge=1, le=24)
     safe_ride_priority: Optional[str] = Field(default=None, max_length=40)
     notes: Optional[str] = Field(default=None, max_length=500)
@@ -345,6 +347,37 @@ def _normalize_gender(value: Any) -> str:
     if "." in gender:
         gender = gender.split(".")[-1]
     return gender
+
+
+def _normalize_driver_gender_preference(value: Any) -> str:
+    raw = _normalize_gender(value or "any")
+    aliases = {
+        "": "any",
+        "none": "any",
+        "no_preference": "any",
+        "no-preference": "any",
+        "female_only": "female",
+        "female-only": "female",
+        "women": "female",
+        "woman": "female",
+        "male_only": "male",
+        "male-only": "male",
+        "men": "male",
+        "man": "male",
+    }
+    normalized = aliases.get(raw, raw)
+    if normalized not in {"any", "female", "male"}:
+        raise HTTPException(status_code=400, detail="driver_gender_preference must be any, female, or male")
+    return normalized
+
+
+def _as_aware_ist(value: Optional[datetime]) -> Optional[datetime]:
+    if value is None:
+        return None
+    current_ist = get_ist_now()
+    if value.tzinfo is None:
+        return value.replace(tzinfo=current_ist.tzinfo)
+    return value.astimezone(current_ist.tzinfo)
 
 
 def _normalize_district_name(value: Any) -> str:
@@ -916,11 +949,19 @@ async def create_advanced_booking(
     if payload.ride_product == RideProduct.CORPORATE and not payload.corporate_code:
         raise HTTPException(status_code=400, detail="Corporate code required")
 
-    if payload.ride_product == RideProduct.SCHEDULED and not payload.scheduled_for:
+    scheduled_for = _as_aware_ist(payload.scheduled_for)
+    if payload.ride_product == RideProduct.SCHEDULED and not scheduled_for:
         raise HTTPException(status_code=400, detail="Scheduled time is required for scheduled rides")
 
-    if payload.scheduled_for and payload.scheduled_for <= get_ist_now():
-        raise HTTPException(status_code=400, detail="Scheduled time must be in the future")
+    if scheduled_for:
+        now_ist = get_ist_now()
+        if scheduled_for <= now_ist:
+            raise HTTPException(status_code=400, detail="Scheduled time must be in the future")
+        if scheduled_for < now_ist + timedelta(minutes=SCHEDULED_MIN_ADVANCE_MINUTES):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Scheduled rides must be booked at least {SCHEDULED_MIN_ADVANCE_MINUTES} minutes in advance",
+            )
 
     if payload.ride_product == RideProduct.RENTAL_HOURLY and not payload.rental_hours:
         raise HTTPException(status_code=400, detail="Rental hours required for rental/hourly rides")
@@ -978,9 +1019,13 @@ async def create_advanced_booking(
     estimated_fare = round(max(0.0, raw_estimated_fare - promo_discount_amount), 2)
 
     now = get_ist_now()
-    is_scheduled = payload.ride_product == RideProduct.SCHEDULED or payload.scheduled_for is not None
+    is_scheduled = payload.ride_product == RideProduct.SCHEDULED or scheduled_for is not None
     booking_id = str(uuid.uuid4())
     selected_driver_id = str(payload.selected_driver_id or "").strip() or None
+    women_only_required = bool(payload.women_only_required or payload.ride_product == RideProduct.WOMEN_ONLY)
+    driver_gender_preference = _normalize_driver_gender_preference(payload.driver_gender_preference)
+    if women_only_required:
+        driver_gender_preference = "female"
     candidate_driver_ids = []
     if selected_driver_id:
         if not is_scheduled:
@@ -1013,16 +1058,15 @@ async def create_advanced_booking(
         "drop_location": drop,
         "ride_product": payload.ride_product.value,
         "ride_product_label": _product_label(payload.ride_product),
-        "scheduled_for": payload.scheduled_for,
+        "scheduled_for": scheduled_for,
         "passenger_count": payload.passenger_count,
         "corporate_code": payload.corporate_code,
         "airport_terminal": payload.airport_terminal,
         "flight_number": payload.flight_number,
         "intercity_return_trip": payload.intercity_return_trip,
         "tourism_package": payload.tourism_package,
-        "women_only_required": bool(
-            payload.women_only_required or payload.ride_product == RideProduct.WOMEN_ONLY
-        ),
+        "women_only_required": women_only_required,
+        "driver_gender_preference": driver_gender_preference,
         "pickup_district": availability.get("pickup_district"),
         "rental_hours": payload.rental_hours,
         "safe_ride_priority": payload.safe_ride_priority,
@@ -1059,12 +1103,15 @@ async def create_advanced_booking(
         "updated_at": now,
     }
 
-    if payload.ride_product == RideProduct.WOMEN_ONLY:
-        booking["driver_filter"] = {"gender": "female"}
-    elif payload.ride_product == RideProduct.EV_AUTO:
-        booking["driver_filter"] = {"vehicle_type": "ev_auto"}
+    driver_filter: Dict[str, Any] = {}
+    if driver_gender_preference in {"female", "male"}:
+        driver_filter["gender"] = driver_gender_preference
+    if payload.ride_product == RideProduct.EV_AUTO:
+        driver_filter["vehicle_type"] = "ev_auto"
     elif payload.ride_product == RideProduct.SCHOOL_ELDERLY_SAFE:
-        booking["driver_filter"] = {"trust_priority": True}
+        driver_filter["trust_priority"] = True
+    if driver_filter:
+        booking["driver_filter"] = driver_filter
 
     await db.bookings.insert_one(booking)
     return booking

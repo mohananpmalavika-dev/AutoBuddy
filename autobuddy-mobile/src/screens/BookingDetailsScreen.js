@@ -11,17 +11,30 @@ import {
   View,
 } from 'react-native';
 import { COLORS, SHADOWS } from '../theme';
+import ScheduledPickupPicker from '../components/ScheduledPickupPicker';
 import { apiRequest } from '../lib/api';
-import { bookingAPI } from '../services/apiClient';
+import { validateScheduledPickup } from '../lib/scheduling';
 import { getSocket } from '../services/socketClient';
+import { formatToIST } from '../utils/time';
 
 const DEFAULT_DRIVER_RADIUS_KM = 2;
+const SCHEDULED_MIN_ADVANCE_MINUTES = 30;
 const DEFAULT_PASSENGER_CAPACITY_BY_VEHICLE = {
   auto: 3,
   taxi: 4,
   xl: 6,
   traveller: 8,
   bus: 40,
+};
+const DRIVER_GENDER_OPTIONS = [
+  { label: 'Any', value: 'any' },
+  { label: 'Female', value: 'female' },
+  { label: 'Male', value: 'male' },
+];
+const RIDE_PRODUCT_ALIASES = {
+  instant: 'normal',
+  rental: 'rental_hourly',
+  goods: 'normal',
 };
 
 function normalizeInitialLocation(location) {
@@ -85,6 +98,30 @@ function compactAddress(location, fallback) {
     return fallback;
   }
   return text.length > 64 ? `${text.slice(0, 61)}...` : text;
+}
+
+function normalizeRideProduct(value) {
+  const raw = String(value || 'normal').trim().toLowerCase();
+  return RIDE_PRODUCT_ALIASES[raw] || raw || 'normal';
+}
+
+function normalizeDriverGenderPreference(value) {
+  const raw = String(value || 'any').trim().toLowerCase();
+  return DRIVER_GENDER_OPTIONS.some((option) => option.value === raw) ? raw : 'any';
+}
+
+function driverGenderPreferenceLabel(value) {
+  const normalized = normalizeDriverGenderPreference(value);
+  return DRIVER_GENDER_OPTIONS.find((option) => option.value === normalized)?.label || 'Any';
+}
+
+function bookingLocationPayload(location, fallbackAddress, extras = {}) {
+  return {
+    latitude: location.coords.latitude,
+    longitude: location.coords.longitude,
+    address: location.address || fallbackAddress,
+    ...extras,
+  };
 }
 
 function normalizePromo(promo, code) {
@@ -168,10 +205,29 @@ const BookingDetailsScreen = ({ navigation, route }) => {
   const [driversLoading, setDriversLoading] = useState(false);
   const [driversError, setDriversError] = useState('');
   const [bookingLoading, setBookingLoading] = useState(false);
+  const [scheduledAtInput, setScheduledAtInput] = useState('');
+  const [scheduledTimeZone, setScheduledTimeZone] = useState('local');
+  const [driverGenderPreference, setDriverGenderPreference] = useState('any');
 
   const fareAmount = Number(fareEstimate?.total_fare || fareEstimate?.estimated_fare || 0);
   const discountAmount = getDiscountAmount(fareAmount, appliedPromo);
   const payableFare = Math.max(0, fareAmount - discountAmount);
+  const rideProduct = normalizeRideProduct(ride_type);
+  const isScheduledRide = rideProduct === 'scheduled';
+  const normalizedDriverGenderPreference = normalizeDriverGenderPreference(driverGenderPreference);
+  const scheduledPreview = isScheduledRide
+    ? validateScheduledPickup(
+        scheduledAtInput,
+        scheduledTimeZone,
+        {
+          required: 'Select pickup time for scheduled ride.',
+          invalid: 'Enter pickup time as YYYY-MM-DD HH:mm.',
+          future: `Scheduled rides must be booked at least ${SCHEDULED_MIN_ADVANCE_MINUTES} minutes in advance.`,
+        },
+        new Date(),
+        SCHEDULED_MIN_ADVANCE_MINUTES,
+      )
+    : null;
   const serviceLabel = [
     vehicle_name || vehicle_type_id || 'Vehicle',
     vehicle_subtype_name,
@@ -355,28 +411,55 @@ const BookingDetailsScreen = ({ navigation, route }) => {
       return;
     }
 
+    let scheduledForIso;
+    if (isScheduledRide) {
+      const validation = validateScheduledPickup(
+        scheduledAtInput,
+        scheduledTimeZone,
+        {
+          required: 'Select pickup time for scheduled ride.',
+          invalid: 'Enter pickup time as YYYY-MM-DD HH:mm.',
+          future: `Scheduled rides must be booked at least ${SCHEDULED_MIN_ADVANCE_MINUTES} minutes in advance.`,
+        },
+        new Date(),
+        SCHEDULED_MIN_ADVANCE_MINUTES,
+      );
+      if (!validation.valid) {
+        Alert.alert('Scheduled Pickup', validation.message);
+        return;
+      }
+      scheduledForIso = validation.iso;
+    }
+
     try {
       setBookingLoading(true);
+      const pickupLocation = bookingLocationPayload(initialPickup, 'Pickup', {
+        region: service.pickup_region || undefined,
+        district: service.pickup_district || undefined,
+        pincode: service.pickup_pincode || undefined,
+      });
+      const dropLocation = bookingLocationPayload(initialDropoff, 'Dropoff', {
+        distance_km: Number(fareEstimate?.distance_km || 0) > 0 ? Number(fareEstimate.distance_km) : undefined,
+      });
 
       const bookingData = {
-        pickup_latitude: initialPickup.coords.latitude,
-        pickup_longitude: initialPickup.coords.longitude,
-        pickup_location: initialPickup.address,
-        dropoff_latitude: initialDropoff.coords.latitude,
-        dropoff_longitude: initialDropoff.coords.longitude,
-        dropoff_location: initialDropoff.address,
-        vehicle_type_id,
-        vehicle_subtype_id: vehicle_subtype_id || null,
-        ride_type,
+        pickup_location: pickupLocation,
+        drop_location: dropLocation,
+        ride_product: rideProduct,
         passenger_count: passengerCount,
-        scheduled_datetime: null,
-        promo_code: appliedPromo?.code || promoCode.trim() || null,
-        pickup_region: service.pickup_region || null,
-        pickup_district: service.pickup_district || null,
-        pickup_pincode: service.pickup_pincode || null,
+        scheduled_for: scheduledForIso,
+        driver_gender_preference: isScheduledRide ? normalizedDriverGenderPreference : 'any',
+        payment_method: 'cash',
+        promo_code: appliedPromo?.code || promoCode.trim() || undefined,
+        vehicle_type_id: vehicle_type_id || undefined,
+        vehicle_subtype_id: vehicle_subtype_id || undefined,
+        vehicle_model: vehicle_subtype_name || vehicle_name || undefined,
       };
 
-      const bookingResponse = await bookingAPI.createBooking(bookingData);
+      const bookingResponse = await apiRequest('/bookings/advanced', {
+        method: 'POST',
+        body: bookingData,
+      });
       const bookingId = bookingResponse?.booking_id || bookingResponse?.id;
 
       if (bookingId) {
@@ -392,7 +475,7 @@ const BookingDetailsScreen = ({ navigation, route }) => {
           bookingId,
           booking_id: bookingId,
           id: bookingResponse?.id || bookingId,
-          status: bookingResponse?.status || 'pending',
+          status: bookingResponse?.status || (isScheduledRide ? 'scheduled' : 'pending'),
         });
       }
     } catch (error) {
@@ -487,6 +570,46 @@ const BookingDetailsScreen = ({ navigation, route }) => {
           )}
         </View>
 
+        {isScheduledRide && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Scheduled Pickup</Text>
+            <ScheduledPickupPicker
+              value={scheduledAtInput}
+              onChangeText={setScheduledAtInput}
+              timezone={scheduledTimeZone}
+              onTimezoneChange={setScheduledTimeZone}
+              inputStyle={styles.textInput}
+              minAdvanceMinutes={SCHEDULED_MIN_ADVANCE_MINUTES}
+              messages={{
+                required: 'Select pickup time for scheduled ride.',
+                invalid: 'Enter pickup time as YYYY-MM-DD HH:mm.',
+                future: `Scheduled rides must be booked at least ${SCHEDULED_MIN_ADVANCE_MINUTES} minutes in advance.`,
+              }}
+            />
+            <View style={styles.preferenceBlock}>
+              <Text style={styles.preferenceTitle}>Driver Gender Preference</Text>
+              <View style={styles.preferenceRow}>
+                {DRIVER_GENDER_OPTIONS.map((option) => {
+                  const selected = normalizedDriverGenderPreference === option.value;
+                  return (
+                    <TouchableOpacity
+                      key={option.value}
+                      style={[styles.preferenceChip, selected && styles.preferenceChipActive]}
+                      onPress={() => setDriverGenderPreference(option.value)}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected }}
+                    >
+                      <Text style={[styles.preferenceChipText, selected && styles.preferenceChipTextActive]}>
+                        {option.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          </View>
+        )}
+
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Promo Code</Text>
           <View style={styles.inputRow}>
@@ -530,6 +653,24 @@ const BookingDetailsScreen = ({ navigation, route }) => {
                   <Text style={styles.summaryLabel}>Estimated fare</Text>
                   <Text style={styles.summaryValue}>{money(fareAmount)}</Text>
                 </View>
+                {isScheduledRide && (
+                  <>
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>Pickup time</Text>
+                      <Text style={styles.summaryValue}>
+                        {scheduledPreview?.valid
+                          ? formatToIST(scheduledPreview.iso, { dateStyle: 'medium', timeStyle: 'short' })
+                          : 'Select time'}
+                      </Text>
+                    </View>
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>Driver preference</Text>
+                      <Text style={styles.summaryValue}>
+                        {driverGenderPreferenceLabel(normalizedDriverGenderPreference)}
+                      </Text>
+                    </View>
+                  </>
+                )}
                 {discountAmount > 0 && (
                   <View style={styles.summaryRow}>
                     <Text style={styles.summaryLabel}>Promo discount</Text>
@@ -622,7 +763,7 @@ const BookingDetailsScreen = ({ navigation, route }) => {
             <ActivityIndicator size="small" color="#fff" />
           ) : (
             <>
-              <Text style={styles.bookButtonText}>Book Ride</Text>
+              <Text style={styles.bookButtonText}>{isScheduledRide ? 'Schedule Ride' : 'Book Ride'}</Text>
               <Text style={styles.bookButtonArrow}>{'->'}</Text>
             </>
           )}
@@ -776,6 +917,51 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     fontSize: 13,
     lineHeight: 18,
+  },
+
+  preferenceBlock: {
+    marginTop: 16,
+  },
+
+  preferenceTitle: {
+    color: COLORS.text,
+    fontSize: 14,
+    fontWeight: '800',
+    marginBottom: 10,
+  },
+
+  preferenceRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+
+  preferenceChip: {
+    minHeight: 42,
+    minWidth: 86,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    backgroundColor: COLORS.card,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+
+  preferenceChipActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.overlaySoft,
+  },
+
+  preferenceChipText: {
+    color: COLORS.textSecondary,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+
+  preferenceChipTextActive: {
+    color: COLORS.primary,
   },
 
   counterContainer: {

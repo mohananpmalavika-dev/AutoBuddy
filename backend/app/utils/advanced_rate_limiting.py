@@ -13,6 +13,7 @@ import asyncio
 import redis.asyncio as redis
 from functools import wraps
 import logging
+from fastapi import HTTPException
 
 from app.utils.logging_config import StructuredLogger
 
@@ -585,9 +586,34 @@ def rate_limit(
                 key = key_func(request)
             else:
                 key = f"endpoint:{request.url.path}:{request.client.host}"
-            
-            # TODO: Check rate limit here using DistributedRateLimiter
-            # For now, just call the function
+
+            state = getattr(getattr(request, "app", None), "state", None)
+            limiter_bundle = getattr(state, "advanced_rate_limiters", None) if state else None
+            limiter = None
+            if isinstance(limiter_bundle, dict):
+                limiter = limiter_bundle.get("base") or limiter_bundle.get("base_limiter")
+            if limiter is None and state is not None:
+                limiter = getattr(state, "advanced_rate_limiter", None)
+
+            if limiter is not None:
+                user_id = str(getattr(getattr(request, "state", None), "user_id", "") or "").strip() or None
+                try:
+                    allowed, limit_status = await limiter.check_rate_limit(key, cost, user_id)
+                except Exception as exc:
+                    logger.warning("Rate limit decorator failed open", metadata={"error": str(exc), "key": key})
+                else:
+                    if not allowed:
+                        raise HTTPException(
+                            status_code=429,
+                            detail="Rate limit exceeded",
+                            headers={
+                                "X-RateLimit-Limit": str(limit_status.limit),
+                                "X-RateLimit-Remaining": str(limit_status.remaining_requests),
+                                "X-RateLimit-Reset": str(int(limit_status.reset_at.timestamp())),
+                                "Retry-After": str(limit_status.retry_after or 60),
+                            },
+                        )
+
             return await func(*args, **kwargs)
         
         return wrapper
@@ -608,7 +634,7 @@ async def init_advanced_rate_limiting(
     adaptive_limiter = AdaptiveRateLimiter(base_limiter)
     reputation_manager = ReputationManager(base_limiter)
     cost_limiter = CostBasedRateLimiter(base_limiter)
-    
+
     return {
         "base": base_limiter,
         "adaptive": adaptive_limiter,

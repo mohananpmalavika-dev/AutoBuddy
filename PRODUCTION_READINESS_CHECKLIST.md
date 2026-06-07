@@ -164,8 +164,8 @@ All critical gaps have been addressed. The project is now **production-ready** w
 | Secrets Management | ✅ DOCUMENTED | Use .env for production secrets |
 | HTTPS Enforcement | ✅ CONFIGURED | Nginx SSL template provided |
 | SQL Injection Prevention | ✅ IMPLEMENTED | SQLAlchemy ORM prevents injection |
-| CSRF Protection | ⚠️ TODO | Add CSRF tokens to state-changing endpoints |
-| API Key Rotation | ⚠️ TODO | Implement quarterly rotation process |
+| CSRF Protection | ✅ REVIEWED | Bearer JWT auth is used for API writes; keep auth tokens out of cookies and maintain strict CORS origins. Add CSRF tokens only if cookie auth is introduced. |
+| API Key Rotation | ✅ DOCUMENTED | Quarterly rotation process is documented in `PRODUCTION_DEPLOYMENT_GUIDE.md`; rotate JWT, Stripe, Maps, FCM, and storage keys through the deployment secret store. |
 
 ---
 

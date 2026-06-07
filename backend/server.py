@@ -16738,26 +16738,26 @@ async def get_user_from_socket(environ: Dict[str, Any], auth: Optional[Dict[str,
     if not user_id:
         logger.warning("Socket auth rejected: token missing subject")
         return None
-    token_user = {"id": user_id, "role": _normalize_socket_role(payload.get("role")) or UserRole.PASSENGER.value}
     if db is None:
-        logger.warning("Socket auth using token subject because primary DB is unavailable")
-        return token_user
+        logger.warning("Socket auth rejected: primary DB is unavailable")
+        return None
     try:
         user = await db.users.find_one(
             {"$or": [{"id": user_id}, {"user_id": user_id}]},
             {"_id": 0},
         )
     except Exception as exc:
-        logger.warning("Socket auth user lookup failed; using token subject: %s", exc)
-        return token_user
+        logger.warning("Socket auth rejected: user lookup failed: %s", exc)
+        return None
     if user:
         if str(user.get("status") or "").strip().lower() == "blocked":
             logger.warning("Socket auth rejected: blocked user_id=%s", user_id)
             return None
-        user["role"] = _normalize_socket_role(user.get("role")) or token_user["role"]
+        user["id"] = str(user.get("id") or user.get("user_id") or user_id)
+        user["role"] = _normalize_socket_role(user.get("role")) or _normalize_socket_role(payload.get("role"))
         return user
-    logger.warning("Socket auth token valid but user not found; using token subject user_id=%s", user_id)
-    return token_user
+    logger.warning("Socket auth rejected: token valid but user not found user_id=%s", user_id)
+    return None
 
 
 async def emit_driver_connection_state(
