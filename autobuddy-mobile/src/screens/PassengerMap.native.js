@@ -2366,6 +2366,135 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               </View>
             )}
 
+            {effectiveRideProduct === 'pool' && (
+              <View style={styles.rideDetailsSection}>
+                <Text style={styles.rideDetailsSectionTitle}>Pool ride</Text>
+                <Text style={styles.hint}>
+                  Auto Match Pool groups compatible passengers automatically. Passenger-created and driver-created
+                  pool controls live in the Pool Ride flow.
+                </Text>
+              </View>
+            )}
+
+            {effectiveRideProduct === 'corporate' && (
+              <View style={styles.rideDetailsSection}>
+                <Text style={styles.rideDetailsSectionTitle}>Corporate details</Text>
+                <VoiceTextInput
+                  style={styles.input}
+                  value={corporateCode}
+                  onChangeText={setCorporateCode}
+                  placeholder="Corporate code"
+                  placeholderTextColor={COLORS.textMuted}
+                />
+                <VoiceTextInput
+                  style={styles.input}
+                  value={corporatePurpose}
+                  onChangeText={setCorporatePurpose}
+                  placeholder="Trip purpose (optional)"
+                  placeholderTextColor={COLORS.textMuted}
+                />
+                <VoiceTextInput
+                  style={styles.input}
+                  value={corporateCostCenterId}
+                  onChangeText={setCorporateCostCenterId}
+                  placeholder="Cost center / project code (optional)"
+                  placeholderTextColor={COLORS.textMuted}
+                />
+              </View>
+            )}
+
+            {effectiveRideProduct === 'airport' && (
+              <View style={styles.rideDetailsSection}>
+                <Text style={styles.rideDetailsSectionTitle}>Airport details</Text>
+                <VoiceTextInput
+                  style={styles.input}
+                  value={flightNumber}
+                  onChangeText={setFlightNumber}
+                  placeholder="Flight number"
+                  placeholderTextColor={COLORS.textMuted}
+                />
+                <VoiceTextInput
+                  style={styles.input}
+                  value={airportTerminal}
+                  onChangeText={setAirportTerminal}
+                  placeholder="Airport terminal"
+                  placeholderTextColor={COLORS.textMuted}
+                />
+              </View>
+            )}
+
+            {effectiveRideProduct === 'intercity' && (
+              <View style={styles.rideDetailsSection}>
+                <Text style={styles.rideDetailsSectionTitle}>Intercity options</Text>
+                <TouchableOpacity
+                  style={[styles.modeChip, intercityReturnTrip && styles.modeChipActive]}
+                  onPress={() => setIntercityReturnTrip((prev) => !prev)}
+                  disabled={loading}>
+                  <Text style={[styles.modeChipText, intercityReturnTrip && styles.modeChipTextActive]}>
+                    {intercityReturnTrip ? 'Return trip: yes' : 'Return trip: no'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {effectiveRideProduct === 'tourism' && (
+              <View style={styles.rideDetailsSection}>
+                <Text style={styles.rideDetailsSectionTitle}>Tourism package</Text>
+                <VoiceTextInput
+                  style={styles.input}
+                  value={tourismPackage}
+                  onChangeText={setTourismPackage}
+                  placeholder="Tourism package"
+                  placeholderTextColor={COLORS.textMuted}
+                />
+              </View>
+            )}
+
+            {effectiveRideProduct === 'women_only' && (
+              <View style={styles.rideDetailsSection}>
+                <Text style={styles.rideDetailsSectionTitle}>Women-only ride</Text>
+                <Text style={styles.hint}>This ride will request a female driver when available.</Text>
+              </View>
+            )}
+
+            {effectiveRideProduct === 'rental_hourly' && (
+              <View style={styles.rideDetailsSection}>
+                <Text style={styles.rideDetailsSectionTitle}>Rental hours</Text>
+                <VoiceTextInput
+                  style={styles.input}
+                  value={rentalHoursInput}
+                  onChangeText={setRentalHoursInput}
+                  keyboardType="number-pad"
+                  placeholder="Rental hours"
+                  placeholderTextColor={COLORS.textMuted}
+                />
+              </View>
+            )}
+
+            {effectiveRideProduct === 'school_elderly_safe' && (
+              <View style={styles.rideDetailsSection}>
+                <Text style={styles.rideDetailsSectionTitle}>Safe ride priority</Text>
+                <View style={styles.modeRow}>
+                  <TouchableOpacity
+                    style={[styles.modeChip, safeRidePriority === 'school' && styles.modeChipActive]}
+                    onPress={() => setSafeRidePriority('school')}
+                    disabled={loading}>
+                    <Text style={[styles.modeChipText, safeRidePriority === 'school' && styles.modeChipTextActive]}>
+                      School
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.modeChip, safeRidePriority === 'elderly' && styles.modeChipActive]}
+                    onPress={() => setSafeRidePriority('elderly')}
+                    disabled={loading}>
+                    <Text style={[styles.modeChipText, safeRidePriority === 'elderly' && styles.modeChipTextActive]}>
+                      Elderly
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
             <View style={styles.rideDetailsSection}>
               <Text style={styles.rideDetailsSectionTitle}>Passengers optional</Text>
               <VoiceTextInput
