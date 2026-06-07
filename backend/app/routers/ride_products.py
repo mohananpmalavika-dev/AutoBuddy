@@ -52,6 +52,8 @@ class AdvancedBookingRequest(BaseModel):
     scheduled_for: Optional[datetime] = None
     passenger_count: int = Field(default=1, ge=1, le=6)
     corporate_code: Optional[str] = Field(default=None, max_length=80)
+    corporate_purpose: Optional[str] = Field(default=None, max_length=160)
+    corporate_cost_center_id: Optional[str] = Field(default=None, max_length=80)
     airport_terminal: Optional[str] = Field(default=None, max_length=40)
     flight_number: Optional[str] = Field(default=None, max_length=40)
     intercity_return_trip: bool = False
@@ -333,6 +335,89 @@ def _product_label(product: RideProduct) -> str:
         RideProduct.RENTAL_HOURLY: "Rental / Hourly Package",
         RideProduct.SCHOOL_ELDERLY_SAFE: "School / Elderly Safe Ride",
     }.get(product, "Normal Ride")
+
+
+def _corporate_lookup(corporate_code: str) -> Dict[str, Any]:
+    code = str(corporate_code or "").strip()
+    return {
+        "$or": [
+            {"id": code},
+            {"company_id": code},
+            {"corporate_code": code},
+            {"registration_number": code},
+        ]
+    }
+
+
+async def _resolve_corporate_booking_context(
+    db: AsyncIOMotorDatabase,
+    current_user: Dict[str, Any],
+    corporate_code: Optional[str],
+    estimated_fare: float,
+) -> Dict[str, Any]:
+    code = str(corporate_code or "").strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="Corporate code required")
+
+    company = await db.corporate_companies.find_one(_corporate_lookup(code), {"_id": 0})
+    if not company or company.get("is_active") is False:
+        raise HTTPException(status_code=404, detail="Corporate account not found or inactive")
+
+    passenger_id = str(current_user.get("id") or current_user.get("user_id") or "").strip()
+    user_email = str(current_user.get("email") or "").strip().lower()
+    employee_match = [
+        {"user_id": passenger_id},
+        {"employee_id": passenger_id},
+        {"id": passenger_id},
+    ]
+    if user_email:
+        employee_match.append({"email": user_email})
+
+    employee = await db.corporate_employees.find_one(
+        {
+            "company_id": company["id"],
+            "is_active": True,
+            "$or": employee_match,
+        },
+        {"_id": 0},
+    )
+    if not employee:
+        raise HTTPException(status_code=403, detail="You are not an active employee under this corporate account")
+
+    active_policies = await db.corporate_policies.find(
+        {"company_id": company["id"], "is_active": True},
+        {"_id": 0},
+    ).to_list(100)
+    if not active_policies:
+        raise HTTPException(status_code=409, detail="Corporate ride needs manager approval: no active policy found")
+
+    employee_budget = float(employee.get("monthly_ride_budget") or 0)
+    employee_spend = float(employee.get("budget_spent_this_month") or 0)
+    if employee_budget and employee_spend + estimated_fare > employee_budget:
+        raise HTTPException(status_code=409, detail="Corporate ride needs manager approval: employee budget exceeded")
+
+    employee_limit = int(employee.get("rides_per_month_limit") or 0)
+    employee_rides = int(employee.get("rides_used_this_month") or 0)
+    if employee_limit and employee_rides + 1 > employee_limit:
+        raise HTTPException(status_code=409, detail="Corporate ride needs manager approval: ride count limit exceeded")
+
+    matched_policy = active_policies[0]
+    for policy in active_policies:
+        max_ride_cost = float(policy.get("max_ride_cost") or 0)
+        if max_ride_cost and estimated_fare > max_ride_cost:
+            raise HTTPException(status_code=409, detail="Corporate ride needs manager approval: policy fare limit exceeded")
+        max_monthly_cost = float(policy.get("max_monthly_cost") or 0)
+        if max_monthly_cost and employee_spend + estimated_fare > max_monthly_cost:
+            raise HTTPException(status_code=409, detail="Corporate ride needs manager approval: policy monthly limit exceeded")
+        if policy.get("require_approval"):
+            raise HTTPException(status_code=409, detail="Corporate ride needs manager approval")
+        matched_policy = policy
+
+    return {
+        "company": company,
+        "employee": employee,
+        "policy": matched_policy,
+    }
 
 
 def _normalize_role(value: Any) -> str:
@@ -1017,6 +1102,17 @@ async def create_advanced_booking(
         promo_max_discount = promo_validation.get("max_discount")
         promo_discount_amount = float(promo_validation.get("discount_amount") or 0.0)
     estimated_fare = round(max(0.0, raw_estimated_fare - promo_discount_amount), 2)
+    corporate_context = None
+    if payload.ride_product == RideProduct.CORPORATE:
+        corporate_context = await _resolve_corporate_booking_context(
+            db,
+            current_user,
+            payload.corporate_code,
+            estimated_fare,
+        )
+        normalized_payment_method = "corporate_invoice"
+        payment_method_id = None
+        payment_channel = "invoice"
 
     now = get_ist_now()
     is_scheduled = payload.ride_product == RideProduct.SCHEDULED or scheduled_for is not None
@@ -1061,6 +1157,8 @@ async def create_advanced_booking(
         "scheduled_for": scheduled_for,
         "passenger_count": payload.passenger_count,
         "corporate_code": payload.corporate_code,
+        "corporate_purpose": payload.corporate_purpose,
+        "corporate_cost_center_id": payload.corporate_cost_center_id,
         "airport_terminal": payload.airport_terminal,
         "flight_number": payload.flight_number,
         "intercity_return_trip": payload.intercity_return_trip,
@@ -1102,6 +1200,21 @@ async def create_advanced_booking(
         "created_at": now,
         "updated_at": now,
     }
+    if corporate_context:
+        company = corporate_context["company"]
+        employee = corporate_context["employee"]
+        policy = corporate_context["policy"]
+        corporate_request_id = f"corp_req_{uuid.uuid4().hex[:12]}"
+        booking.update(
+            {
+                "company_id": company["id"],
+                "employee_id": employee["employee_id"],
+                "corporate_request_id": corporate_request_id,
+                "corporate_company_name": company.get("company_name"),
+                "corporate_policy_id": policy.get("id"),
+                "corporate_cost_center_id": payload.corporate_cost_center_id or employee.get("cost_center_id"),
+            }
+        )
 
     driver_filter: Dict[str, Any] = {}
     if driver_gender_preference in {"female", "male"}:
@@ -1113,5 +1226,48 @@ async def create_advanced_booking(
     if driver_filter:
         booking["driver_filter"] = driver_filter
 
+    if corporate_context:
+        company = corporate_context["company"]
+        employee = corporate_context["employee"]
+        policy = corporate_context["policy"]
+        await db.corporate_ride_requests.insert_one(
+            {
+                "id": booking["corporate_request_id"],
+                "company_id": company["id"],
+                "corporate_code": company.get("corporate_code"),
+                "employee_id": employee["employee_id"],
+                "employee_name": employee.get("name"),
+                "pickup_location": pickup,
+                "dropoff_location": drop,
+                "estimated_cost": estimated_fare,
+                "ride_type": payload.vehicle_type_id or "auto",
+                "purpose": payload.corporate_purpose or payload.notes or "Corporate ride booking",
+                "cost_center_id": payload.corporate_cost_center_id or employee.get("cost_center_id"),
+                "policy_id": policy.get("id"),
+                "policy_compliant": True,
+                "policy_reason": "Policy compliant",
+                "requires_approval": False,
+                "approval_status": "approved",
+                "status": "booking_created",
+                "booking_id": booking_id,
+                "requested_by": current_user_id,
+                "requested_at": now,
+                "created_at": now,
+                "updated_at": now,
+            }
+        )
+
     await db.bookings.insert_one(booking)
+    if corporate_context:
+        employee = corporate_context["employee"]
+        await db.corporate_employees.update_one(
+            {"company_id": corporate_context["company"]["id"], "employee_id": employee["employee_id"]},
+            {
+                "$inc": {
+                    "rides_used_this_month": 1,
+                    "budget_spent_this_month": estimated_fare,
+                },
+                "$set": {"updated_at": now},
+            },
+        )
     return booking

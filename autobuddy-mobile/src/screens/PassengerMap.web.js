@@ -519,6 +519,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     return modelOptions[0]?.id || '';
   }, [availableVehicleTypes, effectiveSelectedVehicleTypeId, selectedVehicleModelId]);
   const [corporateCode, setCorporateCode] = useState('');
+  const [corporatePurpose, setCorporatePurpose] = useState('');
+  const [corporateCostCenterId, setCorporateCostCenterId] = useState('');
   const [airportTerminal, setAirportTerminal] = useState('');
   const [flightNumber, setFlightNumber] = useState('');
   const [tourismPackage, setTourismPackage] = useState('Kerala Local Sightseeing');
@@ -2478,6 +2480,14 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     if (effectiveRideProduct === 'school_elderly_safe') {
       rideNotes.push(`Safe ride priority: ${safeRidePriority}`);
     }
+    if (effectiveRideProduct === 'corporate') {
+      if (corporatePurpose.trim()) {
+        rideNotes.push(`Corporate purpose: ${corporatePurpose.trim()}`);
+      }
+      if (corporateCostCenterId.trim()) {
+        rideNotes.push(`Cost center: ${corporateCostCenterId.trim()}`);
+      }
+    }
     if (appliedPromo?.code) {
       rideNotes.push(`Promo requested: ${appliedPromo.code}`);
     }
@@ -2519,6 +2529,14 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           selected_driver_id: selectedDriverIdForPickup || undefined,
           scheduled_for: scheduledForIso,
           corporate_code: effectiveRideProduct === 'corporate' ? corporateCode.trim() : undefined,
+          corporate_purpose:
+            effectiveRideProduct === 'corporate' && corporatePurpose.trim()
+              ? corporatePurpose.trim()
+              : undefined,
+          corporate_cost_center_id:
+            effectiveRideProduct === 'corporate' && corporateCostCenterId.trim()
+              ? corporateCostCenterId.trim()
+              : undefined,
           airport_terminal: effectiveRideProduct === 'airport' ? airportTerminal.trim() : undefined,
           flight_number: effectiveRideProduct === 'airport' ? flightNumber.trim() : undefined,
           intercity_return_trip: effectiveRideProduct === 'intercity' ? intercityReturnTrip : false,
@@ -2815,6 +2833,51 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                 onSelect={handleRideProductSelect}
               />
             </View>
+
+            {effectiveRideProduct === 'scheduled' && (
+              <View style={styles.rideDetailsSection}>
+                <ScheduledPickupPicker
+                  value={scheduledAtInput}
+                  onChangeText={setScheduledAtInput}
+                  timezone={scheduledTimeZone}
+                  onTimezoneChange={setScheduledTimeZone}
+                  inputStyle={styles.input}
+                  labels={{
+                    title: t.setPickupTime,
+                    date: t.date || 'Date',
+                    time: t.time || 'Time',
+                    timezone: t.timezone || 'Timezone',
+                    manual: t.manual || 'Manual',
+                    ready: t.ready || 'Ready',
+                  }}
+                  messages={{
+                    required: t.selectPickupTimeScheduled,
+                    invalid: t.enterValidPickupDateTime,
+                    future: t.scheduledPickupFuture,
+                  }}
+                />
+                <Text style={styles.infoText}>Driver Gender Preference</Text>
+                <View style={styles.modeRow}>
+                  {DRIVER_GENDER_OPTIONS.map((option) => (
+                    <TouchableOpacity
+                      key={option.value}
+                      style={[
+                        styles.modeChip,
+                        effectiveScheduledDriverGenderPreference === option.value && styles.modeChipActive,
+                      ]}
+                      onPress={() => setScheduledDriverGenderPreference(option.value)}>
+                      <Text
+                        style={[
+                          styles.modeChipText,
+                          effectiveScheduledDriverGenderPreference === option.value && styles.modeChipTextActive,
+                        ]}>
+                        {option.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
 
             <View style={styles.rideDetailsSection}>
               <Text style={styles.rideDetailsSectionTitle}>Passengers optional</Text>
@@ -3708,17 +3771,30 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                     placeholderTextColor={COLORS.textMuted}
                   />
 
-                  {/* PHASE 1 FIX: Highlight corporate code field */}
                   {effectiveRideProduct === 'corporate' && (
                     <View style={{ backgroundColor: '#FFF3E0', borderLeftWidth: 3, borderLeftColor: '#FF9800', paddingLeft: 8, paddingRight: 8, paddingVertical: 6, borderRadius: 4, marginVertical: 8 }}>
                       <Text style={{ fontSize: 11, color: '#E65100', fontWeight: '600', marginBottom: 4 }}>
-                        ⚠️ CORPORATE CODE REQUIRED
+                        {t.corporateDetailsTitle || 'Corporate details'}
                       </Text>
                       <VoiceTextInput
                         style={styles.input}
                         value={corporateCode}
                         onChangeText={setCorporateCode}
                         placeholder={t.corporateCodePlaceholder}
+                        placeholderTextColor={COLORS.textMuted}
+                      />
+                      <VoiceTextInput
+                        style={styles.input}
+                        value={corporatePurpose}
+                        onChangeText={setCorporatePurpose}
+                        placeholder={t.corporatePurposePlaceholder || 'Trip purpose (optional)'}
+                        placeholderTextColor={COLORS.textMuted}
+                      />
+                      <VoiceTextInput
+                        style={styles.input}
+                        value={corporateCostCenterId}
+                        onChangeText={setCorporateCostCenterId}
+                        placeholder={t.corporateCostCenterPlaceholder || 'Cost center / project code (optional)'}
                         placeholderTextColor={COLORS.textMuted}
                       />
                     </View>

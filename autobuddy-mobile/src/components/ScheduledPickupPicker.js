@@ -171,7 +171,7 @@ export default function ScheduledPickupPicker({
       <VoiceTextInput
         value={value}
         onChangeText={onChangeText}
-        placeholder="2026-05-31 08:30"
+        placeholder="YYYY-MM-DD HH:mm"
         placeholderTextColor={COLORS.textMuted}
         style={[styles.input, inputStyle]}
       />

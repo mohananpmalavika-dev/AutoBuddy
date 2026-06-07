@@ -7,9 +7,10 @@ B2B admin interface for managing employee ride programs
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, ScrollView, Text, StyleSheet, FlatList, TouchableOpacity,
-  Alert, ActivityIndicator, Modal, RefreshControl
+  Alert, ActivityIndicator, Modal, RefreshControl, TextInput
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { apiRequest } from '../lib/api';
 
 const COLORS = {
   primary: '#2D4A7B',
@@ -28,6 +29,30 @@ const SHADOWS = {
   medium: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 5, elevation: 4 }
 };
 
+const CORPORATE_API_BASE = '/v1/corporate';
+const DEFAULT_EMPLOYEE_FORM = {
+  employee_id: '',
+  name: '',
+  email: '',
+  department: '',
+  job_title: '',
+  monthly_ride_budget: '5000',
+  rides_per_month_limit: '20',
+};
+
+function readApiData(result) {
+  return result?.data ?? result;
+}
+
+function formatMoney(value) {
+  const amount = Number(value || 0);
+  return `₹${Number.isFinite(amount) ? amount.toFixed(0) : '0'}`;
+}
+
+function getErrorMessage(error, fallback) {
+  return error?.message || error?.payload?.detail || fallback;
+}
+
 // ============================================================================
 // DASHBOARD TAB
 // ============================================================================
@@ -38,12 +63,14 @@ const CorporateDashboard = ({ companyId, adminToken }) => {
 
   const fetchDashboard = useCallback(async () => {
     try {
-      const res = await fetch(`/api/v1/corporate/company/${companyId}/analytics/dashboard`, {
-        headers: { Authorization: `Bearer ${adminToken}` }
+      setLoading(true);
+      const result = await apiRequest(`${CORPORATE_API_BASE}/company/${companyId}/analytics/dashboard`, {
+        token: adminToken,
       });
-      if (res.ok) setDashboard(await res.json());
+      setDashboard(result);
     } catch (e) {
       console.error('Error fetching dashboard:', e);
+      Alert.alert('Corporate dashboard', getErrorMessage(e, 'Could not load dashboard.'));
     } finally {
       setLoading(false);
     }
@@ -83,7 +110,7 @@ const CorporateDashboard = ({ companyId, adminToken }) => {
 
         <View style={[styles.metricCard, SHADOWS.small]}>
           <MaterialCommunityIcons name="currency-inr" size={24} color={COLORS.warning} />
-          <Text style={styles.metricValue}>₹{(data.metrics.total_spend_this_month / 1000).toFixed(0)}K</Text>
+          <Text style={styles.metricValue}>{formatMoney(data.metrics.total_spend_this_month)}</Text>
           <Text style={styles.metricLabel}>Monthly Spend</Text>
         </View>
 
@@ -139,18 +166,19 @@ const EmployeesTab = ({ companyId, adminToken }) => {
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [employeeForm, setEmployeeForm] = useState(DEFAULT_EMPLOYEE_FORM);
+  const [savingEmployee, setSavingEmployee] = useState(false);
 
   const fetchEmployees = useCallback(async () => {
     try {
-      const res = await fetch(`/api/v1/corporate/company/${companyId}/employees`, {
-        headers: { Authorization: `Bearer ${adminToken}` }
+      setLoading(true);
+      const result = await apiRequest(`${CORPORATE_API_BASE}/company/${companyId}/employees`, {
+        token: adminToken,
       });
-      if (res.ok) {
-        const data = await res.json();
-        setEmployees(data.data || []);
-      }
+      setEmployees(readApiData(result) || []);
     } catch (e) {
       console.error('Error fetching employees:', e);
+      Alert.alert('Employees', getErrorMessage(e, 'Could not load employees.'));
     } finally {
       setLoading(false);
     }
@@ -165,13 +193,44 @@ const EmployeesTab = ({ companyId, adminToken }) => {
     };
   }, [fetchEmployees]);
 
-  if (loading) return <ActivityIndicator size="large" color={COLORS.primary} />;
+  const updateEmployeeForm = (field, value) => {
+    setEmployeeForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleAddEmployee = async () => {
+    if (!employeeForm.employee_id.trim() || !employeeForm.name.trim()) {
+      Alert.alert('Add Employee', 'Employee ID and name are required.');
+      return;
+    }
+    try {
+      setSavingEmployee(true);
+      await apiRequest(`${CORPORATE_API_BASE}/company/${companyId}/employees`, {
+        method: 'POST',
+        token: adminToken,
+        body: {
+          ...employeeForm,
+          monthly_ride_budget: Number(employeeForm.monthly_ride_budget || 0),
+          rides_per_month_limit: Number(employeeForm.rides_per_month_limit || 0),
+        },
+      });
+      setShowAddModal(false);
+      setEmployeeForm(DEFAULT_EMPLOYEE_FORM);
+      Alert.alert('Success', 'Employee added to corporate program.');
+      fetchEmployees();
+    } catch (e) {
+      Alert.alert('Add Employee', getErrorMessage(e, 'Failed to add employee.'));
+    } finally {
+      setSavingEmployee(false);
+    }
+  };
+
+  if (loading && employees.length === 0) return <ActivityIndicator size="large" color={COLORS.primary} />;
 
   return (
     <>
       <FlatList
         data={employees}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item) => item.id || item.employee_id}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchEmployees} />}
         renderItem={({ item }) => (
           <View style={[styles.employeeCard, SHADOWS.small]}>
@@ -198,12 +257,17 @@ const EmployeesTab = ({ companyId, adminToken }) => {
                   <View
                     style={[
                       styles.budgetFilled,
-                      { width: `${(item.budget_spent_this_month / item.monthly_ride_budget) * 100}%` }
+                      {
+                        width: `${Math.min(
+                          100,
+                          Math.max(0, (Number(item.budget_spent_this_month || 0) / Math.max(1, Number(item.monthly_ride_budget || 1))) * 100),
+                        )}%`,
+                      }
                     ]}
                   />
                 </View>
                 <Text style={styles.budgetValue}>
-                  ₹{item.budget_spent_this_month} / ₹{item.monthly_ride_budget}
+                  {formatMoney(item.budget_spent_this_month)} / {formatMoney(item.monthly_ride_budget)}
                 </Text>
               </View>
               <Text style={styles.rideCount}>Rides: {item.rides_used_this_month}/{item.rides_per_month_limit}</Text>
@@ -224,14 +288,31 @@ const EmployeesTab = ({ companyId, adminToken }) => {
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Add Employee</Text>
+            {[
+              ['employee_id', 'Employee ID'],
+              ['name', 'Full name'],
+              ['email', 'Email'],
+              ['department', 'Department'],
+              ['job_title', 'Job title'],
+              ['monthly_ride_budget', 'Monthly budget'],
+              ['rides_per_month_limit', 'Monthly ride limit'],
+            ].map(([field, placeholder]) => (
+              <TextInput
+                key={field}
+                style={styles.input}
+                value={employeeForm[field]}
+                onChangeText={(value) => updateEmployeeForm(field, value)}
+                placeholder={placeholder}
+                placeholderTextColor="#8A8A8A"
+                keyboardType={field.includes('budget') || field.includes('limit') ? 'numeric' : 'default'}
+              />
+            ))}
             <TouchableOpacity
-              style={[styles.button, { backgroundColor: COLORS.primary }]}
-              onPress={() => {
-                setShowAddModal(false);
-                Alert.alert('Success', 'Employee added');
-              }}
+              style={[styles.button, { backgroundColor: COLORS.primary }, savingEmployee && styles.buttonDisabled]}
+              onPress={handleAddEmployee}
+              disabled={savingEmployee}
             >
-              <Text style={styles.buttonText}>Add</Text>
+              <Text style={styles.buttonText}>{savingEmployee ? 'Adding...' : 'Add'}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.button, { backgroundColor: COLORS.light_gray }]}
@@ -256,15 +337,15 @@ const RideRequestsTab = ({ companyId, adminToken }) => {
 
   const fetchRequests = useCallback(async () => {
     try {
-      const res = await fetch(`/api/v1/corporate/ride-requests/${companyId}?status=pending`, {
-        headers: { Authorization: `Bearer ${adminToken}` }
+      setLoading(true);
+      const result = await apiRequest(`${CORPORATE_API_BASE}/ride-requests/${companyId}`, {
+        token: adminToken,
+        query: { status: 'pending' },
       });
-      if (res.ok) {
-        const data = await res.json();
-        setRequests(data.data || []);
-      }
+      setRequests(readApiData(result) || []);
     } catch (e) {
       console.error('Error fetching requests:', e);
+      Alert.alert('Ride Requests', getErrorMessage(e, 'Could not load ride requests.'));
     } finally {
       setLoading(false);
     }
@@ -281,22 +362,33 @@ const RideRequestsTab = ({ companyId, adminToken }) => {
 
   const handleApprove = async (requestId) => {
     try {
-      await fetch(`/api/v1/corporate/ride-requests/${requestId}/approve`, {
+      await apiRequest(`${CORPORATE_API_BASE}/ride-requests/${requestId}/approve`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${adminToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ approver_id: 'admin_1' })
+        token: adminToken,
+        body: { action: 'approve' },
       });
-      Alert.alert('Success', 'Request approved');
+      Alert.alert('Success', 'Request approved and booking created.');
       fetchRequests();
-    } catch {
-      Alert.alert('Error', 'Failed to approve');
+    } catch (e) {
+      Alert.alert('Error', getErrorMessage(e, 'Failed to approve request.'));
     }
   };
 
-  if (loading) return <ActivityIndicator size="large" color={COLORS.primary} />;
+  const handleReject = async (requestId) => {
+    try {
+      await apiRequest(`${CORPORATE_API_BASE}/ride-requests/${requestId}/reject`, {
+        method: 'POST',
+        token: adminToken,
+        body: { reason: 'Rejected by corporate admin' },
+      });
+      Alert.alert('Success', 'Request rejected.');
+      fetchRequests();
+    } catch (e) {
+      Alert.alert('Error', getErrorMessage(e, 'Failed to reject request.'));
+    }
+  };
+
+  if (loading && requests.length === 0) return <ActivityIndicator size="large" color={COLORS.primary} />;
 
   return (
     <FlatList
@@ -325,8 +417,9 @@ const RideRequestsTab = ({ companyId, adminToken }) => {
 
           <View style={styles.costRow}>
             <Text style={styles.costLabel}>Estimated Cost</Text>
-            <Text style={styles.costValue}>₹{item.estimated_cost}</Text>
+            <Text style={styles.costValue}>{formatMoney(item.estimated_cost)}</Text>
           </View>
+          {!!item.policy_reason && <Text style={styles.helperText}>{item.policy_reason}</Text>}
 
           {item.status === 'pending' && (
             <View style={styles.actionRow}>
@@ -339,6 +432,7 @@ const RideRequestsTab = ({ companyId, adminToken }) => {
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.actionButton, { backgroundColor: COLORS.danger }]}
+                onPress={() => handleReject(item.id)}
               >
                 <MaterialCommunityIcons name="close" size={18} color={COLORS.white} />
                 <Text style={styles.actionButtonText}>Reject</Text>
@@ -359,18 +453,18 @@ const RideRequestsTab = ({ companyId, adminToken }) => {
 const InvoicesTab = ({ companyId, adminToken }) => {
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
 
   const fetchInvoices = useCallback(async () => {
     try {
-      const res = await fetch(`/api/v1/corporate/company/${companyId}/invoices`, {
-        headers: { Authorization: `Bearer ${adminToken}` }
+      setLoading(true);
+      const result = await apiRequest(`${CORPORATE_API_BASE}/company/${companyId}/invoices`, {
+        token: adminToken,
       });
-      if (res.ok) {
-        const data = await res.json();
-        setInvoices(data.data || []);
-      }
+      setInvoices(readApiData(result) || []);
     } catch (e) {
       console.error('Error fetching invoices:', e);
+      Alert.alert('Invoices', getErrorMessage(e, 'Could not load invoices.'));
     } finally {
       setLoading(false);
     }
@@ -381,7 +475,39 @@ const InvoicesTab = ({ companyId, adminToken }) => {
     return () => clearTimeout(timeout);
   }, [fetchInvoices]);
 
-  if (loading) return <ActivityIndicator size="large" color={COLORS.primary} />;
+  const handleGenerateInvoice = async () => {
+    try {
+      setGenerating(true);
+      const result = await apiRequest(`${CORPORATE_API_BASE}/company/${companyId}/generate-invoice`, {
+        method: 'POST',
+        token: adminToken,
+        body: {},
+      });
+      const invoice = readApiData(result);
+      Alert.alert('Invoice generated', `${invoice?.invoice_number || 'Draft invoice'} is ready.`);
+      fetchInvoices();
+    } catch (e) {
+      Alert.alert('Generate Invoice', getErrorMessage(e, 'Could not generate invoice.'));
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleDownloadInvoice = async (invoiceId) => {
+    try {
+      const result = await apiRequest(`${CORPORATE_API_BASE}/company/${companyId}/invoices/${invoiceId}/download`, {
+        method: 'POST',
+        token: adminToken,
+        body: {},
+      });
+      const file = readApiData(result);
+      Alert.alert('Invoice PDF', file?.file_name || 'Invoice download is ready.');
+    } catch (e) {
+      Alert.alert('Invoice PDF', getErrorMessage(e, 'Could not prepare invoice PDF.'));
+    }
+  };
+
+  if (loading && invoices.length === 0) return <ActivityIndicator size="large" color={COLORS.primary} />;
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -396,6 +522,16 @@ const InvoicesTab = ({ companyId, adminToken }) => {
       data={invoices}
       keyExtractor={(item) => item.id}
       refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchInvoices} />}
+      ListHeaderComponent={(
+        <TouchableOpacity
+          style={[styles.toolbarButton, generating && styles.buttonDisabled]}
+          onPress={handleGenerateInvoice}
+          disabled={generating}
+        >
+          <MaterialCommunityIcons name="file-plus" size={18} color={COLORS.white} />
+          <Text style={styles.toolbarButtonText}>{generating ? 'Generating...' : 'Generate This Month'}</Text>
+        </TouchableOpacity>
+      )}
       renderItem={({ item }) => (
         <View style={[styles.invoiceCard, SHADOWS.small]}>
           <View style={styles.invoiceHeader}>
@@ -417,10 +553,13 @@ const InvoicesTab = ({ companyId, adminToken }) => {
 
           <View style={styles.invoiceDetail}>
             <Text style={styles.detailLabel}>Total Amount</Text>
-            <Text style={styles.detailValue}>₹{item.total_amount}</Text>
+            <Text style={styles.detailValue}>{formatMoney(item.total_amount)}</Text>
           </View>
 
-          <TouchableOpacity style={[styles.downloadButton, SHADOWS.small]}>
+          <TouchableOpacity
+            style={[styles.downloadButton, SHADOWS.small]}
+            onPress={() => handleDownloadInvoice(item.id)}
+          >
             <MaterialCommunityIcons name="download" size={18} color={COLORS.primary} />
             <Text style={styles.downloadText}>Download PDF</Text>
           </TouchableOpacity>
@@ -742,9 +881,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 8
   },
+  buttonDisabled: {
+    opacity: 0.65
+  },
   buttonText: {
     color: COLORS.white,
     fontWeight: 'bold'
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#DDE5E0',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 10,
+    color: COLORS.dark_gray,
+    backgroundColor: COLORS.white,
+    fontSize: 14
   },
   requestCard: {
     backgroundColor: COLORS.white,
@@ -799,6 +952,11 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: COLORS.primary
   },
+  helperText: {
+    fontSize: 12,
+    color: COLORS.text,
+    marginTop: 4
+  },
   actionRow: {
     flexDirection: 'row',
     marginTop: 8,
@@ -848,6 +1006,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingVertical: 6
+  },
+  toolbarButton: {
+    backgroundColor: COLORS.primary,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12
+  },
+  toolbarButtonText: {
+    color: COLORS.white,
+    fontWeight: 'bold',
+    fontSize: 13,
+    marginLeft: 6
   },
   detailLabel: {
     fontSize: 12,
