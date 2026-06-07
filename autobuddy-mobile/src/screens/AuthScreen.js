@@ -36,6 +36,7 @@ const REGISTER_AUTH_METHODS = [
   { key: 'password', label: 'Password' },
 ];
 const INDIAN_PHONE_REGEX = /^[6-9]\d{9}$/;
+const DISABLED_GOOGLE_CLIENT_ID = 'disabled-google-auth.apps.googleusercontent.com';
 
 try {
   WebBrowser.maybeCompleteAuthSession({ skipRedirectCheck: true });
@@ -198,17 +199,17 @@ export default function AuthScreen({ onAuthenticated }) {
 
   const googleConfig = useMemo(() => {
     const config = { redirectUri: googleRedirectUri };
-    if (GOOGLE_EXPO_CLIENT_ID) {
-      config.expoClientId = GOOGLE_EXPO_CLIENT_ID;
+    if (GOOGLE_EXPO_CLIENT_ID || Platform.OS !== 'web') {
+      config.expoClientId = GOOGLE_EXPO_CLIENT_ID || DISABLED_GOOGLE_CLIENT_ID;
     }
-    if (GOOGLE_ANDROID_CLIENT_ID) {
-      config.androidClientId = GOOGLE_ANDROID_CLIENT_ID;
+    if (GOOGLE_ANDROID_CLIENT_ID || Platform.OS === 'android') {
+      config.androidClientId = GOOGLE_ANDROID_CLIENT_ID || DISABLED_GOOGLE_CLIENT_ID;
     }
-    if (GOOGLE_IOS_CLIENT_ID) {
-      config.iosClientId = GOOGLE_IOS_CLIENT_ID;
+    if (GOOGLE_IOS_CLIENT_ID || Platform.OS === 'ios') {
+      config.iosClientId = GOOGLE_IOS_CLIENT_ID || DISABLED_GOOGLE_CLIENT_ID;
     }
-    if (GOOGLE_WEB_CLIENT_ID) {
-      config.webClientId = GOOGLE_WEB_CLIENT_ID;
+    if (GOOGLE_WEB_CLIENT_ID || Platform.OS === 'web') {
+      config.webClientId = GOOGLE_WEB_CLIENT_ID || DISABLED_GOOGLE_CLIENT_ID;
     }
     return config;
   }, [GOOGLE_ANDROID_CLIENT_ID, GOOGLE_EXPO_CLIENT_ID, GOOGLE_IOS_CLIENT_ID, GOOGLE_WEB_CLIENT_ID, googleRedirectUri]);
