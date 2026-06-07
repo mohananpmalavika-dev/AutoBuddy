@@ -23,6 +23,12 @@ type Coordinate = {
 
 type PoolModel = 'SYSTEM_CREATED' | 'PASSENGER_CREATED' | 'DRIVER_CREATED';
 
+type PoolCreateDefaults = {
+  pickup_location?: string;
+  dropoff_location?: string;
+  max_wait_minutes?: number;
+};
+
 type RidePool = {
   _id?: string;
   id?: string;
@@ -48,6 +54,9 @@ type RidePoolingPanelProps = {
   userType: 'passenger' | 'driver';
   currentLocation?: Coordinate | null;
   radiusKm?: number;
+  openCreateModel?: PoolModel | null;
+  openCreateRequestKey?: number;
+  createDefaults?: PoolCreateDefaults;
 };
 
 type PoolSocketEvent = {
@@ -128,6 +137,16 @@ const getInitialFormData = (): PoolFormData => ({
   route_polyline: '',
 });
 
+const getCreateFormData = (defaults?: PoolCreateDefaults): PoolFormData => {
+  const initial = getInitialFormData();
+  return {
+    ...initial,
+    pickup_location: defaults?.pickup_location || initial.pickup_location,
+    dropoff_location: defaults?.dropoff_location || initial.dropoff_location,
+    max_wait_minutes: Number(defaults?.max_wait_minutes) || initial.max_wait_minutes,
+  };
+};
+
 const normalizePool = (pool: any): RidePool => ({
   _id: pool?._id || pool?.id || pool?.pool_id,
   id: pool?.id || pool?._id || pool?.pool_id,
@@ -153,19 +172,27 @@ const RidePoolingPanel: React.FC<RidePoolingPanelProps> = ({
   userType,
   currentLocation = null,
   radiusKm = 2,
+  openCreateModel = null,
+  openCreateRequestKey = 0,
+  createDefaults,
 }) => {
   const panelAudience = userType === 'driver' ? 'Driver' : 'Passenger';
+  const initialCreateModel: PoolModel =
+    userType === 'driver'
+      ? 'DRIVER_CREATED'
+      : openCreateModel === 'PASSENGER_CREATED' || openCreateModel === 'SYSTEM_CREATED'
+        ? openCreateModel
+        : 'SYSTEM_CREATED';
+  const shouldOpenCreateOnMount = openCreateRequestKey > 0 && !!openCreateModel;
   const [pools, setPools] = useState<RidePool[]>([]);
   const [userPools, setUserPools] = useState<RidePool[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState(userType === 'driver' ? 'my-pools' : 'available');
   const [showPoolDetail, setShowPoolDetail] = useState(false);
-  const [showCreatePool, setShowCreatePool] = useState(false);
+  const [showCreatePool, setShowCreatePool] = useState(shouldOpenCreateOnMount);
   const [selectedPool, setSelectedPool] = useState<RidePool | null>(null);
-  const [selectedPoolModel, setSelectedPoolModel] = useState<PoolModel>(
-    userType === 'driver' ? 'DRIVER_CREATED' : 'SYSTEM_CREATED'
-  );
+  const [selectedPoolModel, setSelectedPoolModel] = useState<PoolModel>(initialCreateModel);
   const effectivePoolModel: PoolModel =
     userType === 'driver'
       ? 'DRIVER_CREATED'
@@ -174,7 +201,9 @@ const RidePoolingPanel: React.FC<RidePoolingPanelProps> = ({
         : selectedPoolModel;
   const activePoolTab = userType === 'driver' ? 'my-pools' : activeTab;
 
-  const [formData, setFormData] = useState<PoolFormData>(getInitialFormData());
+  const [formData, setFormData] = useState<PoolFormData>(
+    shouldOpenCreateOnMount ? getCreateFormData(createDefaults) : getInitialFormData(),
+  );
 
   const loadPools = useCallback(async () => {
     try {
@@ -250,15 +279,20 @@ const RidePoolingPanel: React.FC<RidePoolingPanelProps> = ({
     });
   }, [userId, userType]);
 
-  const openCreatePool = () => {
-    const nextModel = userType === 'driver' ? 'DRIVER_CREATED' : effectivePoolModel;
+  const openCreatePool = (requestedModel?: PoolModel | null) => {
+    const nextModel =
+      userType === 'driver'
+        ? 'DRIVER_CREATED'
+        : requestedModel === 'PASSENGER_CREATED' || requestedModel === 'SYSTEM_CREATED'
+          ? requestedModel
+          : effectivePoolModel;
     setSelectedPoolModel(nextModel);
-    setFormData(getInitialFormData());
+    setFormData(getCreateFormData(createDefaults));
     setShowCreatePool(true);
   };
 
   const resetCreateForm = () => {
-    setFormData(getInitialFormData());
+    setFormData(getCreateFormData());
     setSelectedPoolModel(userType === 'driver' ? 'DRIVER_CREATED' : 'SYSTEM_CREATED');
   };
 
@@ -542,7 +576,7 @@ const RidePoolingPanel: React.FC<RidePoolingPanelProps> = ({
         <Text style={styles.headerTitle}>{panelAudience} Ride Pooling</Text>
         <TouchableOpacity
           style={styles.createButton}
-          onPress={openCreatePool}
+          onPress={() => openCreatePool()}
         >
           <MaterialIcons name="add" size={24} color="white" />
         </TouchableOpacity>

@@ -66,6 +66,7 @@ import SubscriptionPanel from '../components/SubscriptionPanel';
 import RideNotesPanel from '../components/RideNotesPanel';
 import LocationSharingPanel from '../components/LocationSharingPanel';
 import RideStatsPanel from '../components/RideStatsPanel';
+import RidePoolingPanel from './RidePoolingPanel';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useNotificationManager } from '../hooks/useNotificationManager';
 import { useVehicleTypes } from '../hooks/useVehicleTypes';
@@ -86,6 +87,7 @@ const LOGO_SOURCE = require('../../assets/images/autobuddy-logo.jpg');
 
 const PASSENGER_MENU_SYMBOLS = {
   ride: { ios: 'car.fill', android: 'local_taxi', web: 'local_taxi' },
+  pooling: { ios: 'person.3.fill', android: 'groups', web: 'groups' },
   live: { ios: 'location.circle.fill', android: 'my_location', web: 'my_location' },
   drivers: { ios: 'person.2.fill', android: 'person_search', web: 'person_search' },
   favorites: { ios: 'star.fill', android: 'favorite', web: 'favorite' },
@@ -114,6 +116,7 @@ const PASSENGER_MENU_SYMBOLS = {
 };
 const PASSENGER_MENU_OPTIONS = [
   { key: 'ride', label: 'Ride Booking', symbol: PASSENGER_MENU_SYMBOLS.ride },
+  { key: 'pooling', label: 'Pool Ride', symbol: PASSENGER_MENU_SYMBOLS.pooling },
   { key: 'live', label: 'Live Ride', symbol: PASSENGER_MENU_SYMBOLS.live },
   { key: 'drivers', label: 'Drivers', symbol: PASSENGER_MENU_SYMBOLS.drivers },
   { key: 'favorites', label: 'Favorite Drivers', symbol: PASSENGER_MENU_SYMBOLS.favorites },
@@ -145,7 +148,7 @@ const buildPassengerMenuOptions = (keys) =>
   keys.map((key) => PASSENGER_MENU_OPTIONS.find((menu) => menu.key === key)).filter(Boolean);
 const PINNED_PASSENGER_MENU_OPTIONS = buildPassengerMenuOptions(['drivers', 'favorites']);
 const SECONDARY_PASSENGER_MENU_GROUPS = [
-  { key: 'trip', title: 'Trip', keys: ['scheduled', 'history', 'stats', 'notes', 'ratings', 'receipts'] },
+  { key: 'trip', title: 'Trip', keys: ['pooling', 'scheduled', 'history', 'stats', 'notes', 'ratings', 'receipts'] },
   { key: 'deals', title: 'Deals & Payment', keys: ['wallet', 'spin', 'promo', 'payment', 'subscription'] },
   { key: 'account', title: 'Account', keys: ['profile', 'kyc', 'documents', 'preferences', 'places', 'accessibility', 'sharing'] },
   { key: 'help', title: 'Help', keys: ['notifications', 'support', 'emergency'] },
@@ -531,6 +534,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [showProfile, setShowProfile] = useState(false);
   const [showPassengerMenus, setShowPassengerMenus] = useState(false);
   const [showRideDetailsModal, setShowRideDetailsModal] = useState(false);
+  const [poolCreateRequest, setPoolCreateRequest] = useState({ key: 0, model: null });
   const [driverLiveAddress, setDriverLiveAddress] = useState('');
   const [activePassengerMenu, setActivePassengerMenu] = useState(PRIMARY_PASSENGER_MENU_KEY);
   const [bookingJustCreated, setBookingJustCreated] = useState(false);
@@ -785,6 +789,20 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       selectedPickupLocation ||
       selectedDropoffLocation || { latitude: 13.0827, longitude: 80.2707 },
     [dropoffLocation, pickupLocation, selectedDropoffLocation, selectedPickupLocation],
+  );
+  const poolPanelLocation = selectedPickupLocation || pickupLocation || searchBias || DEFAULT_CITY_LOCATION;
+  const poolCreateDefaults = useMemo(
+    () => ({
+      pickup_location: selectedPickupLocation?.address || pickupLocation?.address || '',
+      dropoff_location: selectedDropoffLocation?.address || dropoffLocation?.address || '',
+      max_wait_minutes: 10,
+    }),
+    [
+      dropoffLocation?.address,
+      pickupLocation?.address,
+      selectedDropoffLocation?.address,
+      selectedPickupLocation?.address,
+    ],
   );
 
   const mapState = useMemo(() => {
@@ -1255,6 +1273,16 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       triggerA11yFeedback(`${label || 'Menu'} selected`);
     },
     [triggerA11yFeedback],
+  );
+
+  const openPoolRideFlow = useCallback(
+    (model = 'SYSTEM_CREATED') => {
+      setRideProduct('pool');
+      setShowRideDetailsModal(false);
+      setPoolCreateRequest((prev) => ({ key: prev.key + 1, model }));
+      handleMenuSelection('pooling', 'Pool Ride');
+    },
+    [handleMenuSelection],
   );
 
   const getMenuLabel = useCallback(
@@ -2883,9 +2911,23 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               <View style={styles.rideDetailsSection}>
                 <Text style={styles.rideDetailsSectionTitle}>Pool ride</Text>
                 <Text style={styles.hint}>
-                  Auto Match Pool groups compatible passengers automatically. Passenger-created and driver-created
-                  pool controls live in the Pool Ride flow.
+                  Auto Match Pool groups compatible passengers automatically. Create My Pool opens a
+                  passenger-created pool that others can join.
                 </Text>
+                <View style={styles.poolActionRow}>
+                  <TouchableOpacity
+                    style={[styles.actionButton, styles.poolActionButton]}
+                    accessibilityRole="button"
+                    onPress={() => openPoolRideFlow('SYSTEM_CREATED')}>
+                    <Text style={styles.actionText}>Auto Match Pool</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.actionButtonMuted, styles.poolActionButton]}
+                    accessibilityRole="button"
+                    onPress={() => openPoolRideFlow('PASSENGER_CREATED')}>
+                    <Text style={styles.actionText}>Create My Pool</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             )}
 
@@ -4470,6 +4512,17 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             {activePassengerMenu === 'accessibility' && (
               <AccessibilityPanel token={token} onSettingsChange={handleAccessibilityChange} />
             )}
+            {activePassengerMenu === 'pooling' && (
+              <RidePoolingPanel
+                key={`passenger-pool-${poolCreateRequest.key}`}
+                userId={String(user?.id || user?.user_id || user?.email || 'passenger')}
+                userType="passenger"
+                currentLocation={poolPanelLocation}
+                openCreateModel={poolCreateRequest.model}
+                openCreateRequestKey={poolCreateRequest.key}
+                createDefaults={poolCreateDefaults}
+              />
+            )}
             {activePassengerMenu === 'scheduled' && (
               <PassengerScheduledRidesPanel
                 token={token}
@@ -5481,6 +5534,8 @@ const styles = StyleSheet.create({
   modeChipText: { color: '#355243', fontWeight: '700' },
   modeChipTextActive: { color: COLORS.primaryDark },
   actionsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
+  poolActionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
+  poolActionButton: { flexGrow: 1, alignItems: 'center' },
   actionButton: {
     backgroundColor: '#2E7D32',
     borderRadius: 12,

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { getDisplayText } from '../lib/displayText';
 import { COLORS, SHADOWS } from '../theme';
@@ -38,30 +38,35 @@ export default function RideProductsGrid({
       <Text style={styles.heading}>{heading}</Text>
       {!!subheading && <Text style={styles.subheading}>{subheading}</Text>}
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         {safeProducts.map((item) => {
           const active = selected === item.key;
           const enabled = enabledSet.has(item.key);
           const localized = labels[item.key] || {};
           const title = getDisplayText(localized.title || localized, item.title);
           const description = getDisplayText(localized.description, item.sub);
+          const selectProduct = () => {
+            if (!enabled) {
+              return;
+            }
+            onSelect?.(item.key);
+          };
 
           return (
-            <Pressable
+            <TouchableOpacity
               key={item.key}
-              onPress={() => {
-                if (!enabled) {
-                  return;
-                }
-                onSelect?.(item.key);
-              }}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active, disabled: !enabled }}
+              activeOpacity={0.82}
+              disabled={!enabled}
+              onPress={selectProduct}
               style={[styles.card, active && styles.activeCard, !enabled && styles.disabledCard]}>
               <Text style={styles.icon}>{item.icon}</Text>
               <Text style={[styles.title, active && styles.activeText, !enabled && styles.disabledText]}>{title}</Text>
               <Text style={[styles.sub, !enabled && styles.disabledText]}>
                 {enabled ? description : 'Not active in this district'}
               </Text>
-            </Pressable>
+            </TouchableOpacity>
           );
         })}
       </ScrollView>
