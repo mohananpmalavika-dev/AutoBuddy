@@ -12,6 +12,59 @@ import { apiRequest } from '../lib/api';
 import { GlassCard, PremiumEmptyState } from './PremiumUI';
 import { formatToIST } from '../utils/time';
 
+const FALLBACK_ALERT_STATUSES = new Set([404, 405, 501]);
+
+function isAlertEndpointUnavailable(err) {
+  return FALLBACK_ALERT_STATUSES.has(Number(err?.status));
+}
+
+function normalizeAlertDays(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function buildAlertFromReminder(reminder = {}) {
+  const documentId = String(reminder.document_id || reminder.doc_type || reminder.type || '').trim();
+  const expiryDate = reminder.expiry_date || reminder.expiry || null;
+  const daysUntilExpiry = normalizeAlertDays(reminder.days_until_expiry);
+  const severity =
+    reminder.severity ||
+    (daysUntilExpiry !== undefined && daysUntilExpiry <= 7 ? 'critical' : 'warning');
+  const label = reminder.document_type || reminder.label || reminder.display_name || 'Document';
+
+  return {
+    id: reminder.id || reminder.alert_id || `${documentId || 'document'}:${expiryDate || 'expiry'}`,
+    alert_id: reminder.alert_id || reminder.id,
+    document_id: documentId,
+    doc_type: documentId,
+    document_type: label,
+    expiry_date: expiryDate,
+    days_until_expiry: daysUntilExpiry,
+    severity,
+    message:
+      reminder.message ||
+      (daysUntilExpiry !== undefined && daysUntilExpiry < 0
+        ? 'Expired document requires renewal'
+        : `Renewal due in ${daysUntilExpiry ?? 0} days`),
+  };
+}
+
+function buildAlertsFromDocumentsPayload(data = {}) {
+  if (Array.isArray(data.alerts)) {
+    return data.alerts;
+  }
+
+  if (Array.isArray(data.reminders)) {
+    return data.reminders.map(buildAlertFromReminder).filter(alert => alert.document_id);
+  }
+
+  const documents = data.documents && typeof data.documents === 'object' ? Object.values(data.documents) : [];
+  return documents
+    .filter(document => document?.reminder_due && document?.expiry_date)
+    .map(buildAlertFromReminder)
+    .filter(alert => alert.document_id);
+}
+
 export default function DocumentExpiryAlertsPanel({ token, onDocumentExpiring = undefined }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -23,11 +76,21 @@ export default function DocumentExpiryAlertsPanel({ token, onDocumentExpiring = 
     try {
       setLoading(true);
       setError('');
-      const data = await apiRequest('/drivers/document-expiry-alerts', { token });
-      if (data && Array.isArray(data.alerts)) {
-        setAlerts(data.alerts);
-        const critical = data.alerts.filter(a => a.severity === 'critical').length;
-        const warning = data.alerts.filter(a => a.severity === 'warning').length;
+      let data;
+      try {
+        data = await apiRequest('/drivers/document-expiry-alerts', { token });
+      } catch (err) {
+        if (!isAlertEndpointUnavailable(err)) {
+          throw err;
+        }
+        data = await apiRequest('/drivers/documents', { token });
+      }
+
+      if (data) {
+        const nextAlerts = buildAlertsFromDocumentsPayload(data);
+        setAlerts(nextAlerts);
+        const critical = nextAlerts.filter(a => a.severity === 'critical').length;
+        const warning = nextAlerts.filter(a => a.severity === 'warning').length;
         setCriticalCount(critical);
         setWarningCount(warning);
 
@@ -67,6 +130,10 @@ export default function DocumentExpiryAlertsPanel({ token, onDocumentExpiring = 
       // Trigger refresh
       await fetchDocumentAlerts();
     } catch (err) {
+      if (isAlertEndpointUnavailable(err)) {
+        setAlerts(prev => prev.filter(a => a.id !== alertId));
+        return;
+      }
       setError(err.message || 'Could not submit renewal request');
     } finally {
       setLoading(false);
@@ -82,6 +149,10 @@ export default function DocumentExpiryAlertsPanel({ token, onDocumentExpiring = 
       });
       setAlerts(prev => prev.filter(a => a.id !== alertId));
     } catch (err) {
+      if (isAlertEndpointUnavailable(err)) {
+        setAlerts(prev => prev.filter(a => a.id !== alertId));
+        return;
+      }
       setError(err.message || 'Could not dismiss alert');
     } finally {
       setLoading(false);

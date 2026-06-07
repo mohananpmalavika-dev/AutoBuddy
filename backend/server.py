@@ -4318,6 +4318,261 @@ def build_subscription_attention_summary(user: Dict[str, Any], config: Subscript
         "last_payment_status": subscription.get("last_payment_status"),
     }
 
+def subscription_tier_name(plan_type: Optional[SubscriptionPlanType]) -> str:
+    if plan_type == SubscriptionPlanType.PER_TRIP:
+        return "Per Trip"
+    if plan_type == SubscriptionPlanType.MONTHLY:
+        return "Monthly"
+    if plan_type == SubscriptionPlanType.QUARTERLY:
+        return "Quarterly"
+    if plan_type == SubscriptionPlanType.ANNUALLY:
+        return "Annual"
+    return "Standard"
+
+def subscription_plan_window_active(plan: Any) -> bool:
+    return is_scheme_currently_active(
+        getattr(plan, "scheme_start_at", None),
+        getattr(plan, "scheme_end_at", None),
+    )
+
+def build_driver_tier_entry(
+    name: str,
+    plan_type: Optional[SubscriptionPlanType],
+    plan: Optional[Any],
+    subscription: Dict[str, Any],
+) -> Dict[str, Any]:
+    if not plan_type or not plan:
+        return {
+            "name": name,
+            "benefits": {
+                "platform_access": "Basic",
+                "plan_amount": 0,
+                "activation": "No paid tier selected",
+            },
+            "requirements": {
+                "select_plan": "Choose an active tier",
+                "admin_activation": "Required after selection",
+            },
+        }
+
+    amount = get_subscription_plan_amount(
+        RoleSubscriptionConfig(
+            monthly=plan if plan_type == SubscriptionPlanType.MONTHLY else SubscriptionPeriodPlan(),
+            quarterly=plan if plan_type == SubscriptionPlanType.QUARTERLY else SubscriptionPeriodPlan(),
+            annually=plan if plan_type == SubscriptionPlanType.ANNUALLY else SubscriptionPeriodPlan(),
+            per_trip=plan if plan_type == SubscriptionPlanType.PER_TRIP else PerTripSubscriptionPlan(),
+        ),
+        plan_type,
+    )
+    is_config_active = bool(getattr(plan, "active", False)) and subscription_plan_window_active(plan)
+    benefits: Dict[str, Any] = {
+        "plan_amount": amount,
+        "admin_enabled": "Yes" if is_config_active else "No",
+    }
+    requirements: Dict[str, Any] = {
+        "admin_activation": "Required",
+    }
+
+    if plan_type == SubscriptionPlanType.PER_TRIP:
+        ride_threshold = int(getattr(plan, "ride_threshold", 10) or 10)
+        benefits.update(
+            {
+                "billing": "Per ride cycle",
+                "ride_threshold": ride_threshold,
+                "grace_rides": PER_TRIP_BLOCK_GRACE_RIDES,
+            }
+        )
+        requirements["completed_rides_per_cycle"] = ride_threshold
+    elif plan_type == SubscriptionPlanType.MONTHLY:
+        benefits["billing_cycle_days"] = 30
+    elif plan_type == SubscriptionPlanType.QUARTERLY:
+        benefits["billing_cycle_days"] = 90
+    elif plan_type == SubscriptionPlanType.ANNUALLY:
+        benefits["billing_cycle_days"] = 365
+
+    return {
+        "name": name,
+        "benefits": benefits,
+        "requirements": requirements,
+    }
+
+def build_driver_subscription_tiers(role_config: RoleSubscriptionConfig, subscription: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return [
+        build_driver_tier_entry("Standard", None, None, subscription),
+        build_driver_tier_entry("Per Trip", SubscriptionPlanType.PER_TRIP, role_config.per_trip, subscription),
+        build_driver_tier_entry("Monthly", SubscriptionPlanType.MONTHLY, role_config.monthly, subscription),
+        build_driver_tier_entry("Quarterly", SubscriptionPlanType.QUARTERLY, role_config.quarterly, subscription),
+        build_driver_tier_entry("Annual", SubscriptionPlanType.ANNUALLY, role_config.annually, subscription),
+    ]
+
+def get_driver_tier_progress(subscription: Dict[str, Any], selected_plan: Optional[SubscriptionPlanType], role_config: RoleSubscriptionConfig) -> float:
+    if selected_plan == SubscriptionPlanType.PER_TRIP:
+        threshold = max(1, int(role_config.per_trip.ride_threshold or 10))
+        completed = int(subscription.get("per_trip_completed_rides", 0) or 0)
+        return round(min(100.0, (completed / threshold) * 100), 2)
+    if selected_plan:
+        return 100.0 if subscription.get("is_active") and subscription.get("activated_by_admin") else 50.0
+    return 0.0
+
+def driver_identity_candidates(user: Dict[str, Any]) -> List[str]:
+    candidates = [
+        str(user.get("id") or "").strip(),
+        str(user.get("_id") or "").strip(),
+        str(user.get("user_id") or "").strip(),
+    ]
+    return list(dict.fromkeys([candidate for candidate in candidates if candidate and candidate != "None"]))
+
+def get_referral_next_tier_target(successful_referrals: int) -> int:
+    if successful_referrals < 5:
+        return 5
+    if successful_referrals < 10:
+        return 10
+    if successful_referrals < 25:
+        return 25
+    return 0
+
+def normalize_driver_referral_reward(reward: Dict[str, Any]) -> Dict[str, Any]:
+    status_value = str(reward.get("status") or "pending").strip().lower()
+    return {
+        "id": str(reward.get("id") or reward.get("_id") or uuid.uuid4()),
+        "name": reward.get("new_user_name") or reward.get("referred_user_name") or "Driver",
+        "date": reward.get("created_at"),
+        "status": "completed" if status_value in {"credited", "completed", "paid"} else status_value,
+        "earning_amount": round(float(reward.get("reward_amount") or reward.get("amount") or 0.0), 2),
+    }
+
+async def build_driver_referral_program_response(user: Dict[str, Any]) -> Dict[str, Any]:
+    referral = await create_referral_if_missing(db, user)
+    rewards = await db.referral_rewards.find(
+        {"referrer_user_id": user["id"]},
+        {"_id": 0},
+    ).sort("created_at", -1).limit(50).to_list(50)
+
+    referred_user_ids = [
+        str(reward.get("new_user_id") or "").strip()
+        for reward in rewards
+        if reward.get("new_user_id")
+    ]
+    if referred_user_ids:
+        users_by_id = {
+            row.get("id"): row
+            for row in await db.users.find(
+                {"id": {"$in": referred_user_ids}},
+                {"_id": 0, "id": 1, "name": 1, "role": 1},
+            ).to_list(100)
+        }
+        for reward in rewards:
+            referred_user = users_by_id.get(str(reward.get("new_user_id") or ""))
+            if referred_user:
+                reward["new_user_name"] = referred_user.get("name") or "Driver"
+
+    successful_referrals = max(
+        int(referral.get("successful_invites") or 0),
+        len([reward for reward in rewards if str(reward.get("status") or "").lower() in {"credited", "completed", "paid"}]),
+    )
+    total_referrals = max(int(referral.get("total_invites") or 0), len(rewards))
+    total_earnings = round(
+        float(referral.get("total_earned") or 0.0)
+        or sum(float(reward.get("reward_amount") or 0.0) for reward in rewards),
+        2,
+    )
+    return {
+        "referral_code": str(referral.get("code") or user.get("referral_code") or "").strip().upper(),
+        "total_referrals": total_referrals,
+        "successful_referrals": successful_referrals,
+        "pending_referrals": max(0, total_referrals - successful_referrals),
+        "total_earnings": total_earnings,
+        "referral_rate": 50,
+        "next_tier_referrals": get_referral_next_tier_target(successful_referrals),
+        "recent_referrals": [normalize_driver_referral_reward(reward) for reward in rewards[:10]],
+    }
+
+async def find_latest_driver_action(user: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    candidates = driver_identity_candidates(user)
+    if not candidates:
+        return None
+    return await db.driver_actions.find_one(
+        {
+            "driver_id": {"$in": candidates},
+            "action": {"$in": ["suspend", "suspended", "ban", "banned"]},
+        },
+        {"_id": 0},
+        sort=[("created_at", -1)],
+    )
+
+def to_naive_datetime(value: Any) -> Optional[datetime]:
+    try:
+        return as_utc_naive(value)
+    except Exception:
+        return None
+
+async def build_driver_suspension_status(user: Dict[str, Any]) -> Dict[str, Any]:
+    latest_action = await find_latest_driver_action(user)
+    current_status = str(
+        user.get("driver_status")
+        or user.get("account_status")
+        or user.get("status")
+        or "active"
+    ).strip().lower()
+    if current_status in {"enabled", "approved", "online"}:
+        current_status = "active"
+
+    action_name = str((latest_action or {}).get("action") or "").strip().lower()
+    active_statuses = {"suspended", "banned"}
+    if current_status not in active_statuses and action_name in {"suspend", "ban"}:
+        current_status = "suspended" if action_name == "suspend" else "banned"
+
+    if current_status not in active_statuses:
+        return {
+            "status": "active",
+            "has_pending_appeal": False,
+            "can_appeal": False,
+            "appeal_deadline_days": 7,
+            "message": "No active suspension",
+        }
+
+    now = get_ist_now()
+    suspended_at = (
+        to_naive_datetime(user.get("suspended_at"))
+        or to_naive_datetime(user.get("banned_at"))
+        or to_naive_datetime((latest_action or {}).get("created_at"))
+        or as_utc_naive(now)
+    )
+    end_at = (
+        to_naive_datetime(user.get("suspension_end_date"))
+        or to_naive_datetime(user.get("ban_until"))
+        or to_naive_datetime((latest_action or {}).get("ban_until"))
+    )
+    now_naive = as_utc_naive(now)
+    appeal_deadline_days = int(user.get("appeal_deadline_days") or 7)
+    appeal_deadline = suspended_at + timedelta(days=appeal_deadline_days)
+    can_appeal = bool(user.get("appeal_allowed", True)) and now_naive <= appeal_deadline
+    days_suspended = max(0, (now_naive - suspended_at).days)
+    days_remaining = max(0, (end_at - now_naive).days) if end_at else None
+    pending_appeal = await db.driver_suspension_appeals.find_one(
+        {
+            "driver_id": {"$in": driver_identity_candidates(user)},
+            "status": {"$in": ["pending", "under_review"]},
+        },
+        {"_id": 0},
+        sort=[("created_at", -1)],
+    )
+
+    return {
+        "status": "suspended",
+        "raw_status": current_status,
+        "reason": user.get("suspension_reason") or user.get("ban_reason") or (latest_action or {}).get("reason") or "Policy violation",
+        "suspended_at": suspended_at,
+        "days_suspended": days_suspended,
+        "days_remaining": days_remaining,
+        "suspension_end_date": end_at,
+        "can_appeal": can_appeal,
+        "appeal_deadline_days": appeal_deadline_days,
+        "appeal_deadline_at": appeal_deadline,
+        "has_pending_appeal": bool(pending_appeal),
+        "pending_appeal": pending_appeal,
+    }
+
 def get_time_multiplier() -> float:
     """Get surge multiplier based on current time"""
     current_hour = datetime.now().hour
@@ -6577,6 +6832,33 @@ def build_driver_document_reminders(documents: Dict[str, Dict[str, Any]]) -> Lis
             )
     return sorted(reminders, key=lambda item: item.get("days_until_expiry") or 0)
 
+def build_driver_document_expiry_alert(document: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    if not document.get("requires_expiry") or not document.get("expiry_date") or not document.get("reminder_due"):
+        return None
+
+    doc_type = normalize_driver_doc_type(document.get("doc_type") or document.get("type"))
+    days_left = document.get("days_until_expiry")
+    severity = "critical" if days_left is not None and days_left <= 7 else "warning"
+    expiry_date = document.get("expiry_date")
+    alert_id = f"{doc_type}:{expiry_date}"
+    is_expired = bool(document.get("is_expired"))
+
+    return {
+        "id": alert_id,
+        "alert_id": alert_id,
+        "document_id": doc_type,
+        "doc_type": doc_type,
+        "document_type": document.get("label") or DRIVER_DOCUMENT_TYPES[doc_type]["label"],
+        "expiry_date": expiry_date,
+        "days_until_expiry": days_left,
+        "severity": severity,
+        "message": (
+            "Expired document requires renewal"
+            if is_expired
+            else f"Renewal due in {days_left} days"
+        ),
+    }
+
 def build_driver_readiness_issue(code: str, message: str, tab: str, severity: str = "blocker") -> Dict[str, Any]:
     return {
         "code": code,
@@ -7781,6 +8063,102 @@ async def get_my_subscription(current_user: dict = Depends(get_current_user)):
         "subscription": serialize_subscription_for_response(current_user, config),
         "pending_dues": dues,
         "payment_options": payment_options,
+    }
+
+@api_router.get("/drivers/tier-benefits")
+async def get_driver_tier_benefits(current_user: dict = Depends(get_current_user)):
+    require_driver(current_user)
+    config = await get_subscription_config()
+    role_config = get_role_subscription_config(config, UserRole.DRIVER)
+    subscription = serialize_subscription_for_response(current_user, config)
+    selected_plan = parse_subscription_plan_type(subscription.get("plan_type"))
+    current_tier = subscription_tier_name(selected_plan)
+    available_tiers = build_driver_subscription_tiers(role_config, subscription)
+    current_tier_entry = next(
+        (tier for tier in available_tiers if tier.get("name") == current_tier),
+        available_tiers[0],
+    )
+
+    return {
+        "current_tier": current_tier,
+        "current_tier_progress": get_driver_tier_progress(subscription, selected_plan, role_config),
+        "current_benefits": current_tier_entry.get("benefits", {}),
+        "available_tiers": available_tiers,
+        "subscription": subscription,
+        "paid_plan_required": has_paid_subscription_plan_for_current_period(role_config),
+    }
+
+@api_router.get("/drivers/referral-program")
+async def get_driver_referral_program(
+    driver_id: Optional[str] = Query(default=None),
+    current_user: dict = Depends(get_current_user),
+):
+    require_driver(current_user)
+    if driver_id and driver_id not in driver_identity_candidates(current_user):
+        raise HTTPException(status_code=403, detail="You can only view your own referral program")
+    return await build_driver_referral_program_response(current_user)
+
+@api_router.get("/drivers/suspension-status")
+async def get_driver_suspension_status(current_user: dict = Depends(get_current_user)):
+    require_driver(current_user)
+    return await build_driver_suspension_status(current_user)
+
+@api_router.post("/drivers/suspension-appeals")
+async def submit_driver_suspension_appeal(request: Request, current_user: dict = Depends(get_current_user)):
+    require_driver(current_user)
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+
+    reason = str(payload.get("reason") or "").strip()
+    details = str(payload.get("details") or "").strip()
+    if len(reason) < 10:
+        raise HTTPException(status_code=400, detail="Please provide at least 10 characters explaining your appeal")
+
+    suspension_status = await build_driver_suspension_status(current_user)
+    if suspension_status.get("status") != "suspended":
+        raise HTTPException(status_code=400, detail="No active suspension is available to appeal")
+    if not suspension_status.get("can_appeal", False):
+        raise HTTPException(status_code=400, detail="The appeal window for this suspension has closed")
+
+    candidates = driver_identity_candidates(current_user)
+    existing = await db.driver_suspension_appeals.find_one(
+        {
+            "driver_id": {"$in": candidates},
+            "status": {"$in": ["pending", "under_review"]},
+        },
+        {"_id": 0},
+    )
+    if existing:
+        return {
+            "success": True,
+            "message": "An appeal is already under review",
+            "appeal": existing,
+        }
+
+    now = get_ist_now()
+    appeal = {
+        "id": f"driver-appeal-{uuid.uuid4()}",
+        "driver_id": current_user["id"],
+        "driver_identity_candidates": candidates,
+        "driver_name": current_user.get("name"),
+        "driver_email": current_user.get("email"),
+        "reason": reason,
+        "details": details,
+        "status": "pending",
+        "suspension_reason": suspension_status.get("reason"),
+        "suspended_at": suspension_status.get("suspended_at"),
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.driver_suspension_appeals.insert_one(appeal)
+    return {
+        "success": True,
+        "message": "Appeal submitted successfully",
+        "appeal": without_mongo_id(appeal),
     }
 
 @api_router.put("/subscriptions/select")
@@ -12404,6 +12782,117 @@ async def get_driver_documents(request: Request, current_user: dict = Depends(ge
     documents = await get_driver_documents_map(current_user["id"], request)
     reminders = build_driver_document_reminders(documents)
     return {"documents": documents, "reminders": reminders, "renewal_count": len(reminders)}
+
+
+@api_router.get("/drivers/document-expiry-alerts")
+async def get_driver_document_expiry_alerts(request: Request, current_user: dict = Depends(get_current_user)):
+    require_driver(current_user)
+    driver_id = current_user["id"]
+    documents = await get_driver_documents_map(driver_id, request)
+    dismissed_rows = await db.driver_document_alert_dismissals.find(
+        {"driver_id": driver_id},
+        {"_id": 0, "alert_id": 1},
+    ).to_list(200)
+    dismissed_alert_ids = {
+        str(row.get("alert_id") or "")
+        for row in dismissed_rows
+        if row.get("alert_id")
+    }
+    alerts = []
+    for document in documents.values():
+        alert = build_driver_document_expiry_alert(document)
+        if alert and alert["id"] not in dismissed_alert_ids:
+            alerts.append(alert)
+    alerts.sort(key=lambda item: item.get("days_until_expiry") if item.get("days_until_expiry") is not None else 9999)
+    return {
+        "alerts": alerts,
+        "critical_count": len([alert for alert in alerts if alert.get("severity") == "critical"]),
+        "warning_count": len([alert for alert in alerts if alert.get("severity") == "warning"]),
+    }
+
+
+@api_router.post("/drivers/document-expiry-alerts/{alert_id}/dismiss")
+async def dismiss_driver_document_expiry_alert(alert_id: str, current_user: dict = Depends(get_current_user)):
+    require_driver(current_user)
+    cleaned_alert_id = str(alert_id or "").strip()
+    if not cleaned_alert_id:
+        raise HTTPException(status_code=400, detail="Alert id is required")
+
+    now = get_ist_now()
+    await db.driver_document_alert_dismissals.update_one(
+        {"driver_id": current_user["id"], "alert_id": cleaned_alert_id},
+        {
+            "$set": {"dismissed_at": now, "updated_at": now},
+            "$setOnInsert": {
+                "id": f"driver-doc-alert-dismissal-{uuid.uuid4()}",
+                "driver_id": current_user["id"],
+                "alert_id": cleaned_alert_id,
+                "created_at": now,
+            },
+        },
+        upsert=True,
+    )
+    return {"success": True, "alert_id": cleaned_alert_id}
+
+
+@api_router.post("/drivers/documents/{doc_type}/renew-request")
+async def request_driver_document_renewal(doc_type: str, request: Request, current_user: dict = Depends(get_current_user)):
+    require_driver(current_user)
+    normalized_type = normalize_driver_doc_type(doc_type)
+
+    payload: Dict[str, Any] = {}
+    try:
+        parsed_payload = await request.json()
+        if isinstance(parsed_payload, dict):
+            payload = parsed_payload
+    except Exception:
+        payload = {}
+
+    alert_id = str(payload.get("alert_id") or "").strip()
+    now = get_ist_now()
+    await db.driver_document_renewal_requests.update_one(
+        {
+            "driver_id": current_user["id"],
+            "doc_type": normalized_type,
+            "status": "pending",
+        },
+        {
+            "$set": {
+                "alert_id": alert_id or None,
+                "updated_at": now,
+            },
+            "$setOnInsert": {
+                "id": f"driver-doc-renewal-{uuid.uuid4()}",
+                "driver_id": current_user["id"],
+                "doc_type": normalized_type,
+                "status": "pending",
+                "created_at": now,
+            },
+        },
+        upsert=True,
+    )
+
+    if alert_id:
+        await db.driver_document_alert_dismissals.update_one(
+            {"driver_id": current_user["id"], "alert_id": alert_id},
+            {
+                "$set": {"dismissed_at": now, "updated_at": now},
+                "$setOnInsert": {
+                    "id": f"driver-doc-alert-dismissal-{uuid.uuid4()}",
+                    "driver_id": current_user["id"],
+                    "alert_id": alert_id,
+                    "created_at": now,
+                },
+            },
+            upsert=True,
+        )
+
+    return {
+        "success": True,
+        "message": "Renewal request submitted",
+        "document_id": normalized_type,
+        "alert_id": alert_id or None,
+    }
 
 
 @api_router.get("/drivers/menu-badges")

@@ -8,7 +8,8 @@ import {
   View,
   Alert,
 } from 'react-native';
-import InteractiveMap from './InteractiveMap';
+import type { ViewStyle } from 'react-native';
+import WebGoogleLiveMap from './WebGoogleLiveMap';
 import { COLORS, SHADOWS } from '../theme';
 import { demandTrafficAPI } from '../services/apiClient';
 
@@ -40,7 +41,32 @@ type DemandHeatmapIntegrationProps = {
   disabled?: boolean;
 };
 
-const DemandInteractiveMap = InteractiveMap as React.ComponentType<any>;
+const GOOGLE_MAPS_WEB_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+
+const buildDemandMapFallbackUrl = (location?: LocationCoords | Hotspot | null) => {
+  const latitude = Number(location?.latitude);
+  const longitude = Number(location?.longitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return 'https://www.google.com/maps?output=embed&q=9.9312,76.2673&z=11';
+  }
+  return `https://www.google.com/maps?output=embed&q=${latitude},${longitude}&z=14`;
+};
+
+const getHotspotMarkerStyle = (
+  hotspot: Hotspot,
+  center: LocationCoords,
+  bounds: { latitudeRange: number; longitudeRange: number },
+): ViewStyle => {
+  const latitudeOffset = (Number(hotspot.latitude) - center.latitude) / bounds.latitudeRange;
+  const longitudeOffset = (Number(hotspot.longitude) - center.longitude) / bounds.longitudeRange;
+  const left = Math.max(6, Math.min(94, 50 + longitudeOffset * 40));
+  const top = Math.max(6, Math.min(94, 50 - latitudeOffset * 40));
+  return {
+    left: `${left}%` as ViewStyle['left'],
+    top: `${top}%` as ViewStyle['top'],
+    backgroundColor: hotspot.radarColor || COLORS.primary,
+  };
+};
 
 export default function DemandHeatmapIntegration({
   onNavigateToHotspot,
@@ -51,6 +77,18 @@ export default function DemandHeatmapIntegration({
   const [heatmapData, setHeatmapData] = useState<Hotspot[]>([]);
   const [selectedHotspot, setSelectedHotspot] = useState<Hotspot | null>(null);
   const [error, setError] = useState('');
+  const mapCenter = selectedHotspot || currentLocation || null;
+  const mapFallbackUrl = buildDemandMapFallbackUrl(mapCenter);
+  const hotspotBounds = {
+    latitudeRange: Math.max(
+      0.01,
+      ...heatmapData.map((item) => Math.abs(Number(item.latitude) - Number(mapCenter?.latitude ?? currentLocation?.latitude ?? item.latitude))),
+    ),
+    longitudeRange: Math.max(
+      0.01,
+      ...heatmapData.map((item) => Math.abs(Number(item.longitude) - Number(mapCenter?.longitude ?? currentLocation?.longitude ?? item.longitude))),
+    ),
+  };
 
   const loadHeatmapData = useCallback(async () => {
     setLoading(true);
@@ -125,11 +163,29 @@ export default function DemandHeatmapIntegration({
 
       {currentLocation && (
         <View style={styles.mapContainer}>
-          <DemandInteractiveMap
-            apiKey={process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY}
-            center={{ lat: currentLocation.latitude, lng: currentLocation.longitude }}
-            style={{ width: '100%', height: '100%' }}
+          <WebGoogleLiveMap
+            apiKey={GOOGLE_MAPS_WEB_KEY}
+            title="Demand heatmap"
+            fallbackUrl={mapFallbackUrl}
+            defaultCenter={mapCenter}
+            mapStyle={styles.demandMap}
+            showStatusOverlay={false}
           />
+          {mapCenter && heatmapData.length > 0 && (
+            <View style={styles.hotspotOverlay} pointerEvents="none">
+              {heatmapData.slice(0, 12).map((hotspot) => (
+                <View
+                  key={hotspot.id}
+                  style={[
+                    styles.mapHotspotPulse,
+                    getHotspotMarkerStyle(hotspot, mapCenter, hotspotBounds),
+                  ]}
+                >
+                  <View style={styles.mapHotspotCore} />
+                </View>
+              ))}
+            </View>
+          )}
         </View>
       )}
 
@@ -194,7 +250,28 @@ const styles = StyleSheet.create({
     color: COLORS.text,
   },
   refreshButton: { color: COLORS.primary, fontSize: 14, fontWeight: '600' },
-  mapContainer: { height: 250, borderRadius: 8, overflow: 'hidden', marginBottom: 16, borderWidth: 1, borderColor: '#EEE' },
+  mapContainer: { height: 250, borderRadius: 8, overflow: 'hidden', marginBottom: 16, borderWidth: 1, borderColor: '#EEE', position: 'relative', backgroundColor: '#EAF1ED' },
+  demandMap: { width: '100%', height: '100%' },
+  hotspotOverlay: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
+  mapHotspotPulse: {
+    position: 'absolute',
+    width: 28,
+    height: 28,
+    marginLeft: -14,
+    marginTop: -14,
+    borderRadius: 14,
+    opacity: 0.9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.85)',
+  },
+  mapHotspotCore: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#FFFFFF',
+  },
   hotspotsList: { marginBottom: 16 },
   listTitle: { fontSize: 13, fontWeight: '600', color: COLORS.text, marginBottom: 8, textTransform: 'uppercase' },
   hotspotItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 10, backgroundColor: '#F9F9F9', borderRadius: 8, marginBottom: 8, borderWidth: 1, borderColor: '#EEE' },

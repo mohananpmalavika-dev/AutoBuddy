@@ -99,6 +99,7 @@ export class OfflineQueueManager {
           body: payload.formData,
           token: payload.token,
           isFormData: true,
+          timeoutMs: 60000,
         });
 
       case 'update_settings':

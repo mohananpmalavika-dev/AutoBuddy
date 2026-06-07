@@ -13,6 +13,58 @@ import { apiRequest } from '../lib/api';
 import { GlassCard, PremiumEmptyState } from './PremiumUI';
 import { formatToIST } from '../utils/time';
 
+const FALLBACK_STATUSES = new Set([404, 405, 501]);
+
+function isEndpointUnavailable(err) {
+  return FALLBACK_STATUSES.has(Number(err?.status));
+}
+
+function normalizeReferralStatus(status) {
+  const value = String(status || 'pending').trim().toLowerCase();
+  return ['credited', 'completed', 'paid'].includes(value) ? 'completed' : value;
+}
+
+function getNextReferralTarget(successfulReferrals) {
+  if (successfulReferrals < 5) return 5;
+  if (successfulReferrals < 10) return 10;
+  if (successfulReferrals < 25) return 25;
+  return 0;
+}
+
+function normalizeReferralData(data = {}) {
+  if (data.referral_code) {
+    return data;
+  }
+
+  const referral = data.referral || {};
+  const rewards = Array.isArray(data.rewards) ? data.rewards : [];
+  const successfulReferrals = Math.max(
+    Number(referral.successful_invites || 0),
+    rewards.filter(item => normalizeReferralStatus(item.status) === 'completed').length,
+  );
+  const totalReferrals = Math.max(Number(referral.total_invites || 0), rewards.length);
+  const totalEarnings =
+    Number(referral.total_earned || 0) ||
+    rewards.reduce((sum, item) => sum + Number(item.reward_amount || item.amount || 0), 0);
+
+  return {
+    referral_code: String(referral.code || '').trim().toUpperCase(),
+    total_referrals: totalReferrals,
+    successful_referrals: successfulReferrals,
+    pending_referrals: Math.max(0, totalReferrals - successfulReferrals),
+    total_earnings: Math.round(totalEarnings * 100) / 100,
+    referral_rate: 50,
+    next_tier_referrals: getNextReferralTarget(successfulReferrals),
+    recent_referrals: rewards.slice(0, 10).map((item, index) => ({
+      id: item.id || index,
+      name: item.new_user_name || item.referred_user_name || 'Driver',
+      date: item.created_at,
+      status: normalizeReferralStatus(item.status),
+      earning_amount: Number(item.reward_amount || item.amount || 0),
+    })),
+  };
+}
+
 export default function DriverReferralPanel({ token, driverId = '', onReferralShare = undefined }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -23,12 +75,20 @@ export default function DriverReferralPanel({ token, driverId = '', onReferralSh
     try {
       setLoading(true);
       setError('');
-      const data = await apiRequest('/drivers/referral-program', {
-        token,
-        query: driverId ? { driver_id: driverId } : undefined,
-      });
+      let data;
+      try {
+        data = await apiRequest('/drivers/referral-program', {
+          token,
+          query: driverId ? { driver_id: driverId } : undefined,
+        });
+      } catch (err) {
+        if (!isEndpointUnavailable(err)) {
+          throw err;
+        }
+        data = await apiRequest('/revenue/referral/me', { token });
+      }
       if (data) {
-        setReferralData(data);
+        setReferralData(normalizeReferralData(data));
       }
     } catch (err) {
       setError(err.message || 'Could not load referral program details');

@@ -12,9 +12,18 @@ import {
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { apiRequest } from '../lib/api';
-import { appendPickerAssetToFormData } from '../lib/uploadFormData';
+import {
+  appendPickerAssetToFormData,
+  getPickerAssetSize,
+  prepareImageAssetForUpload,
+} from '../lib/uploadFormData';
 import { COLORS, SHADOWS } from '../theme';
 import { formatToIST } from '../utils/time';
+
+const DOCUMENT_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
+const DOCUMENT_UPLOAD_TIMEOUT_MS = 60000;
+const DOCUMENT_IMAGE_MAX_DIMENSION = 1600;
+const DOCUMENT_IMAGE_QUALITY = 0.76;
 
 const DOCUMENT_TYPES = [
   { key: 'driver_license', label: 'Driver License', requiresExpiry: true },
@@ -129,6 +138,13 @@ function formatFileSize(size) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function assertDocumentUploadSize(asset) {
+  const size = getPickerAssetSize(asset);
+  if (size > DOCUMENT_UPLOAD_MAX_BYTES) {
+    throw new Error('File size must be less than 5MB. For photos, crop or choose a clearer smaller image.');
+  }
+}
+
 export default function DocumentUploadPanel({ token, loading: parentLoading = false, onDataChanged }) {
   const [documents, setDocuments] = useState(buildEmptyDocuments);
   const [reminders, setReminders] = useState([]);
@@ -217,10 +233,13 @@ export default function DocumentUploadPanel({ token, loading: parentLoading = fa
         if (result.canceled || !result.assets?.length) return;
 
         const asset = result.assets[0];
-        if (asset.size && asset.size > 5 * 1024 * 1024) {
-          Alert.alert('File Too Large', 'File size must be less than 5MB.');
-          return;
-        }
+        const preparedAsset = await prepareImageAssetForUpload(asset, {
+          fallbackName: asset.name || `${docType}.jpg`,
+          fallbackType: asset.mimeType || 'application/octet-stream',
+          maxDimension: DOCUMENT_IMAGE_MAX_DIMENSION,
+          quality: DOCUMENT_IMAGE_QUALITY,
+        });
+        assertDocumentUploadSize(preparedAsset);
 
         setUploadingDocType(docType);
         setError('');
@@ -229,9 +248,9 @@ export default function DocumentUploadPanel({ token, loading: parentLoading = fa
         await appendPickerAssetToFormData(
           formData,
           'file',
-          asset,
-          asset.name || `${docType}.pdf`,
-          asset.mimeType || 'application/octet-stream',
+          preparedAsset,
+          preparedAsset.name || preparedAsset.fileName || asset.name || `${docType}.pdf`,
+          preparedAsset.mimeType || preparedAsset.type || asset.mimeType || 'application/octet-stream',
         );
         formData.append('doc_type', docType);
         if (expiryDrafts[docType]) {
@@ -247,6 +266,7 @@ export default function DocumentUploadPanel({ token, loading: parentLoading = fa
           token,
           body: formData,
           isFormData: true,
+          timeoutMs: DOCUMENT_UPLOAD_TIMEOUT_MS,
         });
 
         if (response?.document) {

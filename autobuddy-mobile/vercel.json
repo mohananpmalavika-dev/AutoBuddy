@@ -44,6 +44,7 @@
     "EXPO_PUBLIC_SOCKET_BASE_URL": "https://autobuddy-z1vx.onrender.com",
     "EXPO_PUBLIC_SOCKET_PATH": "/socket.io", 
     "EXPO_PUBLIC_SOCKET_TRANSPORTS": "websocket,polling",
+    "EXPO_PUBLIC_GOOGLE_MAPS_API_KEY": "AIzaSyAQjCXXK7c578X2tEA8XnuTrPiAfUhCu0c",
     "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "475485627719-lgd8c3sgr1d5unie68d2qjcifjoolt5f.apps.googleusercontent.com"
   }
 }

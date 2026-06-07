@@ -12,9 +12,18 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { apiRequest } from '../lib/api';
-import { appendPickerAssetToFormData } from '../lib/uploadFormData';
+import {
+  appendPickerAssetToFormData,
+  getPickerAssetSize,
+  prepareImageAssetForUpload,
+} from '../lib/uploadFormData';
 import { COLORS, SHADOWS } from '../theme';
 import { formatToIST } from '../utils/time';
+
+const PROFILE_PHOTO_MAX_BYTES = 4.5 * 1024 * 1024;
+const PROFILE_PHOTO_UPLOAD_TIMEOUT_MS = 60000;
+const PROFILE_PHOTO_PICKER_MEDIA_TYPES = ['images'];
+const PROFILE_PHOTO_PICKER_QUALITY = 0.65;
 
 const EMPTY_PROFILE = {
   name: '',
@@ -70,6 +79,13 @@ function getStatusColor(status) {
   if (['active', 'verified', 'approved'].includes(normalized)) return COLORS.success;
   if (['pending', 'pending_verification', 'not_submitted'].includes(normalized)) return COLORS.warning;
   return COLORS.error;
+}
+
+function assertProfilePhotoSize(asset) {
+  const size = getPickerAssetSize(asset);
+  if (size > PROFILE_PHOTO_MAX_BYTES) {
+    throw new Error('Photo is too large. Please choose a smaller photo under 5MB.');
+  }
 }
 
 function FormField({
@@ -210,13 +226,22 @@ export default function ProfileManagementPanel({ token, loading: parentLoading =
         setUploadingPhoto(true);
         setError('');
 
+        const fallbackName = asset.fileName || asset.name || `driver-profile-${Date.now()}.jpg`;
+        const preparedAsset = await prepareImageAssetForUpload(asset, {
+          fallbackName,
+          fallbackType: asset.mimeType || 'image/jpeg',
+          maxDimension: 720,
+          quality: PROFILE_PHOTO_PICKER_QUALITY,
+        });
+        assertProfilePhotoSize(preparedAsset);
+
         const formData = new FormData();
         await appendPickerAssetToFormData(
           formData,
           'file',
-          asset,
-          asset.fileName || `profile-${Date.now()}.jpg`,
-          asset.mimeType || 'image/jpeg',
+          preparedAsset,
+          preparedAsset.fileName || preparedAsset.name || fallbackName,
+          preparedAsset.mimeType || preparedAsset.type || 'image/jpeg',
         );
 
         const response = await apiRequest('/drivers/profile/photo', {
@@ -224,9 +249,10 @@ export default function ProfileManagementPanel({ token, loading: parentLoading =
           method: 'POST',
           body: formData,
           isFormData: true,
+          timeoutMs: PROFILE_PHOTO_UPLOAD_TIMEOUT_MS,
         });
 
-        applyProfile({ ...profile, profile_photo: response?.profile_photo || asset.uri });
+        applyProfile({ ...profile, profile_photo: response?.profile_photo || preparedAsset.uri || asset.uri });
         setTimedMessage('Profile photo updated.');
       } catch (err) {
         setError(err.message || 'Failed to upload photo');
@@ -246,10 +272,10 @@ export default function ProfileManagementPanel({ token, loading: parentLoading =
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: PROFILE_PHOTO_PICKER_MEDIA_TYPES,
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.8,
+      quality: PROFILE_PHOTO_PICKER_QUALITY,
     });
 
     if (!result.canceled && result.assets?.length) {
@@ -267,7 +293,7 @@ export default function ProfileManagementPanel({ token, loading: parentLoading =
     const result = await ImagePicker.launchCameraAsync({
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.8,
+      quality: PROFILE_PHOTO_PICKER_QUALITY,
     });
 
     if (!result.canceled && result.assets?.length) {

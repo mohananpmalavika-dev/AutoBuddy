@@ -13,6 +13,18 @@ import { apiRequest } from '../lib/api';
 import { GlassCard, PremiumEmptyState } from './PremiumUI';
 import { formatToIST } from '../utils/time';
 
+const FALLBACK_STATUSES = new Set([404, 405, 501]);
+const ACTIVE_SUSPENSION_STATUS = {
+  status: 'active',
+  has_pending_appeal: false,
+  can_appeal: false,
+  appeal_deadline_days: 7,
+};
+
+function isEndpointUnavailable(err) {
+  return FALLBACK_STATUSES.has(Number(err?.status));
+}
+
 export default function DriverSuspensionAppealPanel({ token, onAppealSubmitted = undefined }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -26,7 +38,15 @@ export default function DriverSuspensionAppealPanel({ token, onAppealSubmitted =
     try {
       setLoading(true);
       setError('');
-      const data = await apiRequest('/drivers/suspension-status', { token });
+      let data;
+      try {
+        data = await apiRequest('/drivers/suspension-status', { token });
+      } catch (err) {
+        if (!isEndpointUnavailable(err)) {
+          throw err;
+        }
+        data = ACTIVE_SUSPENSION_STATUS;
+      }
       if (data) {
         setSuspensionData(data);
         setSubmitted(!!data.has_pending_appeal);
@@ -76,6 +96,10 @@ export default function DriverSuspensionAppealPanel({ token, onAppealSubmitted =
         await fetchSuspensionDetails();
       }
     } catch (err) {
+      if (isEndpointUnavailable(err)) {
+        setError('Appeal service is being updated. Please try again after the backend redeploy finishes.');
+        return;
+      }
       setError(err.message || 'Could not submit appeal');
     } finally {
       setLoading(false);

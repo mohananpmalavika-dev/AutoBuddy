@@ -9,11 +9,21 @@ import {
   verifyAadhaar,
   verifySelfie,
 } from '../lib/driverTrustApi';
-import { appendPickerAssetToFormData } from '../lib/uploadFormData';
+import {
+  appendPickerAssetToFormData,
+  getPickerAssetSize,
+  prepareImageAssetForUpload,
+} from '../lib/uploadFormData';
 import { COLORS, SHADOWS } from '../theme';
 import VoiceTextInput from './VoiceTextInput';
 
 const SELFIE_DOC_TYPE = 'selfie';
+const SELFIE_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
+const SELFIE_UPLOAD_TIMEOUT_MS = 60000;
+const TRUST_DOCUMENT_REFRESH_TIMEOUT_MS = 60000;
+const SELFIE_PICKER_MEDIA_TYPES = ['images'];
+const SELFIE_IMAGE_MAX_DIMENSION = 720;
+const SELFIE_IMAGE_QUALITY = 0.65;
 
 function formatAadhaar(value) {
   return String(value || '').replace(/\D/g, '').slice(0, 12);
@@ -45,7 +55,7 @@ export default function DriverTrustCard({ token }) {
     if (!token) {
       return null;
     }
-    const payload = await apiRequest('/drivers/documents', { token });
+    const payload = await apiRequest('/drivers/documents', { token, timeoutMs: TRUST_DOCUMENT_REFRESH_TIMEOUT_MS });
     const document = getSelfieDocument(payload);
     setSelfieDocument(document);
     return document;
@@ -84,17 +94,23 @@ export default function DriverTrustCard({ token }) {
           return;
         }
         const result = await ImagePicker.launchCameraAsync({
-          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          mediaTypes: SELFIE_PICKER_MEDIA_TYPES,
           allowsEditing: true,
           aspect: [1, 1],
-          quality: 0.85,
+          quality: SELFIE_IMAGE_QUALITY,
         });
         if (result.canceled || !result.assets?.length) {
           return;
         }
         const asset = result.assets[0];
-        const fileSize = Number(asset.fileSize || asset.size || 0);
-        if (fileSize > 5 * 1024 * 1024) {
+        const preparedAsset = await prepareImageAssetForUpload(asset, {
+          fallbackName: getAssetFileName(asset),
+          fallbackType: asset.mimeType || 'image/jpeg',
+          maxDimension: SELFIE_IMAGE_MAX_DIMENSION,
+          quality: SELFIE_IMAGE_QUALITY,
+        });
+        const fileSize = getPickerAssetSize(preparedAsset);
+        if (fileSize > SELFIE_UPLOAD_MAX_BYTES) {
           Alert.alert('File Too Large', 'Selfie image must be less than 5MB.');
           return;
         }
@@ -105,9 +121,9 @@ export default function DriverTrustCard({ token }) {
         await appendPickerAssetToFormData(
           formData,
           'file',
-          asset,
-          getAssetFileName(asset),
-          asset.mimeType || 'image/jpeg',
+          preparedAsset,
+          getAssetFileName(preparedAsset),
+          preparedAsset.mimeType || preparedAsset.type || 'image/jpeg',
         );
 
         const response = await apiRequest(`/drivers/documents/${SELFIE_DOC_TYPE}`, {
@@ -115,6 +131,7 @@ export default function DriverTrustCard({ token }) {
           token,
           body: formData,
           isFormData: true,
+          timeoutMs: SELFIE_UPLOAD_TIMEOUT_MS,
         });
         const document = response?.document || null;
         setSelfieDocument(document);

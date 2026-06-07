@@ -11,9 +11,22 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 
 import { apiRequest } from '../lib/api';
-import { appendPickerAssetToFormData } from '../lib/uploadFormData';
+import {
+  appendPickerAssetToFormData,
+  getPickerAssetSize,
+  prepareImageAssetForUpload,
+} from '../lib/uploadFormData';
 import { COLORS, SHADOWS } from '../theme';
 import VoiceTextInput from './VoiceTextInput';
+
+const DRIVER_DOCUMENT_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
+const DRIVER_DOCUMENT_UPLOAD_TIMEOUT_MS = 60000;
+const DRIVER_KYC_REQUEST_TIMEOUT_MS = 60000;
+const DRIVER_DOCUMENT_IMAGE_MAX_DIMENSION = 1600;
+const DRIVER_DOCUMENT_IMAGE_QUALITY = 0.76;
+const DRIVER_SELFIE_PICKER_MEDIA_TYPES = ['images'];
+const DRIVER_SELFIE_IMAGE_MAX_DIMENSION = 720;
+const DRIVER_SELFIE_IMAGE_QUALITY = 0.65;
 
 const REQUIRED_KYC_FILES = [
   {
@@ -73,7 +86,7 @@ function getFileName(asset, fallbackName) {
 }
 
 function getFileSize(asset) {
-  return Number(asset?.size || asset?.fileSize || 0);
+  return getPickerAssetSize(asset);
 }
 
 function getMimeType(asset, fallbackType) {
@@ -118,7 +131,7 @@ export default function DriverKycPanel({ token, onDataChanged }) {
     if (!token) {
       return null;
     }
-    const payload = await apiRequest('/drivers/documents', { token });
+    const payload = await apiRequest('/drivers/documents', { token, timeoutMs: DRIVER_KYC_REQUEST_TIMEOUT_MS });
     applyDocumentsPayload(payload);
     return payload;
   }, [applyDocumentsPayload, token]);
@@ -127,11 +140,21 @@ export default function DriverKycPanel({ token, onDataChanged }) {
     if (!token) {
       return;
     }
+    const [kycResult, documentsResult] = await Promise.allSettled([
+      apiRequest('/drivers/kyc', { token, timeoutMs: DRIVER_KYC_REQUEST_TIMEOUT_MS }),
+      refreshDocuments(),
+    ]);
+
+    if (kycResult.status === 'rejected' && documentsResult.status === 'rejected') {
+      const message =
+        kycResult.reason?.message || documentsResult.reason?.message || 'Could not load KYC status.';
+      setError(message);
+      return;
+    }
+
+    setError('');
+    const kycPayload = kycResult.status === 'fulfilled' ? kycResult.value : null;
     try {
-      const [kycPayload] = await Promise.all([
-        apiRequest('/drivers/kyc', { token }),
-        refreshDocuments().catch(() => null),
-      ]);
       setKycStatus(kycPayload || null);
       if (kycPayload && kycPayload.status !== 'not_submitted') {
         const aadhaarFromServer = String(kycPayload.aadhaar_number || '');
@@ -148,8 +171,8 @@ export default function DriverKycPanel({ token, onDataChanged }) {
           selfie_image_url: String(kycPayload.selfie_image_url || prev.selfie_image_url || ''),
         }));
       }
-    } catch (err) {
-      setError(err.message || 'Could not load KYC status.');
+    } catch {
+      setKycStatus(kycPayload || null);
     }
   }, [refreshDocuments, token]);
 
@@ -168,10 +191,10 @@ export default function DriverKycPanel({ token, onDataChanged }) {
         return null;
       }
       const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: DRIVER_SELFIE_PICKER_MEDIA_TYPES,
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.85,
+        quality: DRIVER_SELFIE_IMAGE_QUALITY,
       });
       return result.canceled ? null : result.assets?.[0] || null;
     }
@@ -190,8 +213,19 @@ export default function DriverKycPanel({ token, onDataChanged }) {
         if (!asset) {
           return;
         }
-        if (getFileSize(asset) > 5 * 1024 * 1024) {
-          Alert.alert('File Too Large', 'File size must be less than 5MB.');
+        const fallbackName = getFileName(asset, `${requirement.docType}.jpg`);
+        const preparedAsset = await prepareImageAssetForUpload(asset, {
+          fallbackName,
+          fallbackType: getMimeType(
+            asset,
+            requirement.picker === 'selfie' ? 'image/jpeg' : 'application/octet-stream',
+          ),
+          maxDimension:
+            requirement.picker === 'selfie' ? DRIVER_SELFIE_IMAGE_MAX_DIMENSION : DRIVER_DOCUMENT_IMAGE_MAX_DIMENSION,
+          quality: requirement.picker === 'selfie' ? DRIVER_SELFIE_IMAGE_QUALITY : DRIVER_DOCUMENT_IMAGE_QUALITY,
+        });
+        if (getFileSize(preparedAsset) > DRIVER_DOCUMENT_UPLOAD_MAX_BYTES) {
+          Alert.alert('File Too Large', 'File size must be less than 5MB. For photos, crop or choose a smaller image.');
           return;
         }
 
@@ -203,9 +237,12 @@ export default function DriverKycPanel({ token, onDataChanged }) {
         await appendPickerAssetToFormData(
           formData,
           'file',
-          asset,
-          getFileName(asset, `${requirement.docType}.jpg`),
-          getMimeType(asset, requirement.picker === 'selfie' ? 'image/jpeg' : 'application/octet-stream'),
+          preparedAsset,
+          getFileName(preparedAsset, fallbackName),
+          getMimeType(
+            preparedAsset,
+            requirement.picker === 'selfie' ? 'image/jpeg' : 'application/octet-stream',
+          ),
         );
 
         const response = await apiRequest(`/drivers/documents/${requirement.docType}`, {
@@ -213,6 +250,7 @@ export default function DriverKycPanel({ token, onDataChanged }) {
           token,
           body: formData,
           isFormData: true,
+          timeoutMs: DRIVER_DOCUMENT_UPLOAD_TIMEOUT_MS,
         });
 
         if (response?.document) {
@@ -258,6 +296,7 @@ export default function DriverKycPanel({ token, onDataChanged }) {
         method: 'POST',
         token,
         body: payload,
+        timeoutMs: DRIVER_KYC_REQUEST_TIMEOUT_MS,
       });
       setTimedMessage(result?.message || 'KYC submitted for admin review.');
       await refreshKyc();
