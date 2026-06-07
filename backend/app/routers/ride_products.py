@@ -18,6 +18,14 @@ from app.db.models_features import PromoCode, PromoCodeUsage
 from app.db.database import SessionLocal
 from app.models.document_catalog import effective_is_mandatory, ensure_default_document_requirements
 from app.models.canonical_vehicle_model import get_vehicle_multiplier
+from app.models.assisted_ride import (
+    ASSISTED_RIDE_STATUS_FLOW,
+    assisted_driver_eligibility,
+    build_assisted_ride_snapshot,
+    generate_assisted_otp,
+    generate_assisted_ride_id,
+    prepare_assisted_ride_context,
+)
 from app.models.ride_type_compatibility import is_vehicle_compatible_with_ride_type
 from app.utils.rbac import get_current_user_secure
 
@@ -62,6 +70,15 @@ class AdvancedBookingRequest(BaseModel):
     driver_gender_preference: Optional[str] = Field(default="any", max_length=20)
     rental_hours: Optional[int] = Field(default=None, ge=1, le=24)
     safe_ride_priority: Optional[str] = Field(default=None, max_length=40)
+    guardian_name: Optional[str] = Field(default=None, max_length=80)
+    guardian_phone: Optional[str] = Field(default=None, max_length=20)
+    assisted_passenger_name: Optional[str] = Field(default=None, max_length=80)
+    assisted_passenger_age: Optional[int] = Field(default=None, ge=1, le=120)
+    wheelchair_required: bool = False
+    assistance_required: bool = True
+    female_driver_preferred: bool = False
+    trusted_driver_required: bool = True
+    guardian_share_tracking: bool = True
     notes: Optional[str] = Field(default=None, max_length=500)
     allow_parallel: bool = False
     selected_driver_id: Optional[str] = Field(default=None, max_length=120)
@@ -254,6 +271,34 @@ def _driver_matches_service(
     return _driver_accepts_ride_product(driver, ride_product)
 
 
+def _driver_search_projection() -> Dict[str, int]:
+    return {
+        "_id": 1,
+        "id": 1,
+        "user_id": 1,
+        "current_location": 1,
+        "vehicle_info": 1,
+        "vehicle_type": 1,
+        "vehicle_type_id": 1,
+        "vehicle_subtype_id": 1,
+        "rating": 1,
+        "average_rating": 1,
+        "gender": 1,
+        "kyc_status": 1,
+        "police_verified": 1,
+        "background_check_status": 1,
+        "trained_for_assisted_rides": 1,
+        "assisted_ride_trained": 1,
+        "assisted_ride_enabled": 1,
+        "emergency_contact_verified": 1,
+        "emergency_contact_enabled": 1,
+        "emergency_contact_phone": 1,
+        "safety_complaint_count": 1,
+        "open_safety_complaints": 1,
+        "accepted_ride_types": 1,
+    }
+
+
 async def _find_matching_driver_ids(
     db: AsyncIOMotorDatabase,
     pickup: Dict[str, Any],
@@ -270,7 +315,7 @@ async def _find_matching_driver_ids(
             "vehicle_info": {"$ne": None},
             "kyc_status": "approved",
         },
-        {"_id": 0, "user_id": 1, "current_location": 1, "vehicle_info": 1, "rating": 1},
+        _driver_search_projection(),
     ).to_list(250)
     scored: List[Dict[str, Any]] = []
     for driver in drivers:
@@ -278,8 +323,18 @@ async def _find_matching_driver_ids(
             continue
         location = _as_dict(driver.get("current_location"))
         distance = _location_distance_km(pickup, location)
-        if math.isfinite(distance) and distance <= radius_km:
-            scored.append({"driver_id": str(driver.get("user_id") or ""), "distance_km": distance})
+        if not math.isfinite(distance) or distance > radius_km:
+            continue
+        if ride_product == RideProduct.SCHOOL_ELDERLY_SAFE:
+            eligibility = await assisted_driver_eligibility(db, driver)
+            if not eligibility["eligible"]:
+                continue
+        scored.append(
+            {
+                "driver_id": str(driver.get("user_id") or driver.get("id") or driver.get("_id") or ""),
+                "distance_km": distance,
+            }
+        )
     scored.sort(key=lambda item: item["distance_km"])
     return [item["driver_id"] for item in scored[: max(1, int(limit or 1))] if item["driver_id"]]
 
@@ -305,12 +360,16 @@ async def _selected_driver_pickup_error(
             "vehicle_info": {"$ne": None},
             "kyc_status": "approved",
         },
-        {"_id": 0, "user_id": 1, "current_location": 1, "vehicle_info": 1, "rating": 1},
+        _driver_search_projection(),
     )
     if not driver:
         return "Selected driver is unavailable right now."
     if not _driver_matches_service(driver, vehicle_type_id, vehicle_subtype_id, ride_product):
         return "Selected driver does not match the requested vehicle or ride type."
+    if ride_product == RideProduct.SCHOOL_ELDERLY_SAFE:
+        eligibility = await assisted_driver_eligibility(db, driver)
+        if not eligibility["eligible"]:
+            return "Selected driver is not verified for school/elderly assisted rides."
 
     distance = _location_distance_km(pickup, _as_dict(driver.get("current_location")))
     if not math.isfinite(distance):
@@ -1051,6 +1110,26 @@ async def create_advanced_booking(
     if payload.ride_product == RideProduct.RENTAL_HOURLY and not payload.rental_hours:
         raise HTTPException(status_code=400, detail="Rental hours required for rental/hourly rides")
 
+    assisted_context = None
+    if payload.ride_product == RideProduct.SCHOOL_ELDERLY_SAFE:
+        try:
+            assisted_context = prepare_assisted_ride_context(
+                ride_category=payload.safe_ride_priority,
+                guardian_name=payload.guardian_name,
+                guardian_phone=payload.guardian_phone,
+                passenger_name=payload.assisted_passenger_name,
+                passenger_age=payload.assisted_passenger_age,
+                wheelchair_required=payload.wheelchair_required,
+                assistance_required=payload.assistance_required,
+                female_driver_preferred=payload.female_driver_preferred,
+                trusted_driver_required=payload.trusted_driver_required,
+                guardian_share_tracking=payload.guardian_share_tracking,
+                scheduled_time=scheduled_for,
+                notes=payload.notes,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     normalized_payment_method = str(payload.payment_method or "cash").strip().lower() or "cash"
     if normalized_payment_method not in {"cash", "online"}:
         raise HTTPException(status_code=400, detail="payment_method must be cash or online")
@@ -1117,6 +1196,9 @@ async def create_advanced_booking(
     now = get_ist_now()
     is_scheduled = payload.ride_product == RideProduct.SCHEDULED or scheduled_for is not None
     booking_id = str(uuid.uuid4())
+    assisted_ride_id = generate_assisted_ride_id() if assisted_context else None
+    assisted_pickup_otp = generate_assisted_otp() if assisted_context else None
+    assisted_drop_otp = generate_assisted_otp() if assisted_context else None
     selected_driver_id = str(payload.selected_driver_id or "").strip() or None
     women_only_required = bool(payload.women_only_required or payload.ride_product == RideProduct.WOMEN_ONLY)
     driver_gender_preference = _normalize_driver_gender_preference(payload.driver_gender_preference)
@@ -1167,7 +1249,7 @@ async def create_advanced_booking(
         "driver_gender_preference": driver_gender_preference,
         "pickup_district": availability.get("pickup_district"),
         "rental_hours": payload.rental_hours,
-        "safe_ride_priority": payload.safe_ride_priority,
+        "safe_ride_priority": assisted_context["ride_category"] if assisted_context else payload.safe_ride_priority,
         "notes": payload.notes,
         "selected_driver_id": selected_driver_id,
         "vehicle_type_id": payload.vehicle_type_id,
@@ -1200,6 +1282,66 @@ async def create_advanced_booking(
         "created_at": now,
         "updated_at": now,
     }
+    assisted_ride_doc = None
+    if assisted_context and assisted_ride_id:
+        assisted_snapshot = build_assisted_ride_snapshot(
+            assisted_context,
+            assisted_ride_id=assisted_ride_id,
+            status="searching_driver",
+        )
+        booking.update(
+            {
+                "booking_type": "ASSISTED_RIDE",
+                "assisted_ride_id": assisted_ride_id,
+                "assisted_ride": assisted_snapshot,
+                "guardian_name": assisted_context["guardian_name"],
+                "guardian_phone": assisted_context["guardian_phone"],
+                "assisted_passenger_name": assisted_context["passenger_name"],
+                "assisted_passenger_age": assisted_context["passenger_age"],
+                "wheelchair_required": assisted_context["wheelchair_required"],
+                "assistance_required": assisted_context["assistance_required"],
+                "female_driver_preferred": assisted_context["female_driver_preferred"],
+                "trusted_driver_required": assisted_context["trusted_driver_required"],
+                "guardian_share_tracking": assisted_context["guardian_share_tracking"],
+                "otp_required": {"pickup": True, "drop": True},
+                "progress_handoff": {
+                    **booking["progress_handoff"],
+                    "assisted_ride_endpoint": f"/api/assisted-rides/{assisted_ride_id}",
+                    "pickup_otp_endpoint": f"/api/assisted-rides/{assisted_ride_id}/verify-pickup",
+                    "drop_otp_endpoint": f"/api/assisted-rides/{assisted_ride_id}/verify-drop",
+                    "guardian_tracking": assisted_context["guardian_share_tracking"],
+                },
+            }
+        )
+        assisted_ride_doc = {
+            "id": assisted_ride_id,
+            "booking_id": booking_id,
+            "booking_type": "ASSISTED_RIDE",
+            "passenger_id": current_user_id,
+            "ride_category": assisted_context["ride_category"],
+            "pickup_location": pickup,
+            "drop_location": drop,
+            "guardian_name": assisted_context["guardian_name"],
+            "guardian_phone": assisted_context["guardian_phone"],
+            "passenger_name": assisted_context["passenger_name"],
+            "passenger_age": assisted_context["passenger_age"],
+            "wheelchair_required": assisted_context["wheelchair_required"],
+            "assistance_required": assisted_context["assistance_required"],
+            "female_driver_preferred": assisted_context["female_driver_preferred"],
+            "trusted_driver_required": assisted_context["trusted_driver_required"],
+            "guardian_share_tracking": assisted_context["guardian_share_tracking"],
+            "scheduled_time": scheduled_for,
+            "notes": assisted_context.get("notes"),
+            "status": "searching_driver",
+            "status_flow": ASSISTED_RIDE_STATUS_FLOW,
+            "pickup_otp": assisted_pickup_otp,
+            "drop_otp": assisted_drop_otp,
+            "candidate_driver_ids": candidate_driver_ids,
+            "guardian_notifications": [{"event": "booking_created", "status": "queued", "at": now}],
+            "status_history": [{"status": "searching_driver", "at": now}],
+            "created_at": now,
+            "updated_at": now,
+        }
     if corporate_context:
         company = corporate_context["company"]
         employee = corporate_context["employee"]
@@ -1221,8 +1363,21 @@ async def create_advanced_booking(
         driver_filter["gender"] = driver_gender_preference
     if payload.ride_product == RideProduct.EV_AUTO:
         driver_filter["vehicle_type"] = "ev_auto"
-    elif payload.ride_product == RideProduct.SCHOOL_ELDERLY_SAFE:
-        driver_filter["trust_priority"] = True
+    elif assisted_context:
+        driver_filter.update(
+            {
+                "trust_priority": True,
+                "assisted_ride_required": True,
+                "police_verified_required": True,
+                "trained_for_assisted_rides_required": True,
+                "min_rating": 4.5,
+                "no_safety_complaint_required": True,
+                "emergency_contact_required": True,
+                "vehicle_document_valid_required": True,
+                "female_driver_preferred": assisted_context["female_driver_preferred"],
+                "guardian_tracking_required": assisted_context["guardian_share_tracking"],
+            }
+        )
     if driver_filter:
         booking["driver_filter"] = driver_filter
 
@@ -1258,6 +1413,8 @@ async def create_advanced_booking(
         )
 
     await db.bookings.insert_one(booking)
+    if assisted_ride_doc:
+        await db.assisted_rides.insert_one(assisted_ride_doc)
     if corporate_context:
         employee = corporate_context["employee"]
         await db.corporate_employees.update_one(

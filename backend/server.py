@@ -115,6 +115,7 @@ from app.routers.notifications_backend import router as modular_notifications_ba
 from app.routers.support_backend import router as modular_support_backend_router
 from app.routers.lost_items_backend import router as modular_lost_items_backend_router
 from app.routers.ride_pooling_backend import router as modular_ride_pooling_backend_router
+from app.routers.assisted_rides import router as modular_assisted_rides_router
 from app.routers.promo_codes_backend import router as modular_promo_codes_backend_router
 from app.routers.accessibility_backend import router as modular_accessibility_backend_router
 from app.routers.realtime_tracking_v3 import router as phase3_tracking_router
@@ -17728,6 +17729,7 @@ app.include_router(modular_notifications_backend_router)
 app.include_router(modular_support_backend_router)
 app.include_router(modular_lost_items_backend_router)
 app.include_router(modular_ride_pooling_backend_router)
+app.include_router(modular_assisted_rides_router)
 app.include_router(modular_promo_codes_backend_router)
 app.include_router(modular_accessibility_backend_router)
 # Phase 3 Router Integration

@@ -530,6 +530,16 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [intercityReturnTrip, setIntercityReturnTrip] = useState(false);
   const [rentalHoursInput, setRentalHoursInput] = useState('4');
   const [safeRidePriority, setSafeRidePriority] = useState('elderly');
+  const [safeRidePassengerName, setSafeRidePassengerName] = useState('');
+  const [safeRidePassengerAge, setSafeRidePassengerAge] = useState('');
+  const [safeRideGuardianName, setSafeRideGuardianName] = useState('');
+  const [safeRideGuardianPhone, setSafeRideGuardianPhone] = useState('');
+  const [safeRideWheelchairRequired, setSafeRideWheelchairRequired] = useState(false);
+  const [safeRideAssistanceRequired, setSafeRideAssistanceRequired] = useState(true);
+  const [safeRideFemaleDriverPreferred, setSafeRideFemaleDriverPreferred] = useState(false);
+  const [safeRideTrustedDriverRequired, setSafeRideTrustedDriverRequired] = useState(true);
+  const [safeRideGuardianShareTracking, setSafeRideGuardianShareTracking] = useState(true);
+  const [safeRideNotes, setSafeRideNotes] = useState('');
   const [passengerCountInput, setPassengerCountInput] = useState('1');
   const [showProfile, setShowProfile] = useState(false);
   const [showPassengerMenus, setShowPassengerMenus] = useState(false);
@@ -2503,10 +2513,49 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       setError(t.rentalHoursRequired);
       return;
     }
+    const safeRidePassengerAgeValue = Number(String(safeRidePassengerAge || '').trim());
+    const safeRidePassengerAgeNumber = Number.isFinite(safeRidePassengerAgeValue)
+      ? Math.round(safeRidePassengerAgeValue)
+      : 0;
+    if (effectiveRideProduct === 'school_elderly_safe') {
+      if (!safeRidePassengerName.trim() || !safeRideGuardianName.trim() || !safeRideGuardianPhone.trim()) {
+        setError('Passenger name, guardian name, and guardian phone are required for School/Elderly rides.');
+        return;
+      }
+      if (safeRidePassengerAgeNumber < 1 || safeRidePassengerAgeNumber > 120) {
+        setError('Enter a valid passenger age for the assisted ride.');
+        return;
+      }
+      if (safeRidePriority === 'school' && safeRidePassengerAgeNumber > 18) {
+        setError('School assisted rides are for passengers 18 or younger.');
+        return;
+      }
+      if (safeRidePriority === 'elderly' && safeRidePassengerAgeNumber < 55) {
+        setError('Elderly assisted rides are for passengers 55 or older.');
+        return;
+      }
+    }
 
     const rideNotes = [];
     if (effectiveRideProduct === 'school_elderly_safe') {
       rideNotes.push(`Safe ride priority: ${safeRidePriority}`);
+      rideNotes.push(`Assisted passenger: ${safeRidePassengerName.trim()} (${safeRidePassengerAgeNumber})`);
+      rideNotes.push(`Guardian: ${safeRideGuardianName.trim()}`);
+      if (safeRideWheelchairRequired) {
+        rideNotes.push('Wheelchair required');
+      }
+      if (safeRideAssistanceRequired) {
+        rideNotes.push('Door-to-door assistance required');
+      }
+      if (safeRideFemaleDriverPreferred) {
+        rideNotes.push('Female driver preferred');
+      }
+      if (safeRideGuardianShareTracking) {
+        rideNotes.push('Guardian live tracking enabled');
+      }
+      if (safeRideNotes.trim()) {
+        rideNotes.push(`Care notes: ${safeRideNotes.trim()}`);
+      }
     }
     if (effectiveRideProduct === 'corporate') {
       if (corporatePurpose.trim()) {
@@ -2574,6 +2623,24 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           rental_hours: effectiveRideProduct === 'rental_hourly' ? rentalHours : undefined,
           safe_ride_priority:
             effectiveRideProduct === 'school_elderly_safe' ? safeRidePriority : undefined,
+          guardian_name:
+            effectiveRideProduct === 'school_elderly_safe' ? safeRideGuardianName.trim() : undefined,
+          guardian_phone:
+            effectiveRideProduct === 'school_elderly_safe' ? safeRideGuardianPhone.trim() : undefined,
+          assisted_passenger_name:
+            effectiveRideProduct === 'school_elderly_safe' ? safeRidePassengerName.trim() : undefined,
+          assisted_passenger_age:
+            effectiveRideProduct === 'school_elderly_safe' ? safeRidePassengerAgeNumber : undefined,
+          wheelchair_required:
+            effectiveRideProduct === 'school_elderly_safe' ? safeRideWheelchairRequired : undefined,
+          assistance_required:
+            effectiveRideProduct === 'school_elderly_safe' ? safeRideAssistanceRequired : undefined,
+          female_driver_preferred:
+            effectiveRideProduct === 'school_elderly_safe' ? safeRideFemaleDriverPreferred : undefined,
+          trusted_driver_required:
+            effectiveRideProduct === 'school_elderly_safe' ? safeRideTrustedDriverRequired : undefined,
+          guardian_share_tracking:
+            effectiveRideProduct === 'school_elderly_safe' ? safeRideGuardianShareTracking : undefined,
           vehicle_type_id: effectiveSelectedVehicleTypeId || undefined,
           vehicle_subtype_id: selectedVehicleModel?.id || undefined,
           vehicle_model: selectedVehicleModel?.name || undefined,
@@ -2771,6 +2838,94 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       <View style={styles.quickSuggestionPin} />
       <Text style={styles.quickSuggestionText} numberOfLines={2}>{item.description}</Text>
     </TouchableOpacity>
+  );
+
+  const renderAssistedRideFields = () => (
+    <View style={styles.rideDetailsSection}>
+      <Text style={styles.rideDetailsSectionTitle}>School/Elderly assisted ride</Text>
+      <Text style={styles.hint}>
+        Verified assisted-ride drivers only. Pickup OTP, live tracking, and drop OTP are shared with the guardian.
+      </Text>
+      <View style={styles.modeRow}>
+        <TouchableOpacity
+          style={[styles.modeChip, safeRidePriority === 'school' && styles.modeChipActive]}
+          onPress={() => setSafeRidePriority('school')}
+          disabled={loading}>
+          <Text style={[styles.modeChipText, safeRidePriority === 'school' && styles.modeChipTextActive]}>
+            {t.school}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.modeChip, safeRidePriority === 'elderly' && styles.modeChipActive]}
+          onPress={() => setSafeRidePriority('elderly')}
+          disabled={loading}>
+          <Text style={[styles.modeChipText, safeRidePriority === 'elderly' && styles.modeChipTextActive]}>
+            {t.elderly}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.assistedGrid}>
+        <VoiceTextInput
+          style={[styles.input, styles.assistedInput]}
+          value={safeRidePassengerName}
+          onChangeText={setSafeRidePassengerName}
+          placeholder="Passenger name"
+          placeholderTextColor={COLORS.textMuted}
+        />
+        <VoiceTextInput
+          style={[styles.input, styles.assistedInput]}
+          value={safeRidePassengerAge}
+          onChangeText={setSafeRidePassengerAge}
+          keyboardType="number-pad"
+          placeholder="Age"
+          placeholderTextColor={COLORS.textMuted}
+        />
+        <VoiceTextInput
+          style={[styles.input, styles.assistedInput]}
+          value={safeRideGuardianName}
+          onChangeText={setSafeRideGuardianName}
+          placeholder="Guardian name"
+          placeholderTextColor={COLORS.textMuted}
+        />
+        <VoiceTextInput
+          style={[styles.input, styles.assistedInput]}
+          value={safeRideGuardianPhone}
+          onChangeText={setSafeRideGuardianPhone}
+          keyboardType="phone-pad"
+          placeholder="Guardian phone"
+          placeholderTextColor={COLORS.textMuted}
+        />
+      </View>
+
+      <View style={styles.assistedToggleGrid}>
+        {[
+          ['Wheelchair', safeRideWheelchairRequired, setSafeRideWheelchairRequired],
+          ['Assistance', safeRideAssistanceRequired, setSafeRideAssistanceRequired],
+          ['Female driver', safeRideFemaleDriverPreferred, setSafeRideFemaleDriverPreferred],
+          ['Trusted driver', safeRideTrustedDriverRequired, setSafeRideTrustedDriverRequired],
+          ['Share tracking', safeRideGuardianShareTracking, setSafeRideGuardianShareTracking],
+        ].map(([label, active, setter]) => (
+          <TouchableOpacity
+            key={label}
+            style={[styles.modeChip, styles.assistedToggleChip, active && styles.modeChipActive]}
+            onPress={() => setter((prev) => !prev)}
+            disabled={loading}>
+            <Text style={[styles.modeChipText, active && styles.modeChipTextActive]}>{label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      <VoiceTextInput
+        style={[styles.input, styles.assistedNotesInput]}
+        value={safeRideNotes}
+        onChangeText={setSafeRideNotes}
+        placeholder="Care notes, pickup handoff, medication reminder (optional)"
+        placeholderTextColor={COLORS.textMuted}
+        multiline
+        numberOfLines={3}
+      />
+    </View>
   );
 
   const renderRideDetailsOverlay = () => {
@@ -3026,29 +3181,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               </View>
             )}
 
-            {effectiveRideProduct === 'school_elderly_safe' && (
-              <View style={styles.rideDetailsSection}>
-                <Text style={styles.rideDetailsSectionTitle}>Safe ride priority</Text>
-                <View style={styles.modeRow}>
-                  <TouchableOpacity
-                    style={[styles.modeChip, safeRidePriority === 'school' && styles.modeChipActive]}
-                    onPress={() => setSafeRidePriority('school')}
-                    disabled={loading}>
-                    <Text style={[styles.modeChipText, safeRidePriority === 'school' && styles.modeChipTextActive]}>
-                      {t.school}
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.modeChip, safeRidePriority === 'elderly' && styles.modeChipActive]}
-                    onPress={() => setSafeRidePriority('elderly')}
-                    disabled={loading}>
-                    <Text style={[styles.modeChipText, safeRidePriority === 'elderly' && styles.modeChipTextActive]}>
-                      {t.elderly}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
+            {effectiveRideProduct === 'school_elderly_safe' && renderAssistedRideFields()}
 
             <View style={styles.rideDetailsSection}>
               <Text style={styles.rideDetailsSectionTitle}>Passengers optional</Text>
@@ -4026,26 +4159,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                     />
                   )}
 
-                  {effectiveRideProduct === 'school_elderly_safe' && (
-                    <View style={styles.modeRow}>
-                      <TouchableOpacity
-                        style={[styles.modeChip, safeRidePriority === 'school' && styles.modeChipActive]}
-                        onPress={() => setSafeRidePriority('school')}
-                        disabled={loading}>
-                        <Text style={[styles.modeChipText, safeRidePriority === 'school' && styles.modeChipTextActive]}>
-                          {t.school}
-                        </Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[styles.modeChip, safeRidePriority === 'elderly' && styles.modeChipActive]}
-                        onPress={() => setSafeRidePriority('elderly')}
-                        disabled={loading}>
-                        <Text style={[styles.modeChipText, safeRidePriority === 'elderly' && styles.modeChipTextActive]}>
-                          {t.elderly}
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
+                  {effectiveRideProduct === 'school_elderly_safe' && renderAssistedRideFields()}
 
                   <PromoCodePanel
                     token={token}
@@ -5533,6 +5647,30 @@ const styles = StyleSheet.create({
   },
   modeChipText: { color: '#355243', fontWeight: '700' },
   modeChipTextActive: { color: COLORS.primaryDark },
+  assistedGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  assistedInput: {
+    flexGrow: 1,
+    flexBasis: 180,
+    minWidth: 160,
+  },
+  assistedToggleGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 8,
+  },
+  assistedToggleChip: {
+    flexGrow: 1,
+    alignItems: 'center',
+  },
+  assistedNotesInput: {
+    minHeight: 70,
+    textAlignVertical: 'top',
+  },
   actionsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
   poolActionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
   poolActionButton: { flexGrow: 1, alignItems: 'center' },
