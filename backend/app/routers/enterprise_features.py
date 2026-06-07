@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Request, Query
 from typing import List, Optional, Dict
 from datetime import datetime, timedelta
 from app.utils.time_helpers import get_ist_now
+from app.utils.rbac import get_current_user_from_request
 import logging
 from decimal import Decimal
 
@@ -610,23 +611,26 @@ def generate_booking_id():
 
 async def verify_passenger_token(request: Request):
     """Verify passenger token from request"""
-    # Implementation depends on auth system
-    return {'_id': 'passenger_123'}
+    user = await get_current_user_from_request(request, allowed_roles=["passenger"])
+    return {'_id': str(user.get('id') or user.get('user_id') or ''), 'role': 'passenger'}
 
 
 async def verify_admin_token(request: Request):
     """Verify admin token"""
-    return {'_id': 'admin_123'}
+    user = await get_current_user_from_request(request, allowed_roles=["admin"])
+    return {'_id': str(user.get('id') or user.get('user_id') or ''), 'role': 'admin'}
 
 
 async def verify_driver_token(request: Request):
     """Verify driver token"""
-    return {'_id': 'driver_123'}
+    user = await get_current_user_from_request(request, allowed_roles=["driver"])
+    return {'_id': str(user.get('id') or user.get('user_id') or ''), 'role': 'driver'}
 
 
 async def verify_manager_token(request: Request):
     """Verify manager token"""
-    return {'_id': 'manager_123'}
+    user = await get_current_user_from_request(request, allowed_roles=["admin", "operator"])
+    return {'_id': str(user.get('id') or user.get('user_id') or ''), 'role': user.get('role') or user.get('user_type')}
 
 
 async def get_flight_info(flight_number: str):

@@ -11,6 +11,8 @@ from bson import ObjectId
 import logging
 import json
 
+from app.utils.rbac import get_current_user_from_request
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/drivers", tags=["drivers"])
@@ -36,20 +38,14 @@ async def verify_driver_token(request: Request):
     Extract and verify driver token from Authorization header.
     """
     try:
-        auth_header = request.headers.get('Authorization', '')
-        if not auth_header.startswith('Bearer '):
-            raise HTTPException(status_code=401, detail="Invalid token format")
-        
-        token = auth_header.replace('Bearer ', '')
-        
-        # In production, verify JWT token
-        # For now, we'll do a simple lookup
-        driver = await db.drivers.find_one({'auth_token': token})
+        user = await get_current_user_from_request(request, db_override=db, allowed_roles=["driver"])
+        user_id = str(user.get("id") or user.get("user_id") or "").strip()
+        driver = await db.drivers.find_one({"user_id": user_id})
         if not driver:
-            raise HTTPException(status_code=401, detail="Invalid driver token")
-        
+            raise HTTPException(status_code=401, detail="Driver not found")
+        driver["_auth_user_id"] = user_id
+        driver["id"] = driver.get("id") or user_id
         return driver
-        
     except HTTPException:
         raise
     except Exception as e:

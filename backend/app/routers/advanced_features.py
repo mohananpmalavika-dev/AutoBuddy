@@ -11,6 +11,7 @@ import random
 from typing import List, Dict, Optional
 import numpy as np
 from motor.motor_asyncio import AsyncIOMotorClient
+from app.utils.rbac import get_current_user_from_request
 
 router = APIRouter(prefix="/api/advanced", tags=["advanced-features"])
 
@@ -25,9 +26,7 @@ async def check_rain_surge(location: Dict, request: Request):
     Location: {"lat": float, "lon": float}
     Returns: surge_multiplier (1.0-3.0)
     """
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    if not token:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+    await get_current_user_from_request(request)
     
     try:
         # Call external weather API (OpenWeatherMap stub)
@@ -52,9 +51,7 @@ async def check_rain_surge(location: Dict, request: Request):
 @router.get("/surge/festival/list")
 async def list_festival_surges(request: Request):
     """Get all active festival surges"""
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    if not token:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+    await get_current_user_from_request(request)
     
     # Mock data - in production, fetch from DB
     festival_surges = [
@@ -84,8 +81,7 @@ async def list_festival_surges(request: Request):
 @router.get("/surge/event/list")
 async def list_event_surges(request: Request):
     """Get all active event surges"""
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    
+    await get_current_user_from_request(request)
     event_surges = [
         {
             "id": "EVT001",
@@ -105,8 +101,7 @@ async def list_event_surges(request: Request):
 @router.get("/surge/airport/{airport_code}")
 async def get_airport_surge(airport_code: str, request: Request):
     """Get airport surge pricing for specific airport"""
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    
+    await get_current_user_from_request(request)
     current_hour = datetime.now().hour
     
     # Example for Hyderabad airport
@@ -137,8 +132,7 @@ async def apply_surge_to_booking(
     request: Request
 ):
     """Calculate final fare with all applicable surges"""
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    
+    await get_current_user_from_request(request)
     surges_applied = []
     final_multiplier = 1.0
     
@@ -186,8 +180,7 @@ async def find_best_driver(
     AI-powered driver matching using ML scoring
     Returns top 5 driver candidates with acceptance probability
     """
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    
+    await get_current_user_from_request(request)
     # Find nearby drivers
     nearby_drivers = await get_nearby_drivers(
         passenger_location["lat"],
@@ -227,8 +220,7 @@ async def find_best_driver(
 @router.get("/dispatch/driver-metrics/{driver_id}")
 async def get_driver_metrics(driver_id: str, request: Request):
     """Get ML metrics for a driver"""
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    
+    await get_current_user_from_request(request)
     # Mock data - in production, fetch from DB
     metrics = {
         "driver_id": driver_id,
@@ -255,8 +247,7 @@ async def log_dispatch_response(
     request: Request
 ):
     """Log driver response to dispatch offer"""
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    
+    await get_current_user_from_request(request)
     return {
         "booking_id": booking_id,
         "driver_id": driver_id,
@@ -269,8 +260,7 @@ async def log_dispatch_response(
 @router.get("/dispatch/config")
 async def get_dispatch_config(request: Request):
     """Get current dispatch algorithm configuration"""
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    
+    await get_current_user_from_request(request)
     config = {
         "distance_weight": 0.25,
         "rating_weight": 0.20,
@@ -297,8 +287,7 @@ async def check_gps_anomaly(
     request: Request
 ):
     """Detect GPS spoofing in real-time"""
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    
+    await get_current_user_from_request(request)
     # Get last known location
     prev_location = await get_previous_location(driver_id)
     
@@ -337,8 +326,7 @@ async def check_fake_booking(
     request: Request
 ):
     """Detect fake/test bookings"""
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    
+    await get_current_user_from_request(request)
     # Calculate booking characteristics
     distance = haversine_distance(
         source["lat"], source["lon"],
@@ -382,8 +370,7 @@ async def check_multi_account(
     request: Request
 ):
     """Detect multi-account fraud"""
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    
+    await get_current_user_from_request(request)
     # Get linked accounts by phone, email, payment method, device
     user_info = await get_user_info(user_id)
     
@@ -409,8 +396,7 @@ async def check_multi_account(
 @router.get("/fraud/open-cases")
 async def get_open_fraud_cases(request: Request):
     """Get all open fraud cases for admin review"""
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    
+    await get_current_user_from_request(request)
     # Mock data
     cases = [
         {
@@ -433,8 +419,7 @@ async def get_open_fraud_cases(request: Request):
 @router.get("/earnings/heatmap/today")
 async def get_earnings_heatmap_today(request: Request):
     """Get real-time earnings heatmap for drivers"""
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    
+    await get_current_user_from_request(request)
     # Get current demand heatmap
     heatmap_data = []
     
@@ -460,8 +445,7 @@ async def get_earnings_heatmap_today(request: Request):
 @router.get("/earnings/peak-hours")
 async def get_peak_hour_recommendations(request: Request):
     """Get peak hour predictions for next 24 hours"""
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    
+    await get_current_user_from_request(request)
     peak_hours = []
     for hour in range(24):
         prediction = {
@@ -479,8 +463,7 @@ async def get_peak_hour_recommendations(request: Request):
 @router.post("/earnings/prediction/{driver_id}")
 async def get_earnings_prediction(driver_id: str, request: Request):
     """Get personalized earnings prediction for driver"""
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    
+    await get_current_user_from_request(request)
     # Get driver's historical data
     driver_history = await get_driver_earnings_history(driver_id, days=30)
     
@@ -511,8 +494,7 @@ async def get_earnings_prediction(driver_id: str, request: Request):
 @router.get("/earnings/daily-report/{driver_id}")
 async def get_daily_earnings_report(driver_id: str, date: str, request: Request):
     """Get detailed daily earnings breakdown"""
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    
+    await get_current_user_from_request(request)
     report = {
         "driver_id": driver_id,
         "date": date,
@@ -543,8 +525,7 @@ async def book_women_only_ride(
     request: Request
 ):
     """Book a women-only ride with female driver"""
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    
+    await get_current_user_from_request(request)
     # Find female drivers
     female_drivers = await get_female_drivers(
         booking_data["source"],
@@ -581,8 +562,7 @@ async def add_trusted_contact(
     request: Request
 ):
     """Add emergency contact for safety alerts"""
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    
+    await get_current_user_from_request(request)
     return {
         "user_id": user_id,
         "contact_id": f"TC-{random.randint(100000, 999999)}",
@@ -597,8 +577,7 @@ async def add_trusted_contact(
 @router.get("/safety/trusted-contacts/{user_id}")
 async def get_trusted_contacts(user_id: str, request: Request):
     """Get all trusted contacts for user"""
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    
+    await get_current_user_from_request(request)
     contacts = [
         {
             "contact_id": "TC-001",
@@ -628,8 +607,7 @@ async def trigger_emergency_alert(
     background_tasks: BackgroundTasks
 ):
     """Trigger emergency alert during ride"""
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    
+    await get_current_user_from_request(request)
     alert_id = f"ALERT-{random.randint(100000, 999999)}"
     
     # Notify trusted contacts in background
@@ -665,8 +643,7 @@ async def rate_driver_safety(
     request: Request
 ):
     """Rate driver on safety-specific criteria"""
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    
+    await get_current_user_from_request(request)
     return {
         "driver_id": driver_id,
         "booking_id": booking_id,
@@ -686,8 +663,7 @@ async def create_fleet_account(
     request: Request
 ):
     """Create new fleet owner account"""
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    
+    await get_current_user_from_request(request)
     fleet_id = f"FLEET-{random.randint(100000, 999999)}"
     
     return {
@@ -706,8 +682,7 @@ async def add_vehicle_to_fleet(
     request: Request
 ):
     """Add vehicle to fleet"""
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    
+    await get_current_user_from_request(request)
     vehicle_id = f"VEH-{random.randint(100000, 999999)}"
     
     return {
@@ -727,8 +702,7 @@ async def add_driver_to_fleet(
     request: Request
 ):
     """Add driver to fleet"""
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    
+    await get_current_user_from_request(request)
     return {
         "fleet_id": fleet_id,
         "driver_id": driver_info["driver_id"],
@@ -747,8 +721,7 @@ async def assign_vehicle_to_driver(
     request: Request
 ):
     """Assign vehicle to driver"""
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    
+    await get_current_user_from_request(request)
     return {
         "fleet_id": fleet_id,
         "driver_id": driver_id,
@@ -761,8 +734,7 @@ async def assign_vehicle_to_driver(
 @router.get("/fleet/{fleet_id}/dashboard")
 async def get_fleet_dashboard(fleet_id: str, request: Request):
     """Get fleet owner dashboard"""
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    
+    await get_current_user_from_request(request)
     dashboard = {
         "fleet_id": fleet_id,
         "total_vehicles": 15,
@@ -791,8 +763,7 @@ async def get_fleet_dashboard(fleet_id: str, request: Request):
 @router.get("/fleet/{fleet_id}/earnings-report")
 async def get_fleet_earnings_report(fleet_id: str, month: str, request: Request):
     """Get monthly earnings report"""
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    
+    await get_current_user_from_request(request)
     report = {
         "fleet_id": fleet_id,
         "report_month": month,
@@ -818,8 +789,7 @@ async def get_fleet_earnings_report(fleet_id: str, month: str, request: Request)
 @router.get("/fleet/{fleet_id}/vehicles")
 async def get_fleet_vehicles(fleet_id: str, request: Request):
     """Get all vehicles in fleet"""
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    
+    await get_current_user_from_request(request)
     vehicles = [
         {
             "vehicle_id": "VEH-001",
@@ -838,8 +808,7 @@ async def get_fleet_vehicles(fleet_id: str, request: Request):
 @router.get("/fleet/{fleet_id}/drivers")
 async def get_fleet_drivers(fleet_id: str, request: Request):
     """Get all drivers in fleet"""
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    
+    await get_current_user_from_request(request)
     drivers = [
         {
             "driver_id": "DRV-001",
@@ -859,8 +828,7 @@ async def get_fleet_drivers(fleet_id: str, request: Request):
 @router.get("/fleet/{fleet_id}/analytics")
 async def get_fleet_analytics(fleet_id: str, date: str, request: Request):
     """Get fleet analytics"""
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    
+    await get_current_user_from_request(request)
     analytics = {
         "fleet_id": fleet_id,
         "date": date,

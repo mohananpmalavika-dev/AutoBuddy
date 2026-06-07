@@ -9,6 +9,7 @@ from app.utils.time_helpers import get_ist_now
 import logging
 import random
 import math
+from app.utils.rbac import get_current_user_from_request
 
 from app.db.airport_models import (
     AirportTerminal, FlightData, AirportRideRequest, ParkingSpot,
@@ -33,8 +34,7 @@ async def list_airports(city: str = None, request: Request = None):
     - city: Filter by city (optional)
     """
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         airports = []
         airport_data = [
             {"code": "BLR", "name": "Kempegowda Terminal", "city": "Bangalore"},
@@ -75,8 +75,7 @@ async def list_airports(city: str = None, request: Request = None):
 async def get_terminal_details(terminal_id: str, request: Request):
     """Get detailed information for a terminal."""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         terminal = {
             "terminal_id": terminal_id,
             "airport_code": "BLR",
@@ -121,8 +120,7 @@ async def list_flights(terminal_id: str, status: str = None, request: Request = 
     Status: scheduled, delayed, boarding, departed, landed, cancelled
     """
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         flights = []
         statuses = ["scheduled", "boarding", "departed", "delayed", "landed"]
         airlines = ["AI", "6E", "UK", "SG", "BA", "AF"]
@@ -159,8 +157,7 @@ async def list_flights(terminal_id: str, status: str = None, request: Request = 
 async def get_flight_details(flight_id: str, request: Request):
     """Get detailed flight information."""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         flight = {
             "flight_id": flight_id,
             "flight_number": f"AI{random.randint(100, 999)}",
@@ -208,8 +205,7 @@ async def request_airport_ride(payload: dict, request: Request):
     }
     """
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         ride = {
             "ride_id": f"aride_{random.randint(10000, 99999)}",
             "passenger_name": payload.get("passenger_name"),
@@ -241,8 +237,7 @@ async def request_airport_ride(payload: dict, request: Request):
 async def list_airport_rides(terminal_id: str, ride_phase: str = None, request: Request = None):
     """List rides at terminal with optional phase filter (pre_flight/post_flight)."""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         rides = []
         phases = ["pre_flight", "post_flight"]
         statuses = ["requested", "accepted", "in_progress", "completed"]
@@ -275,8 +270,7 @@ async def list_airport_rides(terminal_id: str, ride_phase: str = None, request: 
 async def get_ride_details(ride_id: str, request: Request):
     """Get detailed ride information."""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         ride = {
             "ride_id": ride_id,
             "passenger_name": "John Doe",
@@ -310,8 +304,7 @@ async def get_ride_details(ride_id: str, request: Request):
 async def accept_ride(ride_id: str, payload: dict, request: Request):
     """Accept/assign ride to a driver."""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         return {
             "status": "success",
             "data": {
@@ -337,8 +330,7 @@ async def accept_ride(ride_id: str, payload: dict, request: Request):
 async def get_parking_availability(terminal_id: str, request: Request):
     """Get real-time parking availability."""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         availability = {
             "terminal_id": terminal_id,
             "total_spaces": 750,
@@ -368,8 +360,7 @@ async def get_parking_availability(terminal_id: str, request: Request):
 async def reserve_parking_spot(terminal_id: str, payload: dict, request: Request):
     """Reserve a parking spot for a ride."""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         spot = {
             "spot_id": f"spot_{random.randint(1000, 9999)}",
             "spot_number": f"A-{random.randint(1, 9)}-{random.randint(10, 99)}",
@@ -400,8 +391,7 @@ async def reserve_parking_spot(terminal_id: str, payload: dict, request: Request
 async def get_terminal_demand(terminal_id: str, ride_phase: str = None, request: Request = None):
     """Get real-time demand metrics."""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         phases = ["pre_flight", "post_flight", "shuttle"]
         
         demand_data = []
@@ -441,8 +431,7 @@ async def get_terminal_demand(terminal_id: str, ride_phase: str = None, request:
 async def get_queue_status(terminal_id: str, ride_phase: str = None, request: Request = None):
     """Get queue status and position."""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         queue = {
             "queue_id": f"queue_{terminal_id}",
             "terminal_id": terminal_id,
@@ -473,8 +462,7 @@ async def get_queue_status(terminal_id: str, ride_phase: str = None, request: Re
 async def get_terminal_alerts(terminal_id: str, severity: str = None, request: Request = None):
     """Get active alerts for terminal."""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         alerts = []
         alert_types = [
             ("high_demand", "high", "High demand detected"),
@@ -515,8 +503,7 @@ async def get_terminal_alerts(terminal_id: str, severity: str = None, request: R
 async def get_daily_metrics(terminal_id: str, request: Request):
     """Get daily service performance metrics."""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         metrics = {
             "metric_period": "daily",
             "terminal_id": terminal_id,
@@ -546,8 +533,7 @@ async def get_daily_metrics(terminal_id: str, request: Request):
 async def get_hourly_metrics(terminal_id: str, hours_back: int = 24, request: Request = None):
     """Get hourly service metrics for the last N hours."""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         metrics = []
         for hour in range(hours_back):
             time_ago = get_ist_now() - timedelta(hours=hour)

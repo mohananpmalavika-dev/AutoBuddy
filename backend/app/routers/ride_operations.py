@@ -11,6 +11,8 @@ from typing import Optional
 import logging
 import math
 
+from app.utils.rbac import get_current_user_from_request
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/rides", tags=["ride-operations"])
@@ -29,25 +31,41 @@ def set_dependencies(database, socket_io):
 async def verify_driver_token(request: Request):
     """Verify driver JWT token"""
     try:
-        auth_header = request.headers.get("Authorization", "")
-        if not auth_header.startswith("Bearer "):
-            raise HTTPException(status_code=401, detail="Missing authorization header")
-        
-        token = auth_header.split("Bearer ")[1]
-        driver_id = request.headers.get("X-Driver-ID")
-        
-        if not driver_id:
-            raise HTTPException(status_code=401, detail="Missing driver ID")
-        
-        driver = await db.drivers.find_one({"_id": ObjectId(driver_id)})
+        user = await get_current_user_from_request(request, db_override=db, allowed_roles=["driver"])
+        user_id = str(user.get("id") or user.get("user_id") or "").strip()
+        driver = await db.drivers.find_one({"user_id": user_id})
         if not driver:
             raise HTTPException(status_code=401, detail="Driver not found")
-        
+        driver["_auth_user_id"] = user_id
+        driver["id"] = driver.get("id") or user_id
         return driver
     except HTTPException:
         raise
     except Exception:
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+def driver_identity_values(driver_data: dict) -> set:
+    return {
+        str(driver_data.get("_id") or ""),
+        str(driver_data.get("user_id") or ""),
+        str(driver_data.get("_auth_user_id") or ""),
+        str(driver_data.get("id") or ""),
+    } - {""}
+
+
+def driver_user_identity(driver_data: dict) -> str:
+    return str(
+        driver_data.get("user_id")
+        or driver_data.get("_auth_user_id")
+        or driver_data.get("id")
+        or driver_data.get("_id")
+        or ""
+    )
+
+
+def driver_mongo_identity(driver_data: dict) -> str:
+    return str(driver_data.get("_id") or "")
 
 
 @router.post("/{booking_id}/start-ride", tags=["ride-operations"])
@@ -59,7 +77,8 @@ async def start_ride(booking_id: str, request: Request):
     """
     try:
         driver_data = await verify_driver_token(request)
-        driver_id = str(driver_data['_id'])
+        driver_id = driver_user_identity(driver_data)
+        driver_mongo_id = driver_mongo_identity(driver_data)
         
         body = await request.json()
         latitude = body.get('latitude')
@@ -72,7 +91,7 @@ async def start_ride(booking_id: str, request: Request):
         
         # Verify driver is assigned
         assigned_driver_id = str(booking.get('driver_id', ''))
-        if assigned_driver_id != driver_id:
+        if assigned_driver_id not in driver_identity_values(driver_data):
             raise HTTPException(
                 status_code=403,
                 detail="Only assigned driver can start this ride"
@@ -102,7 +121,7 @@ async def start_ride(booking_id: str, request: Request):
         # Initialize GPS tracking
         await db.ride_tracking.insert_one({
             'booking_id': ObjectId(booking_id),
-            'driver_id': ObjectId(driver_id),
+            'driver_id': ObjectId(driver_mongo_id),
             'coordinates': [{
                 'latitude': latitude,
                 'longitude': longitude,
@@ -151,7 +170,8 @@ async def complete_ride(booking_id: str, request: Request):
     """
     try:
         driver_data = await verify_driver_token(request)
-        driver_id = str(driver_data['_id'])
+        driver_id = driver_user_identity(driver_data)
+        driver_mongo_id = driver_mongo_identity(driver_data)
         
         body = await request.json()
         latitude = body.get('latitude')
@@ -163,7 +183,7 @@ async def complete_ride(booking_id: str, request: Request):
             raise HTTPException(status_code=404, detail="Booking not found")
         
         # Verify driver
-        if str(booking.get('driver_id', '')) != driver_id:
+        if str(booking.get('driver_id', '')) not in driver_identity_values(driver_data):
             raise HTTPException(status_code=403, detail="Only assigned driver can complete this ride")
         
         # Verify ride is in progress
@@ -253,7 +273,7 @@ async def complete_ride(booking_id: str, request: Request):
         receipt = {
             'booking_id': ObjectId(booking_id),
             'passenger_id': booking['passenger_id'],
-            'driver_id': ObjectId(driver_id),
+            'driver_id': ObjectId(driver_mongo_id),
             'created_at': get_ist_now(),
             'pickup_address': booking.get('pickup_address'),
             'dropoff_address': booking.get('dropoff_address'),
@@ -268,7 +288,7 @@ async def complete_ride(booking_id: str, request: Request):
         
         # Update driver earnings
         await db.drivers.update_one(
-            {'_id': ObjectId(driver_id)},
+            {'_id': ObjectId(driver_mongo_id)},
             {
                 '$inc': {
                     'total_earnings': final_fare,
@@ -314,14 +334,38 @@ async def cancel_ride(booking_id: str, request: Request):
     Can be called by driver, passenger, or admin
     """
     try:
+        current_user = await get_current_user_from_request(
+            request,
+            db_override=db,
+            allowed_roles=["passenger", "driver", "admin"],
+        )
         body = await request.json()
-        cancelled_by = body.get('cancelled_by')  # 'driver', 'passenger', or 'admin'
         reason = body.get('reason', 'User request')
+        current_role = str(current_user.get("role") or current_user.get("user_type") or "").lower()
+        current_user_id = str(current_user.get("id") or current_user.get("user_id") or "")
+        cancelled_by = current_role or "user"
         
         # Get booking
         booking = await db.bookings.find_one({'_id': ObjectId(booking_id)})
         if not booking:
             raise HTTPException(status_code=404, detail="Booking not found")
+
+        allowed_identity_values = {current_user_id, str(current_user.get("_id") or "")} - {""}
+        if current_role == "driver":
+            driver_profile = await db.drivers.find_one({"user_id": current_user_id})
+            if driver_profile:
+                allowed_identity_values.update(
+                    {
+                        str(driver_profile.get("_id") or ""),
+                        str(driver_profile.get("user_id") or ""),
+                    }
+                )
+        booking_identity_values = {
+            str(booking.get("passenger_id") or ""),
+            str(booking.get("driver_id") or ""),
+        } - {""}
+        if current_role != "admin" and not (allowed_identity_values & booking_identity_values):
+            raise HTTPException(status_code=403, detail="Cannot cancel another user's ride")
         
         # Check if ride can be cancelled
         current_status = booking.get('status', '')
@@ -396,7 +440,7 @@ async def update_ride_location(booking_id: str, request: Request):
     """
     try:
         driver_data = await verify_driver_token(request)
-        driver_id = str(driver_data['_id'])
+        driver_id = driver_user_identity(driver_data)
         
         body = await request.json()
         latitude = body.get('latitude')
@@ -412,7 +456,7 @@ async def update_ride_location(booking_id: str, request: Request):
             raise HTTPException(status_code=404, detail="Booking not found")
         
         # Verify driver
-        if str(booking.get('driver_id', '')) != driver_id:
+        if str(booking.get('driver_id', '')) not in driver_identity_values(driver_data):
             raise HTTPException(status_code=403, detail="Unauthorized")
         
         # Update tracking

@@ -8,6 +8,7 @@ from datetime import datetime
 from app.utils.time_helpers import get_ist_now
 import random
 import logging
+from app.utils.rbac import get_current_user_from_request
 
 router = APIRouter(prefix="/api/v1/fleet-profitability", tags=["fleet_profitability"])
 logger = logging.getLogger(__name__)
@@ -21,8 +22,7 @@ logger = logging.getLogger(__name__)
 async def get_fleet_portfolio(fleet_id: str, request: Request):
     """Get overall fleet profitability portfolio"""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         portfolio = {
             "portfolio_id": f"portfolio_{fleet_id}_{random.randint(1000, 9999)}",
             "fleet_id": fleet_id,
@@ -56,8 +56,7 @@ async def get_fleet_portfolio(fleet_id: str, request: Request):
 async def get_profitability_dashboard(fleet_id: str, request: Request):
     """Get comprehensive profitability dashboard"""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         dashboard = {
             "dashboard_id": f"dash_{fleet_id}",
             "fleet_id": fleet_id,
@@ -109,8 +108,7 @@ async def get_profitability_dashboard(fleet_id: str, request: Request):
 async def list_vehicles_profitability(fleet_id: str, request: Request, limit: int = 20, offset: int = 0):
     """List all vehicles with profitability metrics"""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         vehicles = []
         for i in range(min(limit, 20)):
             vehicle = {
@@ -150,8 +148,7 @@ async def list_vehicles_profitability(fleet_id: str, request: Request, limit: in
 async def get_vehicle_profitability(fleet_id: str, vehicle_id: str, request: Request):
     """Get detailed profitability metrics for specific vehicle"""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         vehicle = {
             "vehicle_id": vehicle_id,
             "fleet_id": fleet_id,
@@ -187,8 +184,7 @@ async def get_vehicle_profitability(fleet_id: str, vehicle_id: str, request: Req
 async def get_top_performers(fleet_id: str, request: Request, limit: int = 10):
     """Get top performing vehicles"""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         performers = []
         for i in range(min(limit, 10)):
             performer = {
@@ -220,8 +216,7 @@ async def get_top_performers(fleet_id: str, request: Request, limit: int = 10):
 async def get_vehicles_needing_attention(fleet_id: str, request: Request):
     """Get vehicles that need operational or financial attention"""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         vehicles = []
         issues = ["low_utilization", "high_cost", "low_rating", "loss_making"]
         
@@ -264,8 +259,7 @@ async def get_vehicles_needing_attention(fleet_id: str, request: Request):
 async def get_cost_breakdown(fleet_id: str, request: Request, vehicle_id: str = None):
     """Get detailed cost breakdown"""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         breakdown = {
             "breakdown_id": f"breakdown_{random.randint(10000, 99999)}",
             "fleet_id": fleet_id,
@@ -294,8 +288,7 @@ async def get_cost_breakdown(fleet_id: str, request: Request, vehicle_id: str = 
 async def get_revenue_analysis(fleet_id: str, request: Request):
     """Get revenue analysis by source and pattern"""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         analysis = {
             "analysis_id": f"analysis_{fleet_id}",
             "fleet_id": fleet_id,
@@ -332,8 +325,7 @@ async def get_revenue_analysis(fleet_id: str, request: Request):
 async def get_vehicle_roi(fleet_id: str, vehicle_id: str, request: Request):
     """Get ROI analysis for vehicle"""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         roi = {
             "roi_id": f"roi_{vehicle_id}",
             "vehicle_id": vehicle_id,
@@ -364,8 +356,7 @@ async def get_vehicle_roi(fleet_id: str, vehicle_id: str, request: Request):
 async def get_fleet_roi_summary(fleet_id: str, request: Request):
     """Get overall fleet ROI summary"""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         summary = {
             "summary_id": f"roi_summary_{fleet_id}",
             "fleet_id": fleet_id,
@@ -398,8 +389,7 @@ async def get_fleet_roi_summary(fleet_id: str, request: Request):
 async def get_optimization_tips(fleet_id: str, request: Request):
     """Get AI-driven optimization recommendations"""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         tips = []
         recommendations = [
             "Increase operational hours in peak zones",
@@ -440,8 +430,7 @@ async def get_optimization_tips(fleet_id: str, request: Request):
 async def get_vehicle_recommendations(fleet_id: str, vehicle_id: str, request: Request):
     """Get recommendations for specific vehicle"""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         recommendations = []
         for i in range(random.randint(2, 4)):
             rec = {
@@ -480,8 +469,7 @@ async def get_vehicle_recommendations(fleet_id: str, vehicle_id: str, request: R
 async def get_driver_performance(fleet_id: str, request: Request):
     """Get driver performance impact on profitability"""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         drivers = []
         for i in range(random.randint(5, 10)):
             driver = {
@@ -515,8 +503,7 @@ async def get_driver_performance(fleet_id: str, request: Request):
 async def get_maintenance_alerts(fleet_id: str, request: Request):
     """Get predictive maintenance alerts"""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         alerts = []
         alert_types = ["scheduled_service", "urgent_repair", "tire_replacement", "battery_check"]
         
@@ -556,8 +543,7 @@ async def get_maintenance_alerts(fleet_id: str, request: Request):
 async def get_profitability_trends(fleet_id: str, request: Request, period: str = "monthly"):
     """Get profitability trends over time"""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         periods = 12 if period == "monthly" else (52 if period == "weekly" else 30)
         trends = []
         

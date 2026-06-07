@@ -9,6 +9,8 @@ import logging
 from typing import Optional, List, Literal
 import os
 
+from app.utils.rbac import get_current_user_from_request
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/support/tickets", tags=["support_tickets"])
@@ -28,20 +30,11 @@ def set_dependencies(database, socket_io):
 async def verify_user_token(request: Request):
     """Extract and verify user token from Authorization header"""
     try:
-        auth_header = request.headers.get('Authorization', '')
-        if not auth_header.startswith('Bearer '):
-            raise HTTPException(status_code=401, detail="Invalid token format")
-        
-        token = auth_header.replace('Bearer ', '')
-        
-        # In production, verify JWT token
-        user = await db.users.find_one({'auth_token': token})
-        if not user:
-            raise HTTPException(status_code=401, detail="Invalid user token")
-        
+        user = await get_current_user_from_request(request, db_override=db)
         return {
-            'user_id': str(user.get('_id')),
-            'user_type': user.get('user_type', 'passenger'),  # passenger, driver, admin
+            'user_id': str(user.get('id') or user.get('user_id') or ''),
+            'mongo_id': str(user.get('_id') or ''),
+            'user_type': str(user.get('role') or user.get('user_type') or 'passenger').lower(),  # passenger, driver, admin
             'name': user.get('name', '')
         }
     except HTTPException:

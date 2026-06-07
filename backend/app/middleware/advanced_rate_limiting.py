@@ -18,6 +18,7 @@ from app.utils.advanced_rate_limiting import (
 )
 from app.utils.logging_config import StructuredLogger
 from app.utils.api_responses import StandardResponse
+from app.utils.security import decode_token
 
 logger = StructuredLogger(__name__)
 
@@ -200,17 +201,15 @@ class AdvancedRateLimitingMiddleware(BaseHTTPMiddleware):
         # Try to get from authorization header
         auth_header = request.headers.get("authorization", "")
         if auth_header.startswith("Bearer "):
-            # In production, decode JWT token here
-            # For now, return a placeholder
             token = auth_header[7:]
-            # TODO: Decode JWT and extract user_id
-            return None
-        
-        # Try to get from cookies (session)
-        session_id = request.cookies.get("session_id")
-        if session_id:
-            # TODO: Lookup session and get user_id
-            return None
+            try:
+                settings = getattr(request.app.state, "settings", None)
+                if settings is None:
+                    return None
+                payload = decode_token(token, settings)
+                return str(payload.get("sub") or payload.get("id") or payload.get("user_id") or "") or None
+            except Exception:
+                return None
         
         return None
     

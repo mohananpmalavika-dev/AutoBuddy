@@ -9,6 +9,7 @@ from app.utils.time_helpers import get_ist_now
 import logging
 import random
 import json
+from app.utils.rbac import get_current_user_from_request
 
 from app.db.corporate_portal_models import (
     CorporateCompany, CorporateEmployee, CorporateRidePolicy,
@@ -39,8 +40,7 @@ async def register_corporate_company(payload: dict, request: Request):
     }
     """
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         company = {
             "id": f"corp_{random.randint(1000, 9999)}",
             "company_name": payload.get("company_name"),
@@ -68,8 +68,7 @@ async def register_corporate_company(payload: dict, request: Request):
 async def get_company_details(company_id: str, request: Request):
     """Get corporate company details."""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         company = {
             "id": company_id,
             "company_name": "TechCorp India",
@@ -101,8 +100,7 @@ async def get_company_details(company_id: str, request: Request):
 async def update_company_settings(company_id: str, payload: dict, request: Request):
     """Update corporate company settings."""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         return {
             "status": "success",
             "data": {
@@ -125,8 +123,7 @@ async def update_company_settings(company_id: str, payload: dict, request: Reque
 async def add_employee(company_id: str, payload: dict, request: Request):
     """Add employee to corporate program."""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         employee = {
             "id": f"emp_{random.randint(1000, 9999)}",
             "company_id": company_id,
@@ -155,8 +152,7 @@ async def add_employee(company_id: str, payload: dict, request: Request):
 async def list_employees(company_id: str, department: str = None, request: Request = None):
     """List all employees in a company."""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         employees = []
         for i in range(random.randint(10, 50)):
             employees.append({
@@ -187,8 +183,7 @@ async def list_employees(company_id: str, department: str = None, request: Reque
 async def get_employee(company_id: str, employee_id: str, request: Request):
     """Get employee profile and ride history."""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         employee = {
             "id": employee_id,
             "company_id": company_id,
@@ -221,8 +216,7 @@ async def get_employee(company_id: str, employee_id: str, request: Request):
 async def remove_employee(company_id: str, employee_id: str, request: Request):
     """Remove employee from corporate program."""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         return {
             "status": "success",
             "data": {
@@ -245,8 +239,7 @@ async def remove_employee(company_id: str, employee_id: str, request: Request):
 async def create_policy(company_id: str, payload: dict, request: Request):
     """Create a ride policy."""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         policy = {
             "id": f"policy_{random.randint(1000, 9999)}",
             "company_id": company_id,
@@ -282,8 +275,7 @@ async def create_policy(company_id: str, payload: dict, request: Request):
 async def list_policies(company_id: str, request: Request):
     """List all policies for a company."""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         policies = []
         policy_types = ["predefined_routes", "time_window", "budget_limit"]
         
@@ -318,8 +310,7 @@ async def request_corporate_ride(payload: dict, request: Request):
     Automatic approval if policy-compliant, else requires approval.
     """
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         requires_approval = payload.get("requires_approval", False)
         
         ride_request = {
@@ -351,8 +342,7 @@ async def request_corporate_ride(payload: dict, request: Request):
 async def list_ride_requests(company_id: str, status: str = None, request: Request = None):
     """List ride requests for a company with filtering."""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         requests_list = []
         statuses = ["approved", "pending", "rejected", "completed"]
         
@@ -384,8 +374,7 @@ async def list_ride_requests(company_id: str, status: str = None, request: Reque
 async def approve_ride_request(request_id: str, payload: dict, request: Request):
     """Approve a pending ride request."""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         return {
             "status": "success",
             "data": {
@@ -405,8 +394,7 @@ async def approve_ride_request(request_id: str, payload: dict, request: Request)
 async def reject_ride_request(request_id: str, payload: dict, request: Request):
     """Reject a pending ride request."""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         return {
             "status": "success",
             "data": {
@@ -430,8 +418,7 @@ async def reject_ride_request(request_id: str, payload: dict, request: Request):
 async def list_invoices(company_id: str, year: int = None, month: int = None, request: Request = None):
     """List invoices for a company."""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         invoices = []
         for i in range(6):
             month_back = i
@@ -461,8 +448,7 @@ async def list_invoices(company_id: str, year: int = None, month: int = None, re
 async def get_invoice_details(company_id: str, invoice_id: str, request: Request):
     """Get detailed invoice with employee breakdown."""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         invoice = {
             "id": invoice_id,
             "invoice_number": "INV-2024-003",
@@ -505,8 +491,7 @@ async def get_invoice_details(company_id: str, invoice_id: str, request: Request
 async def download_invoice(company_id: str, invoice_id: str, request: Request):
     """Generate and download invoice as PDF."""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         return {
             "status": "success",
             "data": {
@@ -528,8 +513,7 @@ async def download_invoice(company_id: str, invoice_id: str, request: Request):
 async def list_cost_centers(company_id: str, request: Request):
     """List all cost centers in company."""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         cost_centers = []
         departments = ["Engineering", "Finance", "Sales", "HR", "Operations"]
         
@@ -563,8 +547,7 @@ async def list_cost_centers(company_id: str, request: Request):
 async def create_expense_report(company_id: str, employee_id: str, payload: dict, request: Request):
     """Create expense report for employee rides."""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         report = {
             "id": f"report_{random.randint(10000, 99999)}",
             "company_id": company_id,
@@ -590,8 +573,7 @@ async def create_expense_report(company_id: str, employee_id: str, payload: dict
 async def list_expense_reports(company_id: str, employee_id: str, request: Request):
     """List expense reports for employee."""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         reports = []
         for i in range(3, 0, -1):
             month_ago = get_ist_now() - timedelta(days=30 * i)
@@ -618,8 +600,7 @@ async def list_expense_reports(company_id: str, employee_id: str, request: Reque
 async def submit_expense_report(report_id: str, request: Request):
     """Submit expense report for approval."""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         return {
             "status": "success",
             "data": {
@@ -642,8 +623,7 @@ async def submit_expense_report(report_id: str, request: Request):
 async def get_corporate_dashboard(company_id: str, request: Request):
     """Get company dashboard with key metrics."""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         dashboard = {
             "company_id": company_id,
             "timestamp": get_ist_now().isoformat(),

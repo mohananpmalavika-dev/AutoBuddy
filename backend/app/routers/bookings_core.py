@@ -11,6 +11,8 @@ from typing import Optional
 import logging
 import os
 
+from app.utils.rbac import get_current_user_from_request
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/bookings", tags=["bookings"])
@@ -347,18 +349,18 @@ async def complete_ride(booking_id: str, request: Request):
 
 async def verify_driver_token(request: Request):
     """Extract and verify driver token from request headers."""
-    auth_header = request.headers.get('Authorization', '')
-    if not auth_header.startswith('Bearer '):
-        raise HTTPException(status_code=401, detail="Missing token")
-    
-    token = auth_header.split(' ')[1]
-    # This would call your actual token verification function
-    # For now, assume it returns driver data
     try:
-        # TODO: Use your actual token decoder
-        driver_data = {'_id': ObjectId(), 'name': 'Driver', 'phone': '1234567890', 'rating': 5.0}
+        user = await get_current_user_from_request(request, db_override=db, allowed_roles=["driver"])
+        user_id = str(user.get("id") or user.get("user_id") or "").strip()
+        driver_data = await db.drivers.find_one({"user_id": user_id})
+        if not driver_data:
+            raise HTTPException(status_code=401, detail="Driver not found")
+        driver_data["_auth_user_id"] = user_id
+        driver_data["id"] = driver_data.get("id") or user_id
         return driver_data
-    except:
+    except HTTPException:
+        raise
+    except Exception:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 

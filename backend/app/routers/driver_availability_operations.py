@@ -11,6 +11,8 @@ import logging
 import asyncio
 from pymongo.errors import PyMongoError, ServerSelectionTimeoutError
 
+from app.utils.rbac import get_current_user_from_request
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/drivers", tags=["driver-availability"])
@@ -29,35 +31,14 @@ def set_dependencies(database, socket_io):
 async def verify_driver_token(request: Request):
     """Verify driver JWT token and return driver data"""
     try:
-        # Prefer JWT Authorization header and decode using shared helper
-        from app.core.config import get_settings
-        from app.utils.security import decode_token
-
-        auth_header = request.headers.get("Authorization", "")
-        if auth_header and auth_header.startswith("Bearer "):
-            token = auth_header.split("Bearer ")[1].strip()
-            settings = get_settings()
-            payload = decode_token(token, settings)
-            driver_id = payload.get("sub")
-            if not driver_id:
-                raise HTTPException(status_code=401, detail="Invalid token payload")
-
-            driver = await db.drivers.find_one({"_id": ObjectId(driver_id)})
-            if not driver:
-                raise HTTPException(status_code=401, detail="Driver not found")
-
-            return driver
-
-        # Fallback: legacy header-based driver id (keeps backward compatibility)
-        driver_id = request.headers.get("X-Driver-ID")
-        if driver_id:
-            logger.warning("Using legacy X-Driver-ID header for authentication; migrate clients to JWT")
-            driver = await db.drivers.find_one({"_id": ObjectId(driver_id)})
-            if not driver:
-                raise HTTPException(status_code=401, detail="Driver not found")
-            return driver
-
-        raise HTTPException(status_code=401, detail="Missing authorization header")
+        user = await get_current_user_from_request(request, db_override=db, allowed_roles=["driver"])
+        user_id = str(user.get("id") or user.get("user_id") or "").strip()
+        driver = await db.drivers.find_one({"user_id": user_id})
+        if not driver:
+            raise HTTPException(status_code=401, detail="Driver not found")
+        driver["_auth_user_id"] = user_id
+        driver["id"] = driver.get("id") or user_id
+        return driver
     except HTTPException:
         raise
     except Exception as e:
@@ -66,7 +47,12 @@ async def verify_driver_token(request: Request):
 
 
 def _assert_driver_owns_resource(driver_data: dict, driver_id: str):
-    if str(driver_data.get("_id")) != driver_id:
+    allowed_ids = {
+        str(driver_data.get("_id") or ""),
+        str(driver_data.get("user_id") or ""),
+        str(driver_data.get("_auth_user_id") or ""),
+    }
+    if driver_id not in allowed_ids:
         raise HTTPException(status_code=403, detail="Cannot update another driver's availability")
 
 

@@ -9,6 +9,7 @@ from app.utils.time_helpers import get_ist_now
 import logging
 import random
 from typing import List, Optional
+from app.utils.rbac import get_current_user_from_request
 
 from app.db.operations_center_models import (
     SafetyIncident, SafetyIncidentType, IncidentSeverity,
@@ -36,8 +37,7 @@ async def get_live_city_metrics(city_id: str, request: Request):
     - Safety incidents summary
     """
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         # Mock data - replace with actual database queries
         metrics = {
             "city_id": city_id,
@@ -81,8 +81,7 @@ async def get_war_room_snapshot(city_id: str, request: Request):
     - Demand forecast
     """
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         snapshot = {
             "city_id": city_id,
             "timestamp": get_ist_now().isoformat(),
@@ -134,8 +133,7 @@ async def get_active_incidents(city_id: str, severity: Optional[str] = None, req
     Severity levels: critical, high, medium, low
     """
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         severities = ["critical", "high", "medium", "low"]
         filtered_severity = [severity] if severity else severities
         
@@ -177,8 +175,7 @@ async def acknowledge_incident(payload: dict, request: Request):
     }
     """
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         return {
             "status": "success",
             "data": {
@@ -205,8 +202,7 @@ async def resolve_incident(payload: dict, request: Request):
     }
     """
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         return {
             "status": "success",
             "data": {
@@ -233,8 +229,7 @@ async def get_zone_demand_metrics(city_id: str, request: Request):
     Returns demand score, active rides, drivers, passengers, trends.
     """
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         zones = ["downtown", "airport", "suburbs_north", "suburbs_south", "business_district"]
         zone_data = []
         
@@ -273,8 +268,7 @@ async def get_demand_heatmap(city_id: str, request: Request):
     Returns grid cells with demand intensity scores.
     """
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         grid_cells = []
         for i in range(25):  # 5x5 grid
             grid_cells.append({
@@ -312,8 +306,7 @@ async def get_active_rides(city_id: str, limit: int = 20, request: Request = Non
     Limit: max number of rides to return
     """
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         rides = []
         for i in range(min(limit, random.randint(10, 30))):
             rides.append({
@@ -349,8 +342,7 @@ async def monitor_ride(ride_id: str, request: Request):
     Returns: current location, route, safety status, timings.
     """
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         ride_data = {
             "ride_id": ride_id,
             "passenger_name": "Sample Passenger",
@@ -393,8 +385,7 @@ async def get_demand_forecast(city_id: str, hours_ahead: int = 24, request: Requ
     Returns hourly forecast with confidence levels and recommendations.
     """
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         forecasts = []
         now = get_ist_now()
         
@@ -442,8 +433,7 @@ async def get_driver_density(city_id: str, request: Request):
     Returns grid cells with driver counts and availability windows.
     """
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         grid_cells = []
         for i in range(16):  # 4x4 grid
             grid_cells.append({
@@ -484,8 +474,7 @@ async def get_operational_alerts(city_id: str, severity: Optional[str] = None, r
     Severity: critical, high, medium, low
     """
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         severities = ["critical", "high", "medium", "low"]
         filtered_severity = [severity] if severity else severities
         
@@ -551,8 +540,7 @@ async def acknowledge_alert(alert_id: str, payload: dict, request: Request):
     Acknowledge an operational alert.
     """
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         return {
             "status": "success",
             "data": {

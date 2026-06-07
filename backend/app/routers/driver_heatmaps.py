@@ -8,6 +8,7 @@ from datetime import datetime
 from app.utils.time_helpers import get_ist_now
 import random
 import logging
+from app.utils.rbac import get_current_user_from_request
 
 router = APIRouter(prefix="/api/v1/heatmaps", tags=["driver_heatmaps"])
 logger = logging.getLogger(__name__)
@@ -21,8 +22,7 @@ logger = logging.getLogger(__name__)
 async def get_live_heatmap(city_id: str, request: Request):
     """Get live driver heatmap for city"""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         grid_cells = []
         for x in range(8):
             for y in range(8):
@@ -68,8 +68,7 @@ async def get_live_heatmap(city_id: str, request: Request):
 async def get_zone_details(city_id: str, zone_id: str, request: Request):
     """Get detailed demand info for specific zone"""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         zone = {
             "zone_id": zone_id,
             "city_id": city_id,
@@ -100,8 +99,7 @@ async def get_zone_details(city_id: str, zone_id: str, request: Request):
 async def get_demand_hotspots(city_id: str, request: Request, limit: int = 10):
     """Get top demand hotspots in city"""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         hotspots = []
         for i in range(min(limit, 10)):
             hotspot = {
@@ -135,8 +133,7 @@ async def get_demand_hotspots(city_id: str, request: Request, limit: int = 10):
 async def get_low_supply_zones(city_id: str, request: Request):
     """Get zones with low driver supply"""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         cold_zones = []
         for i in range(random.randint(3, 6)):
             zone = {
@@ -174,8 +171,7 @@ async def get_low_supply_zones(city_id: str, request: Request):
 async def get_demand_forecast(city_id: str, request: Request, hours: int = 6):
     """Get demand forecast for next N hours"""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         forecasts = []
         for h in range(hours):
             forecast = {
@@ -210,8 +206,7 @@ async def get_demand_forecast(city_id: str, request: Request, hours: int = 6):
 async def get_peak_hour_forecast(city_id: str, request: Request):
     """Get forecasted peak hours for the day"""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         peak_hours = []
         peak_times = ["08:00-09:00", "13:00-14:00", "18:00-20:00", "22:00-23:00"]
         
@@ -243,8 +238,7 @@ async def get_peak_hour_forecast(city_id: str, request: Request):
 async def get_weather_impact_forecast(city_id: str, request: Request):
     """Get weather impact on demand forecast"""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         weather_conditions = ["clear", "cloudy", "light_rain", "heavy_rain", "fog"]
         demand_impacts = {
             "clear": 1.0,
@@ -287,8 +281,7 @@ async def get_weather_impact_forecast(city_id: str, request: Request):
 async def get_supply_gap_alerts(city_id: str, request: Request, severity: str = None):
     """Get supply-demand gap alerts"""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         severities = [severity] if severity else ["critical", "high", "medium"]
         alerts = []
         
@@ -329,8 +322,7 @@ async def get_supply_gap_alerts(city_id: str, request: Request, severity: str = 
 async def get_incentive_recommendations(city_id: str, request: Request):
     """Get AI-driven incentive recommendations"""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         recommendations = []
         for i in range(random.randint(3, 6)):
             rec = {
@@ -376,8 +368,7 @@ async def get_incentive_recommendations(city_id: str, request: Request):
 async def get_weekly_trends(city_id: str, request: Request):
     """Get weekly driver and demand trends"""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         trend = {
             "trend_id": f"trend_{city_id}_weekly",
             "city_id": city_id,
@@ -411,8 +402,7 @@ async def get_weekly_trends(city_id: str, request: Request):
 async def get_daily_trends(city_id: str, request: Request):
     """Get daily trend analysis"""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         trend = {
             "trend_id": f"trend_{city_id}_daily",
             "city_id": city_id,
@@ -441,8 +431,7 @@ async def get_daily_trends(city_id: str, request: Request):
 async def get_driver_distribution(city_id: str, request: Request):
     """Get current driver distribution across zones"""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         distribution = []
         for i in range(8):
             zone_dist = {
@@ -477,8 +466,7 @@ async def get_driver_distribution(city_id: str, request: Request):
 async def get_before_after_metrics(city_id: str, request: Request):
     """Get before/after metrics for optimization actions"""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         metrics = {
             "city_id": city_id,
             "optimization_action": "surge_pricing_v2",
@@ -515,8 +503,7 @@ async def get_before_after_metrics(city_id: str, request: Request):
 async def get_optimization_opportunities(city_id: str, request: Request):
     """Get identified optimization opportunities"""
     try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+        await get_current_user_from_request(request)
         opportunities = [
             {
                 "opportunity_id": "opp_001",
