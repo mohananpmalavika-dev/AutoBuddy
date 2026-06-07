@@ -28,7 +28,15 @@ export default function LocationSharingPanel({ token, activeBooking, currentLoca
       setLoading(true);
       setError('');
       const data = await apiRequest('/passengers/emergency-contacts', { token });
-      setEmergencyContacts(data?.contacts || []);
+      setEmergencyContacts(
+        Array.isArray(data?.contacts)
+          ? data.contacts
+          : Array.isArray(data?.data)
+            ? data.data
+            : Array.isArray(data)
+              ? data
+              : [],
+      );
     } catch (err) {
       setError(err.message || 'Failed to load emergency contacts');
     } finally {

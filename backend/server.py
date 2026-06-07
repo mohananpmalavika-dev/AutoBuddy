@@ -304,6 +304,7 @@ MAX_REQUEST_BODY_BYTES = max(
 TRIP_DISTANCE_MIN_SEGMENT_KM = float(os.environ.get("TRIP_DISTANCE_MIN_SEGMENT_KM", "0.03"))
 TRIP_DISTANCE_MAX_SEGMENT_KM = float(os.environ.get("TRIP_DISTANCE_MAX_SEGMENT_KM", "8.0"))
 TRIP_DISTANCE_MAX_POINTS = int(os.environ.get("TRIP_DISTANCE_MAX_POINTS", "1200"))
+DEFAULT_WAITING_CHARGE_PER_MINUTE = float(os.environ.get("DEFAULT_WAITING_CHARGE_PER_MINUTE", "2.0"))
 DRIVER_LIVE_LOCATION_TTL_SECONDS = int(os.environ.get("DRIVER_LIVE_LOCATION_TTL_SECONDS", "300"))
 ANALYTICS_DB_NAME = os.environ.get("ANALYTICS_DB_NAME", f"{settings.db_name}_analytics").strip() or f"{settings.db_name}_analytics"
 REDIS_URL_RAW = os.environ.get("REDIS_URL", "")
@@ -1955,6 +1956,7 @@ class DriverFareCalculatorConfig(BaseModel):
     driver_base_search_radius_km: float = Field(default=5.0, ge=0.5, le=50.0)
     driver_long_distance_search_radius_km: float = Field(default=12.0, ge=0.5, le=100.0)
     driver_pickup_surcharge_per_km: float = Field(default=12.0, ge=0.0)
+    waiting_charge_per_minute: float = Field(default=DEFAULT_WAITING_CHARGE_PER_MINUTE, ge=0.0)
 
 class DriverFareCalculatorReview(BaseModel):
     status: Literal["approved", "rejected"]
@@ -2081,6 +2083,7 @@ class PricingRule(BaseModel):
     driver_long_distance_search_radius_km: float = Field(default=12.0, ge=0.5, le=100.0)  # Radius B
     scheduled_booking_driver_radius_km: float = Field(default=10.0, ge=0.5, le=100.0)
     driver_pickup_surcharge_per_km: float = Field(default=12.0, ge=0.0)  # Extra charge beyond radius A
+    waiting_charge_per_minute: float = Field(default=DEFAULT_WAITING_CHARGE_PER_MINUTE, ge=0.0)
     passenger_registration_fee: float = 0.0
     driver_registration_fee: float = 0.0
     enable_qr: bool = False
@@ -2215,6 +2218,80 @@ class EmergencyContact(BaseModel):
 
 class EmergencyContactCreate(EmergencyContact):
     pass
+
+
+def build_emergency_contact_document(payload: Any, user_id: str) -> Dict[str, Any]:
+    source = payload.model_dump() if isinstance(payload, BaseModel) else dict(payload or {})
+    name = str(source.get("contact_name") or source.get("name") or "").strip()
+    phone = str(source.get("phone_number") or source.get("phone") or "").strip()
+    relation = str(
+        source.get("relation") or source.get("relationship") or source.get("emergency_contact_relationship") or ""
+    ).strip()
+
+    if len(name) < 2:
+        raise HTTPException(status_code=400, detail="Contact name is required")
+
+    normalized_phone = normalize_phone(phone)
+    now = get_ist_now()
+    contact_id = str(source.get("id") or uuid.uuid4()).strip()
+
+    return {
+        "id": contact_id,
+        "user_id": user_id,
+        "name": name,
+        "contact_name": name,
+        "phone": normalized_phone,
+        "phone_number": normalized_phone,
+        "relation": relation or "Emergency contact",
+        "relationship": relation or "Emergency contact",
+        "notify_on_rides": bool(source.get("notify_on_rides", True)),
+        "active": source.get("active", True) is not False,
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
+def serialize_emergency_contact(row: Dict[str, Any]) -> Dict[str, Any]:
+    contact_id = str(row.get("id") or row.get("_id") or "")
+    name = str(row.get("contact_name") or row.get("name") or "").strip()
+    phone = str(row.get("phone_number") or row.get("phone") or "").strip()
+    relation = str(row.get("relation") or row.get("relationship") or "Emergency contact").strip()
+    created_at = row.get("created_at")
+    updated_at = row.get("updated_at")
+    deleted_at = row.get("deleted_at")
+
+    if isinstance(created_at, datetime):
+        created_at = created_at.isoformat()
+    if isinstance(updated_at, datetime):
+        updated_at = updated_at.isoformat()
+    if isinstance(deleted_at, datetime):
+        deleted_at = deleted_at.isoformat()
+
+    return {
+        "_id": str(row.get("_id")) if row.get("_id") is not None else None,
+        "id": contact_id,
+        "name": name,
+        "contact_name": name,
+        "phone": phone,
+        "phone_number": phone,
+        "relation": relation,
+        "relationship": relation,
+        "notify_on_rides": bool(row.get("notify_on_rides", True)),
+        "active": row.get("active", True) is not False,
+        "created_at": created_at,
+        "updated_at": updated_at,
+        "deleted_at": deleted_at,
+    }
+
+
+def emergency_contact_owner_query(user_id: str, contact_id: str) -> Dict[str, Any]:
+    normalized_id = str(contact_id or "").strip()
+    clauses = [{"user_id": user_id, "id": normalized_id}]
+    try:
+        clauses.append({"user_id": user_id, "_id": ObjectId(normalized_id)})
+    except InvalidId:
+        pass
+    return {"$or": clauses}
 
 class SOSAlertCreate(BaseModel):
     booking_id: Optional[str] = None
@@ -3572,6 +3649,142 @@ def calculate_tracking_segment_km(
         return 0.0
     return max(0.0, segment)
 
+
+def tracking_path_point(location: Dict[str, Any], captured_at: datetime) -> Dict[str, Any]:
+    return {
+        "latitude": location["latitude"],
+        "longitude": location["longitude"],
+        "captured_at": captured_at,
+    }
+
+
+def build_trip_distance_tracking_update(
+    booking: Optional[Dict[str, Any]],
+    current_location: Optional[Dict[str, Any]],
+    captured_at: datetime,
+) -> tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
+    if not booking or enum_response_value(booking.get("status")) != BookingStatus.IN_PROGRESS.value:
+        return {}, None
+
+    normalized_location = normalize_tracking_location(current_location)
+    if not normalized_location:
+        return {}, None
+
+    previous_location = normalize_tracking_location(
+        booking.get("trip_last_location") or booking.get("trip_start_location")
+    )
+    if not previous_location:
+        return {
+            "trip_start_location": normalized_location,
+            "trip_last_location": normalized_location,
+            "trip_last_location_at": captured_at,
+        }, {
+            "$each": [tracking_path_point(normalized_location, captured_at)],
+            "$slice": -TRIP_DISTANCE_MAX_POINTS,
+        }
+
+    segment_km = calculate_tracking_segment_km(previous_location, normalized_location)
+    if segment_km < max(0.0, TRIP_DISTANCE_MIN_SEGMENT_KM):
+        return {}, None
+    if segment_km > max(0.5, TRIP_DISTANCE_MAX_SEGMENT_KM):
+        return {}, None
+
+    actual_distance_km = max(0.0, safe_float(booking.get("actual_distance_km"), 0.0)) + segment_km
+    return {
+        "actual_distance_km": round(actual_distance_km, 3),
+        "trip_last_location": normalized_location,
+        "trip_last_location_at": captured_at,
+    }, {
+        "$each": [tracking_path_point(normalized_location, captured_at)],
+        "$slice": -TRIP_DISTANCE_MAX_POINTS,
+    }
+
+
+def calculate_actual_trip_duration_minutes(booking: Dict[str, Any], completed_at: datetime) -> float:
+    started_at = booking.get("trip_started_at")
+    if not isinstance(started_at, datetime):
+        return 0.0
+    return max(0.0, (completed_at - started_at).total_seconds() / 60.0)
+
+
+def calculate_waiting_charge(
+    booking: Dict[str, Any],
+    pricing: "PricingRule",
+    completed_at: datetime,
+) -> Dict[str, float]:
+    actual_duration_minutes = calculate_actual_trip_duration_minutes(booking, completed_at)
+    estimated_minutes = max(0.0, safe_float(booking.get("eta_minutes"), 0.0))
+    waiting_minutes = max(0.0, actual_duration_minutes - estimated_minutes)
+    waiting_rate = max(0.0, safe_float(getattr(pricing, "waiting_charge_per_minute", 0.0), 0.0))
+    waiting_charge = round(waiting_minutes * waiting_rate, 2)
+    return {
+        "actual_duration_minutes": round(actual_duration_minutes, 2),
+        "estimated_duration_minutes": round(estimated_minutes, 2),
+        "waiting_minutes": round(waiting_minutes, 2),
+        "waiting_charge": waiting_charge,
+        "waiting_charge_per_minute": round(waiting_rate, 2),
+    }
+
+async def build_driver_arrived_cancellation_fare_update(
+    booking: Dict[str, Any],
+    actor_role: str,
+    cancelled_at: datetime,
+) -> Optional[Dict[str, Any]]:
+    if enum_response_value(booking.get("status")) != BookingStatus.DRIVER_ARRIVED.value:
+        return None
+    if actor_role == UserRole.DRIVER.value or not booking.get("driver_id"):
+        return None
+
+    pricing = await get_pricing_rules()
+    driver_profile = await db.drivers.find_one({"user_id": booking.get("driver_id")}) if booking.get("driver_id") else None
+    effective_pricing = await get_effective_pricing_for_driver_profile(driver_profile, pricing)
+    vehicle_type_multiplier = float(
+        booking.get("vehicle_type_multiplier")
+        or get_vehicle_type_fare_multiplier(
+            booking.get("vehicle_type_id"),
+            booking.get("vehicle_subtype_id"),
+        )
+        or 1.0
+    )
+    ride_type_multiplier = float(
+        booking.get("ride_type_multiplier")
+        or get_ride_type_fare_multiplier(booking.get("ride_type"))
+        or 1.0
+    )
+    driver_fare_multiplier = float((driver_profile or {}).get("fare_multiplier", 1.0) or 1.0)
+    minimum_route_fare = max(0.0, float(effective_pricing.minimum_fare or pricing.minimum_fare or 0.0))
+    cancellation_fee = round(
+        minimum_route_fare * vehicle_type_multiplier * ride_type_multiplier * driver_fare_multiplier,
+        2,
+    )
+    if cancellation_fee <= 0:
+        return None
+
+    return {
+        "actual_distance_km": 0.0,
+        "distance_km": 0.0,
+        "duration_minutes": 0,
+        "waiting_minutes": 0.0,
+        "waiting_charge": 0.0,
+        "base_actual_route_fare": round(minimum_route_fare, 2),
+        "base_route_fare": cancellation_fee,
+        "final_fare": cancellation_fee,
+        "cancellation_fee": cancellation_fee,
+        "cancellation_fee_applied": True,
+        "cancellation_fee_type": "driver_arrived_minimum_fare",
+        "payment_status": "pending",
+        "fare_breakdown": {
+            "pricing_basis": "driver_arrived_cancellation_minimum",
+            "minimum_fare": round(minimum_route_fare, 2),
+            "actual_distance_km": 0.0,
+            "vehicle_type_multiplier": round(vehicle_type_multiplier, 4),
+            "ride_type_multiplier": round(ride_type_multiplier, 4),
+            "driver_fare_multiplier": round(driver_fare_multiplier, 4),
+            "cancelled_at": cancelled_at.isoformat(),
+        },
+    }
+
+
 async def get_pricing_rules() -> PricingRule:
     """Get current pricing rules from DB or return defaults"""
     cached = await cache_get("pricing_rules:active")
@@ -4545,6 +4758,7 @@ DRIVER_FARE_CONFIG_FIELDS = (
     "driver_base_search_radius_km",
     "driver_long_distance_search_radius_km",
     "driver_pickup_surcharge_per_km",
+    "waiting_charge_per_minute",
 )
 
 def serialize_driver_fare_config(pricing: PricingRule) -> Dict[str, Any]:
@@ -7133,6 +7347,8 @@ async def get_passenger_receipts(period: str = "all", current_user: dict = Depen
                 "duration_minutes": int(booking.get("duration_minutes") or booking.get("eta_minutes") or 0),
                 "base_fare": base_fare,
                 "distance_fare": distance_fare,
+                "waiting_charge": round(float(booking.get("waiting_charge") or 0), 2),
+                "cancellation_fee": round(float(booking.get("cancellation_fee") or 0), 2),
                 "surge_multiplier": float(booking.get("surge_multiplier") or 1.0),
                 "taxes": taxes,
                 "discount": float(booking.get("discount") or 0),
@@ -8469,17 +8685,25 @@ async def update_driver_location(location_update: DriverLocationUpdate, current_
             "timestamp": now_utc.isoformat(),
         }
         await runtime_state.set_driver_active_booking(str(current_user["id"]), booking_id)
+        tracking_set, tracking_push = build_trip_distance_tracking_update(
+            active_booking,
+            cached_location,
+            now_utc,
+        )
+        booking_set_fields = {
+            "driver_live_location": cached_location,
+            "driver_location": cached_location,
+            "driver_eta_to_pickup_min": payload["eta_to_pickup_min"],
+            "driver_eta_to_drop_min": payload["eta_to_drop_min"],
+            "updated_at": now_utc,
+            **tracking_set,
+        }
+        booking_update: Dict[str, Any] = {"$set": booking_set_fields}
+        if tracking_push:
+            booking_update["$push"] = {"trip_path_points": tracking_push}
         await db.bookings.update_one(
             {"id": booking_id},
-            {
-                "$set": {
-                    "driver_live_location": cached_location,
-                    "driver_location": cached_location,
-                    "driver_eta_to_pickup_min": payload["eta_to_pickup_min"],
-                    "driver_eta_to_drop_min": payload["eta_to_drop_min"],
-                    "updated_at": now_utc,
-                }
-            },
+            booking_update,
         )
         await clear_active_ride_cache(str(current_user["id"]), passenger_id)
         for event_name in ("driver_location_changed", "driver_location", "driver_location_updated"):
@@ -9759,11 +9983,19 @@ async def get_driver_blocked_passengers(current_user: dict = Depends(get_current
 async def get_favorite_drivers(
     latitude: Optional[float] = None,
     longitude: Optional[float] = None,
+    include_availability: bool = Query(False),
     current_user: dict = Depends(get_current_user),
 ):
     if current_user["role"] != UserRole.PASSENGER:
         raise HTTPException(status_code=403, detail="Only passengers can view favorite drivers")
-    excluded_driver_ids = set(await get_excluded_driver_ids_for_passenger(current_user["id"]))
+    should_include_availability = bool(
+        include_availability or (latitude is not None and longitude is not None)
+    )
+    excluded_driver_ids = (
+        set(await get_excluded_driver_ids_for_passenger(current_user["id"]))
+        if should_include_availability
+        else set()
+    )
 
     favorite_docs = await db.passenger_favorite_drivers.find(
         {"passenger_id": current_user["id"]}
@@ -9780,11 +10012,13 @@ async def get_favorite_drivers(
         item.get("driver_id"): item for item in favorite_docs if item.get("driver_id")
     }
 
-    active_statuses = [BookingStatus.ACCEPTED, BookingStatus.DRIVER_ARRIVED, BookingStatus.IN_PROGRESS]
-    active_bookings = await db.bookings.find(
-        {"driver_id": {"$in": driver_ids}, "status": {"$in": active_statuses}}
-    ).to_list(300)
-    active_driver_ids = {item.get("driver_id") for item in active_bookings if item.get("driver_id")}
+    active_driver_ids = set()
+    if should_include_availability:
+        active_statuses = [BookingStatus.ACCEPTED, BookingStatus.DRIVER_ARRIVED, BookingStatus.IN_PROGRESS]
+        active_bookings = await db.bookings.find(
+            {"driver_id": {"$in": driver_ids}, "status": {"$in": active_statuses}}
+        ).to_list(300)
+        active_driver_ids = {item.get("driver_id") for item in active_bookings if item.get("driver_id")}
 
     pickup_loc = Location(latitude=latitude, longitude=longitude) if latitude is not None and longitude is not None else None
     results: List[Dict[str, Any]] = []
@@ -9797,7 +10031,7 @@ async def get_favorite_drivers(
             continue
 
         vehicle_info = driver.get("vehicle_info") if driver else None
-        live_location = await get_effective_driver_location(driver) if driver else None
+        live_location = await get_effective_driver_location(driver) if driver and should_include_availability else None
         distance = None
         if live_location and pickup_loc:
             driver_loc = Location(**live_location)
@@ -9807,7 +10041,14 @@ async def get_favorite_drivers(
         is_approved = kyc_status in {KYCStatus.APPROVED, KYCStatus.APPROVED.value}
         in_active_ride = driver_id in active_driver_ids
         driver_online = bool(driver and driver.get("is_available", False))
-        is_dispatch_available = bool(driver_online and vehicle_info and is_approved and live_location and not in_active_ride)
+        is_dispatch_available = bool(
+            should_include_availability
+            and driver_online
+            and vehicle_info
+            and is_approved
+            and live_location
+            and not in_active_ride
+        )
         favorite_doc = favorite_docs_by_driver_id.get(driver_id) or {}
         results.append(
             {
@@ -9830,13 +10071,14 @@ async def get_favorite_drivers(
             }
         )
 
-    results.sort(
-        key=lambda item: (
-            0 if item.get("is_dispatch_available") else 1,
-            99999 if item.get("distance_km") is None else item["distance_km"],
-            str(item.get("name") or ""),
+    if should_include_availability:
+        results.sort(
+            key=lambda item: (
+                0 if item.get("is_dispatch_available") else 1,
+                99999 if item.get("distance_km") is None else item["distance_km"],
+                str(item.get("name") or ""),
+            )
         )
-    )
     return results
 
 @api_router.get("/drivers/pending-requests")
@@ -10093,6 +10335,11 @@ async def get_driver_earnings(current_user: dict = Depends(get_current_user)):
         "driver_id": current_user["id"],
         "status": BookingStatus.COMPLETED
     }).to_list(5000)
+    cancellation_fee_rides = await db.bookings.find({
+        "driver_id": current_user["id"],
+        "status": BookingStatus.CANCELLED,
+        "cancellation_fee_applied": True,
+    }).to_list(5000)
 
     now = get_ist_now()
     today_start = as_utc_naive(now.replace(hour=0, minute=0, second=0, microsecond=0))
@@ -10104,22 +10351,34 @@ async def get_driver_earnings(current_user: dict = Depends(get_current_user)):
         normalized = as_utc_naive(value) if isinstance(value, (datetime, str)) else None
         return normalized or datetime.min
 
-    total_earnings = sum(booking_fare_value(ride) for ride in completed_rides)
+    def driver_earning_value(ride: Dict[str, Any]) -> float:
+        if enum_response_value(ride.get("status")) == BookingStatus.CANCELLED.value:
+            return round(float(ride.get("cancellation_fee") or 0.0), 2)
+        return booking_fare_value(ride)
+
+    earning_rides = completed_rides + cancellation_fee_rides
+    total_earnings = sum(driver_earning_value(ride) for ride in earning_rides)
     total_rides = len(completed_rides)
     today_rides = [ride for ride in completed_rides if ride_updated_at(ride) >= today_start]
     weekly_rides = [ride for ride in completed_rides if ride_updated_at(ride) >= week_start]
     monthly_rides = [ride for ride in completed_rides if ride_updated_at(ride) >= month_start]
+    today_earning_rides = [ride for ride in earning_rides if ride_updated_at(ride) >= today_start]
+    weekly_earning_rides = [ride for ride in earning_rides if ride_updated_at(ride) >= week_start]
+    monthly_earning_rides = [ride for ride in earning_rides if ride_updated_at(ride) >= month_start]
+    cancellation_earnings = round(sum(driver_earning_value(ride) for ride in cancellation_fee_rides), 2)
     payout_overview = await build_driver_payout_overview(current_user["id"], limit=8)
 
     return {
         "total_earnings": round(total_earnings, 2),
         "total_rides": total_rides,
-        "today_earnings": round(sum(booking_fare_value(ride) for ride in today_rides), 2),
+        "today_earnings": round(sum(driver_earning_value(ride) for ride in today_earning_rides), 2),
         "today_rides": len(today_rides),
-        "weekly_earnings": round(sum(booking_fare_value(ride) for ride in weekly_rides), 2),
+        "weekly_earnings": round(sum(driver_earning_value(ride) for ride in weekly_earning_rides), 2),
         "weekly_rides": len(weekly_rides),
-        "monthly_earnings": round(sum(booking_fare_value(ride) for ride in monthly_rides), 2),
+        "monthly_earnings": round(sum(driver_earning_value(ride) for ride in monthly_earning_rides), 2),
         "monthly_rides": len(monthly_rides),
+        "cancellation_earnings": cancellation_earnings,
+        "cancellation_fee_rides": len(cancellation_fee_rides),
         "wallet_balance": payout_overview["wallet_balance"],
         "pending_withdrawal": payout_overview["pending_withdrawal"],
         "bank_verification_status": payout_overview["bank_verification_status"],
@@ -11074,12 +11333,14 @@ async def build_booking_receipt_payload(booking: Dict[str, Any], current_user: D
 
     total = receipt_money(booking.get("final_fare") if booking.get("final_fare") is not None else booking.get("estimated_fare"))
     pickup_surcharge = receipt_money(booking.get("pickup_surcharge"))
+    waiting_charge = receipt_money(booking.get("waiting_charge"))
+    cancellation_fee = receipt_money(booking.get("cancellation_fee"))
     tax_amount = receipt_money(booking.get("tax_amount") or booking.get("taxes") or booking.get("gst_amount"))
     discount = receipt_money(booking.get("discount"))
     route_fare = receipt_money(
         booking.get("base_route_fare")
         or booking.get("base_estimated_fare")
-        or max(0.0, total - pickup_surcharge - tax_amount + discount)
+        or max(0.0, total - pickup_surcharge - waiting_charge - tax_amount + discount)
     )
     distance_km = receipt_money(booking.get("actual_distance_km") or booking.get("distance_km"))
     created_at = booking.get("trip_completed_at") or booking.get("updated_at") or booking.get("created_at") or get_ist_now()
@@ -11090,11 +11351,15 @@ async def build_booking_receipt_payload(booking: Dict[str, Any], current_user: D
         else str(booking.get("payment_status") or status_value or "pending")
     )
 
-    breakdown = [
-        {"label": "Route fare", "amount": route_fare},
-    ]
+    breakdown = []
+    if cancellation_fee > 0 and status_value == BookingStatus.CANCELLED.value:
+        breakdown.append({"label": "Cancellation minimum fare", "amount": cancellation_fee})
+    else:
+        breakdown.append({"label": "Route fare", "amount": route_fare})
     if pickup_surcharge > 0:
         breakdown.append({"label": "Pickup surcharge", "amount": pickup_surcharge})
+    if waiting_charge > 0:
+        breakdown.append({"label": "Waiting charge", "amount": waiting_charge})
     if tax_amount > 0:
         breakdown.append({"label": "Taxes", "amount": tax_amount})
     if discount > 0:
@@ -11638,19 +11903,56 @@ async def update_booking_status(booking_id: str, status_update: BookingStatusUpd
             )
             if direct_distance_km > 0:
                 actual_distance_km = direct_distance_km
-        if actual_distance_km <= 0:
-            actual_distance_km = float(booking.get("distance_km", 0.0) or 0.0)
+
+        actual_distance_km = max(0.0, actual_distance_km)
+        waiting = calculate_waiting_charge(booking, effective_pricing, now_utc)
+        vehicle_type_multiplier = float(
+            booking.get("vehicle_type_multiplier")
+            or get_vehicle_type_fare_multiplier(
+                booking.get("vehicle_type_id"),
+                booking.get("vehicle_subtype_id"),
+            )
+            or 1.0
+        )
+        ride_type_multiplier = float(
+            booking.get("ride_type_multiplier")
+            or get_ride_type_fare_multiplier(booking.get("ride_type"))
+            or 1.0
+        )
 
         base_route_fare_actual = (
             (effective_pricing.base_fare + (actual_distance_km * effective_pricing.per_km_rate))
             * time_multiplier
         )
         base_route_fare_actual = max(base_route_fare_actual, effective_pricing.minimum_fare)
-        final_fare = round((base_route_fare_actual * fare_multiplier) + pickup_surcharge, 2)
+        route_fare_actual = round(base_route_fare_actual * vehicle_type_multiplier * ride_type_multiplier, 2)
+        final_fare = round((route_fare_actual * fare_multiplier) + pickup_surcharge + waiting["waiting_charge"], 2)
 
         update_data["actual_distance_km"] = round(actual_distance_km, 3)
         update_data["distance_km"] = round(actual_distance_km, 3)
-        update_data["base_route_fare"] = round(base_route_fare_actual, 2)
+        update_data["actual_duration_minutes"] = waiting["actual_duration_minutes"]
+        update_data["duration_minutes"] = waiting["actual_duration_minutes"]
+        update_data["estimated_duration_minutes"] = waiting["estimated_duration_minutes"]
+        update_data["waiting_minutes"] = waiting["waiting_minutes"]
+        update_data["waiting_charge"] = waiting["waiting_charge"]
+        update_data["waiting_charge_per_minute"] = waiting["waiting_charge_per_minute"]
+        update_data["base_actual_route_fare"] = round(base_route_fare_actual, 2)
+        update_data["base_route_fare"] = route_fare_actual
+        update_data["fare_breakdown"] = {
+            "pricing_basis": "actual_distance",
+            "base_fare": round(effective_pricing.base_fare, 2),
+            "per_km_rate": round(effective_pricing.per_km_rate, 2),
+            "minimum_fare": round(effective_pricing.minimum_fare, 2),
+            "actual_distance_km": round(actual_distance_km, 3),
+            "actual_duration_minutes": waiting["actual_duration_minutes"],
+            "estimated_duration_minutes": waiting["estimated_duration_minutes"],
+            "waiting_minutes": waiting["waiting_minutes"],
+            "waiting_charge": waiting["waiting_charge"],
+            "vehicle_type_multiplier": round(vehicle_type_multiplier, 4),
+            "ride_type_multiplier": round(ride_type_multiplier, 4),
+            "driver_fare_multiplier": round(fare_multiplier, 4),
+            "pickup_surcharge": round(pickup_surcharge, 2),
+        }
         update_data["final_fare"] = final_fare
         update_data["trip_completed_at"] = now_utc
         update_data["ride_start_otp"] = None
@@ -11767,19 +12069,24 @@ async def cancel_booking(
     booking = await db.bookings.find_one({"id": booking_id})
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
-    
-    if booking["status"] in [BookingStatus.COMPLETED, BookingStatus.CANCELLED]:
+
+    booking_status_value = enum_response_value(booking.get("status"))
+    if booking_status_value in {BookingStatus.COMPLETED.value, BookingStatus.CANCELLED.value}:
         raise HTTPException(status_code=400, detail="Cannot cancel this booking")
 
     if (
         current_user["role"] == UserRole.PASSENGER
         and current_user["id"] == booking.get("passenger_id")
-        and enum_response_value(booking["status"])
-        not in {BookingStatus.PENDING.value, BookingStatus.SCHEDULED.value}
+        and booking_status_value
+        not in {
+            BookingStatus.PENDING.value,
+            BookingStatus.SCHEDULED.value,
+            BookingStatus.DRIVER_ARRIVED.value,
+        }
     ):
         raise HTTPException(
             status_code=400,
-            detail="Passenger cancellation is allowed only while booking is pending or scheduled.",
+            detail="Passenger cancellation is allowed while pending, scheduled, or after driver arrival before trip start.",
         )
     
     # Only passenger or assigned driver can cancel
@@ -11791,10 +12098,18 @@ async def cancel_booking(
     actor_role = current_user["role"].value if isinstance(current_user["role"], Enum) else str(current_user["role"])
     reason_code = str(payload.reason_code or f"{actor_role}_cancelled").strip()[:80]
     reason_text = str(payload.reason_text or "").strip()[:400]
-    status_before_cancel = enum_response_value(booking.get("status"))
+    status_before_cancel = booking_status_value
     is_driver_cancel = actor_role == UserRole.DRIVER.value and current_user["id"] == booking.get("driver_id")
+    cancellation_fare_update = await build_driver_arrived_cancellation_fare_update(
+        booking,
+        actor_role,
+        now,
+    )
+    policy_version = str(payload.policy_version or "driver_cancel_v1").strip()[:80]
+    if cancellation_fare_update and policy_version == "driver_cancel_v1":
+        policy_version = "passenger_driver_arrived_cancel_v1"
     fee_policy = {
-        "policy_version": str(payload.policy_version or "driver_cancel_v1")[:80],
+        "policy_version": policy_version,
         "passenger_fee_amount": 0.0,
         "driver_fee_amount": 0.0,
         "review_required": bool(is_driver_cancel),
@@ -11805,6 +12120,19 @@ async def cancel_booking(
         if is_driver_cancel
         else "Cancellation is logged. Any fee review is handled by support policy.",
     }
+    if cancellation_fare_update:
+        cancellation_fee = round(float(cancellation_fare_update.get("cancellation_fee", 0.0) or 0.0), 2)
+        fee_policy.update(
+            {
+                "passenger_fee_amount": cancellation_fee,
+                "driver_earning_amount": cancellation_fee,
+                "review_required": False,
+                "summary": (
+                    "Driver arrived; minimum fare applies because the passenger cancelled "
+                    "before the trip started."
+                ),
+            }
+        )
     cancellation_details = {
         "cancelled_by": current_user["id"],
         "cancelled_by_role": actor_role,
@@ -11840,6 +12168,7 @@ async def cancel_booking(
                 "cancellation_policy": fee_policy,
                 "cancellation_details": cancellation_details,
                 "updated_at": now,
+                **(cancellation_fare_update or {}),
             },
             "$push": {
                 "cancellation_audit": cancellation_details,
@@ -12867,22 +13196,196 @@ async def delete_user_notification(notification_id: str, current_user: dict = De
 
 @api_router.post("/users/emergency-contacts")
 async def save_emergency_contact(contact: EmergencyContactCreate, current_user: dict = Depends(get_current_user)):
-    doc = {
-        "id": str(uuid.uuid4()),
-        "user_id": current_user["id"],
-        **contact.dict(),
-        "created_at": get_ist_now(),
-    }
+    doc = build_emergency_contact_document(contact, current_user["id"])
     await db.emergency_contacts.insert_one(doc)
-    return {"message": "Emergency contact saved"}
+    return {"message": "Emergency contact saved", "contact": serialize_emergency_contact(doc)}
 
 
 @api_router.get("/users/emergency-contacts")
 async def list_emergency_contacts(current_user: dict = Depends(get_current_user)):
-    contacts = await db.emergency_contacts.find({"user_id": current_user["id"]}).sort("created_at", -1).to_list(20)
-    for item in contacts:
-        item["_id"] = str(item["_id"])
-    return contacts
+    contacts = await db.emergency_contacts.find(
+        {"user_id": current_user["id"], "active": {"$ne": False}}
+    ).sort("created_at", -1).to_list(20)
+    return [serialize_emergency_contact(item) for item in contacts]
+
+
+@api_router.get("/passengers/emergency-contacts")
+@api_router.get("/v1/passengers/emergency-contacts")
+async def list_passenger_emergency_contacts(current_user: dict = Depends(get_current_user)):
+    require_passenger(current_user)
+    contacts = await db.emergency_contacts.find(
+        {"user_id": current_user["id"], "active": {"$ne": False}}
+    ).sort("created_at", -1).to_list(20)
+    serialized = [serialize_emergency_contact(item) for item in contacts]
+    return {"contacts": serialized, "data": serialized}
+
+
+@api_router.post("/passengers/emergency-contacts")
+@api_router.post("/v1/passengers/emergency-contacts")
+async def create_passenger_emergency_contact(
+    payload: Dict[str, Any],
+    current_user: dict = Depends(get_current_user),
+):
+    require_passenger(current_user)
+    doc = build_emergency_contact_document(payload, current_user["id"])
+    await db.emergency_contacts.insert_one(doc)
+    return {"message": "Emergency contact saved", "contact": serialize_emergency_contact(doc)}
+
+
+@api_router.delete("/passengers/emergency-contacts/{contact_id}")
+@api_router.delete("/v1/passengers/emergency-contacts/{contact_id}")
+async def delete_passenger_emergency_contact(contact_id: str, current_user: dict = Depends(get_current_user)):
+    require_passenger(current_user)
+    result = await db.emergency_contacts.update_one(
+        {
+            "$and": [
+                emergency_contact_owner_query(current_user["id"], contact_id),
+                {"active": {"$ne": False}},
+            ],
+        },
+        {"$set": {"active": False, "deleted_at": get_ist_now(), "updated_at": get_ist_now()}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Emergency contact not found")
+    return {"message": "Emergency contact deleted"}
+
+
+async def validate_passenger_booking_for_sharing(user_id: str, booking_id: Optional[str]) -> None:
+    normalized_booking_id = str(booking_id or "").strip()
+    if not normalized_booking_id:
+        return
+    booking = await db.bookings.find_one({"id": normalized_booking_id}, {"_id": 0, "passenger_id": 1})
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if booking.get("passenger_id") != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized for this booking")
+
+
+async def get_active_emergency_contact(user_id: str, contact_id: str) -> Dict[str, Any]:
+    contact = await db.emergency_contacts.find_one(
+        {
+            "$and": [
+                emergency_contact_owner_query(user_id, contact_id),
+                {"active": {"$ne": False}},
+            ],
+        }
+    )
+    if not contact:
+        raise HTTPException(status_code=404, detail="Emergency contact not found")
+    return contact
+
+
+@api_router.post("/passengers/location-sharing/update")
+@api_router.post("/v1/passengers/location-sharing/update")
+async def update_passenger_location_sharing(
+    payload: Dict[str, Any],
+    current_user: dict = Depends(get_current_user),
+):
+    require_passenger(current_user)
+    contact_id = str(payload.get("contact_id") or "").strip()
+    if not contact_id:
+        raise HTTPException(status_code=400, detail="Contact is required")
+
+    enabled = payload.get("enabled", True) is not False
+    booking_id = str(payload.get("booking_id") or "").strip() or None
+    await validate_passenger_booking_for_sharing(current_user["id"], booking_id)
+    contact = await get_active_emergency_contact(current_user["id"], contact_id)
+
+    now = get_ist_now()
+    share_query = {"user_id": current_user["id"], "contact_id": contact_id, "booking_id": booking_id}
+    if not enabled:
+        result = await db.location_sharing.update_many(
+            share_query,
+            {"$set": {"active": False, "stopped_at": now, "updated_at": now}},
+        )
+        return {"message": "Location sharing stopped", "enabled": False, "modified_count": result.modified_count}
+
+    location = normalize_tracking_location(payload.get("location"))
+    if not location:
+        raise HTTPException(status_code=400, detail="Current location is required to share live location")
+
+    share_token = secrets.token_urlsafe(18)
+    await db.location_sharing.update_one(
+        share_query,
+        {
+            "$set": {
+                "user_id": current_user["id"],
+                "contact_id": contact_id,
+                "contact": serialize_emergency_contact(contact),
+                "booking_id": booking_id,
+                "location": location,
+                "active": True,
+                "updated_at": now,
+            },
+            "$setOnInsert": {
+                "id": f"share-{uuid.uuid4().hex}",
+                "share_token": share_token,
+                "created_at": now,
+            },
+        },
+        upsert=True,
+    )
+    return {
+        "message": "Location sharing updated",
+        "enabled": True,
+        "contact_id": contact_id,
+        "booking_id": booking_id,
+        "location": location,
+    }
+
+
+@api_router.post("/passengers/location-sharing/auto-enable")
+@api_router.post("/v1/passengers/location-sharing/auto-enable")
+async def auto_enable_passenger_location_sharing(
+    payload: Dict[str, Any],
+    current_user: dict = Depends(get_current_user),
+):
+    require_passenger(current_user)
+    booking_id = str(payload.get("booking_id") or "").strip() or None
+    await validate_passenger_booking_for_sharing(current_user["id"], booking_id)
+
+    try:
+        duration_minutes = int(payload.get("duration_minutes") or 30)
+    except (TypeError, ValueError):
+        duration_minutes = 30
+    duration_minutes = max(1, min(1440, duration_minutes))
+    now = get_ist_now()
+    expires_at = now + timedelta(minutes=duration_minutes)
+    contacts = await db.emergency_contacts.find(
+        {"user_id": current_user["id"], "active": {"$ne": False}}
+    ).sort("created_at", -1).to_list(20)
+
+    for contact in contacts:
+        contact_id = str(contact.get("id") or contact.get("_id") or "")
+        await db.location_sharing.update_one(
+            {"user_id": current_user["id"], "contact_id": contact_id, "booking_id": booking_id},
+            {
+                "$set": {
+                    "user_id": current_user["id"],
+                    "contact_id": contact_id,
+                    "contact": serialize_emergency_contact(contact),
+                    "booking_id": booking_id,
+                    "active": True,
+                    "auto_share": True,
+                    "expires_at": expires_at,
+                    "updated_at": now,
+                },
+                "$setOnInsert": {
+                    "id": f"share-{uuid.uuid4().hex}",
+                    "share_token": secrets.token_urlsafe(18),
+                    "created_at": now,
+                },
+            },
+            upsert=True,
+        )
+
+    return {
+        "message": "Auto-sharing enabled",
+        "enabled": bool(contacts),
+        "shared_count": len(contacts),
+        "duration_minutes": duration_minutes,
+        "expires_at": expires_at.isoformat(),
+    }
 
 
 @api_router.post("/sos")
@@ -16154,17 +16657,25 @@ async def driver_location_update(sid, data):
             drop = booking.get("drop_location") or booking.get("dropoff_location")
             payload["eta_to_pickup_min"] = calculate_eta_minutes(location_payload, pickup)
             payload["eta_to_drop_min"] = calculate_eta_minutes(location_payload, drop)
+            tracking_set, tracking_push = build_trip_distance_tracking_update(
+                booking,
+                location_payload,
+                now,
+            )
+            booking_set_fields = {
+                "driver_live_location": location_payload,
+                "driver_location": location_payload,
+                "driver_eta_to_pickup_min": payload["eta_to_pickup_min"],
+                "driver_eta_to_drop_min": payload["eta_to_drop_min"],
+                "updated_at": get_ist_now(),
+                **tracking_set,
+            }
+            booking_update: Dict[str, Any] = {"$set": booking_set_fields}
+            if tracking_push:
+                booking_update["$push"] = {"trip_path_points": tracking_push}
             await db.bookings.update_one(
                 {"id": booking_id},
-                {
-                    "$set": {
-                        "driver_live_location": location_payload,
-                        "driver_location": location_payload,
-                        "driver_eta_to_pickup_min": payload["eta_to_pickup_min"],
-                        "driver_eta_to_drop_min": payload["eta_to_drop_min"],
-                        "updated_at": get_ist_now(),
-                    }
-                },
+                booking_update,
             )
 
         for event_name in ("driver_location_changed", "driver_location", "driver_location_updated"):

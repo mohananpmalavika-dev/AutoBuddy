@@ -480,6 +480,15 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     () => selectedVehicleTypeId || availableVehicleTypes?.[0]?.id || '',
     [availableVehicleTypes, selectedVehicleTypeId],
   );
+  const resolveEffectiveVehicleModelId = useCallback(() => {
+    const vehicleType =
+      (availableVehicleTypes || []).find((type) => type.id === effectiveSelectedVehicleTypeId) || null;
+    const modelOptions = getVehicleModelOptions(vehicleType);
+    if (modelOptions.some((model) => model.id === selectedVehicleModelId)) {
+      return selectedVehicleModelId;
+    }
+    return modelOptions[0]?.id || '';
+  }, [availableVehicleTypes, effectiveSelectedVehicleTypeId, selectedVehicleModelId]);
   const [corporateCode, setCorporateCode] = useState('');
   const [airportTerminal, setAirportTerminal] = useState('');
   const [flightNumber, setFlightNumber] = useState('');
@@ -538,6 +547,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       documents: t.documents || 'Documents',
       receipts: t.receipts || 'Saved Receipts',
       subscription: t.subscription || 'Subscription',
+      notes: t.notes || 'Ride Notes',
+      sharing: t.sharing || 'Location Sharing',
+      stats: t.stats || 'Ride Stats',
     }),
     [t],
   );
@@ -644,7 +656,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const activeRideStartOtp = String(activeBooking?.ride_start_otp || '').trim();
   const activeRideEndOtp = String(activeBooking?.ride_end_otp || '').trim();
   const isDriverLiveSharing = liveTrackStatuses.has(activeBookingStatus);
-  const canCancelActiveBooking = activeBookingStatus === 'pending';
+  const canCancelActiveBooking = ['pending', 'scheduled', 'driver_arrived'].includes(activeBookingStatus);
+  const driverArrivedCancellationApplies = activeBookingStatus === 'driver_arrived';
   const hasLiveRide = Boolean(
     activeBooking?.id &&
       !CLOSED_BOOKING_STATUSES.has(activeBookingStatus),
@@ -1022,6 +1035,40 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     driverDiscoveryCooldownUntilRef.current = 0;
   };
 
+  const clearRideSelectionResults = useCallback(() => {
+    setFare(null);
+    setNearbyDrivers([]);
+    setOptedOutDriverIds([]);
+    setSelectedDriverId('');
+    driverDiscoveryRequestRef.current = { signature: '', request: null, completedAt: 0 };
+    driverDiscoveryCooldownUntilRef.current = 0;
+  }, []);
+
+  const handleVehicleTypeSelect = useCallback(
+    (typeId) => {
+      setSelectedVehicleTypeId(typeId);
+      setSelectedVehicleModelId('');
+      clearRideSelectionResults();
+    },
+    [clearRideSelectionResults],
+  );
+
+  const handleVehicleModelSelect = useCallback(
+    (modelId) => {
+      setSelectedVehicleModelId(modelId);
+      clearRideSelectionResults();
+    },
+    [clearRideSelectionResults],
+  );
+
+  const handleRideProductSelect = useCallback(
+    (product) => {
+      setRideProduct(product);
+      clearRideSelectionResults();
+    },
+    [clearRideSelectionResults],
+  );
+
   useEffect(() => {
     if (!token) {
       return undefined;
@@ -1037,9 +1084,6 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       }
       if (prefs) {
         setPassengerPreferences(prefs);
-        if (prefs.default_payment_method) {
-          setSelectedPaymentMethod(normalizeBookingPaymentMethod(prefs.default_payment_method));
-        }
       }
       if (accessibility) {
         setPassengerAccessibility(accessibility);
@@ -1049,7 +1093,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     return () => {
       cancelled = true;
     };
-  }, [normalizeBookingPaymentMethod, token]);
+  }, [token]);
 
   useEffect(() => {
     if (activePassengerMenu !== 'live' || hasLiveRide) {
@@ -1131,13 +1175,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const handlePreferencesChange = useCallback(
     (nextPrefs) => {
       setPassengerPreferences(nextPrefs || null);
-      if (nextPrefs?.default_payment_method) {
-        const nextDefault = String(nextPrefs.default_payment_method || '').trim();
-        setSelectedPaymentMethod(normalizeBookingPaymentMethod(nextDefault));
-        setSelectedPaymentChannel(nextDefault || null);
-      }
     },
-    [normalizeBookingPaymentMethod],
+    [],
   );
 
   const handleAccessibilityChange = useCallback((settings) => {
@@ -2035,12 +2074,13 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
 
     setAutoFetchingTripData(true);
     try {
+      const vehicleSubtypeId = resolveEffectiveVehicleModelId();
       const query = {
         latitude: lookupLocation.latitude,
         longitude: lookupLocation.longitude,
         radius_km: 2,
         vehicle_type_id: effectiveSelectedVehicleTypeId || undefined,
-        vehicle_subtype_id: selectedVehicleModelId || undefined,
+        vehicle_subtype_id: vehicleSubtypeId || undefined,
         ride_type: effectiveRideProduct || undefined,
       };
       if (dropoffLocation) {
@@ -2055,6 +2095,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           query: {
             latitude: lookupLocation.latitude,
             longitude: lookupLocation.longitude,
+            include_availability: true,
           },
         }).catch(() => []),
         apiRequest('/passengers/blocked-drivers', { token }).catch(() => ({ driver_ids: [] })),
@@ -2077,8 +2118,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     dropoffLocation,
     effectiveRideProduct,
     effectiveSelectedVehicleTypeId,
+    resolveEffectiveVehicleModelId,
     resolveNearbyDriverLookupLocation,
-    selectedVehicleModelId,
     t.couldNotAutoCalculate,
     t.couldNotFetchCurrentLocation,
     token,
@@ -2093,11 +2134,12 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       return;
     }
 
+    const vehicleSubtypeId = resolveEffectiveVehicleModelId();
     const signature = [
       getDiscoveryLocationSignature(pickupLocation),
       getDiscoveryLocationSignature(dropoffLocation),
       effectiveSelectedVehicleTypeId || 'auto',
-      selectedVehicleModelId || 'model',
+      vehicleSubtypeId || 'model',
       effectiveRideProduct || 'normal',
     ].join('|');
     const now = Date.now();
@@ -2134,7 +2176,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               pickup_location: pickupLocation,
               drop_location: dropoffLocation,
               vehicle_type_id: effectiveSelectedVehicleTypeId || undefined,
-              vehicle_subtype_id: selectedVehicleModelId || undefined,
+              vehicle_subtype_id: vehicleSubtypeId || undefined,
               ride_type: effectiveRideProduct || undefined,
             },
           }),
@@ -2147,7 +2189,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               drop_longitude: dropoffLocation.longitude,
               radius_km: 2,
               vehicle_type_id: effectiveSelectedVehicleTypeId || undefined,
-              vehicle_subtype_id: selectedVehicleModelId || undefined,
+              vehicle_subtype_id: vehicleSubtypeId || undefined,
               ride_type: effectiveRideProduct || undefined,
             },
           }),
@@ -2156,6 +2198,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             query: {
               latitude: pickupLocation.latitude,
               longitude: pickupLocation.longitude,
+              include_availability: true,
             },
           }).catch(() => []),
           apiRequest('/passengers/blocked-drivers', { token }).catch(() => ({ driver_ids: [] })),
@@ -2199,7 +2242,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     effectiveRideProduct,
     effectiveSelectedVehicleTypeId,
     pickupLocation,
-    selectedVehicleModelId,
+    resolveEffectiveVehicleModelId,
     t.couldNotAutoCalculate,
     token,
   ]);
@@ -2459,15 +2502,39 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       setError(t.rideCannotBeCancelledAfterAccept);
       return;
     }
+    const cancellationPolicyText = driverArrivedCancellationApplies
+      ? (t.driverArrivedCancellationMinimumFare ||
+          'Your driver has arrived. If you cancel now, the minimum fare will be payable to the driver.')
+      : (t.freeCancellationBeforeAccept ||
+          'Free cancellation applies while the ride is pending or scheduled.');
     const confirmed = window.confirm(
-      `${t.confirmCancelBooking}\n\nPickup: ${normalizeLocation(activeBooking.pickup_location)?.address || 'Unknown'}\nDrop: ${normalizeLocation(activeBooking.drop_location || activeBooking.dropoff_location)?.address || 'Unknown'}`,
+      `${t.confirmCancelBooking || 'Confirm cancellation'}\n\nPickup: ${normalizeLocation(activeBooking.pickup_location)?.address || 'Unknown'}\nDrop: ${normalizeLocation(activeBooking.drop_location || activeBooking.dropoff_location)?.address || 'Unknown'}\n\n${cancellationPolicyText}`,
     );
     if (!confirmed) {
-      setMessage(t.cancellationAborted);
+      setMessage(t.cancellationAborted || 'Cancellation aborted.');
       return;
     }
     const cancelled = await callApi(() =>
-      apiRequest(`/bookings/${activeBooking.id}/cancel`, { method: 'PUT', token }),
+      apiRequest(`/bookings/${activeBooking.id}/cancel`, {
+        method: 'PUT',
+        token,
+        body: {
+          reason_code: driverArrivedCancellationApplies
+            ? 'passenger_driver_arrived_cancelled'
+            : 'passenger_pending_cancelled',
+          reason_text: driverArrivedCancellationApplies
+            ? 'Passenger cancelled after driver arrival before trip start.'
+            : 'Passenger cancelled before driver arrival.',
+          policy_acknowledged: true,
+          policy_version: driverArrivedCancellationApplies
+            ? 'passenger_driver_arrived_cancel_v1'
+            : 'passenger_pending_cancel_v1',
+          passenger_context: {
+            source: 'passenger_map',
+            status_before_cancel: activeBookingStatus || activeBooking.status,
+          },
+        },
+      }),
     );
     if (cancelled) {
       setMessage(t.bookingCancelled);
@@ -2651,7 +2718,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                       <TouchableOpacity
                         key={type.id}
                         style={[styles.rideDetailsOptionChip, active && styles.rideDetailsOptionChipActive]}
-                        onPress={() => setSelectedVehicleTypeId(type.id)}>
+                        onPress={() => handleVehicleTypeSelect(type.id)}>
                         {!!type.icon && <Text style={styles.rideDetailsOptionIcon}>{type.icon}</Text>}
                         <Text
                           style={[
@@ -2677,7 +2744,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                     <TouchableOpacity
                       key={model.id}
                       style={[styles.rideDetailsOptionChip, active && styles.rideDetailsOptionChipActive]}
-                      onPress={() => setSelectedVehicleModelId(model.id)}>
+                      onPress={() => handleVehicleModelSelect(model.id)}>
                       <Text
                         style={[styles.rideDetailsOptionText, active && styles.rideDetailsOptionTextActive]}
                         numberOfLines={1}>
@@ -2697,7 +2764,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                 heading="Ride type"
                 subheading=""
                 labels={rideProductLabels}
-                onSelect={setRideProduct}
+                onSelect={handleRideProductSelect}
               />
             </View>
 
@@ -2843,17 +2910,6 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         </View>
       )}
 
-      <View style={styles.quickFareCard}>
-        <View>
-          <Text style={styles.quickFareLabel}>{quickBookingReady ? 'Estimated fare' : 'Trip preview'}</Text>
-          <Text style={styles.quickFareValue}>{autoFetchingTripData ? 'Calculating...' : quickFareLabel}</Text>
-        </View>
-        <View style={styles.quickFareMeta}>
-          <Text style={styles.quickFareMetaText}>{quickDistanceLabel}</Text>
-          <Text style={styles.quickFareMetaText}>{quickEtaLabel}</Text>
-        </View>
-      </View>
-
       <View style={styles.quickChoiceRow}>
         <TouchableOpacity
           style={styles.quickChoiceChip}
@@ -2871,6 +2927,17 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           <Text style={styles.quickChoiceLabel}>Payment</Text>
           <Text style={styles.quickChoiceValue}>{selectedPaymentMethod === 'online' ? 'Online' : 'Cash'}</Text>
         </TouchableOpacity>
+      </View>
+
+      <View style={styles.quickFareCard}>
+        <View>
+          <Text style={styles.quickFareLabel}>{quickBookingReady ? 'Estimated fare' : 'Trip preview'}</Text>
+          <Text style={styles.quickFareValue}>{autoFetchingTripData ? 'Calculating...' : quickFareLabel}</Text>
+        </View>
+        <View style={styles.quickFareMeta}>
+          <Text style={styles.quickFareMetaText}>{quickDistanceLabel}</Text>
+          <Text style={styles.quickFareMetaText}>{quickEtaLabel}</Text>
+        </View>
       </View>
 
       <TouchableOpacity
@@ -3440,7 +3507,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                     heading={t.chooseRideProduct}
                     subheading={t.chooseRideProductMl}
                     labels={rideProductLabels}
-                    onSelect={setRideProduct}
+                    onSelect={handleRideProductSelect}
                   />
 
                   {/* Vehicle Type Selector - HIDDEN (replaced by new flow) */}
@@ -3462,7 +3529,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                               styles.vehicleTypeChip,
                               effectiveSelectedVehicleTypeId === type.id && styles.vehicleTypeChipActive,
                             ]}
-                            onPress={() => setSelectedVehicleTypeId(type.id)}
+                            onPress={() => handleVehicleTypeSelect(type.id)}
                           >
                             <Text style={styles.vehicleTypeChipIcon}>{type.icon}</Text>
                             <Text

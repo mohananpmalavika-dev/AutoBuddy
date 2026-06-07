@@ -15,7 +15,15 @@ export default function EmergencyContactsPanel({ token }) {
       setLoading(true);
       setError('');
       const response = await apiRequest('/v1/passengers/emergency-contacts', { token });
-      setContacts(Array.isArray(response?.data) ? response.data : Array.isArray(response) ? response : []);
+      setContacts(
+        Array.isArray(response?.data)
+          ? response.data
+          : Array.isArray(response?.contacts)
+            ? response.contacts
+            : Array.isArray(response)
+              ? response
+              : [],
+      );
     } catch (err) {
       setError(err.message || 'Failed to load emergency contacts');
     } finally {
