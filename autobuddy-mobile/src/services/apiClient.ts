@@ -1230,7 +1230,7 @@ export const adminAPI = {
     axiosInstance.get('/api/admin/dashboard'),
 
   getDashboardAnalytics: (range?: string) =>
-    axiosInstance.get(`/api/admin/analytics/dashboard?range=${range || 'week'}`),
+    axiosInstance.get('/api/admin/reports/analytics/dashboard', { params: { range: range || 'week' } }),
 
   getRideAnalytics: (filters?: any) =>
     axiosInstance.get('/api/admin/analytics/rides', { params: filters }),

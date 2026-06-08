@@ -17,6 +17,7 @@ import {
   StyleSheet,
   Modal,
 } from 'react-native';
+import { apiRequest } from '../../lib/api';
 
 type UserType = 'all' | 'passenger' | 'driver' | 'admin';
 
@@ -37,6 +38,19 @@ type UserManagementPanelProps = {
   adminToken: string;
 };
 
+const normalizeUsersPayload = (payload: any): AdminUser[] => {
+  if (Array.isArray(payload)) {
+    return payload as AdminUser[];
+  }
+  if (Array.isArray(payload?.users)) {
+    return payload.users as AdminUser[];
+  }
+  if (Array.isArray(payload?.data)) {
+    return payload.data as AdminUser[];
+  }
+  return [];
+};
+
 const UserManagementPanel = ({ adminToken }: UserManagementPanelProps) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -48,20 +62,13 @@ const UserManagementPanel = ({ adminToken }: UserManagementPanelProps) => {
   const searchUsers = useCallback(async () => {
     setLoading(true);
     try {
-      const endpoint = searchQuery
-        ? `/api/admin/users/search?query=${encodeURIComponent(searchQuery)}&type=${filterType}`
-        : `/api/admin/users?type=${filterType}&limit=50`;
-
-      const response = await fetch(endpoint, {
-        headers: { Authorization: `Bearer ${adminToken}` },
+      const data = await apiRequest(searchQuery ? '/admin/users/search' : '/admin/users', {
+        token: adminToken,
+        query: searchQuery
+          ? { q: searchQuery, query: searchQuery, user_type: filterType, type: filterType, limit: 50 }
+          : { type: filterType, limit: 50 },
       });
-
-      if (response.ok) {
-        const data = await response.json();
-        setUsers((data.users || []) as AdminUser[]);
-      } else {
-        Alert.alert('Error', 'Failed to search users');
-      }
+      setUsers(normalizeUsersPayload(data));
     } catch (error) {
       Alert.alert('Error', error instanceof Error ? error.message : 'Failed to search users');
     } finally {
@@ -80,16 +87,14 @@ const UserManagementPanel = ({ adminToken }: UserManagementPanelProps) => {
         text: 'Block',
         onPress: async () => {
           try {
-            const response = await fetch(`/api/admin/users/${userId}/block`, {
+            await apiRequest(`/admin/users/${userId}/block`, {
               method: 'PUT',
-              headers: { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ reason: 'Admin action' }),
+              token: adminToken,
+              body: { reason: 'Admin action' },
             });
 
-            if (response.ok) {
-              Alert.alert('Success', 'User blocked');
-              searchUsers();
-            }
+            Alert.alert('Success', 'User blocked');
+            searchUsers();
           } catch (error) {
             Alert.alert('Error', error instanceof Error ? error.message : 'Failed to block user');
           }
@@ -100,15 +105,13 @@ const UserManagementPanel = ({ adminToken }: UserManagementPanelProps) => {
 
   const handleUnblockUser = async (userId: string) => {
     try {
-      const response = await fetch(`/api/admin/users/${userId}/unblock`, {
+      await apiRequest(`/admin/users/${userId}/unblock`, {
         method: 'PUT',
-        headers: { Authorization: `Bearer ${adminToken}` },
+        token: adminToken,
       });
 
-      if (response.ok) {
-        Alert.alert('Success', 'User unblocked');
-        searchUsers();
-      }
+      Alert.alert('Success', 'User unblocked');
+      searchUsers();
     } catch (error) {
       Alert.alert('Error', error instanceof Error ? error.message : 'Failed to unblock user');
     }

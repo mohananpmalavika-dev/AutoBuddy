@@ -364,6 +364,68 @@ function normalizeListResponse(payload, keys = []) {
   return [];
 }
 
+function normalizeAdminKycRequest(row, subjectType = 'driver') {
+  const role = subjectType === 'passenger' ? 'passenger' : 'driver';
+  const subjectId = String(
+    role === 'passenger'
+      ? row?.passenger_id || row?.user_id || row?.id || ''
+      : row?.driver_id || row?.user_id || row?.id || '',
+  );
+  const displayName = role === 'passenger'
+    ? row?.passenger_name || row?.name || 'Unknown Passenger'
+    : row?.driver_name || row?.name || 'Unknown Driver';
+  const phone = role === 'passenger'
+    ? row?.passenger_phone || row?.phone || ''
+    : row?.driver_phone || row?.phone || '';
+  const email = role === 'passenger'
+    ? row?.passenger_email || row?.email || ''
+    : row?.driver_email || row?.email || '';
+
+  return {
+    ...row,
+    subject_type: role,
+    subject_label: role === 'passenger' ? 'Passenger' : 'Driver',
+    subject_id: subjectId,
+    kyc_review_id: `${role}:${subjectId || row?.id || ''}`,
+    display_name: displayName,
+    display_phone: phone,
+    display_email: email,
+    driver_id: role === 'driver' ? subjectId : row?.driver_id,
+    driver_name: role === 'driver' ? displayName : row?.driver_name,
+    driver_phone: role === 'driver' ? phone : row?.driver_phone,
+    driver_email: role === 'driver' ? email : row?.driver_email,
+    passenger_id: role === 'passenger' ? subjectId : row?.passenger_id,
+    passenger_name: role === 'passenger' ? displayName : row?.passenger_name,
+    passenger_phone: role === 'passenger' ? phone : row?.passenger_phone,
+    passenger_email: role === 'passenger' ? email : row?.passenger_email,
+  };
+}
+
+function getAdminKycPreviewDocuments(kyc) {
+  if (!kyc) {
+    return {};
+  }
+  return {
+    id_proof:
+      kyc.id_proof_url ||
+      kyc.aadhaar_image_url ||
+      kyc.aadhaar_document_url ||
+      kyc.document_url ||
+      kyc.download_url,
+    driving_license:
+      kyc.driving_license_url ||
+      kyc.license_image_url ||
+      kyc.license_document_url,
+    vehicle_rc:
+      kyc.vehicle_rc_url ||
+      kyc.rc_image_url ||
+      kyc.rc_document_url,
+    insurance: kyc.insurance_url || kyc.insurance_document_url,
+    pollution_cert: kyc.pollution_certificate_url || kyc.pollution_cert_url,
+    badge_photo: kyc.badge_photo_url || kyc.selfie_image_url,
+  };
+}
+
 function normalizeRoleReportRows(primaryRows, fallbackRows, role) {
   const rows = primaryRows.length > 0 ? primaryRows : fallbackRows;
   return rows.map((user) => {
@@ -551,7 +613,6 @@ export default function AdminDashboard({ token, user, onLogout }) {
   const [pendingAccountDeletionRequests, setPendingAccountDeletionRequests] = useState([]);
   const [pendingDriverFareRequests, setPendingDriverFareRequests] = useState([]);
   const [approvedDriverFareConfigs, setApprovedDriverFareConfigs] = useState([]);
-  const [, setPassengerKycRequests] = useState([]);
   const [ongoingTrips, setOngoingTrips] = useState([]);
   const [tripCancelReasons, setTripCancelReasons] = useState({});
   const [activeAdminMenu, setActiveAdminMenu] = useState(PRIMARY_ADMIN_MENU_KEY);
@@ -600,7 +661,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
   const [showConfirmTripsModal, setShowConfirmTripsModal] = useState(false);
   const [confirmTripAction, setConfirmTripAction] = useState({ tripId: null, reason: '' });
   const [showConfirmKycModal, setShowConfirmKycModal] = useState(false);
-  const [confirmKycAction, setConfirmKycAction] = useState({ kycId: null, decision: 'approve' });
+  const [confirmKycAction, setConfirmKycAction] = useState({ kycId: null, subjectType: 'driver', decision: 'approve' });
 
   // PHASE 2: PAGINATION & SEARCH STATE
   // Phone Requests
@@ -723,8 +784,13 @@ export default function AdminDashboard({ token, user, onLogout }) {
       });
     }
     if (loadKyc) {
-      setKycRequests(normalizeListResponse(pending, ['pending', 'requests', 'kyc_requests']));
-      setPassengerKycRequests(normalizeListResponse(pendingPassengerKyc, ['pending', 'requests', 'kyc_requests']));
+      const driverKycRows = normalizeListResponse(pending, ['pending', 'requests', 'kyc_requests'])
+        .map((row) => normalizeAdminKycRequest(row, 'driver'));
+      const passengerKycRows = normalizeListResponse(pendingPassengerKyc, ['pending', 'requests', 'kyc_requests'])
+        .map((row) => normalizeAdminKycRequest(row, 'passenger'));
+      setKycRequests([...driverKycRows, ...passengerKycRows].sort((a, b) => (
+        String(b.submitted_at || b.updated_at || '').localeCompare(String(a.submitted_at || a.updated_at || ''))
+      )));
     }
     if (feeSettings) {
       setRegistrationFees({
@@ -984,15 +1050,29 @@ export default function AdminDashboard({ token, user, onLogout }) {
     const filtered = (kycRequests || []).filter((kyc) => {
       // Search filter
       if (search.trim()) {
-        const matchesSearch =
-          kyc.driver_id?.toLowerCase().includes(search) ||
-          kyc.driver_name?.toLowerCase().includes(search) ||
-          kyc.driver_phone?.includes(search) ||
-          kyc.driver_email?.toLowerCase().includes(search);
+        const matchesSearch = [
+          kyc.subject_id,
+          kyc.kyc_review_id,
+          kyc.display_name,
+          kyc.display_phone,
+          kyc.display_email,
+          kyc.subject_type,
+          kyc.driver_id,
+          kyc.driver_name,
+          kyc.driver_phone,
+          kyc.driver_email,
+          kyc.passenger_id,
+          kyc.passenger_name,
+          kyc.passenger_phone,
+          kyc.passenger_email,
+          kyc.document_type,
+        ]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(search));
         if (!matchesSearch) return false;
       }
       // Status filter
-      if (kycFilterStatus !== 'all' && kyc.status !== kycFilterStatus) {
+      if (kycFilterStatus !== 'all' && String(kyc.status || '').toLowerCase() !== kycFilterStatus) {
         return false;
       }
       return true;
@@ -1006,6 +1086,25 @@ export default function AdminDashboard({ token, user, onLogout }) {
     const end = start + kycPageSize;
     return filtered.slice(start, end);
   }, [filterAndPaginateKyc, kycPage, kycPageSize]);
+
+  const findKycReviewRow = useCallback((kycId, subjectType) => {
+    const id = String(kycId || '');
+    return (kycRequests || []).find((kyc) => {
+      if (subjectType && kyc.subject_type !== subjectType) {
+        return false;
+      }
+      return [
+        kyc.kyc_review_id,
+        kyc.subject_id,
+        kyc.id,
+        kyc.user_id,
+        kyc.driver_id,
+        kyc.passenger_id,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value) === id);
+    });
+  }, [kycRequests]);
 
   // PHASE 2: FILTERING FUNCTIONS FOR REMAINING SECTIONS
   // Filter phone change requests
@@ -1136,28 +1235,40 @@ export default function AdminDashboard({ token, user, onLogout }) {
     }
   };
 
-  const handleApproveKyc = async (kycId) => {
-    const kyc = (kycRequests || []).find((k) => k.id === kycId);
+  const handleApproveKyc = async (kycId, subjectType) => {
+    const kyc = findKycReviewRow(kycId, subjectType);
+    const resolvedSubjectType = kyc?.subject_type || subjectType || 'driver';
+    const reviewUserId = kyc?.subject_id || String(kycId || '').replace(/^(driver|passenger):/, '');
+    if (!reviewUserId) {
+      setError('KYC record is missing a user ID.');
+      return;
+    }
     setShowConfirmKycModal(false);
     setAuditLogging(true);
 
     try {
       await AdminAuditLogger.logAction(ACTION_TYPES.KYC_APPROVED, {
         kyc_id: kycId,
+        subject_type: resolvedSubjectType,
+        user_id: reviewUserId,
         driver_id: kyc?.driver_id,
         driver_name: kyc?.driver_name,
+        passenger_id: kyc?.passenger_id,
+        passenger_name: kyc?.passenger_name,
         approved_at: new Date().toISOString(),
       });
 
-      // Approve KYC
-      const result = await apiRequest('/admin/kyc/approve', {
-        method: 'POST',
+      const reviewPath = resolvedSubjectType === 'passenger'
+        ? `/admin/passengers/kyc/${reviewUserId}`
+        : `/admin/kyc/${reviewUserId}`;
+      const result = await apiRequest(reviewPath, {
+        method: 'PUT',
         token,
-        body: { kyc_id: kycId },
+        body: { status: 'approved' },
       });
 
-      if (result?.success) {
-        setMessage('✓ KYC approved and logged');
+      if (result) {
+        setMessage(`✓ ${kyc?.subject_label || 'KYC'} approved and logged`);
         await refreshAdminData();
       } else {
         setError(result?.error || 'Failed to approve KYC');
@@ -1169,29 +1280,41 @@ export default function AdminDashboard({ token, user, onLogout }) {
     }
   };
 
-  const handleRejectKyc = async (kycId, reason) => {
-    const kyc = (kycRequests || []).find((k) => k.id === kycId);
+  const handleRejectKyc = async (kycId, reason, subjectType) => {
+    const kyc = findKycReviewRow(kycId, subjectType);
+    const resolvedSubjectType = kyc?.subject_type || subjectType || 'driver';
+    const reviewUserId = kyc?.subject_id || String(kycId || '').replace(/^(driver|passenger):/, '');
+    if (!reviewUserId) {
+      setError('KYC record is missing a user ID.');
+      return;
+    }
     setShowConfirmKycModal(false);
     setAuditLogging(true);
 
     try {
       await AdminAuditLogger.logAction(ACTION_TYPES.KYC_REJECTED, {
         kyc_id: kycId,
+        subject_type: resolvedSubjectType,
+        user_id: reviewUserId,
         driver_id: kyc?.driver_id,
         driver_name: kyc?.driver_name,
+        passenger_id: kyc?.passenger_id,
+        passenger_name: kyc?.passenger_name,
         rejection_reason: reason,
         rejected_at: new Date().toISOString(),
       });
 
-      // Reject KYC
-      const result = await apiRequest('/admin/kyc/reject', {
-        method: 'POST',
+      const reviewPath = resolvedSubjectType === 'passenger'
+        ? `/admin/passengers/kyc/${reviewUserId}`
+        : `/admin/kyc/${reviewUserId}`;
+      const result = await apiRequest(reviewPath, {
+        method: 'PUT',
         token,
-        body: { kyc_id: kycId, reason },
+        body: { status: 'rejected', reject_reason: reason },
       });
 
-      if (result?.success) {
-        setMessage('✓ KYC rejected and logged');
+      if (result) {
+        setMessage(`✓ ${kyc?.subject_label || 'KYC'} rejected and logged`);
         await refreshAdminData();
       } else {
         setError(result?.error || 'Failed to reject KYC');
@@ -3464,7 +3587,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
           <Text style={styles.sectionTitle}>KYC Verification ({kycRequests.length})</Text>
 
           <AdminSearchBar
-            placeholder="Search by driver name, phone, or ID..."
+            placeholder="Search by name, phone, role, document, or ID..."
             value={kycSearchTerm}
             onSearch={setKycSearchTerm}
             filterOptions={[
@@ -3486,10 +3609,18 @@ export default function AdminDashboard({ token, user, onLogout }) {
           ) : (
             <>
               {filteredKyc.map((kyc) => (
-                <View key={kyc.driver_id || kyc.id} style={styles.kycCard}>
-                  <Text style={styles.driverName}>{kyc.driver_name}</Text>
-                  <Text style={styles.kycDate}>Driver ID: {kyc.driver_id}</Text>
-                  <Text style={styles.kycDate}>Phone: {kyc.driver_phone}</Text>
+                <View key={kyc.kyc_review_id || kyc.driver_id || kyc.passenger_id || kyc.id} style={styles.kycCard}>
+                  <Text style={styles.driverName}>{kyc.display_name}</Text>
+                  <Text style={styles.kycDate}>Role: {kyc.subject_label}</Text>
+                  <Text style={styles.kycDate}>{kyc.subject_label} ID: {kyc.subject_id}</Text>
+                  {!!kyc.display_phone && <Text style={styles.kycDate}>Phone: {kyc.display_phone}</Text>}
+                  {!!kyc.display_email && <Text style={styles.kycDate}>Email: {kyc.display_email}</Text>}
+                  {!!kyc.document_type && (
+                    <Text style={styles.kycDate}>
+                      Document: {String(kyc.document_type).toUpperCase()}
+                      {kyc.document_number_masked || kyc.document_number ? ` | ${kyc.document_number_masked || kyc.document_number}` : ''}
+                    </Text>
+                  )}
                   <Text style={styles.kycDate}>Status: {kyc.status || 'Pending'}</Text>
                   <Text style={styles.kycDate}>Submitted: {kyc.submitted_at}</Text>
                   <View style={styles.actionButtons}>
@@ -3504,7 +3635,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                     <TouchableOpacity
                       style={[styles.btn, styles.btnReject]}
                       onPress={() => {
-                        setConfirmKycAction({ kycId: kyc.driver_id || kyc.id, decision: 'reject' });
+                        setConfirmKycAction({ kycId: kyc.kyc_review_id || kyc.subject_id, subjectType: kyc.subject_type, decision: 'reject' });
                         setShowConfirmKycModal(true);
                       }}
                       disabled={loading || auditLogging}>
@@ -3513,7 +3644,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
                     <TouchableOpacity
                       style={[styles.btn, styles.btnApprove]}
                       onPress={() => {
-                        setConfirmKycAction({ kycId: kyc.driver_id || kyc.id, decision: 'approve' });
+                        setConfirmKycAction({ kycId: kyc.kyc_review_id || kyc.subject_id, subjectType: kyc.subject_type, decision: 'approve' });
                         setShowConfirmKycModal(true);
                       }}
                       disabled={loading || auditLogging}>
@@ -3535,25 +3666,25 @@ export default function AdminDashboard({ token, user, onLogout }) {
 
           <KycDocumentPreview
             visible={showKycPreview}
-            documents={{
-              id_proof: selectedKycForPreview?.id_proof_url,
-              driving_license: selectedKycForPreview?.driving_license_url,
-              vehicle_rc: selectedKycForPreview?.vehicle_rc_url,
-              insurance: selectedKycForPreview?.insurance_url,
-              pollution_cert: selectedKycForPreview?.pollution_certificate_url,
-              badge_photo: selectedKycForPreview?.badge_photo_url,
-            }}
-            driverName={selectedKycForPreview?.driver_name}
+            documents={getAdminKycPreviewDocuments(selectedKycForPreview)}
+            driverName={selectedKycForPreview?.display_name}
             onClose={() => setShowKycPreview(false)}
             onApprove={(docType) => {
               if (docType === 'all') {
-                handleApproveKyc(selectedKycForPreview?.driver_id || selectedKycForPreview?.id);
+                handleApproveKyc(
+                  selectedKycForPreview?.kyc_review_id || selectedKycForPreview?.subject_id,
+                  selectedKycForPreview?.subject_type,
+                );
                 setShowKycPreview(false);
               }
             }}
             onReject={(docType, reason) => {
               if (docType === 'all') {
-                handleRejectKyc(selectedKycForPreview?.driver_id || selectedKycForPreview?.id, reason || 'Unclear documents');
+                handleRejectKyc(
+                  selectedKycForPreview?.kyc_review_id || selectedKycForPreview?.subject_id,
+                  reason || 'Unclear documents',
+                  selectedKycForPreview?.subject_type,
+                );
                 setShowKycPreview(false);
               }
             }}
@@ -3562,15 +3693,15 @@ export default function AdminDashboard({ token, user, onLogout }) {
           <ConfirmationDialog
             visible={showConfirmKycModal}
             title={confirmKycAction.decision === 'approve' ? 'Approve KYC?' : 'Reject KYC?'}
-            message={`Are you sure you want to ${confirmKycAction.decision} this driver's KYC?`}
+            message={`Are you sure you want to ${confirmKycAction.decision} this ${confirmKycAction.subjectType || 'user'} KYC?`}
             confirmText={confirmKycAction.decision === 'approve' ? 'YES, APPROVE' : 'YES, REJECT'}
             confirmButtonColor={confirmKycAction.decision === 'approve' ? '#4CAF50' : '#FF9800'}
             cancelText="NO, CANCEL"
             onConfirm={() => {
               if (confirmKycAction.decision === 'approve') {
-                handleApproveKyc(confirmKycAction.kycId);
+                handleApproveKyc(confirmKycAction.kycId, confirmKycAction.subjectType);
               } else {
-                handleRejectKyc(confirmKycAction.kycId, 'Rejected by admin');
+                handleRejectKyc(confirmKycAction.kycId, 'Rejected by admin', confirmKycAction.subjectType);
               }
             }}
             onCancel={() => setShowConfirmKycModal(false)}

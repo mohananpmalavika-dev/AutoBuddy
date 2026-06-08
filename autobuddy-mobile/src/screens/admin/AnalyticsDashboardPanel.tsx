@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
+import { apiRequest } from '../../lib/api';
 
 type DateRange = 'today' | 'week' | 'month' | 'year';
 
@@ -45,16 +46,11 @@ const AnalyticsDashboardPanel = ({ adminToken }: AnalyticsDashboardPanelProps) =
   const loadDashboardData = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch(`/api/admin/analytics/dashboard?range=${dateRange}`, {
-        headers: { Authorization: `Bearer ${adminToken}` },
+      const data = await apiRequest('/admin/reports/analytics/dashboard', {
+        token: adminToken,
+        query: { range: dateRange },
       });
-
-      if (response.ok) {
-        const data = await response.json();
-        setStats(data);
-      } else {
-        Alert.alert('Error', 'Failed to load analytics');
-      }
+      setStats(data);
     } catch (error) {
       Alert.alert('Error', error instanceof Error ? error.message : 'Failed to load analytics');
     } finally {

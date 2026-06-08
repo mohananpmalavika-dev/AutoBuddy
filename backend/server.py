@@ -16031,6 +16031,50 @@ async def create_rating(rating_data: RatingCreate, current_user: dict = Depends(
     return {"message": "Rating submitted"}
 
 # ==================== ADMIN ENDPOINTS ====================
+def build_admin_users_query(user_type: Optional[str] = None, search_text: Optional[str] = None) -> Dict[str, Any]:
+    filters: List[Dict[str, Any]] = []
+    normalized_role = _normalize_role_text(user_type)
+    if normalized_role:
+        filters.append(_role_query(normalized_role))
+
+    normalized_search = re.sub(r"\s+", " ", str(search_text or "").strip())
+    if normalized_search:
+        escaped = re.escape(normalized_search)
+        filters.append(
+            {
+                "$or": [
+                    {"id": {"$regex": escaped, "$options": "i"}},
+                    {"name": {"$regex": escaped, "$options": "i"}},
+                    {"email": {"$regex": escaped, "$options": "i"}},
+                    {"phone": {"$regex": escaped, "$options": "i"}},
+                ]
+            }
+        )
+
+    if not filters:
+        return {}
+    if len(filters) == 1:
+        return filters[0]
+    return {"$and": filters}
+
+
+def serialize_admin_user(user: Dict[str, Any]) -> Dict[str, Any]:
+    row = without_mongo_id(user)
+    row.pop("password_hash", None)
+    role = _normalize_role_text(row.get("role") or row.get("user_type")) or str(row.get("role") or row.get("user_type") or "")
+    blocked = bool(row.get("is_blocked") or row.get("blocked") or str(row.get("status") or "").strip().lower() == "blocked")
+    account_status = "blocked" if blocked else row.get("account_status") or str(row.get("status") or "active")
+    return {
+        **row,
+        "id": str(row.get("id") or ""),
+        "role": role,
+        "user_type": role,
+        "blocked": blocked,
+        "is_blocked": blocked,
+        "account_status": account_status,
+    }
+
+
 @api_router.get("/admin/dashboard")
 async def get_admin_dashboard(current_user: dict = Depends(get_current_user)):
     """Get admin dashboard stats"""
@@ -16099,13 +16143,38 @@ async def get_admin_dashboard(current_user: dict = Depends(get_current_user)):
     }
 
 @api_router.get("/admin/users")
-async def get_all_users(current_user: dict = Depends(get_current_user)):
+async def get_all_users(
+    user_type: str = Query("all", alias="type"),
+    limit: int = Query(100, ge=1, le=500),
+    current_user: dict = Depends(get_current_user),
+):
     """Get all users"""
     if current_user["role"] != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Admin access required")
-    
-    users = await db.users.find({}).to_list(1000)
-    return [{**u, "_id": str(u["_id"]), "password_hash": None} for u in users]
+
+    query = build_admin_users_query(user_type if user_type != "all" else None)
+    users = await db.users.find(query).sort("created_at", -1).to_list(limit)
+    return {"users": [serialize_admin_user(user) for user in users]}
+
+
+@api_router.get("/admin/users/search")
+async def search_admin_users(
+    q: Optional[str] = Query(None),
+    query: Optional[str] = Query(None),
+    user_type: str = Query("all"),
+    type_filter: str = Query("all", alias="type"),
+    limit: int = Query(50, ge=1, le=200),
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user["role"] != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    search_text = q or query or ""
+    role_filter = user_type if user_type != "all" else type_filter
+    users = await db.users.find(
+        build_admin_users_query(role_filter if role_filter != "all" else None, search_text)
+    ).sort("created_at", -1).to_list(limit)
+    return {"users": [serialize_admin_user(user) for user in users]}
 
 @api_router.get("/admin/users/role-report")
 async def get_admin_users_role_report(current_user: dict = Depends(get_current_user)):
@@ -16286,6 +16355,89 @@ async def get_admin_users_live_status(current_user: dict = Depends(get_current_u
         "generated_at": get_ist_now(),
     }
 
+
+@api_router.put("/admin/users/{user_id}/block")
+async def block_admin_user(
+    user_id: str,
+    payload: Optional[UserBlockToggleRequest] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user["role"] != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if user_id == current_user.get("id"):
+        raise HTTPException(status_code=400, detail="Admins cannot block their own active account")
+
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if _normalize_role_text(user.get("role") or user.get("user_type")) == UserRole.ADMIN.value:
+        raise HTTPException(status_code=400, detail="Admin accounts cannot be blocked from this panel")
+
+    now = get_ist_now()
+    reason = str((payload.reason if payload else None) or "Admin action").strip() or "Admin action"
+    await db.users.update_one(
+        {"id": user_id},
+        {
+            "$set": {
+                "status": "blocked",
+                "account_status": "blocked",
+                "is_blocked": True,
+                "blocked": True,
+                "blocked_at": now,
+                "blocked_by": current_user.get("id"),
+                "block_reason": reason,
+                "updated_at": now,
+            }
+        },
+    )
+
+    if _normalize_role_text(user.get("role") or user.get("user_type")) == UserRole.DRIVER.value:
+        await db.drivers.update_one(
+            {"user_id": user_id},
+            {"$set": {"is_online": False, "is_available": False, "admin_blocked": True, "updated_at": now}},
+        )
+        await cache_delete(f"driver_pending_requests:{user_id}")
+
+    updated = await db.users.find_one({"id": user_id}) or user
+    return {"message": "User blocked", "user": serialize_admin_user(updated)}
+
+
+@api_router.put("/admin/users/{user_id}/unblock")
+async def unblock_admin_user(user_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    now = get_ist_now()
+    await db.users.update_one(
+        {"id": user_id},
+        {
+            "$set": {
+                "status": "active",
+                "account_status": "active",
+                "is_blocked": False,
+                "blocked": False,
+                "unblocked_at": now,
+                "unblocked_by": current_user.get("id"),
+                "updated_at": now,
+            },
+            "$unset": {"block_reason": "", "blocked_at": "", "blocked_by": ""},
+        },
+    )
+
+    if _normalize_role_text(user.get("role") or user.get("user_type")) == UserRole.DRIVER.value:
+        await db.drivers.update_one(
+            {"user_id": user_id},
+            {"$set": {"admin_blocked": False, "updated_at": now}},
+        )
+        await cache_delete(f"driver_pending_requests:{user_id}")
+
+    updated = await db.users.find_one({"id": user_id}) or user
+    return {"message": "User unblocked", "user": serialize_admin_user(updated)}
+
 @api_router.get("/admin/bookings/ongoing")
 async def get_admin_ongoing_bookings(current_user: dict = Depends(get_current_user)):
     if current_user["role"] != UserRole.ADMIN:
@@ -16370,6 +16522,28 @@ async def cancel_booking_from_admin(
                 "admin_cancelled_by": current_user.get("id"),
                 "admin_cancel_reason": cancel_reason,
             }
+        },
+    )
+    await sync_booking_product_sidecar_status(
+        booking,
+        BookingStatus.CANCELLED,
+        {
+            "dispatch_status": "cancelled",
+            "status": "cancelled",
+            "cancelled_at": now,
+            "cancelled_by": current_user.get("id"),
+            "cancelled_by_role": "admin",
+            "cancel_reason": cancel_reason,
+            "cancellation_reason": cancel_reason,
+            "admin_cancelled_at": now,
+            "admin_cancelled_by": current_user.get("id"),
+            "admin_cancel_reason": cancel_reason,
+            "cancellation_details": {
+                "cancelled_by": current_user.get("id"),
+                "cancelled_by_role": "admin",
+                "reason": cancel_reason,
+                "cancelled_at": now,
+            },
         },
     )
     if booking.get("driver_id"):
