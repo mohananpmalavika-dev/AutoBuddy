@@ -15,7 +15,10 @@ class RideTypeEnum(str, Enum):
     RENTAL = "rental"
     AIRPORT = "airport"
     CORPORATE = "corporate"
+    INTERCITY = "intercity"
+    EV_AUTO = "ev_auto"
     TOURISM = "tourism"
+    WOMEN_ONLY = "women_only"
     PET = "pet"
     GOODS = "goods"
 
@@ -95,6 +98,34 @@ DEFAULT_RIDE_TYPES = [
         "updated_at": get_ist_now()
     },
     {
+        "_id": "intercity",
+        "name": "Intercity",
+        "icon": "INTERCITY",
+        "description": "City-to-city passenger rides",
+        "allowed_vehicle_types": ["taxi", "xl", "traveller"],
+        "requires_scheduling": False,
+        "requires_destination": True,
+        "requires_passenger_count": True,
+        "active": True,
+        "regions": ["all"],
+        "created_at": get_ist_now(),
+        "updated_at": get_ist_now()
+    },
+    {
+        "_id": "ev_auto",
+        "name": "EV Auto",
+        "icon": "EV_AUTO",
+        "description": "Eco-friendly electric auto rides",
+        "allowed_vehicle_types": ["auto", "ev_auto"],
+        "requires_scheduling": False,
+        "requires_destination": True,
+        "requires_passenger_count": True,
+        "active": True,
+        "regions": ["all"],
+        "created_at": get_ist_now(),
+        "updated_at": get_ist_now()
+    },
+    {
         "_id": "corporate",
         "name": "Corporate",
         "icon": "🏢",
@@ -112,10 +143,24 @@ DEFAULT_RIDE_TYPES = [
         "_id": "tourism",
         "name": "Tourism",
         "icon": "🗺️",
-        "description": "Sightseeing tours",
-        "allowed_vehicle_types": ["traveller", "bus"],
+        "description": "Ride + guide packages, custom tours and local discovery",
+        "allowed_vehicle_types": ["auto", "taxi", "xl", "traveller", "bus"],
         "requires_scheduling": False,
         "requires_destination": False,
+        "requires_passenger_count": True,
+        "active": True,
+        "regions": ["all"],
+        "created_at": get_ist_now(),
+        "updated_at": get_ist_now()
+    },
+    {
+        "_id": "women_only",
+        "name": "Women Only",
+        "icon": "WOMEN_ONLY",
+        "description": "Safety-first rides for women with female-driver-first matching",
+        "allowed_vehicle_types": ["auto", "ev_auto", "taxi", "xl"],
+        "requires_scheduling": False,
+        "requires_destination": True,
         "requires_passenger_count": True,
         "active": True,
         "regions": ["all"],

@@ -209,6 +209,104 @@ const RIDE_PRODUCT_LABEL_FALLBACKS = {
   rental_hourly: 'Rental',
   school_elderly_safe: 'School/Elderly',
 };
+const RIDE_PRODUCT_COMPATIBILITY_KEYS = {
+  normal: ['instant'],
+  pool: ['instant'],
+  scheduled: ['scheduled'],
+  corporate: ['corporate'],
+  airport: ['airport'],
+  intercity: ['intercity'],
+  ev_auto: ['ev_auto'],
+  tourism: ['tourism'],
+  women_only: ['women_only'],
+  pet: ['pet'],
+  rental_hourly: ['rental'],
+  school_elderly_safe: ['instant'],
+};
+const INTERCITY_COMPATIBLE_VEHICLE_TYPES = new Set(['taxi', 'xl', 'traveller']);
+const EV_AUTO_COMPATIBLE_VEHICLE_TYPES = new Set(['auto', 'ev_auto']);
+const TOURISM_PACKAGE_TYPES = [
+  { id: 'half_day', label: 'Half Day', hours: 4 },
+  { id: 'full_day', label: 'Full Day', hours: 8 },
+  { id: 'multi_day', label: 'Multi Day', hours: 24 },
+  { id: 'custom', label: 'Custom Tour', hours: 8 },
+];
+const TOURISM_CITIES = ['Trivandrum', 'Kochi', 'Munnar', 'Alleppey', 'Wayanad', 'Kanyakumari'];
+const TOURISM_LANGUAGES = ['English', 'Malayalam', 'Tamil', 'Hindi'];
+const TOURISM_PACKAGES = [
+  {
+    id: 'PKG_TRV_TEMPLE',
+    city: 'Trivandrum',
+    packageType: 'half_day',
+    name: 'Trivandrum Temple Tour',
+    durationHours: 4,
+    basePrice: 1200,
+    places: ['Padmanabhaswamy Temple', 'Azhimala Shiva Temple', 'Napier Museum'],
+  },
+  {
+    id: 'PKG_TRV_HERITAGE',
+    city: 'Trivandrum',
+    packageType: 'full_day',
+    name: 'Trivandrum Heritage Tour',
+    durationHours: 8,
+    basePrice: 1800,
+    places: ['Padmanabhaswamy Temple', 'Napier Museum', 'Kovalam Beach', 'Poovar Island'],
+  },
+  {
+    id: 'PKG_KOC_HERITAGE',
+    city: 'Kochi',
+    packageType: 'full_day',
+    name: 'Kochi Heritage Trail',
+    durationHours: 8,
+    basePrice: 2200,
+    places: ['Fort Kochi', 'Mattancherry Palace', 'Jew Town', 'Marine Drive'],
+  },
+  {
+    id: 'PKG_MUN_NATURE',
+    city: 'Munnar',
+    packageType: 'full_day',
+    name: 'Munnar Tea Gardens Tour',
+    durationHours: 8,
+    basePrice: 2600,
+    places: ['Tea Gardens', 'Mattupetty Dam', 'Top Station'],
+  },
+  {
+    id: 'PKG_ALP_BACKWATER',
+    city: 'Alleppey',
+    packageType: 'full_day',
+    name: 'Alleppey Backwater Tour',
+    durationHours: 8,
+    basePrice: 2400,
+    places: ['Backwater Cruise', 'Kuttanad', 'Alappuzha Beach'],
+  },
+  {
+    id: 'PKG_WAY_NATURE',
+    city: 'Wayanad',
+    packageType: 'full_day',
+    name: 'Wayanad Nature Circuit',
+    durationHours: 8,
+    basePrice: 2500,
+    places: ['Edakkal Caves', 'Banasura Sagar Dam', 'Pookode Lake'],
+  },
+  {
+    id: 'PKG_KKY_COASTAL',
+    city: 'Kanyakumari',
+    packageType: 'full_day',
+    name: 'Kanyakumari Sunrise Tour',
+    durationHours: 8,
+    basePrice: 2300,
+    places: ['Vivekananda Rock Memorial', 'Thiruvalluvar Statue', 'Kanyakumari Beach', 'Suchindram Temple'],
+  },
+  {
+    id: 'PKG_CUSTOM',
+    city: 'Trivandrum',
+    packageType: 'custom',
+    name: 'Custom Tour Builder',
+    durationHours: 8,
+    basePrice: 1800,
+    places: [],
+  },
+];
 
 function setPassengerPollCooldown(ref, cooldownMs) {
   ref.current = Date.now() + Math.max(0, Number(cooldownMs || 0));
@@ -340,6 +438,98 @@ function getRideProductName(rideProduct) {
   return RIDE_PRODUCT_LABEL_FALLBACKS[rideProduct] || titleFromId(rideProduct, 'Normal');
 }
 
+function vehicleSupportsRideProduct(vehicleType, rideProduct) {
+  const vehicleTypeId = getVehicleTypeId(vehicleType).toLowerCase();
+  if (rideProduct === 'intercity') {
+    return INTERCITY_COMPATIBLE_VEHICLE_TYPES.has(vehicleTypeId);
+  }
+  if (rideProduct === 'ev_auto') {
+    return EV_AUTO_COMPATIBLE_VEHICLE_TYPES.has(vehicleTypeId);
+  }
+  const allowedRideTypes = Array.isArray(vehicleType?.allowed_ride_types)
+    ? vehicleType.allowed_ride_types.map((item) => String(item || '').trim().toLowerCase()).filter(Boolean)
+    : [];
+  if (allowedRideTypes.length === 0) {
+    return true;
+  }
+  const allowedRideTypeSet = new Set(allowedRideTypes);
+  const compatibilityKeys = RIDE_PRODUCT_COMPATIBILITY_KEYS[rideProduct] || [rideProduct];
+  return compatibilityKeys.some((key) => allowedRideTypeSet.has(key));
+}
+
+function getPreferredVehicleForRideProduct(vehicleTypes, rideProduct, currentVehicleTypeId) {
+  const safeTypes = Array.isArray(vehicleTypes) ? vehicleTypes : [];
+  const currentId = String(currentVehicleTypeId || '').trim().toLowerCase();
+  const currentVehicle = safeTypes.find((type) => getVehicleTypeId(type).toLowerCase() === currentId);
+  if (rideProduct === 'ev_auto') {
+    const evAutoVehicle = safeTypes.find((type) => getVehicleTypeId(type).toLowerCase() === 'ev_auto');
+    if (evAutoVehicle) {
+      return evAutoVehicle;
+    }
+  }
+  if (rideProduct === 'tourism' && currentId === 'auto') {
+    const tourismVehicle = safeTypes.find((type) =>
+      ['taxi', 'xl', 'traveller'].includes(getVehicleTypeId(type).toLowerCase())
+    );
+    if (tourismVehicle) {
+      return tourismVehicle;
+    }
+  }
+  if (currentVehicle && vehicleSupportsRideProduct(currentVehicle, rideProduct)) {
+    return currentVehicle;
+  }
+  return safeTypes.find((type) => vehicleSupportsRideProduct(type, rideProduct)) || currentVehicle || safeTypes[0] || null;
+}
+
+function getTourismPackagesForSelection(city, packageType) {
+  const cityKey = String(city || '').trim();
+  const typeKey = String(packageType || '').trim();
+  const filtered = TOURISM_PACKAGES.filter((item) => {
+    if (item.id === 'PKG_CUSTOM') {
+      return typeKey === 'custom';
+    }
+    return item.city === cityKey && item.packageType === typeKey;
+  });
+  if (filtered.length > 0) {
+    return filtered;
+  }
+  return TOURISM_PACKAGES.filter((item) => item.city === cityKey && item.id !== 'PKG_CUSTOM');
+}
+
+function parseTourismCustomStops(value) {
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 12);
+}
+
+function getTourismFarePreview(packageItem, vehicleTypeId, passengerCount, addOns = {}) {
+  const vehicleMultipliers = {
+    auto: 1,
+    taxi: 1.4,
+    xl: 2,
+    traveller: 3.5,
+    bus: 5,
+  };
+  const vehicleKey = String(vehicleTypeId || 'taxi').trim().toLowerCase();
+  const packagePrice = Number(packageItem?.basePrice || 1800);
+  let farePreview = packagePrice * (vehicleMultipliers[vehicleKey] || 1.4);
+  if (Number(passengerCount || 1) > 4) {
+    farePreview += 300;
+  }
+  if (addOns.guide) {
+    farePreview += 500;
+  }
+  if (addOns.photographer) {
+    farePreview += 1000;
+  }
+  if (addOns.boatRide) {
+    farePreview += 750;
+  }
+  return Math.round(farePreview);
+}
+
 export function PassengerMapContent({ token, user, onLogout, onProfilePress = undefined }) {
   const autoPickupInitializedRef = useRef(false);
   const bookingStatusRef = useRef({ bookingId: null, status: null });
@@ -386,7 +576,20 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [airportTerminal, setAirportTerminal] = useState('');
   const [flightNumber, setFlightNumber] = useState('');
   const [tourismPackage, setTourismPackage] = useState('Kerala Local Sightseeing');
+  const [tourismPackageType, setTourismPackageType] = useState('full_day');
+  const [tourismCity, setTourismCity] = useState('Trivandrum');
+  const [tourismPackageId, setTourismPackageId] = useState('PKG_TRV_HERITAGE');
+  const [tourismCustomStops, setTourismCustomStops] = useState('Kovalam Beach, Poovar Island');
+  const [tourismLanguagePreference, setTourismLanguagePreference] = useState('English');
+  const [tourismGuideRequired, setTourismGuideRequired] = useState(false);
+  const [tourismPhotographerRequired, setTourismPhotographerRequired] = useState(false);
+  const [tourismBoatRideRequired, setTourismBoatRideRequired] = useState(false);
+  const [tourismHotelBookingRequested, setTourismHotelBookingRequested] = useState(false);
+  const [tourismTicketBookingRequested, setTourismTicketBookingRequested] = useState(false);
   const [intercityReturnTrip, setIntercityReturnTrip] = useState(false);
+  const [intercityWaitHoursInput, setIntercityWaitHoursInput] = useState('0');
+  const [intercityTollsIncluded, setIntercityTollsIncluded] = useState(true);
+  const [intercityRouteNotes, setIntercityRouteNotes] = useState('');
   const [rentalHoursInput, setRentalHoursInput] = useState('4');
   const [safeRidePriority, setSafeRidePriority] = useState('elderly');
   const [safeRidePassengerName, setSafeRidePassengerName] = useState('');
@@ -399,6 +602,11 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [safeRideTrustedDriverRequired, setSafeRideTrustedDriverRequired] = useState(true);
   const [safeRideGuardianShareTracking, setSafeRideGuardianShareTracking] = useState(true);
   const [safeRideNotes, setSafeRideNotes] = useState('');
+  const [womenOnlyFemaleDriverRequired, setWomenOnlyFemaleDriverRequired] = useState(true);
+  const [womenOnlyAllowTrustedFallback, setWomenOnlyAllowTrustedFallback] = useState(false);
+  const [womenOnlyGuardianName, setWomenOnlyGuardianName] = useState('');
+  const [womenOnlyGuardianPhone, setWomenOnlyGuardianPhone] = useState('');
+  const [womenOnlyShareGuardianTracking, setWomenOnlyShareGuardianTracking] = useState(true);
   const [passengerCountInput, setPassengerCountInput] = useState('1');
   const [scheduledAtInput, setScheduledAtInput] = useState('');
   const [scheduledTimeZone, setScheduledTimeZone] = useState('local');
@@ -683,6 +891,44 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const canScheduleBooking = enabledRideProducts.includes('scheduled');
   const effectiveRideProduct = rideProduct || 'normal';
   const isScheduledBookingMode = effectiveRideProduct === 'scheduled' && canScheduleBooking;
+  const tourismPackagesForSelection = useMemo(
+    () => getTourismPackagesForSelection(tourismCity, tourismPackageType),
+    [tourismCity, tourismPackageType],
+  );
+  const selectedTourismPackage = useMemo(
+    () =>
+      tourismPackagesForSelection.find((item) => item.id === tourismPackageId) ||
+      tourismPackagesForSelection[0] ||
+      TOURISM_PACKAGES.find((item) => item.id === 'PKG_TRV_HERITAGE'),
+    [tourismPackageId, tourismPackagesForSelection],
+  );
+  const tourismCustomStopList = useMemo(() => parseTourismCustomStops(tourismCustomStops), [tourismCustomStops]);
+  const tourismAddOns = useMemo(
+    () => ({
+      guide: tourismGuideRequired,
+      photographer: tourismPhotographerRequired,
+      boatRide: tourismBoatRideRequired,
+      hotelBooking: tourismHotelBookingRequested,
+      ticketBooking: tourismTicketBookingRequested,
+    }),
+    [
+      tourismBoatRideRequired,
+      tourismGuideRequired,
+      tourismHotelBookingRequested,
+      tourismPhotographerRequired,
+      tourismTicketBookingRequested,
+    ],
+  );
+  const tourismFarePreview = useMemo(
+    () =>
+      getTourismFarePreview(
+        selectedTourismPackage,
+        selectedVehicleTypeId || getVehicleTypeId(availableVehicleTypes?.[0]) || '',
+        Number(passengerCountInput || 1) || 1,
+        tourismAddOns,
+      ),
+    [availableVehicleTypes, passengerCountInput, selectedTourismPackage, selectedVehicleTypeId, tourismAddOns],
+  );
   const effectiveScheduledDriverGenderPreference = normalizeDriverGenderPreference(
     scheduledDriverGenderPreference || passengerPreferences?.driver_gender_preference,
   );
@@ -764,17 +1010,32 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     selectedVehicleModelOptions.find((model) => model.id === effectiveSelectedVehicleModelId) ||
     selectedVehicleModelOptions[0] ||
     null;
-  const selectedRideChoiceLabel = useMemo(
-    () =>
-      [
-        getVehicleTypeName(selectedVehicleType),
-        selectedVehicleModel?.name,
-        getRideProductName(effectiveRideProduct),
-      ]
-        .filter(Boolean)
-        .join(' / '),
-    [effectiveRideProduct, selectedVehicleModel, selectedVehicleType],
-  );
+  const selectedVehicleDisplayName = selectedVehicleType
+    ? getVehicleTypeName(selectedVehicleType)
+    : titleFromId(effectiveSelectedVehicleTypeId, 'Auto');
+  const selectedVehicleModelDisplayName =
+    selectedVehicleModel?.name ||
+    (selectedVehicleModelId
+      ? titleFromId(selectedVehicleModelId, `${selectedVehicleDisplayName} Standard`)
+      : effectiveSelectedVehicleModelId
+        ? titleFromId(effectiveSelectedVehicleModelId, `${selectedVehicleDisplayName} Standard`)
+        : '');
+  const selectedRideChoiceLabel = [
+    selectedVehicleDisplayName,
+    selectedVehicleModelDisplayName,
+    getRideProductName(effectiveRideProduct),
+  ]
+    .filter(Boolean)
+    .join(' / ');
+  const closeRideDetailsModal = () => {
+    if (effectiveSelectedVehicleTypeId && selectedVehicleTypeId !== effectiveSelectedVehicleTypeId) {
+      setSelectedVehicleTypeId(effectiveSelectedVehicleTypeId);
+    }
+    if (effectiveSelectedVehicleModelId && selectedVehicleModelId !== effectiveSelectedVehicleModelId) {
+      setSelectedVehicleModelId(effectiveSelectedVehicleModelId);
+    }
+    setShowRideDetailsModal(false);
+  };
   const recentDestinationOptions = useMemo(() => {
     const seen = new Set();
     return (passengerBookings || [])
@@ -899,11 +1160,233 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
 
   const handleRideProductSelect = useCallback(
     (product) => {
-      setRideProduct(product);
+      const nextProduct = String(product || 'normal').trim() || 'normal';
+      const preferredVehicle = getPreferredVehicleForRideProduct(
+        availableVehicleTypes,
+        nextProduct,
+        effectiveSelectedVehicleTypeId,
+      );
+      const preferredVehicleTypeId = getVehicleTypeId(preferredVehicle);
+      if (preferredVehicleTypeId && preferredVehicleTypeId !== effectiveSelectedVehicleTypeId) {
+        setSelectedVehicleTypeId(preferredVehicleTypeId);
+        setSelectedVehicleModelId(getVehicleModelOptions(preferredVehicle)[0]?.id || '');
+      }
+      setRideProduct(nextProduct);
       clearRideSelectionResults();
     },
-    [clearRideSelectionResults],
+    [availableVehicleTypes, clearRideSelectionResults, effectiveSelectedVehicleTypeId],
   );
+
+  const renderTourismFields = useCallback(() => {
+    const isCustomTour = tourismPackageType === 'custom';
+    const plannedStops = isCustomTour ? tourismCustomStopList : selectedTourismPackage?.places || [];
+    const addonOptions = [
+      { key: 'guide', label: 'Local Guide', selected: tourismGuideRequired, onPress: setTourismGuideRequired },
+      { key: 'photographer', label: 'Photographer', selected: tourismPhotographerRequired, onPress: setTourismPhotographerRequired },
+      { key: 'boat', label: 'Boat Ride', selected: tourismBoatRideRequired, onPress: setTourismBoatRideRequired },
+      { key: 'hotel', label: 'Hotel Help', selected: tourismHotelBookingRequested, onPress: setTourismHotelBookingRequested },
+      { key: 'ticket', label: 'Ticket Help', selected: tourismTicketBookingRequested, onPress: setTourismTicketBookingRequested },
+    ];
+    return (
+      <>
+        <Text style={styles.infoText}>Package type</Text>
+        <View style={styles.rideDetailsWrapRow}>
+          {TOURISM_PACKAGE_TYPES.map((option) => {
+            const selected = tourismPackageType === option.id;
+            return (
+              <TouchableOpacity
+                key={option.id}
+                style={[styles.modeChip, selected && styles.modeChipActive]}
+                onPress={() => setTourismPackageType(option.id)}
+                disabled={loading}>
+                <Text style={[styles.modeChipText, selected && styles.modeChipTextActive]}>{option.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <Text style={styles.infoText}>City</Text>
+        <View style={styles.rideDetailsWrapRow}>
+          {TOURISM_CITIES.map((city) => {
+            const selected = tourismCity === city;
+            return (
+              <TouchableOpacity
+                key={city}
+                style={[styles.modeChip, selected && styles.modeChipActive]}
+                onPress={() => setTourismCity(city)}
+                disabled={loading}>
+                <Text style={[styles.modeChipText, selected && styles.modeChipTextActive]}>{city}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <Text style={styles.infoText}>Package</Text>
+        <View style={styles.tourismPackageList}>
+          {tourismPackagesForSelection.map((packageItem) => {
+            const selected = selectedTourismPackage?.id === packageItem.id;
+            return (
+              <TouchableOpacity
+                key={packageItem.id}
+                style={[styles.tourismPackageChip, selected && styles.tourismPackageChipActive]}
+                onPress={() => {
+                  setTourismPackageId(packageItem.id);
+                  setTourismPackage(packageItem.name);
+                }}
+                disabled={loading}>
+                <Text style={[styles.tourismPackageTitle, selected && styles.modeChipTextActive]} numberOfLines={1}>
+                  {packageItem.name}
+                </Text>
+                <Text style={styles.hint} numberOfLines={1}>
+                  {packageItem.durationHours}h | INR {packageItem.basePrice}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {isCustomTour && (
+          <VoiceTextInput
+            style={[styles.input, styles.assistedNotesInput]}
+            value={tourismCustomStops}
+            onChangeText={(value) => setTourismCustomStops(value.slice(0, 240))}
+            placeholder="Custom stops, comma separated"
+            placeholderTextColor={COLORS.textMuted}
+            multiline
+            numberOfLines={2}
+          />
+        )}
+
+        <Text style={styles.infoText}>Language</Text>
+        <View style={styles.rideDetailsWrapRow}>
+          {TOURISM_LANGUAGES.map((language) => {
+            const selected = tourismLanguagePreference === language;
+            return (
+              <TouchableOpacity
+                key={language}
+                style={[styles.modeChip, selected && styles.modeChipActive]}
+                onPress={() => setTourismLanguagePreference(language)}
+                disabled={loading}>
+                <Text style={[styles.modeChipText, selected && styles.modeChipTextActive]}>{language}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <Text style={styles.infoText}>Add-ons</Text>
+        <View style={styles.rideDetailsWrapRow}>
+          {addonOptions.map((option) => (
+            <TouchableOpacity
+              key={option.key}
+              style={[styles.modeChip, option.selected && styles.modeChipActive]}
+              onPress={() => option.onPress((prev) => !prev)}
+              disabled={loading}>
+              <Text style={[styles.modeChipText, option.selected && styles.modeChipTextActive]}>{option.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <View style={styles.tourismPreviewBox}>
+          <Text style={styles.infoTitle}>Tour preview</Text>
+          <Text style={styles.infoText}>
+            {tourismCity} | {selectedTourismPackage?.durationHours || 8}h | approx INR {tourismFarePreview}
+          </Text>
+          <Text style={styles.hint}>
+            {plannedStops.length > 0 ? plannedStops.join(' -> ') : 'Add custom stops to generate the route'}
+          </Text>
+          <Text style={styles.hint}>Tourism drivers need KYC, 4.5+ rating, language match and local experience.</Text>
+        </View>
+      </>
+    );
+  }, [
+    loading,
+    selectedTourismPackage,
+    tourismBoatRideRequired,
+    tourismCity,
+    tourismCustomStopList,
+    tourismCustomStops,
+    tourismFarePreview,
+    tourismGuideRequired,
+    tourismHotelBookingRequested,
+    tourismLanguagePreference,
+    tourismPackageType,
+    tourismPackagesForSelection,
+    tourismPhotographerRequired,
+    tourismTicketBookingRequested,
+  ]);
+
+  const renderWomenOnlyFields = () => {
+    const fallbackEnabled = !womenOnlyFemaleDriverRequired && womenOnlyAllowTrustedFallback;
+    return (
+      <View style={styles.rideDetailsSection}>
+        <Text style={styles.rideDetailsSectionTitle}>Women Only safety</Text>
+        <Text style={styles.hint}>
+          Female passenger ride. Female driver first with KYC, police verification, live location, 4.7+ rating and no active complaints.
+        </Text>
+        <View style={styles.assistedGrid}>
+          <VoiceTextInput
+            style={[styles.input, styles.assistedInput]}
+            value={womenOnlyGuardianName}
+            onChangeText={setWomenOnlyGuardianName}
+            placeholder="Guardian name"
+            placeholderTextColor={COLORS.textMuted}
+          />
+          <VoiceTextInput
+            style={[styles.input, styles.assistedInput]}
+            value={womenOnlyGuardianPhone}
+            onChangeText={setWomenOnlyGuardianPhone}
+            keyboardType="phone-pad"
+            placeholder="Guardian phone"
+            placeholderTextColor={COLORS.textMuted}
+          />
+        </View>
+        <View style={styles.assistedToggleGrid}>
+          <TouchableOpacity
+            style={[styles.modeChip, styles.assistedToggleChip, womenOnlyFemaleDriverRequired && styles.modeChipActive]}
+            onPress={() => {
+              setWomenOnlyFemaleDriverRequired((prev) => !prev);
+              if (!womenOnlyFemaleDriverRequired) {
+                setWomenOnlyAllowTrustedFallback(false);
+              }
+            }}
+            disabled={loading}>
+            <Text style={[styles.modeChipText, womenOnlyFemaleDriverRequired && styles.modeChipTextActive]}>
+              Female driver required
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.modeChip, styles.assistedToggleChip, fallbackEnabled && styles.modeChipActive]}
+            onPress={() => {
+              if (womenOnlyFemaleDriverRequired) {
+                setWomenOnlyFemaleDriverRequired(false);
+                setWomenOnlyAllowTrustedFallback(true);
+                return;
+              }
+              setWomenOnlyAllowTrustedFallback((prev) => !prev);
+            }}
+            disabled={loading}>
+            <Text style={[styles.modeChipText, fallbackEnabled && styles.modeChipTextActive]}>
+              Trusted safety fallback
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.modeChip, styles.assistedToggleChip, womenOnlyShareGuardianTracking && styles.modeChipActive]}
+            onPress={() => setWomenOnlyShareGuardianTracking((prev) => !prev)}
+            disabled={loading}>
+            <Text style={[styles.modeChipText, womenOnlyShareGuardianTracking && styles.modeChipTextActive]}>
+              Guardian tracking
+            </Text>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.tourismPreviewBox}>
+          <Text style={styles.infoTitle}>Safety stack</Text>
+          <Text style={styles.hint}>
+            Pickup OTP, SOS, live tracking, night checks and completion notification stay on for this ride.
+          </Text>
+        </View>
+      </View>
+    );
+  };
 
   const handleUseSavedPlace = useCallback(
     async (place) => {
@@ -1989,7 +2472,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     }
     const rentalHoursValue = Number(String(rentalHoursInput || '').trim());
     const rentalHours = Number.isFinite(rentalHoursValue)
-      ? Math.max(1, Math.min(24, Math.round(rentalHoursValue)))
+      ? Math.max(1, Math.min(12, Math.round(rentalHoursValue)))
       : 0;
     if (effectiveRideProduct === 'rental_hourly' && rentalHours <= 0) {
       setError('Rental hours required.');
@@ -2054,6 +2537,11 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       allowParallel = true;
     }
 
+    const intercityWaitHoursNumber = Number.parseInt(intercityWaitHoursInput, 10);
+    const intercityWaitHours = Number.isFinite(intercityWaitHoursNumber)
+      ? Math.max(0, Math.min(72, intercityWaitHoursNumber))
+      : 0;
+    const intercityRouteNotesValue = intercityRouteNotes.trim().slice(0, 240);
     const rideNotes = [];
     if (effectiveRideProduct === 'school_elderly_safe') {
       rideNotes.push(`Safe ride priority: ${safeRidePriority}`);
@@ -2081,6 +2569,29 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       }
       if (corporateCostCenterId.trim()) {
         rideNotes.push(`Cost center: ${corporateCostCenterId.trim()}`);
+      }
+    }
+    if (effectiveRideProduct === 'intercity') {
+      rideNotes.push(intercityReturnTrip ? 'Intercity return trip requested' : 'One-way intercity ride');
+      if (intercityWaitHours > 0) {
+        rideNotes.push(`Outstation wait: ${intercityWaitHours}h`);
+      }
+      rideNotes.push(intercityTollsIncluded ? 'Tolls and parking included in estimate' : 'Tolls and parking paid separately');
+      if (intercityRouteNotesValue) {
+        rideNotes.push(`Route notes: ${intercityRouteNotesValue}`);
+      }
+    }
+    if (effectiveRideProduct === 'women_only') {
+      rideNotes.push(
+        womenOnlyFemaleDriverRequired
+          ? 'Women Only: female driver required'
+          : 'Women Only: female driver first, trusted safety fallback allowed',
+      );
+      if (womenOnlyGuardianName.trim()) {
+        rideNotes.push(`Women Only guardian: ${womenOnlyGuardianName.trim()}`);
+      }
+      if (womenOnlyShareGuardianTracking) {
+        rideNotes.push('Women Only guardian live tracking enabled');
       }
     }
     if (appliedPromo?.code) {
@@ -2128,8 +2639,46 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           airport_terminal: effectiveRideProduct === 'airport' ? airportTerminal.trim() : undefined,
           flight_number: effectiveRideProduct === 'airport' ? flightNumber.trim() : undefined,
           intercity_return_trip: effectiveRideProduct === 'intercity' ? intercityReturnTrip : false,
-          tourism_package: effectiveRideProduct === 'tourism' ? tourismPackage.trim() : undefined,
+          intercity_wait_hours: effectiveRideProduct === 'intercity' ? intercityWaitHours : undefined,
+          intercity_tolls_included: effectiveRideProduct === 'intercity' ? intercityTollsIncluded : undefined,
+          intercity_route_notes:
+            effectiveRideProduct === 'intercity' && intercityRouteNotesValue ? intercityRouteNotesValue : undefined,
+          tourism_package:
+            effectiveRideProduct === 'tourism'
+              ? selectedTourismPackage?.name || tourismPackage.trim()
+              : undefined,
+          tourism_package_id: effectiveRideProduct === 'tourism' ? selectedTourismPackage?.id : undefined,
+          tourism_package_type: effectiveRideProduct === 'tourism' ? tourismPackageType : undefined,
+          tourism_city: effectiveRideProduct === 'tourism' ? tourismCity : undefined,
+          tourism_custom_stops:
+            effectiveRideProduct === 'tourism' && tourismPackageType === 'custom' ? tourismCustomStopList : [],
+          tourism_language_preference:
+            effectiveRideProduct === 'tourism' ? tourismLanguagePreference : undefined,
+          tourism_guide_required: effectiveRideProduct === 'tourism' ? tourismGuideRequired : false,
+          tourism_photographer_required: effectiveRideProduct === 'tourism' ? tourismPhotographerRequired : false,
+          tourism_boat_ride_required: effectiveRideProduct === 'tourism' ? tourismBoatRideRequired : false,
+          tourism_hotel_booking_requested:
+            effectiveRideProduct === 'tourism' ? tourismHotelBookingRequested : false,
+          tourism_ticket_booking_requested:
+            effectiveRideProduct === 'tourism' ? tourismTicketBookingRequested : false,
           women_only_required: effectiveRideProduct === 'women_only',
+          passenger_gender: effectiveRideProduct === 'women_only' ? 'female' : undefined,
+          women_only_female_driver_required:
+            effectiveRideProduct === 'women_only' ? womenOnlyFemaleDriverRequired : undefined,
+          women_only_allow_trusted_male_driver:
+            effectiveRideProduct === 'women_only'
+              ? !womenOnlyFemaleDriverRequired && womenOnlyAllowTrustedFallback
+              : undefined,
+          women_only_guardian_name:
+            effectiveRideProduct === 'women_only' && womenOnlyGuardianName.trim()
+              ? womenOnlyGuardianName.trim()
+              : undefined,
+          women_only_guardian_phone:
+            effectiveRideProduct === 'women_only' && womenOnlyGuardianPhone.trim()
+              ? womenOnlyGuardianPhone.trim()
+              : undefined,
+          women_only_share_guardian_tracking:
+            effectiveRideProduct === 'women_only' ? womenOnlyShareGuardianTracking : undefined,
           driver_gender_preference: bookingDriverGenderPreference,
           rental_hours: effectiveRideProduct === 'rental_hourly' ? rentalHours : undefined,
           safe_ride_priority: effectiveRideProduct === 'school_elderly_safe' ? safeRidePriority : undefined,
@@ -2152,8 +2701,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           guardian_share_tracking:
             effectiveRideProduct === 'school_elderly_safe' ? safeRideGuardianShareTracking : undefined,
           vehicle_type_id: effectiveSelectedVehicleTypeId || undefined,
-          vehicle_subtype_id: selectedVehicleModel?.id || undefined,
-          vehicle_model: selectedVehicleModel?.name || undefined,
+          vehicle_subtype_id: effectiveSelectedVehicleModelId || undefined,
+          vehicle_model: selectedVehicleModelDisplayName || undefined,
           notes: rideNotes.length ? rideNotes.join(' | ') : undefined,
         },
       }),
@@ -2430,7 +2979,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       visible={showRideDetailsModal}
       animationType="slide"
       transparent
-      onRequestClose={() => setShowRideDetailsModal(false)}>
+      onRequestClose={closeRideDetailsModal}>
       <View style={styles.rideDetailsOverlay}>
         <View style={styles.rideDetailsPanel}>
           <View style={styles.rideDetailsHeader}>
@@ -2440,7 +2989,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             </View>
             <TouchableOpacity
               style={styles.rideDetailsCloseButton}
-              onPress={() => setShowRideDetailsModal(false)}
+              onPress={closeRideDetailsModal}
               accessibilityLabel="Close ride details"
               accessibilityRole="button">
               <Text style={styles.rideDetailsCloseText}>x</Text>
@@ -2627,28 +3176,43 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                     {intercityReturnTrip ? 'Return trip: yes' : 'Return trip: no'}
                   </Text>
                 </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modeChip, intercityTollsIncluded && styles.modeChipActive]}
+                  onPress={() => setIntercityTollsIncluded((prev) => !prev)}
+                  disabled={loading}>
+                  <Text style={[styles.modeChipText, intercityTollsIncluded && styles.modeChipTextActive]}>
+                    {intercityTollsIncluded ? 'Tolls included' : 'Tolls extra'}
+                  </Text>
+                </TouchableOpacity>
+                <VoiceTextInput
+                  style={styles.input}
+                  value={intercityWaitHoursInput}
+                  onChangeText={(value) => setIntercityWaitHoursInput(value.replace(/[^0-9]/g, '').slice(0, 2))}
+                  placeholder="Outstation wait hours (0 to 72)"
+                  placeholderTextColor={COLORS.textMuted}
+                  keyboardType="numeric"
+                />
+                <VoiceTextInput
+                  style={[styles.input, styles.assistedNotesInput]}
+                  value={intercityRouteNotes}
+                  onChangeText={(value) => setIntercityRouteNotes(value.slice(0, 240))}
+                  placeholder="Route notes (optional)"
+                  placeholderTextColor={COLORS.textMuted}
+                  multiline
+                  numberOfLines={2}
+                />
+                <Text style={styles.hint}>Intercity uses Taxi, XL, or Traveller for outstation travel.</Text>
               </View>
             )}
 
             {effectiveRideProduct === 'tourism' && (
               <View style={styles.rideDetailsSection}>
                 <Text style={styles.rideDetailsSectionTitle}>Tourism package</Text>
-                <VoiceTextInput
-                  style={styles.input}
-                  value={tourismPackage}
-                  onChangeText={setTourismPackage}
-                  placeholder="Tourism package"
-                  placeholderTextColor={COLORS.textMuted}
-                />
+                {renderTourismFields()}
               </View>
             )}
 
-            {effectiveRideProduct === 'women_only' && (
-              <View style={styles.rideDetailsSection}>
-                <Text style={styles.rideDetailsSectionTitle}>Women-only ride</Text>
-                <Text style={styles.hint}>This ride will request a female driver when available.</Text>
-              </View>
-            )}
+            {effectiveRideProduct === 'women_only' && renderWomenOnlyFields()}
 
             {effectiveRideProduct === 'rental_hourly' && (
               <View style={styles.rideDetailsSection}>
@@ -2681,7 +3245,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
 
           <TouchableOpacity
             style={styles.rideDetailsDoneButton}
-            onPress={() => setShowRideDetailsModal(false)}>
+            onPress={closeRideDetailsModal}>
             <Text style={styles.rideDetailsDoneText}>Done</Text>
           </TouchableOpacity>
         </View>
@@ -3323,27 +3887,47 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                   </View>
                 )}
                 {effectiveRideProduct === 'intercity' && (
-                  <TouchableOpacity
-                    style={[styles.modeChip, intercityReturnTrip && styles.modeChipActive]}
-                    onPress={() => setIntercityReturnTrip((prev) => !prev)}
-                    disabled={loading}>
-                    <Text style={[styles.modeChipText, intercityReturnTrip && styles.modeChipTextActive]}>
-                      {intercityReturnTrip ? 'Return trip: yes' : 'Return trip: no'}
-                    </Text>
-                  </TouchableOpacity>
+                  <View>
+                    <TouchableOpacity
+                      style={[styles.modeChip, intercityReturnTrip && styles.modeChipActive]}
+                      onPress={() => setIntercityReturnTrip((prev) => !prev)}
+                      disabled={loading}>
+                      <Text style={[styles.modeChipText, intercityReturnTrip && styles.modeChipTextActive]}>
+                        {intercityReturnTrip ? 'Return trip: yes' : 'Return trip: no'}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.modeChip, intercityTollsIncluded && styles.modeChipActive]}
+                      onPress={() => setIntercityTollsIncluded((prev) => !prev)}
+                      disabled={loading}>
+                      <Text style={[styles.modeChipText, intercityTollsIncluded && styles.modeChipTextActive]}>
+                        {intercityTollsIncluded ? 'Tolls included' : 'Tolls extra'}
+                      </Text>
+                    </TouchableOpacity>
+                    <VoiceTextInput
+                      style={styles.input}
+                      value={intercityWaitHoursInput}
+                      onChangeText={(value) => setIntercityWaitHoursInput(value.replace(/[^0-9]/g, '').slice(0, 2))}
+                      placeholder="Outstation wait hours (0 to 72)"
+                      placeholderTextColor={COLORS.textMuted}
+                      keyboardType="numeric"
+                    />
+                    <VoiceTextInput
+                      style={[styles.input, styles.assistedNotesInput]}
+                      value={intercityRouteNotes}
+                      onChangeText={(value) => setIntercityRouteNotes(value.slice(0, 240))}
+                      placeholder="Route notes (optional)"
+                      placeholderTextColor={COLORS.textMuted}
+                      multiline
+                      numberOfLines={2}
+                    />
+                    <Text style={styles.hint}>Intercity uses Taxi, XL, or Traveller for outstation travel.</Text>
+                  </View>
                 )}
                 {effectiveRideProduct === 'tourism' && (
-                  <VoiceTextInput
-                    style={styles.input}
-                    value={tourismPackage}
-                    onChangeText={setTourismPackage}
-                    placeholder="Tourism package"
-                    placeholderTextColor={COLORS.textMuted}
-                  />
+                  <View style={styles.tourismInlineSection}>{renderTourismFields()}</View>
                 )}
-                {effectiveRideProduct === 'women_only' && (
-                  <Text style={styles.hint}>Women-only ride will request a female driver when available.</Text>
-                )}
+                {effectiveRideProduct === 'women_only' && renderWomenOnlyFields()}
                 {effectiveRideProduct === 'rental_hourly' && (
                   <VoiceTextInput
                     style={styles.input}
@@ -4452,6 +5036,39 @@ const styles = StyleSheet.create({
   },
   rideDetailsOptionTextActive: {
     color: COLORS.primaryDark,
+  },
+  tourismInlineSection: {
+    gap: 8,
+    marginVertical: 8,
+  },
+  tourismPackageList: {
+    gap: 8,
+    marginBottom: 8,
+  },
+  tourismPackageChip: {
+    borderWidth: 1,
+    borderColor: '#CBD9D0',
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+  },
+  tourismPackageChipActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: '#E3F2E8',
+  },
+  tourismPackageTitle: {
+    color: COLORS.textMain,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  tourismPreviewBox: {
+    borderWidth: 1,
+    borderColor: '#D8E5DC',
+    borderRadius: 10,
+    backgroundColor: '#F6FAF7',
+    padding: 10,
+    marginTop: 4,
   },
   rideDetailsDoneButton: {
     minHeight: 48,

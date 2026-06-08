@@ -598,6 +598,81 @@ export const vehicleTypesAPI = {
   estimateFare: (data: any) => bookingAPI.estimateFare(data),
 };
 
+export const tourismAPI = {
+  listPackageTypes: () =>
+    axiosInstance.get('/api/tourism/package-types'),
+
+  listPackages: (params?: { city?: string; package_type?: string }) =>
+    axiosInstance.get('/api/tourism/packages', { params }),
+
+  getPackage: (packageId: string) =>
+    axiosInstance.get(`/api/tourism/packages/${encodeURIComponent(packageId)}`),
+
+  listAttractions: (city: string) =>
+    axiosInstance.get('/api/tourism/attractions', { params: { city } }),
+
+  previewRoute: (payload: any) =>
+    axiosInstance.post('/api/tourism/route', payload),
+
+  bookTour: (payload: any) =>
+    axiosInstance.post('/api/tourism/book', payload),
+
+  markVisited: (bookingId: string, placeName: string) =>
+    axiosInstance.post(`/api/tourism/bookings/${encodeURIComponent(bookingId)}/visited`, {
+      place_name: placeName,
+    }),
+
+  complete: (bookingId: string) =>
+    axiosInstance.post(`/api/tourism/bookings/${encodeURIComponent(bookingId)}/complete`, {}),
+
+  getSummary: (bookingId: string) =>
+    axiosInstance.get(`/api/tourism/bookings/${encodeURIComponent(bookingId)}/summary`),
+};
+
+export const womenOnlyRidesAPI = {
+  book: (payload: any) =>
+    axiosInstance.post('/api/women-only-rides/book', payload),
+
+  get: (rideId: string) =>
+    axiosInstance.get(`/api/women-only-rides/${encodeURIComponent(rideId)}`),
+
+  verifyPickup: (rideId: string, otp: string) =>
+    axiosInstance.post(`/api/women-only-rides/${encodeURIComponent(rideId)}/verify-pickup`, { otp }),
+
+  sos: (rideId: string, payload: any = {}) =>
+    axiosInstance.post(`/api/women-only-rides/${encodeURIComponent(rideId)}/sos`, payload),
+
+  complete: (rideId: string) =>
+    axiosInstance.post(`/api/women-only-rides/${encodeURIComponent(rideId)}/complete`, {}),
+};
+
+export const rentalRidesAPI = {
+  listPackages: (vehicleType?: string) =>
+    axiosInstance.get('/api/rental-rides/packages', {
+      params: vehicleType ? { vehicle_type: vehicleType } : undefined,
+    }),
+
+  book: (payload: any) =>
+    axiosInstance.post('/api/rental-rides/book', payload),
+
+  get: (rideId: string) =>
+    axiosInstance.get(`/api/rental-rides/${encodeURIComponent(rideId)}`),
+
+  start: (rideId: string, otp: string) =>
+    axiosInstance.post(`/api/rental-rides/${encodeURIComponent(rideId)}/start`, { otp }),
+
+  addStop: (rideId: string, stop: any) =>
+    axiosInstance.post(`/api/rental-rides/${encodeURIComponent(rideId)}/add-stop`, stop),
+
+  markWaiting: (rideId: string, payload: any) =>
+    axiosInstance.post(`/api/rental-rides/${encodeURIComponent(rideId)}/waiting`, payload),
+
+  complete: (rideId: string, actualDistanceKm: number) =>
+    axiosInstance.post(`/api/rental-rides/${encodeURIComponent(rideId)}/complete`, {
+      actual_distance_km: actualDistanceKm,
+    }),
+};
+
 // =====================================================================
 // DRIVER AVAILABILITY & OPERATIONS
 // =====================================================================

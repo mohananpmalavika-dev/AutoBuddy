@@ -45,6 +45,8 @@ from app.routers.auth import router as modular_auth_router
 from app.routers.analytics import router as modular_analytics_router
 from app.routers.driver_trust import router as modular_driver_trust_router
 from app.routers.ride_products import router as modular_ride_products_router
+from app.routers.women_only_rides import router as modular_women_only_rides_router
+from app.routers.rental_rides import router as modular_rental_rides_router
 from app.routers.revenue import router as modular_revenue_router
 from app.routers.security import router as modular_security_router
 from app.routers.safety import router as modular_safety_router
@@ -108,6 +110,9 @@ from app.models.document_catalog import (
     ensure_default_document_requirements,
 )
 from app.models.ride_type_compatibility import is_vehicle_compatible_with_ride_type
+from app.models.rental import calculate_rental_final_fare, rental_driver_eligibility
+from app.models.tourism import tourism_driver_eligibility
+from app.models.women_only import women_only_driver_eligibility
 from app.routers.dispatch_service import router as modular_dispatch_service_router
 from app.routers.stripe_webhooks import router as modular_stripe_webhooks_router
 from app.routers.ride_operations import router as modular_ride_operations_router
@@ -3519,14 +3524,42 @@ async def find_nearest_drivers_mongo_geo(
     vehicle_type_id: Optional[str] = None,
     vehicle_subtype_id: Optional[str] = None,
     ride_type: Optional[str] = None,
+    booking_context: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
-    service_filter = {
-        "vehicle_type_id": str(vehicle_type_id or "").strip().lower(),
-        "vehicle_subtype_id": str(vehicle_subtype_id or "").strip().lower(),
-        "ride_product": str(ride_type or "").strip().lower(),
-    }
+    service_filter = dict(booking_context or {})
+    service_filter["vehicle_type_id"] = str(vehicle_type_id or service_filter.get("vehicle_type_id") or "").strip().lower()
+    service_filter["vehicle_subtype_id"] = str(
+        vehicle_subtype_id or service_filter.get("vehicle_subtype_id") or ""
+    ).strip().lower()
+    service_filter["ride_product"] = str(
+        ride_type or service_filter.get("ride_product") or service_filter.get("ride_type") or ""
+    ).strip().lower()
+
+    async def hydrate_women_only_driver_identity(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if service_filter.get("ride_product") != "women_only" or not candidates:
+            return candidates
+        driver_ids = [str(item.get("user_id") or "").strip() for item in candidates if item.get("user_id")]
+        if not driver_ids:
+            return candidates
+        users = await db.users.find(
+            {"id": {"$in": list(set(driver_ids))}, "role": UserRole.DRIVER},
+            {"_id": 0, "id": 1, "name": 1, "gender": 1},
+        ).to_list(None)
+        users_by_id = {str(item.get("id") or ""): item for item in users}
+        hydrated = []
+        for candidate in candidates:
+            user = users_by_id.get(str(candidate.get("user_id") or ""))
+            hydrated.append(
+                {
+                    **candidate,
+                    "gender": candidate.get("gender") or (user or {}).get("gender"),
+                    "name": candidate.get("name") or (user or {}).get("name"),
+                }
+            )
+        return hydrated
 
     async def filter_matchable_drivers(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        candidates = await hydrate_women_only_driver_identity(candidates)
         ordered: List[Dict[str, Any]] = []
         for candidate in candidates:
             driver_id = str(candidate.get("user_id") or "").strip()
@@ -3570,6 +3603,39 @@ async def find_nearest_drivers_mongo_geo(
                     "user_id": 1,
                     "name": 1,
                     "rating": 1,
+                    "average_rating": 1,
+                    "rental_rating": 1,
+                    "rental_enabled": 1,
+                    "gender": 1,
+                    "is_available": 1,
+                    "kyc_status": 1,
+                    "kyc_verified": 1,
+                    "vehicle_verified": 1,
+                    "vehicle_verification_status": 1,
+                    "police_verified": 1,
+                    "police_verification_status": 1,
+                    "background_check_status": 1,
+                    "safety_score": 1,
+                    "women_only_safety_score": 1,
+                    "trusted_safety_driver": 1,
+                    "women_only_trusted_driver": 1,
+                    "active_complaints": 1,
+                    "open_safety_complaints": 1,
+                    "safety_complaint_count": 1,
+                    "live_location_enabled": 1,
+                    "location_sharing_enabled": 1,
+                    "tourism_rating": 1,
+                    "tourism_enabled": 1,
+                    "languages": 1,
+                    "language_codes": 1,
+                    "district": 1,
+                    "city": 1,
+                    "tourism_cities": 1,
+                    "service_cities": 1,
+                    "local_areas": 1,
+                    "online_vehicle": 1,
+                    "accepted_ride_types": 1,
+                    "districts": 1,
                     "vehicle_info": 1,
                     "current_location": 1,
                     "is_available": 1,
@@ -3623,6 +3689,38 @@ async def find_nearest_drivers_mongo_geo(
                 "user_id": 1,
                 "name": 1,
                 "rating": 1,
+                "average_rating": 1,
+                "rental_rating": 1,
+                "rental_enabled": 1,
+                "gender": 1,
+                "kyc_status": 1,
+                "kyc_verified": 1,
+                "vehicle_verified": 1,
+                "vehicle_verification_status": 1,
+                "police_verified": 1,
+                "police_verification_status": 1,
+                "background_check_status": 1,
+                "safety_score": 1,
+                "women_only_safety_score": 1,
+                "trusted_safety_driver": 1,
+                "women_only_trusted_driver": 1,
+                "active_complaints": 1,
+                "open_safety_complaints": 1,
+                "safety_complaint_count": 1,
+                "live_location_enabled": 1,
+                "location_sharing_enabled": 1,
+                "tourism_rating": 1,
+                "tourism_enabled": 1,
+                "languages": 1,
+                "language_codes": 1,
+                "district": 1,
+                "city": 1,
+                "tourism_cities": 1,
+                "service_cities": 1,
+                "local_areas": 1,
+                "online_vehicle": 1,
+                "accepted_ride_types": 1,
+                "districts": 1,
                 "vehicle_info": 1,
                 "current_location": 1,
                 "is_available": 1,
@@ -5306,10 +5404,10 @@ RIDE_TYPE_FARE_MULTIPLIERS = {
 RIDE_TYPE_COMPATIBILITY_ALIASES = {
     "normal": "instant",
     "pool": "instant",
-    "ev_auto": "instant",
-    "women_only": "instant",
+    "ev_auto": "ev_auto",
+    "women_only": "women_only",
     "school_elderly_safe": "instant",
-    "intercity": "instant",
+    "intercity": "intercity",
     "rental_hourly": "rental",
     "pet": "pet",
 }
@@ -5324,6 +5422,9 @@ DRIVER_COMPATIBILITY_RIDE_TYPE_SET = {
     "corporate",
     "tourism",
     "goods",
+    "intercity",
+    "ev_auto",
+    "women_only",
     "pet",
 }
 DEFAULT_DRIVER_ACCEPTED_RIDE_TYPES = ["normal"]
@@ -5430,12 +5531,153 @@ def driver_accepts_requested_ride_type(driver: Optional[Dict[str, Any]], request
         return True
     if requested in accepted:
         return True
+    if requested in {"rental", "rental_hourly"} and any(item in {"rental", "rental_hourly"} for item in accepted):
+        return True
+    if requested == "women_only" and any(item in {"normal", "instant"} for item in accepted):
+        return True
     requested_compatibility = get_ride_type_compatibility_key(requested)
     return any(
         accepted_key not in DRIVER_ACCEPTED_RIDE_TYPE_SET
         and accepted_key == requested_compatibility
         for accepted_key in accepted
     )
+
+
+def truthy_ev_vehicle_value(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    text = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    return text in {"1", "true", "yes", "y", "on", "ev", "electric", "ev_auto", "battery_electric"}
+
+
+def driver_has_ev_auto_capability(driver: Optional[Dict[str, Any]]) -> bool:
+    source = driver or {}
+    raw_vehicle = source.get("vehicle_info") or {}
+    online_vehicle = source.get("online_vehicle") or {}
+    accepted = get_driver_accepted_ride_types(source)
+    if "ev_auto" in accepted:
+        return True
+
+    flag_fields = ("is_ev", "is_electric", "electric", "ev_enabled", "ev_auto")
+    for row in (raw_vehicle, online_vehicle, source):
+        if any(truthy_ev_vehicle_value(row.get(field)) for field in flag_fields):
+            return True
+
+    text_fields = (
+        "vehicle_type_id",
+        "vehicle_type",
+        "vehicle_subtype_id",
+        "vehicle_model",
+        "model",
+        "fuel_type",
+        "fuel",
+        "energy_type",
+        "powertrain",
+    )
+    for row in (raw_vehicle, online_vehicle, source):
+        for field in text_fields:
+            text = str(row.get(field) or "").strip().lower().replace("-", "_").replace(" ", "_")
+            if text in {"ev", "electric", "ev_auto", "battery_electric", "zero_emission"} or "ev_auto" in text:
+                return True
+    return False
+
+
+def driver_has_tourism_capability(
+    driver: Optional[Dict[str, Any]],
+    booking: Optional[Dict[str, Any]] = None,
+) -> bool:
+    booking_doc = booking or {}
+    tourism_details = booking_doc.get("tourism_details") if isinstance(booking_doc.get("tourism_details"), dict) else {}
+    driver_filter = booking_doc.get("driver_filter") if isinstance(booking_doc.get("driver_filter"), dict) else {}
+    city = (
+        tourism_details.get("city")
+        or booking_doc.get("tourism_city")
+        or driver_filter.get("tourism_city")
+    )
+    language = (
+        tourism_details.get("language_preference")
+        or booking_doc.get("tourism_language_preference")
+        or driver_filter.get("language_preference")
+    )
+    return tourism_driver_eligibility(driver or {}, city=city, language=language).get("eligible") is True
+
+
+def driver_has_women_only_capability(
+    driver: Optional[Dict[str, Any]],
+    booking: Optional[Dict[str, Any]] = None,
+) -> bool:
+    booking_doc = booking or {}
+    driver_filter = booking_doc.get("driver_filter") if isinstance(booking_doc.get("driver_filter"), dict) else {}
+    details = booking_doc.get("women_only_details") if isinstance(booking_doc.get("women_only_details"), dict) else {}
+    female_driver_required = bool(
+        details.get("female_driver_required")
+        if "female_driver_required" in details
+        else driver_filter.get("female_driver_required", True)
+    )
+    allow_trusted_fallback = bool(
+        details.get("allow_trusted_male_driver_if_unavailable")
+        if "allow_trusted_male_driver_if_unavailable" in details
+        else driver_filter.get("allow_trusted_male_driver_if_unavailable", False)
+    )
+    return women_only_driver_eligibility(
+        driver or {},
+        female_driver_required=female_driver_required,
+        allow_trusted_male_driver_if_unavailable=allow_trusted_fallback,
+    ).get("eligible") is True
+
+
+def driver_has_rental_capability(
+    driver: Optional[Dict[str, Any]],
+    booking: Optional[Dict[str, Any]] = None,
+) -> bool:
+    booking_doc = booking or {}
+    details = booking_doc.get("rental_details") if isinstance(booking_doc.get("rental_details"), dict) else {}
+    driver_filter = booking_doc.get("driver_filter") if isinstance(booking_doc.get("driver_filter"), dict) else {}
+    package_hours = (
+        details.get("package_hours")
+        or booking_doc.get("rental_package_hours")
+        or booking_doc.get("rental_hours")
+        or driver_filter.get("package_hours")
+    )
+    try:
+        package_hours = int(package_hours) if package_hours is not None else None
+    except Exception:
+        package_hours = None
+    vehicle_type = (
+        details.get("vehicle_type")
+        or booking_doc.get("vehicle_type_id")
+        or booking_doc.get("vehicle_type")
+        or driver_filter.get("vehicle_type")
+    )
+    return rental_driver_eligibility(
+        driver or {},
+        vehicle_type=vehicle_type,
+        package_hours=package_hours,
+    ).get("eligible") is True
+
+
+async def hydrate_driver_profiles_with_user_identity(drivers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    driver_ids = [str(item.get("user_id") or item.get("id") or "").strip() for item in drivers if item]
+    driver_ids = [item for item in driver_ids if item]
+    if not driver_ids:
+        return drivers
+    users = await db.users.find(
+        {"id": {"$in": list(set(driver_ids))}, "role": UserRole.DRIVER},
+        {"_id": 0, "id": 1, "name": 1, "gender": 1},
+    ).to_list(None)
+    users_by_id = {str(item.get("id") or ""): item for item in users}
+    hydrated = []
+    for driver in drivers:
+        driver_id = str(driver.get("user_id") or driver.get("id") or "").strip()
+        user = users_by_id.get(driver_id) or {}
+        hydrated.append(
+            {
+                **driver,
+                "gender": driver.get("gender") or user.get("gender"),
+                "name": driver.get("name") or user.get("name"),
+            }
+        )
+    return hydrated
 
 
 def driver_matches_booking_service(driver: Optional[Dict[str, Any]], booking: Optional[Dict[str, Any]]) -> bool:
@@ -5454,11 +5696,24 @@ def driver_matches_booking_service(driver: Optional[Dict[str, Any]], booking: Op
 
     driver_vehicle_type = get_driver_online_vehicle_type(driver)
     driver_vehicle_subtype = get_driver_online_vehicle_subtype(driver)
-    if requested_vehicle_type and driver_vehicle_type != requested_vehicle_type:
+    ev_auto_type_match = (
+        requested_ride_type == "ev_auto"
+        and requested_vehicle_type in {"auto", "ev_auto"}
+        and driver_vehicle_type in {"auto", "ev_auto"}
+    )
+    if requested_vehicle_type and driver_vehicle_type != requested_vehicle_type and not ev_auto_type_match:
         return False
     if requested_vehicle_subtype and driver_vehicle_subtype and driver_vehicle_subtype != requested_vehicle_subtype:
         return False
     if requested_ride_type and not vehicle_supports_requested_ride_type(driver_vehicle_type, requested_ride_type):
+        return False
+    if requested_ride_type == "ev_auto" and not driver_has_ev_auto_capability(driver):
+        return False
+    if requested_ride_type == "tourism" and not driver_has_tourism_capability(driver, booking_doc):
+        return False
+    if requested_ride_type == "women_only" and not driver_has_women_only_capability(driver, booking_doc):
+        return False
+    if requested_ride_type in {"rental", "rental_hourly"} and not driver_has_rental_capability(driver, booking_doc):
         return False
     if requested_ride_type and not driver_accepts_requested_ride_type(driver, requested_ride_type):
         return False
@@ -5900,6 +6155,8 @@ async def intelligent_find_drivers_for_booking(
     if blocked_set:
         query["user_id"] = {"$nin": list(blocked_set)}
     drivers = await db.drivers.find(query).to_list(500)
+    if str(booking.get("ride_product") or booking.get("ride_type") or "").strip().lower() == "women_only":
+        drivers = await hydrate_driver_profiles_with_user_identity(drivers)
     filter_preferences = load_driver_ride_filter_preferences([str(driver.get("user_id") or "") for driver in drivers])
     passenger_rating_summary = await get_user_rating_summary(passenger_id)
     passenger_rating = safe_float(passenger_rating_summary.get("average_rating"), 5.0)
@@ -10054,6 +10311,8 @@ async def get_nearby_drivers(
     requested_vehicle_type = str(vehicle_type_id or "").strip().lower()
     requested_vehicle_subtype = str(vehicle_subtype_id or "").strip().lower()
     requested_ride_type = str(ride_type or "").strip().lower()
+    if requested_ride_type == "women_only":
+        available_drivers = await hydrate_driver_profiles_with_user_identity(available_drivers)
     requested_service = {
         "vehicle_type_id": requested_vehicle_type,
         "vehicle_subtype_id": requested_vehicle_subtype,
@@ -10477,8 +10736,53 @@ async def get_pending_requests(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Only drivers can access this")
     driver_service_profile = await db.drivers.find_one(
         {"user_id": current_user["id"]},
-        {"_id": 0, "vehicle_info": 1, "online_vehicle_id": 1},
+        {
+            "_id": 0,
+            "vehicle_info": 1,
+            "online_vehicle": 1,
+            "online_vehicle_id": 1,
+            "is_available": 1,
+            "rating": 1,
+            "average_rating": 1,
+            "rental_rating": 1,
+            "rental_enabled": 1,
+            "gender": 1,
+            "kyc_status": 1,
+            "kyc_verified": 1,
+            "vehicle_verified": 1,
+            "vehicle_verification_status": 1,
+            "police_verified": 1,
+            "police_verification_status": 1,
+            "background_check_status": 1,
+            "safety_score": 1,
+            "women_only_safety_score": 1,
+            "trusted_safety_driver": 1,
+            "women_only_trusted_driver": 1,
+            "active_complaints": 1,
+            "open_safety_complaints": 1,
+            "safety_complaint_count": 1,
+            "current_location": 1,
+            "live_location_enabled": 1,
+            "location_sharing_enabled": 1,
+            "tourism_rating": 1,
+            "tourism_enabled": 1,
+            "languages": 1,
+            "language_codes": 1,
+            "district": 1,
+            "city": 1,
+            "tourism_cities": 1,
+            "service_cities": 1,
+            "local_areas": 1,
+            "districts": 1,
+            "accepted_ride_types": 1,
+        },
     ) or {}
+    driver_service_profile = {
+        **driver_service_profile,
+        "gender": driver_service_profile.get("gender") or current_user.get("gender"),
+        "name": driver_service_profile.get("name") or current_user.get("name"),
+        "user_id": driver_service_profile.get("user_id") or current_user.get("id"),
+    }
     cache_vehicle_key = str(
         driver_service_profile.get("online_vehicle_id")
         or get_driver_online_vehicle_type(driver_service_profile)
@@ -10515,13 +10819,6 @@ async def get_pending_requests(current_user: dict = Depends(get_current_user)):
         if booking.get("passenger_id") not in blocked_passenger_ids
         and booking.get("passenger_id") not in passengers_blocked_driver_ids
     ]
-    driver_gender = str(current_user.get("gender") or "").strip().lower()
-    pending = [
-        booking
-        for booking in pending
-        if (not bool(booking.get("women_only_required"))) or driver_gender == "female"
-    ]
-
     pending = [
         booking
         for booking in pending
@@ -10577,6 +10874,155 @@ async def get_pending_requests(current_user: dict = Depends(get_current_user)):
 
 def enum_response_value(value: Any) -> Any:
     return value.value if isinstance(value, Enum) else value
+
+
+BOOKING_TYPE_PRODUCT_ALIASES = {
+    "rental_ride": "rental_hourly",
+    "women_only_ride": "women_only",
+    "tourism_ride": "tourism",
+    "tourism_booking": "tourism",
+}
+
+PRODUCT_SIDECAR_COLLECTIONS = {
+    "rental": "rental_rides",
+    "rental_hourly": "rental_rides",
+    "women_only": "women_only_rides",
+    "tourism": "tourism_bookings",
+}
+
+PRODUCT_SIDECAR_STATUS_MAP = {
+    "rental": {
+        "accepted": "accepted",
+        "driver_arrived": "driver_arrived",
+        "in_progress": "started",
+        "completed": "completed",
+        "cancelled": "cancelled",
+    },
+    "rental_hourly": {
+        "accepted": "accepted",
+        "driver_arrived": "driver_arrived",
+        "in_progress": "started",
+        "completed": "completed",
+        "cancelled": "cancelled",
+    },
+    "women_only": {
+        "accepted": "accepted",
+        "driver_arrived": "pickup_otp_pending",
+        "in_progress": "started",
+        "completed": "completed",
+        "cancelled": "cancelled",
+    },
+    "tourism": {
+        "accepted": "accepted",
+        "driver_arrived": "driver_arrived",
+        "in_progress": "in_progress",
+        "completed": "completed",
+        "cancelled": "cancelled",
+    },
+}
+
+
+def normalize_status_text(value: Any) -> str:
+    text = str(enum_response_value(value) or "").strip().lower()
+    if "." in text:
+        text = text.rsplit(".", 1)[-1]
+    return text.replace("-", "_").replace(" ", "_")
+
+
+def booking_product_key(booking: Optional[Dict[str, Any]]) -> str:
+    source = booking or {}
+    for raw in (source.get("ride_product"), source.get("ride_type"), source.get("booking_type")):
+        key = str(enum_response_value(raw) or "").strip().lower()
+        if not key:
+            continue
+        if "." in key:
+            key = key.rsplit(".", 1)[-1]
+        key = key.replace("-", "_").replace(" ", "_")
+        return BOOKING_TYPE_PRODUCT_ALIASES.get(key, key)
+    return ""
+
+
+def first_present(*values: Any) -> Any:
+    for value in values:
+        if value is not None and value != "":
+            return value
+    return None
+
+
+async def calculate_rental_completion_fare_for_booking(
+    booking: Dict[str, Any],
+    actual_distance_km: float,
+    completed_at: datetime,
+) -> Optional[Dict[str, Any]]:
+    if booking_product_key(booking) not in {"rental", "rental_hourly"}:
+        return None
+    booking_id = str(booking.get("id") or booking.get("booking_id") or "").strip()
+    sidecar = await db.rental_rides.find_one({"booking_id": booking_id}, {"_id": 0}) if booking_id else None
+    sidecar = sidecar or {}
+    details = booking.get("rental_details") if isinstance(booking.get("rental_details"), dict) else {}
+    started_at = first_present(sidecar.get("started_at"), booking.get("trip_started_at"), booking.get("started_at"))
+    if not started_at:
+        return None
+    try:
+        fare = calculate_rental_final_fare(
+            base_fare=first_present(sidecar.get("base_fare"), details.get("base_fare"), booking.get("estimated_fare")),
+            package_hours=first_present(
+                sidecar.get("package_hours"),
+                details.get("package_hours"),
+                booking.get("rental_package_hours"),
+                booking.get("rental_hours"),
+            ),
+            included_km=first_present(sidecar.get("included_km"), details.get("included_km"), booking.get("rental_included_km")),
+            extra_km_rate=first_present(sidecar.get("extra_km_rate"), details.get("extra_km_rate")),
+            extra_15_min_rate=first_present(sidecar.get("extra_15_min_rate"), details.get("extra_15_min_rate")),
+            actual_distance_km=actual_distance_km,
+            started_at=started_at,
+            completed_at=completed_at,
+        )
+    except Exception:
+        logger.exception("Rental fare calculation failed for booking_id=%s", booking_id)
+        return None
+    fare["package_base_fare"] = safe_float(first_present(sidecar.get("base_fare"), details.get("base_fare"), booking.get("estimated_fare")), 0.0)
+    fare["package_hours"] = safe_float(first_present(sidecar.get("package_hours"), details.get("package_hours"), booking.get("rental_package_hours")), 0.0)
+    fare["extra_km_rate"] = safe_float(first_present(sidecar.get("extra_km_rate"), details.get("extra_km_rate")), 0.0)
+    fare["extra_15_min_rate"] = safe_float(first_present(sidecar.get("extra_15_min_rate"), details.get("extra_15_min_rate")), 0.0)
+    return fare
+
+
+async def sync_booking_product_sidecar_status(
+    booking: Optional[Dict[str, Any]],
+    status: Any,
+    *,
+    set_fields: Optional[Dict[str, Any]] = None,
+    push_history: bool = True,
+) -> None:
+    product_key = booking_product_key(booking)
+    collection_name = PRODUCT_SIDECAR_COLLECTIONS.get(product_key)
+    booking_id = str((booking or {}).get("id") or (booking or {}).get("booking_id") or "").strip()
+    if not collection_name or not booking_id:
+        return
+
+    status_value = normalize_status_text(status)
+    sidecar_status = PRODUCT_SIDECAR_STATUS_MAP.get(product_key, {}).get(status_value, status_value)
+    update_fields = dict(set_fields or {})
+    now = update_fields.get("updated_at") or get_ist_now()
+    update_fields["updated_at"] = now
+    if sidecar_status:
+        update_fields["status"] = sidecar_status
+
+    update_doc: Dict[str, Any] = {"$set": update_fields}
+    if push_history and sidecar_status:
+        update_doc["$push"] = {
+            "status_history": {
+                "status": sidecar_status,
+                "booking_status": status_value,
+                "at": now,
+            }
+        }
+    try:
+        await db[collection_name].update_one({"booking_id": booking_id}, update_doc)
+    except Exception:
+        logger.exception("Product sidecar sync failed for booking_id=%s collection=%s", booking_id, collection_name)
 
 
 def serialize_driver_upcoming_ride(
@@ -10649,13 +11095,66 @@ async def get_driver_upcoming_rides(current_user: dict = Depends(get_current_use
 
     blocked_passenger_ids = set(await get_driver_blocked_passenger_ids(current_user["id"]))
     passengers_blocked_driver_ids = set(await get_passengers_who_blocked_driver_ids(current_user["id"]))
-    driver_gender = str(current_user.get("gender") or "").strip().lower()
+    driver_service_profile = await db.drivers.find_one(
+        {"user_id": current_user["id"]},
+        {
+            "_id": 0,
+            "user_id": 1,
+            "name": 1,
+            "gender": 1,
+            "vehicle_info": 1,
+            "online_vehicle": 1,
+            "online_vehicle_id": 1,
+            "is_available": 1,
+            "vehicle_type": 1,
+            "vehicle_type_id": 1,
+            "vehicle_subtype_id": 1,
+            "rating": 1,
+            "average_rating": 1,
+            "rental_rating": 1,
+            "rental_enabled": 1,
+            "kyc_status": 1,
+            "kyc_verified": 1,
+            "vehicle_verified": 1,
+            "vehicle_verification_status": 1,
+            "police_verified": 1,
+            "police_verification_status": 1,
+            "background_check_status": 1,
+            "safety_score": 1,
+            "women_only_safety_score": 1,
+            "trusted_safety_driver": 1,
+            "women_only_trusted_driver": 1,
+            "active_complaints": 1,
+            "open_safety_complaints": 1,
+            "safety_complaint_count": 1,
+            "current_location": 1,
+            "live_location_enabled": 1,
+            "location_sharing_enabled": 1,
+            "accepted_ride_types": 1,
+            "tourism_rating": 1,
+            "tourism_enabled": 1,
+            "languages": 1,
+            "language_codes": 1,
+            "district": 1,
+            "city": 1,
+            "tourism_cities": 1,
+            "service_cities": 1,
+            "local_areas": 1,
+            "districts": 1,
+        },
+    ) or {}
+    driver_service_profile = {
+        **driver_service_profile,
+        "gender": driver_service_profile.get("gender") or current_user.get("gender"),
+        "name": driver_service_profile.get("name") or current_user.get("name"),
+        "user_id": driver_service_profile.get("user_id") or current_user.get("id"),
+    }
 
     scheduled_requests = [
         booking for booking in scheduled_requests
         if booking.get("passenger_id") not in blocked_passenger_ids
         and booking.get("passenger_id") not in passengers_blocked_driver_ids
-        and ((not bool(booking.get("women_only_required"))) or driver_gender == "female")
+        and driver_matches_booking_service(driver_service_profile, booking)
     ]
 
     passenger_ids = list({
@@ -11228,6 +11727,9 @@ async def create_booking(
         selected_driver_profile = await db.drivers.find_one(selected_driver_query)
         if not selected_driver_profile:
             raise HTTPException(status_code=400, detail="Selected driver is unavailable right now")
+        if str(booking.ride_type or "").strip().lower() == "women_only":
+            hydrated_profiles = await hydrate_driver_profiles_with_user_identity([selected_driver_profile])
+            selected_driver_profile = hydrated_profiles[0] if hydrated_profiles else selected_driver_profile
         selected_service = {
             "vehicle_type_id": booking.vehicle_type_id,
             "vehicle_subtype_id": booking.vehicle_subtype_id,
@@ -11921,14 +12423,20 @@ async def accept_booking(booking_id: str, current_user: dict = Depends(get_curre
     candidate_driver_ids = booking.get("candidate_driver_ids") or []
     if candidate_driver_ids and current_user["id"] not in candidate_driver_ids:
         raise HTTPException(status_code=403, detail="This booking request is not assigned to you")
-    if bool(booking.get("women_only_required")) and str(current_user.get("gender") or "").strip().lower() != "female":
-        raise HTTPException(status_code=403, detail="Women-only rides can be accepted only by women drivers")
     if await is_driver_passenger_pair_blocked(booking.get("passenger_id"), current_user["id"]):
         raise HTTPException(status_code=403, detail="You cannot accept this ride because this passenger is blocked")
     
     pricing = await get_pricing_rules()
     # Get driver's fare multiplier
     driver_profile = await db.drivers.find_one({"user_id": current_user["id"]})
+    driver_identity = {
+        **(driver_profile or {}),
+        "gender": (driver_profile or {}).get("gender") or current_user.get("gender"),
+        "name": (driver_profile or {}).get("name") or current_user.get("name"),
+        "user_id": (driver_profile or {}).get("user_id") or current_user.get("id"),
+    }
+    if not driver_matches_booking_service(driver_identity, booking):
+        raise HTTPException(status_code=403, detail="Driver does not meet this ride product's service requirements")
     fare_multiplier = float(driver_profile.get("fare_multiplier", 1.0)) if driver_profile else 1.0
     effective_pricing = await get_effective_pricing_for_driver_profile(driver_profile, pricing)
     driver_live_location = await get_effective_driver_location(driver_profile) if driver_profile else None
@@ -11990,6 +12498,16 @@ async def accept_booking(booking_id: str, current_user: dict = Depends(get_curre
                 "updated_at": get_ist_now()
             }
         }
+    )
+    await sync_booking_product_sidecar_status(
+        booking,
+        BookingStatus.ACCEPTED,
+        set_fields={
+            "driver_id": current_user["id"],
+            "dispatch_status": "accepted",
+            "accepted_at": get_ist_now(),
+            "estimated_fare": final_estimated_fare,
+        },
     )
     
     await remove_ride_from_queue(booking_id)
@@ -12316,6 +12834,15 @@ async def update_booking_status(booking_id: str, status_update: BookingStatusUpd
         base_route_fare_actual = max(base_route_fare_actual, effective_pricing.minimum_fare)
         route_fare_actual = round(base_route_fare_actual * vehicle_type_multiplier * ride_type_multiplier, 2)
         final_fare = round((route_fare_actual * fare_multiplier) + pickup_surcharge + waiting["waiting_charge"], 2)
+        rental_fare = await calculate_rental_completion_fare_for_booking(
+            booking,
+            actual_distance_km,
+            now_utc,
+        )
+        if rental_fare:
+            route_fare_actual = round(float(rental_fare["final_fare"]), 2)
+            base_route_fare_actual = round(float(rental_fare["package_base_fare"]), 2)
+            final_fare = route_fare_actual
 
         update_data["actual_distance_km"] = round(actual_distance_km, 3)
         update_data["distance_km"] = round(actual_distance_km, 3)
@@ -12342,7 +12869,25 @@ async def update_booking_status(booking_id: str, status_update: BookingStatusUpd
             "driver_fare_multiplier": round(fare_multiplier, 4),
             "pickup_surcharge": round(pickup_surcharge, 2),
         }
+        if rental_fare:
+            update_data["fare_breakdown"].update(
+                {
+                    "pricing_basis": "rental_package_actuals",
+                    "base_fare": round(rental_fare["package_base_fare"], 2),
+                    "package_hours": round(rental_fare["package_hours"], 2),
+                    "included_km": rental_fare["included_km"],
+                    "extra_km": rental_fare["extra_km"],
+                    "extra_km_rate": round(rental_fare["extra_km_rate"], 2),
+                    "extra_km_charge": rental_fare["extra_km_charge"],
+                    "extra_minutes": rental_fare["extra_minutes"],
+                    "extra_15_min_blocks": int(rental_fare["extra_15_min_blocks"]),
+                    "extra_15_min_rate": round(rental_fare["extra_15_min_rate"], 2),
+                    "extra_time_charge": rental_fare["extra_time_charge"],
+                    "used_minutes": rental_fare["used_minutes"],
+                }
+            )
         update_data["final_fare"] = final_fare
+        update_data["estimated_fare"] = final_fare
         update_data["trip_completed_at"] = now_utc
         update_data["ride_start_otp"] = None
         update_data["ride_end_otp"] = None
@@ -12384,6 +12929,70 @@ async def update_booking_status(booking_id: str, status_update: BookingStatusUpd
     await db.bookings.update_one(
         {"id": booking_id},
         {"$set": update_data}
+    )
+    sidecar_set_fields: Dict[str, Any] = {
+        "dispatch_status": normalize_status_text(status_update.status),
+        "updated_at": now_utc,
+    }
+    if status_update.status == BookingStatus.DRIVER_ARRIVED:
+        sidecar_set_fields.update(
+            {
+                "pickup_otp": update_data.get("ride_start_otp"),
+                "pickup_otp_status": "sent_to_passenger",
+                "pickup_otp_verified": False,
+                "driver_arrived_at": now_utc,
+            }
+        )
+    elif status_update.status == BookingStatus.IN_PROGRESS:
+        sidecar_set_fields.update(
+            {
+                "dispatch_status": "trip_started",
+                "pickup_otp_verified": True,
+                "pickup_otp_verified_at": now_utc,
+                "started_at": update_data.get("trip_started_at") or now_utc,
+                "actual_distance_km": update_data.get("actual_distance_km", 0.0),
+            }
+        )
+    elif status_update.status == BookingStatus.COMPLETED:
+        fare_breakdown = update_data.get("fare_breakdown") if isinstance(update_data.get("fare_breakdown"), dict) else {}
+        trip_summary = {
+            "booking_id": booking_id,
+            "completed_at": now_utc,
+            "final_fare": update_data.get("final_fare"),
+            "actual_distance_km": update_data.get("actual_distance_km"),
+            "actual_duration_minutes": update_data.get("actual_duration_minutes"),
+        }
+        sidecar_set_fields.update(
+            {
+                "dispatch_status": "completed",
+                "completed_at": now_utc,
+                "final_fare": update_data.get("final_fare"),
+                "actual_distance_km": update_data.get("actual_distance_km"),
+                "trip_summary": trip_summary,
+            }
+        )
+        if fare_breakdown.get("pricing_basis") == "rental_package_actuals":
+            sidecar_set_fields.update(
+                {
+                    "used_minutes": fare_breakdown.get("used_minutes"),
+                    "extra_minutes": fare_breakdown.get("extra_minutes"),
+                    "extra_15_min_blocks": fare_breakdown.get("extra_15_min_blocks"),
+                    "extra_km": fare_breakdown.get("extra_km"),
+                    "extra_time_charge": fare_breakdown.get("extra_time_charge"),
+                    "extra_km_charge": fare_breakdown.get("extra_km_charge"),
+                }
+            )
+    elif status_update.status == BookingStatus.CANCELLED:
+        sidecar_set_fields.update(
+            {
+                "dispatch_status": "cancelled",
+                "cancelled_at": now_utc,
+            }
+        )
+    await sync_booking_product_sidecar_status(
+        booking,
+        status_update.status,
+        set_fields=sidecar_set_fields,
     )
     if booking.get("driver_id"):
         await cache_delete(f"driver_profile:{booking['driver_id']}")
@@ -12563,6 +13172,19 @@ async def cancel_booking(
                 "cancellation_audit": cancellation_details,
             },
         }
+    )
+    await sync_booking_product_sidecar_status(
+        booking,
+        BookingStatus.CANCELLED,
+        set_fields={
+            "dispatch_status": "cancelled",
+            "cancelled_at": now,
+            "cancelled_by": current_user["id"],
+            "cancelled_by_role": actor_role,
+            "cancellation_reason_code": reason_code,
+            "cancellation_reason": reason_text,
+            "cancellation_details": cancellation_details,
+        },
     )
     await remove_ride_from_queue(booking_id)
     
@@ -17352,30 +17974,36 @@ async def emit_new_booking_to_drivers(
     if target_driver_ids:
         query["user_id"] = {"$in": list(set(target_driver_ids))}
     available_drivers = await db.drivers.find(query).to_list(150)
+    booking = None
     passenger_id = None
     blocked_driver_ids: set = set()
-    women_only_required = False
     if booking_id:
         booking = await db.bookings.find_one({"id": booking_id})
         passenger_id = booking.get("passenger_id") if booking else None
-        women_only_required = bool((booking or {}).get("women_only_required"))
         if passenger_id:
             blocked_driver_ids = set(await get_excluded_driver_ids_for_passenger(passenger_id))
-    female_driver_ids: set = set()
-    if women_only_required and available_drivers:
+    if booking_product_key(booking) == "women_only" and available_drivers:
         driver_ids = [str(item.get("user_id") or "").strip() for item in available_drivers if item.get("user_id")]
-        female_rows = await db.users.find(
-            {"id": {"$in": driver_ids}, "role": UserRole.DRIVER, "gender": "female"},
-            {"_id": 0, "id": 1},
+        driver_users = await db.users.find(
+            {"id": {"$in": driver_ids}, "role": UserRole.DRIVER},
+            {"_id": 0, "id": 1, "gender": 1, "name": 1},
         ).to_list(None)
-        female_driver_ids = {str(item.get("id") or "").strip() for item in female_rows if item.get("id")}
+        users_by_id = {str(item.get("id") or ""): item for item in driver_users}
+        available_drivers = [
+            {
+                **driver,
+                "gender": driver.get("gender") or (users_by_id.get(str(driver.get("user_id") or "")) or {}).get("gender"),
+                "name": driver.get("name") or (users_by_id.get(str(driver.get("user_id") or "")) or {}).get("name"),
+            }
+            for driver in available_drivers
+        ]
     for driver in available_drivers:
         if blocked_driver_ids and driver.get("user_id") in blocked_driver_ids:
             continue
         driver_id = str(driver.get("user_id") or "").strip()
         if not driver_id:
             continue
-        if women_only_required and driver_id not in female_driver_ids:
+        if booking and not driver_matches_booking_service(driver, booking):
             continue
         await sio.emit(
             'new_booking_available',
@@ -17419,15 +18047,9 @@ async def ride_dispatch_worker():
                 vehicle_type_id=booking.get("vehicle_type_id"),
                 vehicle_subtype_id=booking.get("vehicle_subtype_id"),
                 ride_type=booking.get("ride_product") or booking.get("ride_type"),
+                booking_context=booking,
             )
             candidate_driver_ids = [str(item.get("user_id") or "").strip() for item in drivers if item.get("user_id")]
-            if bool(booking.get("women_only_required")) and candidate_driver_ids:
-                female_rows = await db.users.find(
-                    {"id": {"$in": candidate_driver_ids}, "role": UserRole.DRIVER, "gender": "female"},
-                    {"_id": 0, "id": 1},
-                ).to_list(None)
-                female_ids = {str(item.get("id") or "").strip() for item in female_rows if item.get("id")}
-                candidate_driver_ids = [driver_id for driver_id in candidate_driver_ids if driver_id in female_ids]
             if not candidate_driver_ids:
                 if attempts < RIDE_QUEUE_MAX_ATTEMPTS:
                     retry_delay = min(60, RIDE_QUEUE_RETRY_BASE_SECONDS * max(1, attempts))
@@ -17672,6 +18294,8 @@ app.include_router(modular_auth_router)
 app.include_router(modular_analytics_router)
 app.include_router(modular_driver_trust_router)
 app.include_router(modular_ride_products_router)
+app.include_router(modular_women_only_rides_router)
+app.include_router(modular_rental_rides_router)
 app.include_router(modular_revenue_router)
 app.include_router(modular_security_router)
 app.include_router(modular_safety_router)

@@ -17,7 +17,10 @@ class RideType(str, Enum):
     RENTAL = "rental"
     AIRPORT = "airport"
     CORPORATE = "corporate"
+    INTERCITY = "intercity"
+    EV_AUTO = "ev_auto"
     TOURISM = "tourism"
+    WOMEN_ONLY = "women_only"
     PET = "pet"
     GOODS = "goods"
 
@@ -49,8 +52,31 @@ class RentalDetails(BaseModel):
 class TourismDetails(BaseModel):
     """Tourism/sightseeing specific details"""
     tour_hours: float = Field(..., ge=2, le=24, description="Tour duration in hours")
+    package_id: Optional[str] = Field(default=None, max_length=40, description="Tourism package ID")
+    package_type: Optional[str] = Field(default=None, max_length=40, description="half_day|full_day|multi_day|custom")
+    city: Optional[str] = Field(default=None, max_length=80, description="Tourism city")
+    custom_stops: List[str] = Field(default_factory=list, max_length=12, description="Custom attraction stops")
+    language_preference: str = Field(default="English", max_length=40, description="Preferred driver/guide language")
+    guide_required: bool = Field(default=False, description="Local guide add-on")
+    photographer_required: bool = Field(default=False, description="Photographer add-on")
+    boat_ride_required: bool = Field(default=False, description="Boat ride add-on")
+    hotel_booking_requested: bool = Field(default=False, description="Hotel booking assistance")
+    ticket_booking_requested: bool = Field(default=False, description="Ticket booking assistance")
     tour_itinerary: Optional[str] = Field(default=None, description="Planned stops/route")
     return_location: Optional[str] = Field(default=None, description="Return location if different")
+
+
+class WomenOnlyDetails(BaseModel):
+    """Women Only ride safety details"""
+    passenger_gender: str = Field(default="female", max_length=20, description="Passenger gender must be female")
+    female_driver_required: bool = Field(default=True, description="Require a female driver")
+    allow_trusted_male_driver_if_unavailable: bool = Field(
+        default=False,
+        description="Allow only trusted safety drivers if a female driver is unavailable",
+    )
+    guardian_name: Optional[str] = Field(default=None, max_length=80, description="Guardian contact name")
+    guardian_phone: Optional[str] = Field(default=None, max_length=20, description="Guardian contact phone")
+    share_guardian_tracking: bool = Field(default=True, description="Share live tracking with guardian")
 
 
 class EnhancedBookingRequest(BaseModel):
@@ -71,7 +97,7 @@ class EnhancedBookingRequest(BaseModel):
     # Service Selection
     ride_type: RideType = Field(
         ...,
-        description="Type of ride: instant|scheduled|rental|airport|corporate|tourism|goods|pet",
+        description="Type of ride: instant|scheduled|rental|airport|corporate|intercity|ev_auto|tourism|women_only|goods|pet",
     )
     vehicle_type_id: str = Field(..., description="Vehicle type: auto|taxi|xl|traveller|bus|minitruck|truck")
     vehicle_subtype_id: Optional[str] = Field(default=None, description="Vehicle subtype if applicable")
@@ -87,6 +113,7 @@ class EnhancedBookingRequest(BaseModel):
     airport_details: Optional[AirportDetails] = None
     rental_details: Optional[RentalDetails] = None
     tourism_details: Optional[TourismDetails] = None
+    women_only_details: Optional[WomenOnlyDetails] = None
     
     # Additional Info
     notes: Optional[str] = Field(default=None, max_length=500, description="Special requests")
@@ -134,11 +161,62 @@ class EnhancedBookingRequest(BaseModel):
                 }
 
         if ride_type == RideType.TOURISM.value and not values.get("tourism_details"):
-            if any(key in values for key in ("tour_hours", "tour_itinerary", "return_location")):
+            if any(
+                key in values
+                for key in (
+                    "tour_hours",
+                    "tour_itinerary",
+                    "return_location",
+                    "tourism_package_id",
+                    "tourism_package_type",
+                    "tourism_city",
+                    "tourism_custom_stops",
+                    "tourism_language_preference",
+                    "tourism_guide_required",
+                    "tourism_photographer_required",
+                    "tourism_boat_ride_required",
+                    "tourism_hotel_booking_requested",
+                    "tourism_ticket_booking_requested",
+                )
+            ):
                 values["tourism_details"] = {
-                    "tour_hours": values.get("tour_hours"),
+                    "tour_hours": values.get("tour_hours") or 8,
+                    "package_id": values.get("tourism_package_id"),
+                    "package_type": values.get("tourism_package_type"),
+                    "city": values.get("tourism_city"),
+                    "custom_stops": values.get("tourism_custom_stops") or [],
+                    "language_preference": values.get("tourism_language_preference") or "English",
+                    "guide_required": values.get("tourism_guide_required", False),
+                    "photographer_required": values.get("tourism_photographer_required", False),
+                    "boat_ride_required": values.get("tourism_boat_ride_required", False),
+                    "hotel_booking_requested": values.get("tourism_hotel_booking_requested", False),
+                    "ticket_booking_requested": values.get("tourism_ticket_booking_requested", False),
                     "tour_itinerary": values.get("tour_itinerary"),
                     "return_location": values.get("return_location"),
+                }
+
+        if ride_type == RideType.WOMEN_ONLY.value and not values.get("women_only_details"):
+            if any(
+                key in values
+                for key in (
+                    "passenger_gender",
+                    "women_only_female_driver_required",
+                    "women_only_allow_trusted_male_driver",
+                    "women_only_guardian_name",
+                    "women_only_guardian_phone",
+                    "women_only_share_guardian_tracking",
+                )
+            ):
+                values["women_only_details"] = {
+                    "passenger_gender": values.get("passenger_gender") or "female",
+                    "female_driver_required": values.get("women_only_female_driver_required", True),
+                    "allow_trusted_male_driver_if_unavailable": values.get(
+                        "women_only_allow_trusted_male_driver",
+                        False,
+                    ),
+                    "guardian_name": values.get("women_only_guardian_name"),
+                    "guardian_phone": values.get("women_only_guardian_phone"),
+                    "share_guardian_tracking": values.get("women_only_share_guardian_tracking", True),
                 }
 
         return values
@@ -159,6 +237,8 @@ class EnhancedBookingRequest(BaseModel):
             raise ValueError("rental_details is required for rental bookings")
         if self.ride_type == RideType.TOURISM and self.tourism_details is None:
             raise ValueError("tourism_details is required for tourism bookings")
+        if self.ride_type == RideType.WOMEN_ONLY and self.women_only_details is None:
+            raise ValueError("women_only_details is required for women-only bookings")
         return self
 
 
@@ -242,6 +322,7 @@ class EnhancedBooking(BaseModel):
     airport_details: Optional[AirportDetails] = None
     rental_details: Optional[RentalDetails] = None
     tourism_details: Optional[TourismDetails] = None
+    women_only_details: Optional[WomenOnlyDetails] = None
     
     # Fare Information
     estimated_fare: float

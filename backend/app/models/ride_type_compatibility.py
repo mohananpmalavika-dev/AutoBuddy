@@ -10,7 +10,7 @@ from datetime import datetime
 
 class RideTypeMultiplier(BaseModel):
     """Ride-type specific fare multiplier for a vehicle"""
-    ride_type: str  # instant|scheduled|rental|airport|corporate|tourism|goods|pet
+    ride_type: str  # instant|scheduled|rental|airport|corporate|intercity|ev_auto|tourism|women_only|goods|pet
     multiplier: float  # Additional multiplier on top of vehicle base multiplier
 
 
@@ -51,6 +51,13 @@ RIDE_TYPE_COMPATIBILITY = {
         "ride_type_multiplier": 1.0,
         "min_travel_time": 0,  # minutes
     },
+    "ev_auto": {
+        "description": "Electric auto ride request",
+        "vehicles": ["auto", "ev_auto"],
+        "ride_type_multiplier": 1.05,
+        "min_travel_time": 0,
+        "special_fields": ["ev_auto_required"],
+    },
     "scheduled": {
         "description": "Scheduled ride in advance",
         "vehicles": ["auto", "taxi", "xl", "traveller", "bus"],
@@ -58,11 +65,17 @@ RIDE_TYPE_COMPATIBILITY = {
         "min_travel_time": 30,
     },
     "rental": {
-        "description": "Hourly/daily rental service",
-        "vehicles": ["taxi", "xl", "traveller", "bus"],
+        "description": "Hourly package rental service with included km and extra time/km billing",
+        "vehicles": ["auto", "taxi", "xl", "traveller", "bus"],
         "ride_type_multiplier": 2.5,  # Rental multiplier on hourly rate
-        "min_travel_time": 240,  # 4 hours minimum
-        "fare_type": "hourly",
+        "min_travel_time": 60,  # 1 hour minimum
+        "fare_type": "hourly_package",
+        "special_fields": [
+            "rental_hours",
+            "rental_package_hours",
+            "rental_included_km",
+            "rental_stops",
+        ],
     },
     "airport": {
         "description": "Airport transfer service",
@@ -70,6 +83,18 @@ RIDE_TYPE_COMPATIBILITY = {
         "ride_type_multiplier": 1.3,  # 30% premium for airport service
         "min_travel_time": 45,
         "special_fields": ["terminal", "flight_number"],
+    },
+    "intercity": {
+        "description": "Intercity/outstation passenger ride",
+        "vehicles": ["taxi", "xl", "traveller"],
+        "ride_type_multiplier": 1.6,
+        "min_travel_time": 60,
+        "special_fields": [
+            "intercity_return_trip",
+            "intercity_wait_hours",
+            "intercity_tolls_included",
+            "intercity_route_notes",
+        ],
     },
     "corporate": {
         "description": "Corporate/business ride",
@@ -84,12 +109,38 @@ RIDE_TYPE_COMPATIBILITY = {
         "min_travel_time": 0,
         "special_fields": ["pet_type", "pet_count", "pet_carrier_required"],
     },
+    "women_only": {
+        "description": "Safety-first ride for women passengers with female-driver-first matching",
+        "vehicles": ["auto", "ev_auto", "taxi", "xl"],
+        "ride_type_multiplier": 1.15,
+        "min_travel_time": 0,
+        "special_fields": [
+            "passenger_gender",
+            "women_only_female_driver_required",
+            "women_only_allow_trusted_male_driver",
+            "women_only_guardian_name",
+            "women_only_guardian_phone",
+            "women_only_share_guardian_tracking",
+        ],
+    },
     "tourism": {
-        "description": "Tourism/sightseeing",
-        "vehicles": ["taxi", "xl", "traveller", "bus"],
-        "ride_type_multiplier": 1.5,  # 50% premium for tourism
+        "description": "Tourism packages, custom tours and local discovery",
+        "vehicles": ["auto", "taxi", "xl", "traveller", "bus"],
+        "ride_type_multiplier": 1.5,  # Package fare engine handles final tourism fare
         "min_travel_time": 120,  # 2 hours minimum
         "fare_type": "hourly",
+        "special_fields": [
+            "tourism_package_id",
+            "tourism_package_type",
+            "tourism_city",
+            "tourism_custom_stops",
+            "tourism_language_preference",
+            "tourism_guide_required",
+            "tourism_photographer_required",
+            "tourism_boat_ride_required",
+            "tourism_hotel_booking_requested",
+            "tourism_ticket_booking_requested",
+        ],
     },
     "goods": {
         "description": "Goods/cargo delivery",
@@ -113,10 +164,37 @@ FARE_CONFIGURATIONS = {
             minimum_fare=80.0,
         ),
         "instant": {"multiplier": 1.0},
+        "ev_auto": {"multiplier": 1.05},
+        "women_only": {"multiplier": 1.15},
         "scheduled": {"multiplier": 0.95},
         "airport": None,  # Not supported
+        "intercity": None,  # Not supported
         "corporate": None,  # Not supported
         "pet": {"multiplier": 1.12},
+        "rental": RentalFareConfig(
+            hourly_rate=250.0,
+            minimum_hours=1,
+            km_limit_per_hour=10.0,
+            extra_km_rate=18.0,
+        ),
+        "tourism": RentalFareConfig(hourly_rate=450.0),
+        "goods": None,  # Not supported
+    },
+    "ev_auto": {
+        "base": FareConfig(
+            base_fare=45.0,
+            per_km_rate=8.5,
+            per_minute_rate=1.5,
+            minimum_fare=85.0,
+        ),
+        "instant": {"multiplier": 1.0},
+        "ev_auto": {"multiplier": 1.0},
+        "women_only": {"multiplier": 1.08},
+        "scheduled": {"multiplier": 0.95},
+        "airport": None,  # Not supported
+        "intercity": None,  # Not supported
+        "corporate": None,  # Not supported
+        "pet": None,  # Not supported
         "rental": None,  # Not supported
         "tourism": None,  # Not supported
         "goods": None,  # Not supported
@@ -129,11 +207,19 @@ FARE_CONFIGURATIONS = {
             minimum_fare=100.0,
         ),
         "instant": {"multiplier": 1.0},
+        "ev_auto": None,  # Not supported
+        "women_only": {"multiplier": 1.15},
         "scheduled": {"multiplier": 0.95},
         "airport": {"multiplier": 1.3},
+        "intercity": {"multiplier": 1.6},
         "corporate": {"multiplier": 1.25},
         "pet": {"multiplier": 1.18},
-        "rental": RentalFareConfig(hourly_rate=500.0),
+        "rental": RentalFareConfig(
+            hourly_rate=500.0,
+            minimum_hours=1,
+            km_limit_per_hour=15.0,
+            extra_km_rate=25.0,
+        ),
         "tourism": RentalFareConfig(hourly_rate=600.0),
         "goods": None,  # Not supported
     },
@@ -145,11 +231,19 @@ FARE_CONFIGURATIONS = {
             minimum_fare=150.0,
         ),
         "instant": {"multiplier": 1.25},
+        "ev_auto": None,  # Not supported
+        "women_only": {"multiplier": 1.15},
         "scheduled": {"multiplier": 1.2},
         "airport": {"multiplier": 1.4},
+        "intercity": {"multiplier": 1.75},
         "corporate": {"multiplier": 1.3},
         "pet": {"multiplier": 1.22},
-        "rental": RentalFareConfig(hourly_rate=800.0),
+        "rental": RentalFareConfig(
+            hourly_rate=700.0,
+            minimum_hours=2,
+            km_limit_per_hour=15.0,
+            extra_km_rate=35.0,
+        ),
         "tourism": RentalFareConfig(hourly_rate=900.0),
         "goods": None,  # Not supported
     },
@@ -161,8 +255,11 @@ FARE_CONFIGURATIONS = {
             minimum_fare=200.0,
         ),
         "instant": {"multiplier": 1.25},
+        "ev_auto": None,  # Not supported
+        "women_only": None,  # Not supported
         "scheduled": {"multiplier": 1.2},
         "airport": None,  # Not typically used
+        "intercity": {"multiplier": 1.9},
         "corporate": None,  # Not typically used
         "pet": None,  # Not supported
         "rental": RentalFareConfig(hourly_rate=1200.0),
@@ -177,8 +274,11 @@ FARE_CONFIGURATIONS = {
             minimum_fare=300.0,
         ),
         "instant": {"multiplier": 1.8},
+        "ev_auto": None,
+        "women_only": None,
         "scheduled": {"multiplier": 1.7},
         "airport": None,
+        "intercity": None,
         "corporate": None,
         "pet": None,
         "rental": RentalFareConfig(hourly_rate=2000.0),
@@ -193,8 +293,11 @@ FARE_CONFIGURATIONS = {
             minimum_fare=250.0,
         ),
         "instant": {"multiplier": 1.0},
+        "ev_auto": None,
+        "women_only": None,
         "scheduled": {"multiplier": 0.95},
         "airport": None,
+        "intercity": None,
         "corporate": None,
         "pet": None,
         "rental": None,
@@ -209,8 +312,11 @@ FARE_CONFIGURATIONS = {
             minimum_fare=350.0,
         ),
         "instant": {"multiplier": 1.0},
+        "ev_auto": None,
+        "women_only": None,
         "scheduled": {"multiplier": 0.95},
         "airport": None,
+        "intercity": None,
         "corporate": None,
         "pet": None,
         "rental": None,

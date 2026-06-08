@@ -724,3 +724,127 @@ export const airportAPI = {
 export async function requestAirportRide(token, payload) {
   return airportAPI.requestRide(token, payload);
 }
+
+export const tourismAPI = {
+  listPackageTypes: () =>
+    apiRequest('/tourism/package-types'),
+
+  listPackages: (query = {}) =>
+    apiRequest('/tourism/packages', { query }),
+
+  getPackage: (packageId) =>
+    apiRequest(`/tourism/packages/${encodeURIComponent(packageId)}`),
+
+  listAttractions: (city) =>
+    apiRequest('/tourism/attractions', { query: { city } }),
+
+  previewRoute: (payload) =>
+    apiRequest('/tourism/route', {
+      method: 'POST',
+      body: payload,
+    }),
+
+  bookTour: (token, payload) =>
+    apiRequest('/tourism/book', {
+      method: 'POST',
+      token,
+      body: payload,
+    }),
+
+  markVisited: (token, bookingId, placeName) =>
+    apiRequest(`/tourism/bookings/${encodeURIComponent(bookingId)}/visited`, {
+      method: 'POST',
+      token,
+      body: { place_name: placeName },
+    }),
+
+  complete: (token, bookingId) =>
+    apiRequest(`/tourism/bookings/${encodeURIComponent(bookingId)}/complete`, {
+      method: 'POST',
+      token,
+    }),
+
+  getSummary: (token, bookingId) =>
+    apiRequest(`/tourism/bookings/${encodeURIComponent(bookingId)}/summary`, { token }),
+};
+
+export const womenOnlyRidesAPI = {
+  book: (token, payload) =>
+    apiRequest('/women-only-rides/book', {
+      method: 'POST',
+      token,
+      body: payload,
+    }),
+
+  get: (token, rideId) =>
+    apiRequest(`/women-only-rides/${encodeURIComponent(rideId)}`, { token }),
+
+  verifyPickup: (token, rideId, otp) =>
+    apiRequest(`/women-only-rides/${encodeURIComponent(rideId)}/verify-pickup`, {
+      method: 'POST',
+      token,
+      body: { otp },
+    }),
+
+  sos: (token, rideId, payload = {}) =>
+    apiRequest(`/women-only-rides/${encodeURIComponent(rideId)}/sos`, {
+      method: 'POST',
+      token,
+      body: payload,
+    }),
+
+  complete: (token, rideId) =>
+    apiRequest(`/women-only-rides/${encodeURIComponent(rideId)}/complete`, {
+      method: 'POST',
+      token,
+    }),
+};
+
+export const rentalRidesAPI = {
+  listPackages: (vehicleType) =>
+    apiRequest('/rental-rides/packages', {
+      query: vehicleType ? { vehicle_type: vehicleType } : undefined,
+    }),
+
+  book: (token, payload) =>
+    apiRequest('/rental-rides/book', {
+      method: 'POST',
+      token,
+      body: payload,
+    }),
+
+  get: (token, rideId) =>
+    apiRequest(`/rental-rides/${encodeURIComponent(rideId)}`, { token }),
+
+  start: (token, rideId, otp) =>
+    apiRequest(`/rental-rides/${encodeURIComponent(rideId)}/start`, {
+      method: 'POST',
+      token,
+      body: { otp },
+    }),
+
+  addStop: (token, rideId, stop) =>
+    apiRequest(`/rental-rides/${encodeURIComponent(rideId)}/add-stop`, {
+      method: 'POST',
+      token,
+      body: stop,
+    }),
+
+  markWaiting: (token, rideId, payload) =>
+    apiRequest(`/rental-rides/${encodeURIComponent(rideId)}/waiting`, {
+      method: 'POST',
+      token,
+      body: payload,
+    }),
+
+  complete: (token, rideId, actualDistanceKm) =>
+    apiRequest(`/rental-rides/${encodeURIComponent(rideId)}/complete`, {
+      method: 'POST',
+      token,
+      body: { actual_distance_km: actualDistanceKm },
+    }),
+};
+
+export async function bookRentalRide(token, payload) {
+  return rentalRidesAPI.book(token, payload);
+}

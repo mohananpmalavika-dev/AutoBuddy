@@ -36,6 +36,7 @@ const RIDE_PRODUCT_ALIASES = {
   rental: 'rental_hourly',
   goods: 'normal',
 };
+const RENTAL_PACKAGE_HOURS_MAX = 12;
 
 function normalizeInitialLocation(location) {
   if (!location) {
@@ -208,13 +209,35 @@ const BookingDetailsScreen = ({ navigation, route }) => {
   const [scheduledAtInput, setScheduledAtInput] = useState('');
   const [scheduledTimeZone, setScheduledTimeZone] = useState('local');
   const [driverGenderPreference, setDriverGenderPreference] = useState('any');
+  const [rentalHoursInput, setRentalHoursInput] = useState('4');
+  const [corporateCode, setCorporateCode] = useState('');
+  const [corporatePurpose, setCorporatePurpose] = useState('');
+  const [airportTerminal, setAirportTerminal] = useState('');
+  const [flightNumber, setFlightNumber] = useState('');
+  const [intercityReturnTrip, setIntercityReturnTrip] = useState(false);
+  const [intercityWaitHoursInput, setIntercityWaitHoursInput] = useState('0');
+  const [womenOnlyGuardianName, setWomenOnlyGuardianName] = useState('');
+  const [womenOnlyGuardianPhone, setWomenOnlyGuardianPhone] = useState('');
+  const [womenOnlyFemaleDriverRequired, setWomenOnlyFemaleDriverRequired] = useState(true);
+  const [petType, setPetType] = useState('');
+  const [petCountInput, setPetCountInput] = useState('1');
 
   const fareAmount = Number(fareEstimate?.total_fare || fareEstimate?.estimated_fare || 0);
   const discountAmount = getDiscountAmount(fareAmount, appliedPromo);
   const payableFare = Math.max(0, fareAmount - discountAmount);
   const rideProduct = normalizeRideProduct(ride_type);
   const isScheduledRide = rideProduct === 'scheduled';
+  const isRentalRide = rideProduct === 'rental_hourly';
+  const isCorporateRide = rideProduct === 'corporate';
+  const isAirportRide = rideProduct === 'airport';
+  const isIntercityRide = rideProduct === 'intercity';
+  const isTourismRide = rideProduct === 'tourism';
+  const isWomenOnlyRide = rideProduct === 'women_only';
+  const isPetRide = rideProduct === 'pet';
   const normalizedDriverGenderPreference = normalizeDriverGenderPreference(driverGenderPreference);
+  const rentalHours = clampNumber(Math.round(Number(rentalHoursInput || 0)), 1, RENTAL_PACKAGE_HOURS_MAX);
+  const intercityWaitHours = clampNumber(Math.round(Number(intercityWaitHoursInput || 0)), 0, 72);
+  const petCount = clampNumber(Math.round(Number(petCountInput || 1)), 1, 4);
   const scheduledPreview = isScheduledRide
     ? validateScheduledPickup(
         scheduledAtInput,
@@ -274,6 +297,10 @@ const BookingDetailsScreen = ({ navigation, route }) => {
             longitude: initialDropoff.coords.longitude,
             address: initialDropoff.address,
           },
+          vehicle_type_id: vehicle_type_id || undefined,
+          vehicle_subtype_id: vehicle_subtype_id || undefined,
+          ride_type: rideProduct,
+          rental_hours: isRentalRide ? rentalHours : undefined,
         },
       });
       setFareEstimate(estimate);
@@ -283,7 +310,7 @@ const BookingDetailsScreen = ({ navigation, route }) => {
     } finally {
       setFareLoading(false);
     }
-  }, [hasRoute, initialDropoff, initialPickup]);
+  }, [hasRoute, initialDropoff, initialPickup, isRentalRide, rentalHours, rideProduct, vehicle_subtype_id, vehicle_type_id]);
 
   const loadNearbyDrivers = useCallback(async () => {
     if (!hasRoute) {
@@ -411,6 +438,21 @@ const BookingDetailsScreen = ({ navigation, route }) => {
       return;
     }
 
+    if (isRentalRide && (!Number.isFinite(rentalHours) || rentalHours < 1)) {
+      Alert.alert('Rental Package', 'Enter rental package hours from 1 to 12.');
+      return;
+    }
+
+    if (isCorporateRide && !corporateCode.trim()) {
+      Alert.alert('Corporate Code', 'Enter the corporate booking code.');
+      return;
+    }
+
+    if (isAirportRide && (!airportTerminal.trim() || !flightNumber.trim())) {
+      Alert.alert('Flight Details', 'Enter terminal and flight number for airport booking.');
+      return;
+    }
+
     let scheduledForIso;
     if (isScheduledRide) {
       const validation = validateScheduledPickup(
@@ -448,9 +490,30 @@ const BookingDetailsScreen = ({ navigation, route }) => {
         ride_product: rideProduct,
         passenger_count: passengerCount,
         scheduled_for: scheduledForIso,
-        driver_gender_preference: isScheduledRide ? normalizedDriverGenderPreference : 'any',
+        driver_gender_preference:
+          isScheduledRide || isWomenOnlyRide ? normalizedDriverGenderPreference : 'any',
         payment_method: 'cash',
         promo_code: appliedPromo?.code || promoCode.trim() || undefined,
+        corporate_code: isCorporateRide ? corporateCode.trim() : undefined,
+        corporate_purpose: isCorporateRide && corporatePurpose.trim() ? corporatePurpose.trim() : undefined,
+        airport_terminal: isAirportRide ? airportTerminal.trim() : undefined,
+        flight_number: isAirportRide ? flightNumber.trim() : undefined,
+        intercity_return_trip: isIntercityRide ? intercityReturnTrip : false,
+        intercity_wait_hours: isIntercityRide ? intercityWaitHours : undefined,
+        tourism_city:
+          isTourismRide ? service.pickup_district || service.pickup_region || pickupLocation.address : undefined,
+        tourism_package_type: isTourismRide ? 'full_day' : undefined,
+        women_only_required: isWomenOnlyRide,
+        passenger_gender: isWomenOnlyRide ? 'female' : undefined,
+        women_only_female_driver_required: isWomenOnlyRide ? womenOnlyFemaleDriverRequired : undefined,
+        women_only_allow_trusted_male_driver: isWomenOnlyRide ? !womenOnlyFemaleDriverRequired : undefined,
+        women_only_guardian_name:
+          isWomenOnlyRide && womenOnlyGuardianName.trim() ? womenOnlyGuardianName.trim() : undefined,
+        women_only_guardian_phone:
+          isWomenOnlyRide && womenOnlyGuardianPhone.trim() ? womenOnlyGuardianPhone.trim() : undefined,
+        rental_hours: isRentalRide ? rentalHours : undefined,
+        pet_type: isPetRide && petType.trim() ? petType.trim() : undefined,
+        pet_count: isPetRide ? petCount : undefined,
         vehicle_type_id: vehicle_type_id || undefined,
         vehicle_subtype_id: vehicle_subtype_id || undefined,
         vehicle_model: vehicle_subtype_name || vehicle_name || undefined,
@@ -606,6 +669,172 @@ const BookingDetailsScreen = ({ navigation, route }) => {
                   );
                 })}
               </View>
+            </View>
+          </View>
+        )}
+
+        {isRentalRide && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Rental Package</Text>
+            <TextInput
+              style={styles.textInput}
+              value={rentalHoursInput}
+              onChangeText={setRentalHoursInput}
+              keyboardType="number-pad"
+              placeholder="Package hours (1 to 12)"
+              placeholderTextColor={COLORS.textSecondary}
+            />
+            <Text style={styles.hint}>Selected package: {rentalHours} hour{rentalHours === 1 ? '' : 's'}</Text>
+          </View>
+        )}
+
+        {isCorporateRide && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Corporate Details</Text>
+            <TextInput
+              style={styles.textInput}
+              value={corporateCode}
+              onChangeText={setCorporateCode}
+              autoCapitalize="characters"
+              placeholder="Corporate code"
+              placeholderTextColor={COLORS.textSecondary}
+            />
+            <TextInput
+              style={[styles.textInput, styles.stackedInput]}
+              value={corporatePurpose}
+              onChangeText={setCorporatePurpose}
+              placeholder="Purpose or cost note"
+              placeholderTextColor={COLORS.textSecondary}
+            />
+          </View>
+        )}
+
+        {isAirportRide && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Flight Details</Text>
+            <View style={styles.inputRow}>
+              <TextInput
+                style={styles.textInput}
+                value={airportTerminal}
+                onChangeText={setAirportTerminal}
+                placeholder="Terminal"
+                placeholderTextColor={COLORS.textSecondary}
+              />
+              <TextInput
+                style={styles.textInput}
+                value={flightNumber}
+                onChangeText={setFlightNumber}
+                autoCapitalize="characters"
+                placeholder="Flight no."
+                placeholderTextColor={COLORS.textSecondary}
+              />
+            </View>
+          </View>
+        )}
+
+        {isIntercityRide && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Intercity Options</Text>
+            <View style={styles.preferenceRow}>
+              <TouchableOpacity
+                style={[styles.preferenceChip, intercityReturnTrip && styles.preferenceChipSelected]}
+                onPress={() => setIntercityReturnTrip((value) => !value)}
+              >
+                <Text style={[styles.preferenceChipText, intercityReturnTrip && styles.preferenceChipTextSelected]}>
+                  Return trip
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <TextInput
+              style={[styles.textInput, styles.stackedInput]}
+              value={intercityWaitHoursInput}
+              onChangeText={setIntercityWaitHoursInput}
+              keyboardType="number-pad"
+              placeholder="Wait hours (0 to 72)"
+              placeholderTextColor={COLORS.textSecondary}
+            />
+          </View>
+        )}
+
+        {isWomenOnlyRide && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Women Only Safety</Text>
+            <View style={styles.preferenceRow}>
+              <TouchableOpacity
+                style={[styles.preferenceChip, womenOnlyFemaleDriverRequired && styles.preferenceChipSelected]}
+                onPress={() => setWomenOnlyFemaleDriverRequired(true)}
+              >
+                <Text
+                  style={[
+                    styles.preferenceChipText,
+                    womenOnlyFemaleDriverRequired && styles.preferenceChipTextSelected,
+                  ]}
+                >
+                  Female driver
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.preferenceChip, !womenOnlyFemaleDriverRequired && styles.preferenceChipSelected]}
+                onPress={() => setWomenOnlyFemaleDriverRequired(false)}
+              >
+                <Text
+                  style={[
+                    styles.preferenceChipText,
+                    !womenOnlyFemaleDriverRequired && styles.preferenceChipTextSelected,
+                  ]}
+                >
+                  Trusted fallback
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <View style={[styles.inputRow, styles.stackedInput]}>
+              <TextInput
+                style={styles.textInput}
+                value={womenOnlyGuardianName}
+                onChangeText={setWomenOnlyGuardianName}
+                placeholder="Guardian name"
+                placeholderTextColor={COLORS.textSecondary}
+              />
+              <TextInput
+                style={styles.textInput}
+                value={womenOnlyGuardianPhone}
+                onChangeText={setWomenOnlyGuardianPhone}
+                keyboardType="phone-pad"
+                placeholder="Guardian phone"
+                placeholderTextColor={COLORS.textSecondary}
+              />
+            </View>
+          </View>
+        )}
+
+        {isTourismRide && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Tourism Package</Text>
+            <Text style={styles.hint}>
+              A full-day package will be selected from {service.pickup_district || service.pickup_region || 'your pickup area'}.
+            </Text>
+          </View>
+        )}
+
+        {isPetRide && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Pet Details</Text>
+            <View style={styles.inputRow}>
+              <TextInput
+                style={styles.textInput}
+                value={petType}
+                onChangeText={setPetType}
+                placeholder="Pet type"
+                placeholderTextColor={COLORS.textSecondary}
+              />
+              <TextInput
+                style={styles.textInput}
+                value={petCountInput}
+                onChangeText={setPetCountInput}
+                keyboardType="number-pad"
+                placeholder="Count"
+                placeholderTextColor={COLORS.textSecondary}
+              />
             </View>
           </View>
         )}
@@ -1022,6 +1251,10 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     fontSize: 16,
     paddingHorizontal: 14,
+  },
+
+  stackedInput: {
+    marginTop: 10,
   },
 
   secondaryButton: {

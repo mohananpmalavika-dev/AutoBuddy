@@ -30,7 +30,7 @@ class CanonicalVehicleType(BaseModel):
     CANONICAL VEHICLE TYPE - Single source of truth for all vehicles
     Used by: drivers, fleet vehicles, ride products, fare calculations, bookings
     """
-    vehicle_type_id: str = Field(..., description="Unique identifier: auto|taxi|xl|traveller|bus|minitruck|truck")
+    vehicle_type_id: str = Field(..., description="Unique identifier: auto|ev_auto|taxi|xl|traveller|bus|minitruck|truck")
     name: str = Field(..., description="Display name")
     name_ml: Optional[str] = None  # Malayalam name for regional support
     translations: Dict[str, Dict[str, str]] = Field(
@@ -51,7 +51,7 @@ class CanonicalVehicleType(BaseModel):
     # Ride Type Support
     allowed_ride_types: List[str] = Field(
         default_factory=lambda: ["instant", "scheduled"],
-        description="Ride types this vehicle supports: instant|scheduled|rental|airport|corporate|tourism|goods|pet"
+        description="Ride types this vehicle supports: instant|scheduled|rental|airport|corporate|intercity|ev_auto|tourism|women_only|goods|pet"
     )
     
     # Service Support
@@ -87,12 +87,33 @@ CANONICAL_VEHICLE_TYPES = [
         "capacity": 3,
         "capacity_unit": "passengers",
         "base_multiplier": 0.75,
-        "allowed_ride_types": ["instant", "scheduled", "pet"],
+        "allowed_ride_types": ["instant", "scheduled", "rental", "ev_auto", "tourism", "women_only", "pet"],
         "goods_supported": False,
         "passenger_supported": True,
         "accessibility_support": False,
         "subtypes": [
             {"id": "auto_standard", "name": "Standard", "multiplier": 0.75}
+        ],
+        "regions": ["all"],
+        "active": True,
+        "created_at": get_ist_now(),
+        "updated_at": get_ist_now()
+    },
+    {
+        "vehicle_type_id": "ev_auto",
+        "name": "EV Auto",
+        "name_ml": "ഇവി ഓട്ടോ",
+        "icon": "🔋",
+        "description": "Electric auto rickshaw for eco-friendly city rides",
+        "capacity": 3,
+        "capacity_unit": "passengers",
+        "base_multiplier": 0.8,
+        "allowed_ride_types": ["instant", "scheduled", "ev_auto", "women_only"],
+        "goods_supported": False,
+        "passenger_supported": True,
+        "accessibility_support": False,
+        "subtypes": [
+            {"id": "ev_auto_standard", "name": "EV Standard", "multiplier": 0.8, "capacity": 3}
         ],
         "regions": ["all"],
         "active": True,
@@ -108,7 +129,7 @@ CANONICAL_VEHICLE_TYPES = [
         "capacity": 4,
         "capacity_unit": "passengers",
         "base_multiplier": 1.0,
-        "allowed_ride_types": ["instant", "scheduled", "airport", "corporate", "pet"],
+        "allowed_ride_types": ["instant", "scheduled", "rental", "airport", "corporate", "intercity", "tourism", "women_only", "pet"],
         "goods_supported": False,
         "passenger_supported": True,
         "accessibility_support": True,
@@ -130,7 +151,7 @@ CANONICAL_VEHICLE_TYPES = [
         "capacity": 6,
         "capacity_unit": "passengers",
         "base_multiplier": 1.25,
-        "allowed_ride_types": ["instant", "scheduled", "airport", "corporate", "pet"],
+        "allowed_ride_types": ["instant", "scheduled", "rental", "airport", "corporate", "intercity", "tourism", "women_only", "pet"],
         "goods_supported": False,
         "passenger_supported": True,
         "accessibility_support": True,
@@ -152,7 +173,7 @@ CANONICAL_VEHICLE_TYPES = [
         "capacity": 8,
         "capacity_unit": "passengers",
         "base_multiplier": 1.25,
-        "allowed_ride_types": ["instant", "scheduled", "rental", "tourism"],
+        "allowed_ride_types": ["instant", "scheduled", "rental", "intercity", "tourism"],
         "goods_supported": False,
         "passenger_supported": True,
         "accessibility_support": False,

@@ -18,7 +18,7 @@ import { apiRequest } from '../lib/api';
  * 
  * Users select:
  * - Vehicle Type (Auto, Taxi, XL, Traveller, Bus, Truck, etc.)
- * - Ride Type (Instant, Scheduled, Rental/Hourly, Airport, Corporate, Tourism, Goods)
+ * - Ride Type (Instant, Scheduled, Rental/Hourly, Airport, Corporate, Intercity, Tourism, Goods)
  * 
  * Then tap "Continue" to proceed to BookingDetailsScreen
  */
@@ -266,6 +266,20 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
       color: '#96CEB4',
     },
     {
+      id: 'intercity',
+      name: 'Intercity',
+      icon: '🛣️',
+      description: 'City-to-city rides',
+      color: '#1E88E5',
+    },
+    {
+      id: 'ev_auto',
+      name: 'EV Auto',
+      icon: '🔋',
+      description: 'Electric auto rides',
+      color: '#0FA36B',
+    },
+    {
       id: 'corporate',
       name: 'Corporate',
       icon: '🏢',
@@ -276,7 +290,7 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
       id: 'tourism',
       name: 'Tourism',
       icon: '🗺️',
-      description: 'Sightseeing tours',
+      description: 'Ride + guide packages',
       color: '#E74C3C',
     },
     {

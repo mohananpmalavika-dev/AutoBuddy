@@ -3159,20 +3159,20 @@ export default function AdminDashboard({ token, user, onLogout }) {
               style={styles.input}
               value={rideProductDistrictConfig.default_enabled_products_text}
               onChangeText={(value) => updateRideProductDistrictField('default_enabled_products_text', value)}
-              placeholder="normal,pool,scheduled,women_only,pet"
+              placeholder="normal,pool,scheduled,intercity,tourism,women_only,pet"
               placeholderTextColor="#9AA7A0"
             />
             <Text style={styles.inputLabel}>
               District Rules (one per line)
             </Text>
             <Text style={styles.kycDate}>
-              Format: `District Name: product1,product2` (example: `Kollam: normal,women_only,pet`)
+              Format: `District Name: product1,product2` (example: `Kollam: normal,intercity,tourism,women_only,pet`)
             </Text>
             <VoiceTextInput
               style={[styles.input, styles.multilineInput]}
               value={rideProductDistrictConfig.district_rules_text}
               onChangeText={(value) => updateRideProductDistrictField('district_rules_text', value)}
-              placeholder={`Kollam: normal,women_only,pet\nErnakulam: normal,pool,ev_auto`}
+              placeholder={`Kollam: normal,intercity,tourism,women_only,pet\nErnakulam: normal,pool,ev_auto`}
               placeholderTextColor="#9AA7A0"
               multiline
             />
