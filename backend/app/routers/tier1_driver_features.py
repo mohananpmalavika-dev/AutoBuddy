@@ -12,6 +12,7 @@ from sqlalchemy import desc, and_, func
 import uuid
 import asyncio
 import os
+import time
 import httpx
 
 # Import models
@@ -19,12 +20,26 @@ from app.db.tier1_models import (
     DriverGPSLocation, SOSAlert, DriverExpense, DriverLocationStats,
     ExpenseType, SOSStatus, get_ist_now
 )
-from app.db.database import get_db
+from app.db.database import SessionLocal, get_db
 
 # Import dependencies
 from app.routers.auth import verify_token
 
 EMERGENCY_WEBHOOK_URL = os.environ.get("EMERGENCY_WEBHOOK_URL", "").strip()
+DRIVER_GPS_BACKGROUND_PERSIST = (
+    os.environ.get("DRIVER_GPS_BACKGROUND_PERSIST", "true").strip().lower()
+    in {"1", "true", "yes", "on"}
+)
+DRIVER_GPS_PERSIST_MIN_INTERVAL_SECONDS = max(
+    0.0,
+    float(os.environ.get("DRIVER_GPS_PERSIST_MIN_INTERVAL_SECONDS", "2.0")),
+)
+DRIVER_GPS_PERSIST_MAX_CONCURRENCY = max(
+    1,
+    min(64, int(os.environ.get("DRIVER_GPS_PERSIST_MAX_CONCURRENCY", "8"))),
+)
+DRIVER_GPS_PERSIST_SEMAPHORE = asyncio.Semaphore(DRIVER_GPS_PERSIST_MAX_CONCURRENCY)
+DRIVER_GPS_LAST_PERSIST_AT: Dict[str, float] = {}
 
 
 async def get_driver_id_from_token(user_data: dict = Depends(verify_token)) -> str:
@@ -290,6 +305,66 @@ async def _broadcast_driver_location(request: Request, driver_id: str, location:
         await sio.emit("driver_location", payload, room=_user_room(passenger_id))
 
 
+def _should_persist_driver_gps(driver_id: str) -> bool:
+    if DRIVER_GPS_PERSIST_MIN_INTERVAL_SECONDS <= 0:
+        return True
+    now_monotonic = time.monotonic()
+    last_persisted_at = DRIVER_GPS_LAST_PERSIST_AT.get(driver_id)
+    if last_persisted_at and now_monotonic - last_persisted_at < DRIVER_GPS_PERSIST_MIN_INTERVAL_SECONDS:
+        return False
+    DRIVER_GPS_LAST_PERSIST_AT[driver_id] = now_monotonic
+    if len(DRIVER_GPS_LAST_PERSIST_AT) > 20000:
+        DRIVER_GPS_LAST_PERSIST_AT.clear()
+    return True
+
+
+def _build_driver_gps_location(
+    *,
+    location_id: str,
+    driver_id: str,
+    location: LocationUpdateRequest,
+    created_at: datetime,
+) -> DriverGPSLocation:
+    return DriverGPSLocation(
+        id=location_id,
+        driver_id=driver_id,
+        ride_id=location.ride_id,
+        latitude=location.latitude,
+        longitude=location.longitude,
+        accuracy=location.accuracy,
+        speed=location.speed,
+        altitude=location.altitude,
+        address=location.address,
+        created_at=created_at,
+    )
+
+
+def _persist_driver_gps_location_sync(location_doc: DriverGPSLocation) -> None:
+    db = SessionLocal()
+    try:
+        db.add(location_doc)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+async def _persist_and_broadcast_driver_gps_location(
+    request: Request,
+    driver_id: str,
+    location_doc: DriverGPSLocation,
+) -> None:
+    async with DRIVER_GPS_PERSIST_SEMAPHORE:
+        try:
+            await _broadcast_driver_location(request, driver_id, location_doc)
+            await asyncio.to_thread(_persist_driver_gps_location_sync, location_doc)
+        except Exception:
+            # GPS pings are high-frequency; the next ping can repair live state.
+            pass
+
+
 async def _notify_sos(request: Request, sos: SOSAlert, *, cancelled: bool = False) -> bool:
     mongo_db = _mongo_db(request)
     sio = _socket_server(request)
@@ -403,7 +478,6 @@ async def _sync_ride_expense_totals(request: Request, db: Session, ride_id: str,
 async def post_driver_location(
     request: Request,
     location: LocationUpdateRequest,
-    db: Session = Depends(get_db),
     driver_id: str = Depends(get_driver_id_from_token)
 ):
     """
@@ -415,37 +489,35 @@ async def post_driver_location(
     Returns:
         Created location record with timestamp
     """
-    try:
-        location_id = str(uuid.uuid4())
-        
-        # Create GPS location record
-        db_location = DriverGPSLocation(
-            id=location_id,
-            driver_id=driver_id,
-            ride_id=location.ride_id,
-            latitude=location.latitude,
-            longitude=location.longitude,
-            accuracy=location.accuracy,
-            speed=location.speed,
-            altitude=location.altitude,
-            address=location.address,
-            created_at=get_ist_now()
-        )
-        
-        db.add(db_location)
-        db.commit()
-        db.refresh(db_location)
-        
-        await _broadcast_driver_location(request, driver_id, db_location)
-        
-        return LocationResponse(**db_location.to_dict())
-    
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error storing location: {str(e)}"
-        )
+    location_id = str(uuid.uuid4())
+    created_at = get_ist_now()
+    db_location = _build_driver_gps_location(
+        location_id=location_id,
+        driver_id=driver_id,
+        location=location,
+        created_at=created_at,
+    )
+
+    runtime_state = getattr(request.app.state, "runtime_state", None)
+    if runtime_state is not None:
+        location_payload = {
+            "latitude": float(location.latitude),
+            "longitude": float(location.longitude),
+            "address": location.address,
+        }
+        try:
+            await runtime_state.cache_driver_live_location(driver_id, location_payload, created_at)
+            await runtime_state.touch_driver_heartbeat(driver_id)
+        except Exception:
+            pass
+
+    if _should_persist_driver_gps(driver_id):
+        if DRIVER_GPS_BACKGROUND_PERSIST:
+            asyncio.create_task(_persist_and_broadcast_driver_gps_location(request, driver_id, db_location))
+        else:
+            await _persist_and_broadcast_driver_gps_location(request, driver_id, db_location)
+
+    return LocationResponse(**db_location.to_dict())
 
 
 @router.get("/location", response_model=LocationResponse)

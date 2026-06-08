@@ -7,6 +7,9 @@ from app.core.config import Settings
 
 def create_mongo_client(settings: Settings) -> AsyncIOMotorClient:
     """Create MongoDB client with production-ready connection pooling."""
+    max_pool_size = max(100, int(os.environ.get("MONGO_MAX_POOL_SIZE", "300")))
+    min_pool_size = max(0, min(max_pool_size, int(os.environ.get("MONGO_MIN_POOL_SIZE", "10"))))
+    wait_queue_timeout_ms = max(1000, int(os.environ.get("MONGO_WAIT_QUEUE_TIMEOUT_MS", "15000")))
     mongo_client = AsyncIOMotorClient(
         settings.mongo_url,
         # Timeouts
@@ -14,8 +17,9 @@ def create_mongo_client(settings: Settings) -> AsyncIOMotorClient:
         connectTimeoutMS=max(1000, settings.mongo_connect_timeout_ms),
         socketTimeoutMS=max(2000, settings.mongo_socket_timeout_ms),
         # Connection pooling
-        maxPoolSize=100,  # Maximum concurrent connections
-        minPoolSize=10,   # Minimum connections to maintain
+        maxPoolSize=max_pool_size,
+        minPoolSize=min_pool_size,
+        waitQueueTimeoutMS=wait_queue_timeout_ms,
         maxIdleTimeMS=45000,  # Close idle connections after 45 seconds
         # Retries
         retryWrites=True,

@@ -1,4 +1,7 @@
-from typing import Callable, Optional, Sequence
+import copy
+import os
+import time
+from typing import Any, Callable, Dict, Optional, Sequence
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -10,6 +13,31 @@ from app.services import driver_trust_service
 from app.utils.security import decode_token
 
 security = HTTPBearer()
+AUTH_USER_CACHE_TTL_SECONDS = max(0, int(os.environ.get("AUTH_USER_CACHE_TTL_SECONDS", "10")))
+AUTH_USER_CACHE_MAX_ITEMS = max(100, int(os.environ.get("AUTH_USER_CACHE_MAX_ITEMS", "20000")))
+AUTH_USER_CACHE: Dict[str, tuple[float, Dict[str, Any]]] = {}
+
+
+def _get_cached_auth_user(user_id: str) -> Optional[dict]:
+    if AUTH_USER_CACHE_TTL_SECONDS <= 0:
+        return None
+    cached = AUTH_USER_CACHE.get(user_id)
+    now_monotonic = time.monotonic()
+    if not cached:
+        return None
+    expires_at, user = cached
+    if expires_at <= now_monotonic:
+        AUTH_USER_CACHE.pop(user_id, None)
+        return None
+    return copy.deepcopy(user)
+
+
+def _set_cached_auth_user(user_id: str, user: dict) -> None:
+    if AUTH_USER_CACHE_TTL_SECONDS <= 0 or not user_id:
+        return
+    if len(AUTH_USER_CACHE) >= AUTH_USER_CACHE_MAX_ITEMS:
+        AUTH_USER_CACHE.clear()
+    AUTH_USER_CACHE[user_id] = (time.monotonic() + AUTH_USER_CACHE_TTL_SECONDS, copy.deepcopy(user))
 
 
 def _normalize_role(value) -> str:
@@ -54,6 +82,17 @@ async def get_current_user_from_request(
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid token payload")
 
+    cached_user = _get_cached_auth_user(user_id)
+    if cached_user is not None:
+        role = _normalize_role(cached_user.get("role") or cached_user.get("user_type") or payload.get("role"))
+        if allowed_roles:
+            normalized_allowed = {_normalize_role(role_value) for role_value in allowed_roles}
+            if role not in normalized_allowed:
+                raise HTTPException(status_code=403, detail="Permission denied")
+        cached_user["role"] = role
+        cached_user["user_type"] = cached_user.get("user_type") or role
+        return cached_user
+
     user = await mongo_db.users.find_one({"$or": [{"id": user_id}, {"user_id": user_id}]})
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
@@ -74,6 +113,7 @@ async def get_current_user_from_request(
             redis_client=getattr(request.app.state, "redis_client", None),
             driver_user_id=str(user.get("id") or ""),
         )
+    _set_cached_auth_user(user_id, user)
     return user
 
 

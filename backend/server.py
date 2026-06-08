@@ -11,6 +11,10 @@ import os
 import logging
 import json
 import time
+import copy
+import faulthandler
+import sys
+import traceback
 import hashlib
 import secrets
 import contextvars
@@ -31,6 +35,8 @@ import stripe
 from urllib.parse import quote_plus
 import random
 import re
+import fnmatch
+from collections import defaultdict
 from urllib.parse import urlparse, parse_qs
 from cryptography.fernet import Fernet
 from pymongo.errors import ServerSelectionTimeoutError, PyMongoError
@@ -183,6 +189,8 @@ from app.utils.logging_config import (
 )
 from app.utils.sentry_config import SentryConfig, set_sentry_context, clear_sentry_context
 from app.utils.rate_limiting import (
+    DRIVER_REALTIME_ENDPOINT_PATHS,
+    PASSENGER_REALTIME_ENDPOINT_PATHS,
     ensure_rate_limit_defaults,
     get_rate_limit_key,
     get_rate_limit_profile_rule,
@@ -222,6 +230,19 @@ def _normalize_redis_url(raw_redis_url: str) -> tuple[str, bool]:
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
+DEBUG_STACK_DUMP_INTERVAL_SECONDS = max(
+    0.0,
+    float(os.environ.get("DEBUG_STACK_DUMP_INTERVAL_SECONDS", "0") or 0),
+)
+DEBUG_ASYNC_TASK_DUMP_INTERVAL_SECONDS = max(
+    0.0,
+    float(os.environ.get("DEBUG_ASYNC_TASK_DUMP_INTERVAL_SECONDS", "0") or 0),
+)
+if DEBUG_STACK_DUMP_INTERVAL_SECONDS > 0:
+    try:
+        faulthandler.dump_traceback_later(DEBUG_STACK_DUMP_INTERVAL_SECONDS, repeat=True)
+    except Exception:
+        pass
 settings = get_settings()
 UPLOADS_DIR = ROOT_DIR / "uploads"
 PASSENGER_PROFILE_PHOTO_DIR = UPLOADS_DIR / "passenger_profile_photos"
@@ -276,6 +297,13 @@ REFRESH_TOKEN_EXPIRE_DAYS = int(os.environ.get("REFRESH_TOKEN_EXPIRE_DAYS", "30"
 DEFAULT_CITY_SPEED_KMPH = float(os.environ.get("DEFAULT_CITY_SPEED_KMPH", "22"))
 AUTO_ASSIGN_MAX_RADIUS_KM = float(os.environ.get("AUTO_ASSIGN_MAX_RADIUS_KM", "7"))
 OSRM_BASE_URL = os.environ.get("OSRM_BASE_URL", "https://router.project-osrm.org")
+ENABLE_OSRM_ROUTING = os.environ.get("ENABLE_OSRM_ROUTING", "false").strip().lower() in {"1", "true", "yes", "on"}
+OSRM_TIMEOUT_SECONDS = max(0.25, min(4.0, float(os.environ.get("OSRM_TIMEOUT_SECONDS", "1.0"))))
+ROUTE_METRICS_CACHE_SECONDS = max(0, int(os.environ.get("ROUTE_METRICS_CACHE_SECONDS", "30")))
+ROUTE_METRICS_CACHE_MAX = max(0, int(os.environ.get("ROUTE_METRICS_CACHE_MAX", "2000")))
+LOCAL_CACHE_MAX_ITEMS = max(100, int(os.environ.get("LOCAL_CACHE_MAX_ITEMS", "5000")))
+AUTH_USER_CACHE_TTL_SECONDS = max(0, int(os.environ.get("AUTH_USER_CACHE_TTL_SECONDS", "10")))
+AUTH_USER_CACHE_MAX_ITEMS = max(100, int(os.environ.get("AUTH_USER_CACHE_MAX_ITEMS", "20000")))
 UPI_PAYEE_VPA = os.environ.get("UPI_PAYEE_VPA", "autobuddy@upi")
 UPI_PAYEE_NAME = os.environ.get("UPI_PAYEE_NAME", "AutoBuddy")
 ALLOWED_ORIGINS = settings.allowed_origins
@@ -340,6 +368,18 @@ DRIVER_ACCEPTING_BACKGROUND_SECONDS = max(
     DRIVER_LIVE_LOCATION_TTL_SECONDS,
     REALTIME_OFFLINE_SECONDS * 4,
     int(os.environ.get("DRIVER_ACCEPTING_BACKGROUND_SECONDS", str(4 * 60 * 60))),
+)
+DRIVER_LOCATION_BACKGROUND_PERSIST = (
+    os.environ.get("DRIVER_LOCATION_BACKGROUND_PERSIST", "true").strip().lower()
+    in {"1", "true", "yes", "on"}
+)
+DRIVER_LOCATION_PERSIST_MIN_INTERVAL_SECONDS = max(
+    0.0,
+    float(os.environ.get("DRIVER_LOCATION_PERSIST_MIN_INTERVAL_SECONDS", "2.0")),
+)
+DRIVER_LOCATION_PERSIST_MAX_CONCURRENCY = max(
+    1,
+    min(64, int(os.environ.get("DRIVER_LOCATION_PERSIST_MAX_CONCURRENCY", "16"))),
 )
 IST_TZ = timezone(timedelta(hours=5, minutes=30))
 
@@ -411,6 +451,10 @@ if STRIPE_SECRET_KEY:
 redis_client = None
 db = None
 analytics_db = None
+LOCAL_CACHE: Dict[str, tuple[float, Any]] = {}
+AUTH_USER_CACHE: Dict[str, tuple[float, Dict[str, Any]]] = {}
+DRIVER_LOCATION_PERSIST_LAST_AT: Dict[str, float] = {}
+DRIVER_LOCATION_PERSIST_SEMAPHORE = asyncio.Semaphore(DRIVER_LOCATION_PERSIST_MAX_CONCURRENCY)
 if REDIS_URL and redis_async:
     try:
         redis_client = redis_async.from_url(
@@ -458,14 +502,25 @@ runtime_state = RuntimeStateStore(
 app.state.runtime_state = runtime_state
 
 REALTIME_RATE_LIMIT_EXEMPT_PATH_PREFIXES = ("/socket.io", "/ws")
+REALTIME_RATE_LIMIT_EXEMPT_PATHS = {
+    str(path).rstrip("/").lower()
+    for path in (
+        *DRIVER_REALTIME_ENDPOINT_PATHS,
+        *PASSENGER_REALTIME_ENDPOINT_PATHS,
+    )
+}
 
 
 def is_realtime_rate_limit_exempt_path(path: str) -> bool:
-    return any(str(path or "").startswith(prefix) for prefix in REALTIME_RATE_LIMIT_EXEMPT_PATH_PREFIXES)
+    normalized = f"/{str(path or '').strip().lstrip('/')}".rstrip("/").lower()
+    return normalized in REALTIME_RATE_LIMIT_EXEMPT_PATHS or any(
+        normalized.startswith(prefix)
+        for prefix in REALTIME_RATE_LIMIT_EXEMPT_PATH_PREFIXES
+    )
 
 # Socket.IO setup
 socket_manager = None
-if REDIS_URL:
+if REDIS_URL and redis_async:
     try:
         socket_manager = socketio.AsyncRedisManager(REDIS_URL, channel=SOCKETIO_REDIS_CHANNEL)
     except Exception as exc:
@@ -473,6 +528,10 @@ if REDIS_URL:
             "Socket.IO Redis manager init failed; continuing without Redis-backed socket manager: %s",
             exc,
         )
+elif REDIS_URL:
+    logging.getLogger("autobuddy.bootstrap").warning(
+        "Socket.IO Redis manager disabled because the redis package is unavailable."
+    )
 sio = socketio.AsyncServer(
     async_mode='asgi',
     client_manager=socket_manager,
@@ -497,6 +556,27 @@ root_socket_app = socketio.ASGIApp(sio, socketio_path=None)
 driver_health_monitor_task: Optional[asyncio.Task] = None
 ride_dispatch_worker_task: Optional[asyncio.Task] = None
 analytics_warehouse_worker_task: Optional[asyncio.Task] = None
+debug_async_task_dump_task: Optional[asyncio.Task] = None
+
+
+async def debug_asyncio_task_dump_worker() -> None:
+    while True:
+        await asyncio.sleep(DEBUG_ASYNC_TASK_DUMP_INTERVAL_SECONDS)
+        try:
+            current = asyncio.current_task()
+            tasks = [task for task in asyncio.all_tasks() if task is not current]
+            print(f"ASYNC_TASK_DUMP task_count={len(tasks)}", file=sys.stderr, flush=True)
+            for task in tasks[:120]:
+                print(
+                    f"Task name={task.get_name()} state={getattr(task, '_state', '')} coro={task.get_coro()}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                for frame in task.get_stack(limit=8):
+                    for line in traceback.format_stack(frame, limit=1):
+                        print(line.rstrip(), file=sys.stderr, flush=True)
+        except Exception as exc:
+            print(f"ASYNC_TASK_DUMP failed: {exc}", file=sys.stderr, flush=True)
 
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
@@ -1035,7 +1115,7 @@ async def run_startup_bootstrap() -> None:
 
 @app.on_event("startup")
 async def on_startup():
-    global driver_health_monitor_task, ride_dispatch_worker_task, analytics_warehouse_worker_task, redis_client, db, analytics_db
+    global driver_health_monitor_task, ride_dispatch_worker_task, analytics_warehouse_worker_task, debug_async_task_dump_task, redis_client, db, analytics_db
     if not settings.mongo_url:
         error_msg = (
             "MONGO_URL must be configured via environment. "
@@ -1212,6 +1292,11 @@ async def on_startup():
         ride_dispatch_worker_task = asyncio.create_task(ride_dispatch_worker())
     if analytics_warehouse_worker_task is None or analytics_warehouse_worker_task.done():
         analytics_warehouse_worker_task = asyncio.create_task(analytics_warehouse_worker())
+    if (
+        DEBUG_ASYNC_TASK_DUMP_INTERVAL_SECONDS > 0
+        and (debug_async_task_dump_task is None or debug_async_task_dump_task.done())
+    ):
+        debug_async_task_dump_task = asyncio.create_task(debug_asyncio_task_dump_worker())
 
 @app.middleware("http")
 async def api_guardrails_middleware(request: Request, call_next):
@@ -3089,11 +3174,46 @@ async def create_user_for_social_or_otp(
     user_dict["referral_code"] = referral.get("code")
     return user_dict
 
+def _get_cached_auth_user(user_id: str) -> Optional[Dict[str, Any]]:
+    if AUTH_USER_CACHE_TTL_SECONDS <= 0:
+        return None
+    cached = AUTH_USER_CACHE.get(user_id)
+    now_monotonic = time.monotonic()
+    if not cached:
+        return None
+    expires_at, user = cached
+    if expires_at <= now_monotonic:
+        AUTH_USER_CACHE.pop(user_id, None)
+        return None
+    return copy.deepcopy(user)
+
+
+def _set_cached_auth_user(user_id: str, user: Dict[str, Any]) -> None:
+    if AUTH_USER_CACHE_TTL_SECONDS <= 0 or not user_id:
+        return
+    if len(AUTH_USER_CACHE) >= AUTH_USER_CACHE_MAX_ITEMS:
+        AUTH_USER_CACHE.clear()
+    AUTH_USER_CACHE[user_id] = (
+        time.monotonic() + AUTH_USER_CACHE_TTL_SECONDS,
+        copy.deepcopy(user),
+    )
+
+
+def clear_auth_user_cache(user_id: Optional[str]) -> None:
+    if user_id:
+        AUTH_USER_CACHE.pop(str(user_id), None)
+
+
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     payload = decode_token(credentials.credentials)
     user_id = payload.get("sub")
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid token")
+    user_id = str(user_id)
+    cached_user = _get_cached_auth_user(user_id)
+    if cached_user is not None:
+        return cached_user
+
     user = await db.users.find_one({"id": user_id})
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
@@ -3112,6 +3232,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         active_blacklist = await db.driver_blacklist.find_one({"driver_id": user_id, "active": True}, {"_id": 0})
         if active_blacklist:
             raise HTTPException(status_code=403, detail="Account permanently suspended. Contact support.")
+    _set_cached_auth_user(user_id, user)
     return user
 
 
@@ -3244,7 +3365,14 @@ async def get_effective_driver_location(driver_profile: Optional[Dict[str, Any]]
 
 async def cache_get(key: str):
     if not redis_client:
-        return None
+        cached = LOCAL_CACHE.get(key)
+        if not cached:
+            return None
+        expires_at, value = cached
+        if expires_at <= time.monotonic():
+            LOCAL_CACHE.pop(key, None)
+            return None
+        return copy.deepcopy(value)
     try:
         value = await redis_client.get(key)
         return json.loads(value) if value else None
@@ -3254,6 +3382,10 @@ async def cache_get(key: str):
 
 async def cache_set(key: str, value: Any, ttl_seconds: int = 60):
     if not redis_client:
+        ttl = max(1, int(ttl_seconds))
+        if len(LOCAL_CACHE) >= LOCAL_CACHE_MAX_ITEMS:
+            LOCAL_CACHE.clear()
+        LOCAL_CACHE[key] = (time.monotonic() + ttl, copy.deepcopy(value))
         return
     try:
         await redis_client.setex(
@@ -3267,6 +3399,7 @@ async def cache_set(key: str, value: Any, ttl_seconds: int = 60):
 
 async def cache_delete(key: str):
     if not redis_client:
+        LOCAL_CACHE.pop(key, None)
         return
     try:
         await redis_client.delete(key)
@@ -3276,6 +3409,9 @@ async def cache_delete(key: str):
 
 async def cache_delete_pattern(pattern: str):
     if not redis_client:
+        for key in list(LOCAL_CACHE.keys()):
+            if fnmatch.fnmatch(key, pattern):
+                LOCAL_CACHE.pop(key, None)
         return
     try:
         async for key in redis_client.scan_iter(match=pattern):
@@ -3525,7 +3661,13 @@ async def find_nearest_drivers_mongo_geo(
     vehicle_subtype_id: Optional[str] = None,
     ride_type: Optional[str] = None,
     booking_context: Optional[Dict[str, Any]] = None,
+    excluded_driver_ids: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
+    blocked_set = {
+        str(driver_id or "").strip()
+        for driver_id in (excluded_driver_ids or [])
+        if str(driver_id or "").strip()
+    }
     service_filter = dict(booking_context or {})
     service_filter["vehicle_type_id"] = str(vehicle_type_id or service_filter.get("vehicle_type_id") or "").strip().lower()
     service_filter["vehicle_subtype_id"] = str(
@@ -3565,6 +3707,8 @@ async def find_nearest_drivers_mongo_geo(
             driver_id = str(candidate.get("user_id") or "").strip()
             if not driver_id:
                 continue
+            if blocked_set and driver_id in blocked_set:
+                continue
             if not driver_matches_booking_service(candidate, service_filter):
                 continue
             effective_location = await get_effective_driver_location(candidate)
@@ -3592,6 +3736,10 @@ async def find_nearest_drivers_mongo_geo(
     if redis_candidates:
         candidate_ids = [str(item.get("user_id") or "").strip() for item in redis_candidates if item.get("user_id")]
         if candidate_ids:
+            if blocked_set:
+                candidate_ids = [driver_id for driver_id in candidate_ids if driver_id not in blocked_set]
+            if not candidate_ids:
+                return []
             profiles = await db.drivers.find(
                 {
                     "user_id": {"$in": list(set(candidate_ids))},
@@ -3668,21 +3816,26 @@ async def find_nearest_drivers_mongo_geo(
         "type": "Point",
         "coordinates": [float(longitude), float(latitude)],
     }
+    geo_query: Dict[str, Any] = {
+        "is_available": True,
+        "kyc_status": KYCStatus.APPROVED,
+        "vehicle_info": {"$ne": None},
+    }
+    if blocked_set:
+        geo_query["user_id"] = {"$nin": list(blocked_set)}
+    geo_limit = max(1, int(limit))
     pipeline = [
         {
             "$geoNear": {
                 "near": pickup_geo,
+                "key": "current_location_geo",
                 "distanceField": "distance_meters",
                 "spherical": True,
                 "maxDistance": max(1000, int(float(max_distance_km) * 1000)),
-                "query": {
-                    "is_available": True,
-                    "kyc_status": KYCStatus.APPROVED,
-                    "vehicle_info": {"$ne": None},
-                },
+                "query": geo_query,
             }
         },
-        {"$limit": max(1, int(limit))},
+        {"$limit": geo_limit * 3},
         {
             "$project": {
                 "_id": 0,
@@ -3733,7 +3886,7 @@ async def find_nearest_drivers_mongo_geo(
         },
     ]
     try:
-        candidates = await db.drivers.aggregate(pipeline).to_list(max(1, int(limit) * 3))
+        candidates = await db.drivers.aggregate(pipeline).to_list(geo_limit * 3)
         return await filter_matchable_drivers(candidates)
     except Exception:
         logger.exception("find_nearest_drivers_mongo_geo failed")
@@ -4884,37 +5037,10 @@ async def fetch_google_maps_json(
     raise HTTPException(status_code=400, detail=message)
 
 
-async def get_route_metrics(pickup: Location, drop: Location) -> Dict[str, Any]:
-    """Prefer free OSRM route distance, duration, and polyline geometry, fallback to local approximation."""
-    coord = f"{pickup.longitude},{pickup.latitude};{drop.longitude},{drop.latitude}"
-    url = f"{OSRM_BASE_URL.rstrip('/')}/route/v1/driving/{coord}?overview=full&geometries=geojson&alternatives=false&steps=false"
+ROUTE_METRICS_CACHE: Dict[str, tuple[float, Dict[str, Any]]] = {}
 
-    try:
-        timeout = httpx.Timeout(4.0, connect=2.0)
-        async with httpx.AsyncClient(timeout=timeout) as client_http:
-            response = await client_http.get(url)
-            if response.status_code == 200:
-                data = response.json()
-                routes = data.get("routes") or []
-                if data.get("code") == "Ok" and routes:
-                    route = routes[0]
-                    distance_km = round(float(route.get("distance", 0)) / 1000.0, 2)
-                    duration_minutes = max(1, int(round(float(route.get("duration", 0)) / 60.0)))
-                    geometry = route.get("geometry") or {}
-                    coords = geometry.get("coordinates") if isinstance(geometry, dict) else None
-                    route_polyline = None
-                    if coords and isinstance(coords, list):
-                        route_polyline = [{"latitude": float(lat), "longitude": float(lng)} for lng, lat in coords]
-                    return {
-                        "distance_km": distance_km,
-                        "duration_minutes": duration_minutes,
-                        "eta_minutes": duration_minutes,
-                        "source": "osrm",
-                        "route_polyline": route_polyline,
-                    }
-    except Exception as exc:
-        logger.warning(f"OSRM fallback in use: {exc}")
 
+def local_route_metrics(pickup: Location, drop: Location) -> Dict[str, Any]:
     fallback_distance = calculate_distance(pickup, drop)
     fallback_duration = max(1, int(round((fallback_distance / max(DEFAULT_CITY_SPEED_KMPH, 1.0)) * 60)))
     return {
@@ -4924,6 +5050,62 @@ async def get_route_metrics(pickup: Location, drop: Location) -> Dict[str, Any]:
         "source": "haversine_fallback",
         "route_polyline": None,
     }
+
+
+async def get_route_metrics(pickup: Location, drop: Location) -> Dict[str, Any]:
+    """Return route distance and ETA without making ride flow depend on public map APIs."""
+    cache_key = (
+        f"{round(float(pickup.latitude), 5)},{round(float(pickup.longitude), 5)}:"
+        f"{round(float(drop.latitude), 5)},{round(float(drop.longitude), 5)}"
+    )
+    now_monotonic = time.monotonic()
+    if ROUTE_METRICS_CACHE_SECONDS > 0:
+        cached = ROUTE_METRICS_CACHE.get(cache_key)
+        if cached and now_monotonic - cached[0] <= ROUTE_METRICS_CACHE_SECONDS:
+            return dict(cached[1])
+
+    metrics: Dict[str, Any]
+    if ENABLE_OSRM_ROUTING:
+        coord = f"{pickup.longitude},{pickup.latitude};{drop.longitude},{drop.latitude}"
+        url = f"{OSRM_BASE_URL.rstrip('/')}/route/v1/driving/{coord}?overview=full&geometries=geojson&alternatives=false&steps=false"
+        try:
+            timeout = httpx.Timeout(OSRM_TIMEOUT_SECONDS, connect=min(OSRM_TIMEOUT_SECONDS, 0.5))
+            async with httpx.AsyncClient(timeout=timeout) as client_http:
+                response = await client_http.get(url)
+                if response.status_code == 200:
+                    data = response.json()
+                    routes = data.get("routes") or []
+                    if data.get("code") == "Ok" and routes:
+                        route = routes[0]
+                        distance_km = round(float(route.get("distance", 0)) / 1000.0, 2)
+                        duration_minutes = max(1, int(round(float(route.get("duration", 0)) / 60.0)))
+                        geometry = route.get("geometry") or {}
+                        coords = geometry.get("coordinates") if isinstance(geometry, dict) else None
+                        route_polyline = None
+                        if coords and isinstance(coords, list):
+                            route_polyline = [{"latitude": float(lat), "longitude": float(lng)} for lng, lat in coords]
+                        metrics = {
+                            "distance_km": distance_km,
+                            "duration_minutes": duration_minutes,
+                            "eta_minutes": duration_minutes,
+                            "source": "osrm",
+                            "route_polyline": route_polyline,
+                        }
+                    else:
+                        metrics = local_route_metrics(pickup, drop)
+                else:
+                    metrics = local_route_metrics(pickup, drop)
+        except Exception as exc:
+            logger.warning("OSRM fallback in use: %s", exc)
+            metrics = local_route_metrics(pickup, drop)
+    else:
+        metrics = local_route_metrics(pickup, drop)
+
+    if ROUTE_METRICS_CACHE_SECONDS > 0 and ROUTE_METRICS_CACHE_MAX > 0:
+        if len(ROUTE_METRICS_CACHE) >= ROUTE_METRICS_CACHE_MAX:
+            ROUTE_METRICS_CACHE.clear()
+        ROUTE_METRICS_CACHE[cache_key] = (now_monotonic, dict(metrics))
+    return metrics
 
 
 def build_upi_intent(order_id: str, amount: float) -> str:
@@ -5228,6 +5410,7 @@ async def find_best_driver_for_booking(
             {"latitude": pickup.latitude, "longitude": pickup.longitude},
             limit=25,
             max_distance_km=max_radius,
+            excluded_driver_ids=list(blocked_set),
         )
         geo_candidate_ids = [str(item.get("user_id") or "").strip() for item in geo_candidates if item.get("user_id")]
         if geo_candidate_ids:
@@ -5296,6 +5479,7 @@ async def find_nearest_drivers_for_booking(
             {"latitude": pickup.latitude, "longitude": pickup.longitude},
             limit=max(5, int(limit) * 3),
             max_distance_km=max_radius,
+            excluded_driver_ids=list(blocked_set),
         )
         geo_candidate_ids = [str(item.get("user_id") or "").strip() for item in geo_candidates if item.get("user_id")]
         if geo_candidate_ids:
@@ -5351,7 +5535,6 @@ async def find_candidate_drivers_for_scheduled_booking(
     }
     if blocked_set:
         query["user_id"] = {"$nin": list(blocked_set)}
-
     candidates = await db.drivers.find(query).to_list(500)
 
     scored: List[Dict[str, Any]] = []
@@ -5764,6 +5947,94 @@ async def get_driver_stats(driver_id: str) -> Dict[str, float]:
         "rejection_rate": float(rejected) / max(float(attempts), 1.0),
     }
 
+
+def empty_driver_stats() -> Dict[str, float]:
+    return {
+        "total": 0.0,
+        "completed": 0.0,
+        "cancelled": 0.0,
+        "completion_rate": 0.0,
+        "cancellation_rate": 0.0,
+        "acceptance_rate": 0.0,
+        "rejection_rate": 0.0,
+    }
+
+
+async def get_driver_stats_many(driver_ids: List[str]) -> Dict[str, Dict[str, float]]:
+    unique_driver_ids = [
+        driver_id
+        for driver_id in list(dict.fromkeys(str(item or "").strip() for item in driver_ids))
+        if driver_id
+    ]
+    stats_by_id = {driver_id: empty_driver_stats() for driver_id in unique_driver_ids}
+    if not unique_driver_ids:
+        return stats_by_id
+
+    booking_rows, attempt_rows = await asyncio.gather(
+        db.bookings.aggregate(
+            [
+                {"$match": {"driver_id": {"$in": unique_driver_ids}}},
+                {
+                    "$group": {
+                        "_id": "$driver_id",
+                        "total": {"$sum": 1},
+                        "completed": {
+                            "$sum": {"$cond": [{"$eq": ["$status", BookingStatus.COMPLETED]}, 1, 0]}
+                        },
+                        "cancelled": {
+                            "$sum": {"$cond": [{"$eq": ["$status", BookingStatus.CANCELLED]}, 1, 0]}
+                        },
+                    }
+                },
+            ]
+        ).to_list(None),
+        db.dispatch_attempts.aggregate(
+            [
+                {
+                    "$match": {
+                        "driver_id": {"$in": unique_driver_ids},
+                        "response": {"$in": ["accepted", "rejected", "expired"]},
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": {"driver_id": "$driver_id", "response": "$response"},
+                        "count": {"$sum": 1},
+                    }
+                },
+            ]
+        ).to_list(None),
+    )
+
+    attempt_counts: Dict[str, Dict[str, float]] = defaultdict(lambda: {"accepted": 0.0, "rejected": 0.0, "expired": 0.0})
+    for row in attempt_rows:
+        driver_id = str((row.get("_id") or {}).get("driver_id") or "").strip()
+        response = str((row.get("_id") or {}).get("response") or "").strip().lower()
+        if driver_id and response in attempt_counts[driver_id]:
+            attempt_counts[driver_id][response] = float(row.get("count") or 0)
+
+    for row in booking_rows:
+        driver_id = str(row.get("_id") or "").strip()
+        if not driver_id:
+            continue
+        stats = stats_by_id.setdefault(driver_id, empty_driver_stats())
+        stats["total"] = float(row.get("total") or 0)
+        stats["completed"] = float(row.get("completed") or 0)
+        stats["cancelled"] = float(row.get("cancelled") or 0)
+
+    for driver_id, stats in stats_by_id.items():
+        attempts = attempt_counts.get(driver_id, {})
+        accepted = float(attempts.get("accepted") or 0.0)
+        rejected = float(attempts.get("rejected") or 0.0)
+        expired = float(attempts.get("expired") or 0.0)
+        total_attempts = accepted + rejected + expired
+        total = max(float(stats.get("total") or 0.0), 1.0)
+        stats["completion_rate"] = float(stats.get("completed") or 0.0) / total
+        stats["cancellation_rate"] = float(stats.get("cancelled") or 0.0) / total
+        stats["acceptance_rate"] = accepted / max(total_attempts, 1.0)
+        stats["rejection_rate"] = rejected / max(total_attempts, 1.0)
+    return stats_by_id
+
 def get_driver_analytics_start(period: str) -> datetime:
     now = get_ist_now()
     normalized = str(period or "week").strip().lower()
@@ -5865,42 +6136,117 @@ async def is_driver_busy(driver_id: str) -> bool:
     return active is not None
 
 
+async def get_busy_driver_ids(driver_ids: List[str]) -> set[str]:
+    unique_driver_ids = [
+        driver_id
+        for driver_id in list(dict.fromkeys(str(item or "").strip() for item in driver_ids))
+        if driver_id
+    ]
+    if not unique_driver_ids:
+        return set()
+    active_driver_ids = await db.bookings.distinct(
+        "driver_id",
+        {"driver_id": {"$in": unique_driver_ids}, "status": {"$in": ACTIVE_RIDE_STATUSES}},
+    )
+    return {str(driver_id or "").strip() for driver_id in active_driver_ids if str(driver_id or "").strip()}
+
+
 async def get_supply_demand_score(pickup_location: Dict[str, Any], radius_km: float = 4.0) -> Dict[str, Any]:
-    online_drivers = await db.drivers.find(
-        {
-            "is_available": True,
-            "kyc_status": KYCStatus.APPROVED,
-            "vehicle_info": {"$ne": None},
-        }
-    ).to_list(500)
+    latitude = safe_float((pickup_location or {}).get("latitude"), None)
+    longitude = safe_float((pickup_location or {}).get("longitude"), None)
     nearby_drivers = 0
-    for driver in online_drivers:
-        live_location = await get_effective_driver_location(driver)
-        if not live_location:
-            continue
-        if km_between(pickup_location, live_location) <= radius_km:
-            nearby_drivers += 1
+    driver_geo_counted = False
+    if latitude is not None and longitude is not None:
+        try:
+            rows = await db.drivers.aggregate(
+                [
+                    {
+                        "$geoNear": {
+                            "near": {
+                                "type": "Point",
+                                "coordinates": [float(longitude), float(latitude)],
+                            },
+                            "key": "current_location_geo",
+                            "distanceField": "distance_meters",
+                            "spherical": True,
+                            "maxDistance": max(1000, int(float(radius_km) * 1000)),
+                            "query": {
+                                "is_available": True,
+                                "kyc_status": KYCStatus.APPROVED,
+                                "vehicle_info": {"$ne": None},
+                            },
+                        }
+                    },
+                    {"$count": "count"},
+                ]
+            ).to_list(1)
+            nearby_drivers = int((rows[0] if rows else {}).get("count") or 0)
+            driver_geo_counted = True
+        except Exception:
+            logger.exception("Driver supply geo count failed; falling back to bounded scan")
+    if not driver_geo_counted:
+        online_drivers = await db.drivers.find(
+            {
+                "is_available": True,
+                "kyc_status": KYCStatus.APPROVED,
+                "vehicle_info": {"$ne": None},
+            }
+        ).to_list(120)
+        for driver in online_drivers:
+            live_location = await get_effective_driver_location(driver)
+            if not live_location:
+                continue
+            if km_between(pickup_location, live_location) <= radius_km:
+                nearby_drivers += 1
 
     recent_cutoff = get_ist_now() - timedelta(minutes=15)
-    recent_bookings = await db.bookings.find(
-        {
-            "created_at": {"$gte": recent_cutoff},
-            "pickup_location": {"$ne": None},
-            "status": {
-                "$in": [
-                    BookingStatus.PENDING,
-                    BookingStatus.ACCEPTED,
-                    BookingStatus.DRIVER_ARRIVED,
-                    BookingStatus.IN_PROGRESS,
-                ]
-            },
-        }
-    ).to_list(300)
     nearby_demand = 0
-    for item in recent_bookings:
-        pickup = item.get("pickup_location") or {}
-        if km_between(pickup_location, pickup) <= radius_km:
-            nearby_demand += 1
+    demand_statuses = [
+        BookingStatus.PENDING,
+        BookingStatus.ACCEPTED,
+        BookingStatus.DRIVER_ARRIVED,
+        BookingStatus.IN_PROGRESS,
+    ]
+    demand_geo_counted = False
+    if latitude is not None and longitude is not None:
+        try:
+            rows = await db.bookings.aggregate(
+                [
+                    {
+                        "$geoNear": {
+                            "near": {
+                                "type": "Point",
+                                "coordinates": [float(longitude), float(latitude)],
+                            },
+                            "key": "pickup_location_geo",
+                            "distanceField": "distance_meters",
+                            "spherical": True,
+                            "maxDistance": max(1000, int(float(radius_km) * 1000)),
+                            "query": {
+                                "created_at": {"$gte": recent_cutoff},
+                                "status": {"$in": demand_statuses},
+                            },
+                        }
+                    },
+                    {"$count": "count"},
+                ]
+            ).to_list(1)
+            nearby_demand = int((rows[0] if rows else {}).get("count") or 0)
+            demand_geo_counted = True
+        except Exception:
+            logger.exception("Demand geo count failed; falling back to bounded scan")
+    if not demand_geo_counted:
+        recent_bookings = await db.bookings.find(
+            {
+                "created_at": {"$gte": recent_cutoff},
+                "pickup_location": {"$ne": None},
+                "status": {"$in": demand_statuses},
+            }
+        ).to_list(120)
+        for item in recent_bookings:
+            pickup = item.get("pickup_location") or {}
+            if km_between(pickup_location, pickup) <= radius_km:
+                nearby_demand += 1
 
     ratio = nearby_demand / max(nearby_drivers, 1)
     return {
@@ -6154,12 +6500,29 @@ async def intelligent_find_drivers_for_booking(
     }
     if blocked_set:
         query["user_id"] = {"$nin": list(blocked_set)}
-    drivers = await db.drivers.find(query).to_list(500)
+    candidate_limit = max(40, min(160, max(1, int(limit or 1)) * 25))
+    drivers = await find_nearest_drivers_mongo_geo(
+        pickup,
+        limit=candidate_limit,
+        max_distance_km=max_radius_km,
+        vehicle_type_id=booking.get("vehicle_type_id"),
+        vehicle_subtype_id=booking.get("vehicle_subtype_id"),
+        ride_type=booking.get("ride_product") or booking.get("ride_type"),
+        booking_context=booking,
+        excluded_driver_ids=list(blocked_set),
+    )
+    if not drivers:
+        drivers = await db.drivers.find(query).to_list(120)
     if str(booking.get("ride_product") or booking.get("ride_type") or "").strip().lower() == "women_only":
         drivers = await hydrate_driver_profiles_with_user_identity(drivers)
-    filter_preferences = load_driver_ride_filter_preferences([str(driver.get("user_id") or "") for driver in drivers])
+    driver_ids = [str(driver.get("user_id") or "").strip() for driver in drivers if driver.get("user_id")]
+    filter_preferences = load_driver_ride_filter_preferences(driver_ids)
     passenger_rating_summary = await get_user_rating_summary(passenger_id)
     passenger_rating = safe_float(passenger_rating_summary.get("average_rating"), 5.0)
+    busy_driver_ids, stats_by_driver_id = await asyncio.gather(
+        get_busy_driver_ids(driver_ids),
+        get_driver_stats_many(driver_ids),
+    )
 
     ranked: List[Dict[str, Any]] = []
     filtered_out: List[Dict[str, Any]] = []
@@ -6170,12 +6533,14 @@ async def intelligent_find_drivers_for_booking(
         if not driver_matches_booking_service(driver, booking):
             filtered_out.append({"driver_id": driver_id, "reasons": ["vehicle_or_ride_type_mismatch"]})
             continue
-        if await is_driver_busy(driver_id):
+        if driver_id in busy_driver_ids:
             continue
-        live_location = await get_effective_driver_location(driver)
+        live_location = normalize_tracking_location(driver.get("current_location")) or await get_effective_driver_location(driver)
         if not live_location:
             continue
-        distance_km = km_between(pickup, live_location)
+        distance_km = safe_float(driver.get("distance_km"), None)
+        if distance_km is None or not math.isfinite(distance_km):
+            distance_km = km_between(pickup, live_location)
         if not math.isfinite(distance_km) or distance_km > max_radius_km:
             continue
         filter_reasons = driver_ride_filter_rejection_reasons(
@@ -6188,7 +6553,7 @@ async def intelligent_find_drivers_for_booking(
         if filter_reasons:
             filtered_out.append({"driver_id": driver_id, "reasons": filter_reasons})
             continue
-        stats = await get_driver_stats(driver_id)
+        stats = stats_by_driver_id.get(driver_id) or empty_driver_stats()
         last_assigned = driver.get("last_assigned_at")
         if isinstance(last_assigned, datetime):
             idle_minutes = max(0.0, (get_ist_now() - last_assigned).total_seconds() / 60.0)
@@ -9280,6 +9645,87 @@ async def _db_get_active_booking(driver_id: str):
     })
 
 
+def should_persist_driver_location(driver_id: str) -> bool:
+    if DRIVER_LOCATION_PERSIST_MIN_INTERVAL_SECONDS <= 0:
+        return True
+    now_monotonic = time.monotonic()
+    last_persisted_at = DRIVER_LOCATION_PERSIST_LAST_AT.get(driver_id)
+    if last_persisted_at and now_monotonic - last_persisted_at < DRIVER_LOCATION_PERSIST_MIN_INTERVAL_SECONDS:
+        return False
+    DRIVER_LOCATION_PERSIST_LAST_AT[driver_id] = now_monotonic
+    if len(DRIVER_LOCATION_PERSIST_LAST_AT) > max(1000, AUTH_USER_CACHE_MAX_ITEMS):
+        DRIVER_LOCATION_PERSIST_LAST_AT.clear()
+    return True
+
+
+async def persist_driver_location_side_effects(
+    driver_id: str,
+    cached_location: Dict[str, Any],
+    geo_location: Dict[str, Any],
+    now_utc: datetime,
+    latitude: float,
+    longitude: float,
+) -> None:
+    async with DRIVER_LOCATION_PERSIST_SEMAPHORE:
+        try:
+            await _db_update_driver_location(
+                driver_id,
+                cached_location,
+                geo_location,
+                now_utc,
+                latitude,
+                longitude,
+            )
+            await cache_delete(f"driver_profile:{driver_id}")
+
+            active_booking = await _db_get_active_booking(driver_id)
+            if not active_booking:
+                return
+
+            booking_id = str(active_booking.get("id") or "")
+            passenger_id = str(active_booking.get("passenger_id") or "")
+            pickup = active_booking.get("pickup_location")
+            drop = active_booking.get("drop_location") or active_booking.get("dropoff_location")
+            payload = {
+                "booking_id": booking_id,
+                "driver_id": driver_id,
+                "location": cached_location,
+                "latitude": cached_location.get("latitude"),
+                "longitude": cached_location.get("longitude"),
+                "eta_to_pickup_min": calculate_eta_minutes(cached_location, pickup),
+                "eta_to_drop_min": calculate_eta_minutes(cached_location, drop),
+                "timestamp": now_utc.isoformat(),
+            }
+            await runtime_state.set_driver_active_booking(str(driver_id), booking_id)
+            tracking_set, tracking_push = build_trip_distance_tracking_update(
+                active_booking,
+                cached_location,
+                now_utc,
+            )
+            booking_set_fields = {
+                "driver_live_location": cached_location,
+                "driver_location": cached_location,
+                "driver_eta_to_pickup_min": payload["eta_to_pickup_min"],
+                "driver_eta_to_drop_min": payload["eta_to_drop_min"],
+                "updated_at": now_utc,
+                **tracking_set,
+            }
+            booking_update: Dict[str, Any] = {"$set": booking_set_fields}
+            if tracking_push:
+                booking_update["$push"] = {"trip_path_points": tracking_push}
+            await db.bookings.update_one(
+                {"id": booking_id},
+                booking_update,
+            )
+            await clear_active_ride_cache(str(driver_id), passenger_id)
+            for event_name in ("driver_location_changed", "driver_location", "driver_location_updated"):
+                await sio.emit(event_name, payload, room=ride_room(booking_id))
+                await sio.emit(event_name, payload, room=f"booking:{booking_id}")
+                await emit_to_user(passenger_id, event_name, payload)
+        except Exception:
+            logger.exception("persist_driver_location_side_effects failed for driver_id=%s", driver_id)
+
+
 @api_router.post("/drivers/location")
 @api_router.put("/drivers/location")
 async def update_driver_location(location_update: DriverLocationUpdate, current_user: dict = Depends(get_current_user)):
@@ -9298,64 +9744,30 @@ async def update_driver_location(location_update: DriverLocationUpdate, current_
         "type": "Point",
         "coordinates": [float(longitude), float(latitude)],
     }
-    
-    # Update driver location with automatic retries
-    await _db_update_driver_location(
-        current_user["id"],
-        cached_location,
-        geo_location,
-        now_utc,
-        latitude,
-        longitude,
-    )
-    await runtime_state.touch_driver_heartbeat(str(current_user["id"]))
-    
-    await cache_delete(f"driver_profile:{current_user['id']}")
+    driver_id = str(current_user["id"])
+    await runtime_state.touch_driver_heartbeat(driver_id)
 
-    # Get active booking with retries
-    active_booking = await _db_get_active_booking(current_user["id"])
-    
-    if active_booking:
-        booking_id = str(active_booking.get("id") or "")
-        passenger_id = str(active_booking.get("passenger_id") or "")
-        pickup = active_booking.get("pickup_location")
-        drop = active_booking.get("drop_location") or active_booking.get("dropoff_location")
-        payload = {
-            "booking_id": booking_id,
-            "driver_id": current_user["id"],
-            "location": cached_location,
-            "latitude": cached_location.get("latitude"),
-            "longitude": cached_location.get("longitude"),
-            "eta_to_pickup_min": calculate_eta_minutes(cached_location, pickup),
-            "eta_to_drop_min": calculate_eta_minutes(cached_location, drop),
-            "timestamp": now_utc.isoformat(),
-        }
-        await runtime_state.set_driver_active_booking(str(current_user["id"]), booking_id)
-        tracking_set, tracking_push = build_trip_distance_tracking_update(
-            active_booking,
-            cached_location,
-            now_utc,
-        )
-        booking_set_fields = {
-            "driver_live_location": cached_location,
-            "driver_location": cached_location,
-            "driver_eta_to_pickup_min": payload["eta_to_pickup_min"],
-            "driver_eta_to_drop_min": payload["eta_to_drop_min"],
-            "updated_at": now_utc,
-            **tracking_set,
-        }
-        booking_update: Dict[str, Any] = {"$set": booking_set_fields}
-        if tracking_push:
-            booking_update["$push"] = {"trip_path_points": tracking_push}
-        await db.bookings.update_one(
-            {"id": booking_id},
-            booking_update,
-        )
-        await clear_active_ride_cache(str(current_user["id"]), passenger_id)
-        for event_name in ("driver_location_changed", "driver_location", "driver_location_updated"):
-            await sio.emit(event_name, payload, room=ride_room(booking_id))
-            await sio.emit(event_name, payload, room=f"booking:{booking_id}")
-            await emit_to_user(passenger_id, event_name, payload)
+    if should_persist_driver_location(driver_id):
+        if DRIVER_LOCATION_BACKGROUND_PERSIST:
+            asyncio.create_task(
+                persist_driver_location_side_effects(
+                    driver_id,
+                    cached_location,
+                    geo_location,
+                    now_utc,
+                    latitude,
+                    longitude,
+                )
+            )
+        else:
+            await persist_driver_location_side_effects(
+                driver_id,
+                cached_location,
+                geo_location,
+                now_utc,
+                latitude,
+                longitude,
+            )
 
     return {"message": "Location updated"}
 
@@ -10300,24 +10712,33 @@ async def get_nearby_drivers(
             projected_distance_km = float(route_metrics.get("distance_km", 0.0) or 0.0)
         except Exception:
             projected_distance_km = None
-    available_drivers = await db.drivers.find({
-        "is_available": True,
-        "vehicle_info": {"$ne": None},
-        "kyc_status": KYCStatus.APPROVED
-    }).to_list(250)
-    if not available_drivers:
-        available_drivers = await db.drivers.find({"is_available": True}).to_list(250)
-
     requested_vehicle_type = str(vehicle_type_id or "").strip().lower()
     requested_vehicle_subtype = str(vehicle_subtype_id or "").strip().lower()
     requested_ride_type = str(ride_type or "").strip().lower()
-    if requested_ride_type == "women_only":
-        available_drivers = await hydrate_driver_profiles_with_user_identity(available_drivers)
     requested_service = {
         "vehicle_type_id": requested_vehicle_type,
         "vehicle_subtype_id": requested_vehicle_subtype,
         "ride_type": requested_ride_type,
     }
+    candidate_radius_km = fallback_radius_km if not strict_radius_requested else primary_radius_km
+    available_drivers = await find_nearest_drivers_mongo_geo(
+        {"latitude": latitude, "longitude": longitude},
+        limit=80,
+        max_distance_km=candidate_radius_km,
+        vehicle_type_id=requested_vehicle_type,
+        vehicle_subtype_id=requested_vehicle_subtype,
+        ride_type=requested_ride_type,
+        booking_context=requested_service,
+        excluded_driver_ids=list(blocked_driver_ids),
+    )
+    if not available_drivers:
+        available_drivers = await db.drivers.find({
+            "is_available": True,
+            "vehicle_info": {"$ne": None},
+            "kyc_status": KYCStatus.APPROVED,
+        }).to_list(120)
+        if requested_ride_type == "women_only":
+            available_drivers = await hydrate_driver_profiles_with_user_identity(available_drivers)
 
     nearby_drivers: List[Dict[str, Any]] = []
     primary_scored_drivers: List[Dict[str, Any]] = []
@@ -10327,14 +10748,16 @@ async def get_nearby_drivers(
             continue
         if blocked_driver_ids and driver.get("user_id") in blocked_driver_ids:
             continue
-        live_location = await get_effective_driver_location(driver)
+        live_location = normalize_tracking_location(driver.get("current_location")) or await get_effective_driver_location(driver)
         if not live_location:
             continue
         try:
             driver_loc = Location(**live_location)
         except Exception:
             continue
-        distance = calculate_distance(user_location, driver_loc)
+        distance = safe_float(driver.get("distance_km"), None)
+        if distance is None or not math.isfinite(distance):
+            distance = calculate_distance(user_location, driver_loc)
         distance_payload = {**driver, "current_location": live_location, "distance": distance, "driver_loc": driver_loc}
         if distance <= primary_radius_km:
             primary_scored_drivers.append(distance_payload)
@@ -16081,16 +16504,6 @@ async def get_admin_dashboard(current_user: dict = Depends(get_current_user)):
     if current_user["role"] != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Admin access required")
     
-    total_users = await db.users.count_documents({})
-    total_drivers = await db.users.count_documents(_role_query(UserRole.DRIVER))
-    total_passengers = await db.users.count_documents(_role_query(UserRole.PASSENGER, "user"))
-    total_operators = await db.users.count_documents(_role_query(UserRole.OPERATOR))
-    driver_profiles = await db.drivers.count_documents({})
-    passenger_profiles = await db.passengers.count_documents({})
-    total_drivers = max(total_drivers, driver_profiles)
-    total_passengers = max(total_passengers, passenger_profiles)
-    total_users = max(total_users, total_drivers + total_passengers + total_operators)
-    total_bookings = await db.bookings.count_documents({})
     completed_statuses = _enum_query_values(BookingStatus.COMPLETED)
     active_statuses = _enum_query_values(
         BookingStatus.PENDING,
@@ -16098,17 +16511,36 @@ async def get_admin_dashboard(current_user: dict = Depends(get_current_user)):
         BookingStatus.DRIVER_ARRIVED,
         BookingStatus.IN_PROGRESS,
     )
-    completed_bookings = await db.bookings.count_documents({"status": {"$in": completed_statuses}})
-    active_bookings = await db.bookings.count_documents({
-        "status": {"$in": active_statuses}
-    })
-    
-    # Revenue - use aggregation pipeline for efficiency
-    revenue_result = await db.bookings.aggregate([
-        {"$match": {"status": {"$in": completed_statuses}}},
-        {"$project": {"fare": {"$ifNull": ["$final_fare", "$estimated_fare"]}}},
-        {"$group": {"_id": None, "total": {"$sum": "$fare"}}}
-    ]).to_list(1)
+    (
+        total_users,
+        total_drivers,
+        total_passengers,
+        total_operators,
+        driver_profiles,
+        passenger_profiles,
+        total_bookings,
+        completed_bookings,
+        active_bookings,
+        revenue_result,
+    ) = await asyncio.gather(
+        db.users.count_documents({}),
+        db.users.count_documents(_role_query(UserRole.DRIVER)),
+        db.users.count_documents(_role_query(UserRole.PASSENGER, "user")),
+        db.users.count_documents(_role_query(UserRole.OPERATOR)),
+        db.drivers.count_documents({}),
+        db.passengers.count_documents({}),
+        db.bookings.count_documents({}),
+        db.bookings.count_documents({"status": {"$in": completed_statuses}}),
+        db.bookings.count_documents({"status": {"$in": active_statuses}}),
+        db.bookings.aggregate([
+            {"$match": {"status": {"$in": completed_statuses}}},
+            {"$project": {"fare": {"$ifNull": ["$final_fare", "$estimated_fare"]}}},
+            {"$group": {"_id": None, "total": {"$sum": "$fare"}}}
+        ]).to_list(1),
+    )
+    total_drivers = max(total_drivers, driver_profiles)
+    total_passengers = max(total_passengers, passenger_profiles)
+    total_users = max(total_users, total_drivers + total_passengers + total_operators)
     total_revenue = revenue_result[0]["total"] if revenue_result else 0
     
     dashboard_stats = {
@@ -16247,7 +16679,20 @@ async def get_admin_users_live_status(current_user: dict = Depends(get_current_u
     if current_user["role"] != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    users = await db.users.find(_role_query(UserRole.DRIVER, UserRole.PASSENGER, UserRole.OPERATOR, "user")).to_list(5000)
+    user_projection = {
+        "_id": 0,
+        "id": 1,
+        "name": 1,
+        "email": 1,
+        "phone": 1,
+        "role": 1,
+        "user_type": 1,
+        "created_at": 1,
+    }
+    users = await db.users.find(
+        _role_query(UserRole.DRIVER, UserRole.PASSENGER, UserRole.OPERATOR, "user"),
+        user_projection,
+    ).to_list(5000)
     if not users:
         return {
             "drivers": [],
@@ -16258,9 +16703,20 @@ async def get_admin_users_live_status(current_user: dict = Depends(get_current_u
         }
 
     driver_ids = [str(user.get("id") or "") for user in users if _normalize_role_text(user.get("role") or user.get("user_type")) == UserRole.DRIVER.value and user.get("id")]
-    passenger_ids = [str(user.get("id") or "") for user in users if _normalize_role_text(user.get("role") or user.get("user_type")) == UserRole.PASSENGER.value and user.get("id")]
-
-    driver_profiles = await db.drivers.find({"user_id": {"$in": driver_ids}}).to_list(None) if driver_ids else []
+    driver_projection = {
+        "_id": 0,
+        "user_id": 1,
+        "is_available": 1,
+        "kyc_status": 1,
+        "current_location": 1,
+        "last_location_at": 1,
+        "last_heartbeat_at": 1,
+        "last_online_at": 1,
+    }
+    driver_profiles = await db.drivers.find(
+        {"user_id": {"$in": driver_ids}},
+        driver_projection,
+    ).to_list(len(driver_ids)) if driver_ids else []
     driver_profile_by_id = {str(profile.get("user_id")): profile for profile in driver_profiles if profile.get("user_id")}
 
     active_statuses = _enum_query_values(
@@ -16269,7 +16725,10 @@ async def get_admin_users_live_status(current_user: dict = Depends(get_current_u
         BookingStatus.DRIVER_ARRIVED,
         BookingStatus.IN_PROGRESS,
     )
-    active_bookings = await db.bookings.find({"status": {"$in": active_statuses}}).to_list(5000)
+    active_bookings = await db.bookings.find(
+        {"status": {"$in": active_statuses}},
+        {"_id": 0, "id": 1, "passenger_id": 1, "driver_id": 1},
+    ).to_list(5000)
     active_booking_by_passenger_id: Dict[str, str] = {}
     active_booking_by_driver_id: Dict[str, str] = {}
     for booking in active_bookings:
