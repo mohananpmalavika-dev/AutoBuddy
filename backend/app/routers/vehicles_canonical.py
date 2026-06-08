@@ -519,7 +519,7 @@ async def get_capacity(
 
 @router.get("/public/compatibility/by-ride-type", response_model=dict)
 async def get_ride_type_vehicles(
-    ride_type: str = Query(..., description="Ride type: instant|scheduled|rental|airport|corporate|tourism|goods"),
+    ride_type: str = Query(..., description="Ride type: instant|scheduled|rental|airport|corporate|tourism|goods|pet"),
     region: Optional[str] = Query(None),
     district: Optional[str] = Query(None),
     pincode: Optional[str] = Query(None),

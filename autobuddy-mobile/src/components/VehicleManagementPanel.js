@@ -25,6 +25,7 @@ const ACCEPTED_RIDE_TYPE_OPTIONS = [
   { key: 'ev_auto', label: 'EV Auto' },
   { key: 'tourism', label: 'Tourism' },
   { key: 'women_only', label: 'Women Only' },
+  { key: 'pet', label: 'Pet Rides' },
   { key: 'rental_hourly', label: 'Rental Hourly' },
   { key: 'school_elderly_safe', label: 'School/Elderly Safe' },
 ];

@@ -51,7 +51,7 @@ class CanonicalVehicleType(BaseModel):
     # Ride Type Support
     allowed_ride_types: List[str] = Field(
         default_factory=lambda: ["instant", "scheduled"],
-        description="Ride types this vehicle supports: instant|scheduled|rental|airport|corporate|tourism|goods"
+        description="Ride types this vehicle supports: instant|scheduled|rental|airport|corporate|tourism|goods|pet"
     )
     
     # Service Support
@@ -87,7 +87,7 @@ CANONICAL_VEHICLE_TYPES = [
         "capacity": 3,
         "capacity_unit": "passengers",
         "base_multiplier": 0.75,
-        "allowed_ride_types": ["instant", "scheduled"],
+        "allowed_ride_types": ["instant", "scheduled", "pet"],
         "goods_supported": False,
         "passenger_supported": True,
         "accessibility_support": False,
@@ -108,7 +108,7 @@ CANONICAL_VEHICLE_TYPES = [
         "capacity": 4,
         "capacity_unit": "passengers",
         "base_multiplier": 1.0,
-        "allowed_ride_types": ["instant", "scheduled", "airport", "corporate"],
+        "allowed_ride_types": ["instant", "scheduled", "airport", "corporate", "pet"],
         "goods_supported": False,
         "passenger_supported": True,
         "accessibility_support": True,
@@ -130,7 +130,7 @@ CANONICAL_VEHICLE_TYPES = [
         "capacity": 6,
         "capacity_unit": "passengers",
         "base_multiplier": 1.25,
-        "allowed_ride_types": ["instant", "scheduled", "airport", "corporate"],
+        "allowed_ride_types": ["instant", "scheduled", "airport", "corporate", "pet"],
         "goods_supported": False,
         "passenger_supported": True,
         "accessibility_support": True,

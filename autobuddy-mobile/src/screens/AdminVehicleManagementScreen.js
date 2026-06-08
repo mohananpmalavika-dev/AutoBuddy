@@ -478,7 +478,7 @@ export default function AdminVehicleManagementScreen({
 
                 <Text style={styles.fieldLabel}>Ride Type</Text>
                 <View style={styles.rideTypeSelector}>
-                  {['instant', 'scheduled', 'rental', 'airport'].map((type) => (
+                  {['instant', 'scheduled', 'rental', 'airport', 'pet'].map((type) => (
                     <TouchableOpacity
                       key={type}
                       style={[
@@ -596,6 +596,7 @@ export default function AdminVehicleManagementScreen({
                     { id: 'airport', name: 'Airport', icon: '✈️' },
                     { id: 'corporate', name: 'Corporate', icon: '💼' },
                     { id: 'tourism', name: 'Tourism', icon: '🗺️' },
+                    { id: 'pet', name: 'Pet Rides', icon: '🐾' },
                     { id: 'goods', name: 'Goods', icon: '📦' },
                   ].map((rideType) => {
                     const isSupported = selectedVehicle.allowed_ride_types?.includes(

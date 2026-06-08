@@ -280,6 +280,13 @@ const ServiceSelectionScreen = ({ navigation, route }) => {
       color: '#E74C3C',
     },
     {
+      id: 'pet',
+      name: 'Pet Rides',
+      icon: '🐾',
+      description: 'Pet-friendly rides',
+      color: '#2E8B57',
+    },
+    {
       id: 'goods',
       name: 'Goods / Logistics',
       icon: '📦',

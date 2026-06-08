@@ -36,6 +36,7 @@ PASSENGER_KYC_REQUIRED_FOR_BOOKING = (
     os.environ.get("PASSENGER_KYC_REQUIRED_FOR_BOOKING", "false").strip().lower()
     not in {"0", "false", "no", "off"}
 )
+RIDE_PRODUCT_CONFIG_VERSION = 2
 
 
 class RideProduct(str, Enum):
@@ -48,6 +49,7 @@ class RideProduct(str, Enum):
     EV_AUTO = "ev_auto"
     TOURISM = "tourism"
     WOMEN_ONLY = "women_only"
+    PET = "pet"
     RENTAL_HOURLY = "rental_hourly"
     SCHOOL_ELDERLY_SAFE = "school_elderly_safe"
 
@@ -68,6 +70,9 @@ class AdvancedBookingRequest(BaseModel):
     tourism_package: Optional[str] = Field(default=None, max_length=120)
     women_only_required: bool = False
     driver_gender_preference: Optional[str] = Field(default="any", max_length=20)
+    pet_type: Optional[str] = Field(default=None, max_length=80)
+    pet_count: Optional[int] = Field(default=None, ge=1, le=4)
+    pet_carrier_required: bool = False
     rental_hours: Optional[int] = Field(default=None, ge=1, le=24)
     safe_ride_priority: Optional[str] = Field(default=None, max_length=40)
     guardian_name: Optional[str] = Field(default=None, max_length=80)
@@ -114,6 +119,7 @@ LEGACY_COMPATIBILITY_RIDE_TYPE_KEYS = {
     "corporate",
     "tourism",
     "goods",
+    "pet",
 }
 RIDE_TYPE_COMPATIBILITY_ALIASES = {
     RideProduct.NORMAL.value: "instant",
@@ -123,6 +129,7 @@ RIDE_TYPE_COMPATIBILITY_ALIASES = {
     RideProduct.SCHOOL_ELDERLY_SAFE.value: "instant",
     RideProduct.INTERCITY.value: "instant",
     RideProduct.RENTAL_HOURLY.value: "rental",
+    RideProduct.PET.value: "pet",
 }
 DISTRICT_ALIASES: Dict[str, str] = {
     "trivandrum": "thiruvananthapuram",
@@ -216,6 +223,7 @@ def _product_multiplier(product: RideProduct) -> float:
         RideProduct.EV_AUTO: 1.05,
         RideProduct.TOURISM: 1.85,
         RideProduct.WOMEN_ONLY: 1.15,
+        RideProduct.PET: 1.18,
         RideProduct.RENTAL_HOURLY: 2.10,
         RideProduct.SCHOOL_ELDERLY_SAFE: 1.12,
     }.get(product, 1.00)
@@ -391,6 +399,7 @@ def _product_label(product: RideProduct) -> str:
         RideProduct.EV_AUTO: "EV Auto",
         RideProduct.TOURISM: "Tourism Ride",
         RideProduct.WOMEN_ONLY: "Women-Only Ride",
+        RideProduct.PET: "Pet Rides",
         RideProduct.RENTAL_HOURLY: "Rental / Hourly Package",
         RideProduct.SCHOOL_ELDERLY_SAFE: "School / Elderly Safe Ride",
     }.get(product, "Normal Ride")
@@ -671,6 +680,7 @@ def _default_ride_product_config() -> Dict[str, Any]:
     now = get_ist_now()
     return {
         "id": "district_ride_products",
+        "catalog_version": RIDE_PRODUCT_CONFIG_VERSION,
         "default_enabled_products": ALL_RIDE_PRODUCT_KEYS,
         "district_rules": [],
         "updated_at": now,
@@ -717,6 +727,7 @@ def _normalize_ride_product_config(doc: Optional[Dict[str, Any]]) -> Dict[str, A
     payload = doc or _default_ride_product_config()
     return {
         "id": "district_ride_products",
+        "catalog_version": int(payload.get("catalog_version") or 1),
         "default_enabled_products": _normalize_enabled_products(payload.get("default_enabled_products")),
         "district_rules": _normalize_district_rules(payload.get("district_rules")),
         "updated_at": payload.get("updated_at") if isinstance(payload.get("updated_at"), datetime) else get_ist_now(),
@@ -733,6 +744,27 @@ async def _get_ride_product_config(db: AsyncIOMotorDatabase) -> Dict[str, Any]:
             {"$setOnInsert": doc},
             upsert=True,
         )
+    elif int(doc.get("catalog_version") or 1) < RIDE_PRODUCT_CONFIG_VERSION:
+        enabled_products = _normalize_enabled_products(doc.get("default_enabled_products"))
+        if RideProduct.PET.value not in enabled_products:
+            enabled_products.append(RideProduct.PET.value)
+        now = get_ist_now()
+        await db.ride_product_config.update_one(
+            {"id": "district_ride_products"},
+            {
+                "$set": {
+                    "catalog_version": RIDE_PRODUCT_CONFIG_VERSION,
+                    "default_enabled_products": enabled_products,
+                    "updated_at": now,
+                }
+            },
+        )
+        doc = {
+            **doc,
+            "catalog_version": RIDE_PRODUCT_CONFIG_VERSION,
+            "default_enabled_products": enabled_products,
+            "updated_at": now,
+        }
     return _normalize_ride_product_config(doc)
 
 
@@ -979,6 +1011,13 @@ async def list_ride_products(
             "investor_value": "Strong safety differentiation.",
         },
         {
+            "key": "pet",
+            "title": "Pet Rides",
+            "ml": "Pet Rides",
+            "description": "Pet-friendly rides with driver opt-in and extra care.",
+            "investor_value": "Differentiated high-trust pet mobility segment.",
+        },
+        {
             "key": "rental_hourly",
             "title": "Rental / Hourly Package",
             "ml": "Rental Package",
@@ -1041,6 +1080,7 @@ async def update_admin_ride_product_district_config(
     now = get_ist_now()
     config_doc = {
         "id": "district_ride_products",
+        "catalog_version": RIDE_PRODUCT_CONFIG_VERSION,
         "default_enabled_products": _normalize_enabled_products([item.value for item in payload.default_enabled_products]),
         "district_rules": _normalize_district_rules(
             [
@@ -1247,6 +1287,15 @@ async def create_advanced_booking(
         "tourism_package": payload.tourism_package,
         "women_only_required": women_only_required,
         "driver_gender_preference": driver_gender_preference,
+        "pet_type": (
+            payload.pet_type.strip()
+            if payload.ride_product == RideProduct.PET and payload.pet_type
+            else None
+        ),
+        "pet_count": payload.pet_count if payload.ride_product == RideProduct.PET else None,
+        "pet_carrier_required": (
+            bool(payload.pet_carrier_required) if payload.ride_product == RideProduct.PET else False
+        ),
         "pickup_district": availability.get("pickup_district"),
         "rental_hours": payload.rental_hours,
         "safe_ride_priority": assisted_context["ride_category"] if assisted_context else payload.safe_ride_priority,
@@ -1361,6 +1410,8 @@ async def create_advanced_booking(
     driver_filter: Dict[str, Any] = {}
     if driver_gender_preference in {"female", "male"}:
         driver_filter["gender"] = driver_gender_preference
+    if payload.ride_product == RideProduct.PET:
+        driver_filter["pet_friendly_required"] = True
     if payload.ride_product == RideProduct.EV_AUTO:
         driver_filter["vehicle_type"] = "ev_auto"
     elif assisted_context:

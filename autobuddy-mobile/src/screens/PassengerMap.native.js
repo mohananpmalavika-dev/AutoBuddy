@@ -205,6 +205,7 @@ const RIDE_PRODUCT_LABEL_FALLBACKS = {
   ev_auto: 'EV Auto',
   tourism: 'Tourism',
   women_only: 'Women Only',
+  pet: 'Pet Rides',
   rental_hourly: 'Rental',
   school_elderly_safe: 'School/Elderly',
 };

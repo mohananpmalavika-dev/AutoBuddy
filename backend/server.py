@@ -5298,6 +5298,7 @@ RIDE_TYPE_FARE_MULTIPLIERS = {
     "ev_auto": 1.05,
     "tourism": 1.85,
     "women_only": 1.15,
+    "pet": 1.18,
     "rental_hourly": 2.10,
     "school_elderly_safe": 1.12,
 }
@@ -5310,6 +5311,7 @@ RIDE_TYPE_COMPATIBILITY_ALIASES = {
     "school_elderly_safe": "instant",
     "intercity": "instant",
     "rental_hourly": "rental",
+    "pet": "pet",
 }
 
 DRIVER_ACCEPTED_RIDE_TYPE_KEYS = tuple(RIDE_TYPE_FARE_MULTIPLIERS.keys())
@@ -5322,6 +5324,7 @@ DRIVER_COMPATIBILITY_RIDE_TYPE_SET = {
     "corporate",
     "tourism",
     "goods",
+    "pet",
 }
 DEFAULT_DRIVER_ACCEPTED_RIDE_TYPES = ["normal"]
 

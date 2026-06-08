@@ -10,7 +10,7 @@ from datetime import datetime
 
 class RideTypeMultiplier(BaseModel):
     """Ride-type specific fare multiplier for a vehicle"""
-    ride_type: str  # instant|scheduled|rental|airport|corporate|tourism|goods
+    ride_type: str  # instant|scheduled|rental|airport|corporate|tourism|goods|pet
     multiplier: float  # Additional multiplier on top of vehicle base multiplier
 
 
@@ -77,6 +77,13 @@ RIDE_TYPE_COMPATIBILITY = {
         "ride_type_multiplier": 1.25,  # 25% premium for corporate
         "min_travel_time": 0,
     },
+    "pet": {
+        "description": "Pet-friendly passenger ride",
+        "vehicles": ["auto", "taxi", "xl"],
+        "ride_type_multiplier": 1.18,
+        "min_travel_time": 0,
+        "special_fields": ["pet_type", "pet_count", "pet_carrier_required"],
+    },
     "tourism": {
         "description": "Tourism/sightseeing",
         "vehicles": ["taxi", "xl", "traveller", "bus"],
@@ -109,6 +116,7 @@ FARE_CONFIGURATIONS = {
         "scheduled": {"multiplier": 0.95},
         "airport": None,  # Not supported
         "corporate": None,  # Not supported
+        "pet": {"multiplier": 1.12},
         "rental": None,  # Not supported
         "tourism": None,  # Not supported
         "goods": None,  # Not supported
@@ -124,6 +132,7 @@ FARE_CONFIGURATIONS = {
         "scheduled": {"multiplier": 0.95},
         "airport": {"multiplier": 1.3},
         "corporate": {"multiplier": 1.25},
+        "pet": {"multiplier": 1.18},
         "rental": RentalFareConfig(hourly_rate=500.0),
         "tourism": RentalFareConfig(hourly_rate=600.0),
         "goods": None,  # Not supported
@@ -139,6 +148,7 @@ FARE_CONFIGURATIONS = {
         "scheduled": {"multiplier": 1.2},
         "airport": {"multiplier": 1.4},
         "corporate": {"multiplier": 1.3},
+        "pet": {"multiplier": 1.22},
         "rental": RentalFareConfig(hourly_rate=800.0),
         "tourism": RentalFareConfig(hourly_rate=900.0),
         "goods": None,  # Not supported
@@ -154,6 +164,7 @@ FARE_CONFIGURATIONS = {
         "scheduled": {"multiplier": 1.2},
         "airport": None,  # Not typically used
         "corporate": None,  # Not typically used
+        "pet": None,  # Not supported
         "rental": RentalFareConfig(hourly_rate=1200.0),
         "tourism": RentalFareConfig(hourly_rate=1500.0),
         "goods": None,  # Not supported
@@ -169,6 +180,7 @@ FARE_CONFIGURATIONS = {
         "scheduled": {"multiplier": 1.7},
         "airport": None,
         "corporate": None,
+        "pet": None,
         "rental": RentalFareConfig(hourly_rate=2000.0),
         "tourism": RentalFareConfig(hourly_rate=2500.0),
         "goods": None,  # Not supported
@@ -184,6 +196,7 @@ FARE_CONFIGURATIONS = {
         "scheduled": {"multiplier": 0.95},
         "airport": None,
         "corporate": None,
+        "pet": None,
         "rental": None,
         "tourism": None,
         "goods": {"multiplier": 1.0},  # Supported
@@ -199,6 +212,7 @@ FARE_CONFIGURATIONS = {
         "scheduled": {"multiplier": 0.95},
         "airport": None,
         "corporate": None,
+        "pet": None,
         "rental": None,
         "tourism": None,
         "goods": {"multiplier": 1.0},  # Supported

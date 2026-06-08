@@ -14,6 +14,7 @@ const PRODUCTS = [
   { key: 'ev_auto', icon: '🔋', title: 'EV Auto', sub: 'Eco-friendly option' },
   { key: 'tourism', icon: '🌴', title: 'Tourism', sub: 'Sightseeing packages' },
   { key: 'women_only', icon: '🛡️', title: 'Women Only', sub: 'Safety-first rides' },
+  { key: 'pet', icon: '🐾', title: 'Pet Rides', sub: 'Pet-friendly drivers' },
   { key: 'rental_hourly', icon: '🕒', title: 'Rental', sub: 'Hourly package rides' },
   { key: 'school_elderly_safe', icon: '🛡️', title: 'School/Elderly', sub: 'Care-first safe rides' },
 ];

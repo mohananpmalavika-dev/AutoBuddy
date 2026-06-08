@@ -16,6 +16,7 @@ class RideTypeEnum(str, Enum):
     AIRPORT = "airport"
     CORPORATE = "corporate"
     TOURISM = "tourism"
+    PET = "pet"
     GOODS = "goods"
 
 class RideTypeResponse(BaseModel):
@@ -115,6 +116,20 @@ DEFAULT_RIDE_TYPES = [
         "allowed_vehicle_types": ["traveller", "bus"],
         "requires_scheduling": False,
         "requires_destination": False,
+        "requires_passenger_count": True,
+        "active": True,
+        "regions": ["all"],
+        "created_at": get_ist_now(),
+        "updated_at": get_ist_now()
+    },
+    {
+        "_id": "pet",
+        "name": "Pet Rides",
+        "icon": "PET",
+        "description": "Pet-friendly passenger rides",
+        "allowed_vehicle_types": ["auto", "taxi", "xl"],
+        "requires_scheduling": False,
+        "requires_destination": True,
         "requires_passenger_count": True,
         "active": True,
         "regions": ["all"],

@@ -10,6 +10,7 @@ import {
   Alert, ActivityIndicator, Modal, RefreshControl, TextInput
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { airportAPI } from '../lib/api';
 import { formatToIST } from '../utils/time';
 
 const COLORS = {
@@ -29,6 +30,46 @@ const SHADOWS = {
   medium: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 5, elevation: 4 }
 };
 
+const DEFAULT_TERMINAL_ID = 'term_TRV';
+const TERMINAL_OPTIONS = [
+  { id: 'term_TRV', label: 'TRV' },
+  { id: 'term_COK', label: 'COK' },
+  { id: 'term_CCJ', label: 'CCJ' },
+  { id: 'term_CNN', label: 'CNN' },
+  { id: 'term_BLR', label: 'BLR' }
+];
+const VEHICLE_OPTIONS = [
+  { id: 'auto', label: 'Auto' },
+  { id: 'taxi', label: 'Taxi' },
+  { id: 'xl', label: 'XL' },
+  { id: 'traveller', label: 'Traveller' }
+];
+const PHASE_OPTIONS = [
+  { id: 'pre_flight', label: 'To airport' },
+  { id: 'post_flight', label: 'From airport' }
+];
+const FLIGHT_TYPE_OPTIONS = [
+  { id: 'domestic', label: 'Domestic' },
+  { id: 'international', label: 'International' }
+];
+
+const initialRideForm = {
+  passenger_name: 'Airport Passenger',
+  phone_number: '+919876543210',
+  flight_number: 'AI967',
+  ride_phase: 'pre_flight',
+  pickup_location: 'Kollam',
+  dropoff_location: 'TRV Terminal 1',
+  terminal_id: DEFAULT_TERMINAL_ID,
+  passengers_count: '2',
+  luggage_count: '2',
+  vehicle_type: 'taxi',
+  flight_type: 'international',
+  notes: ''
+};
+
+const responseData = (payload, fallback) => payload?.data ?? fallback;
+
 // ============================================================================
 // TERMINALS TAB
 // ============================================================================
@@ -39,13 +80,8 @@ const TerminalsTab = ({ adminToken }) => {
 
   const fetchTerminals = useCallback(async () => {
     try {
-      const res = await fetch('/api/v1/airport/terminals', {
-        headers: { Authorization: `Bearer ${adminToken}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setTerminals(data.data || []);
-      }
+      const data = await airportAPI.listTerminals(adminToken);
+      setTerminals(responseData(data, []));
     } catch (e) {
       console.error('Error fetching terminals:', e);
     } finally {
@@ -111,17 +147,12 @@ const TerminalsTab = ({ adminToken }) => {
 const FlightsTab = ({ adminToken }) => {
   const [flights, setFlights] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [selectedTerminal] = useState('term_BLR');
+  const [selectedTerminal] = useState(DEFAULT_TERMINAL_ID);
 
   const fetchFlights = useCallback(async () => {
     try {
-      const res = await fetch(`/api/v1/airport/terminals/${selectedTerminal}/flights`, {
-        headers: { Authorization: `Bearer ${adminToken}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setFlights(data.data || []);
-      }
+      const data = await airportAPI.listFlights(adminToken, selectedTerminal);
+      setFlights(responseData(data, []));
     } catch (e) {
       console.error('Error fetching flights:', e);
     } finally {
@@ -221,23 +252,20 @@ const RidesTab = ({ adminToken }) => {
   const [rides, setRides] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showRequestModal, setShowRequestModal] = useState(false);
-  const [flightNumber, setFlightNumber] = useState('');
+  const [selectedTerminal, setSelectedTerminal] = useState(DEFAULT_TERMINAL_ID);
+  const [rideForm, setRideForm] = useState(initialRideForm);
+  const [submitting, setSubmitting] = useState(false);
 
   const fetchRides = useCallback(async () => {
     try {
-      const res = await fetch('/api/v1/airport/terminals/term_BLR/rides', {
-        headers: { Authorization: `Bearer ${adminToken}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setRides(data.data || []);
-      }
+      const data = await airportAPI.listRides(adminToken, selectedTerminal);
+      setRides(responseData(data, []));
     } catch (e) {
       console.error('Error fetching rides:', e);
     } finally {
       setLoading(false);
     }
-  }, [adminToken]);
+  }, [adminToken, selectedTerminal]);
 
   useEffect(() => {
     const timeout = setTimeout(fetchRides, 0);
@@ -249,8 +277,128 @@ const RidesTab = ({ adminToken }) => {
   }, [fetchRides]);
 
   const getPhaseIcon = (phase) => {
-    return phase === 'pre_flight' ? 'plus-circle' : 'minus-circle';
+    return phase === 'pre_flight' ? 'airplane-takeoff' : 'airplane-landing';
   };
+
+  const getRideStatusColor = (status) => {
+    switch (status) {
+      case 'completed':
+        return COLORS.success;
+      case 'cancelled':
+        return COLORS.danger;
+      case 'driver_assigned':
+      case 'accepted':
+        return COLORS.primary;
+      case 'rescheduled_due_to_flight_delay':
+        return COLORS.secondary;
+      default:
+        return COLORS.warning;
+    }
+  };
+
+  const updateRideForm = (field, value) => {
+    setRideForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const openRequestModal = () => {
+    setRideForm((prev) => ({ ...prev, terminal_id: selectedTerminal }));
+    setShowRequestModal(true);
+  };
+
+  const setPhaseDefaults = (phase) => {
+    setRideForm((prev) => ({
+      ...prev,
+      ride_phase: phase,
+      pickup_location: phase === 'pre_flight' ? prev.pickup_location || 'Kollam' : 'TRV Arrivals',
+      dropoff_location: phase === 'pre_flight' ? prev.dropoff_location || 'TRV Terminal 1' : 'Kollam'
+    }));
+  };
+
+  const submitAirportRide = async () => {
+    const requiredFields = [
+      'passenger_name',
+      'phone_number',
+      'flight_number',
+      'pickup_location',
+      'dropoff_location',
+      'terminal_id'
+    ];
+    const missingField = requiredFields.find((field) => !String(rideForm[field] || '').trim());
+    if (missingField) {
+      Alert.alert('Missing details', 'Please complete the airport ride form.');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const payload = {
+        ...rideForm,
+        flight_number: rideForm.flight_number.trim().toUpperCase(),
+        passengers_count: Math.max(1, parseInt(rideForm.passengers_count, 10) || 1),
+        luggage_count: Math.max(0, parseInt(rideForm.luggage_count, 10) || 0),
+        notes: rideForm.notes?.trim() || undefined
+      };
+      const result = await airportAPI.requestRide(adminToken, payload);
+      const createdRide = responseData(result, null);
+      if (createdRide?.ride_id) {
+        setRides((prev) => [createdRide, ...prev.filter((ride) => ride.ride_id !== createdRide.ride_id)]);
+        setSelectedTerminal(createdRide.terminal_id || payload.terminal_id);
+      }
+      setShowRequestModal(false);
+      Alert.alert(
+        'Airport ride created',
+        createdRide?.driver_id ? 'Airport-permit driver assigned.' : 'Ride is queued for an airport-permit driver.'
+      );
+    } catch (e) {
+      Alert.alert('Airport ride failed', e?.message || 'Unable to request airport ride.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const renderChoiceGroup = (options, value, field) => (
+    <View style={styles.choiceRow}>
+      {options.map((option) => {
+        const active = value === option.id;
+        return (
+          <TouchableOpacity
+            key={option.id}
+            style={[styles.choiceChip, active && styles.choiceChipActive]}
+            onPress={() => updateRideForm(field, option.id)}
+          >
+            <Text style={[styles.choiceChipText, active && styles.choiceChipTextActive]}>
+              {option.label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+
+  const renderTerminalFilter = () => (
+    <View style={styles.terminalFilter}>
+      {TERMINAL_OPTIONS.map((terminal) => {
+        const active = selectedTerminal === terminal.id;
+        return (
+          <TouchableOpacity
+            key={terminal.id}
+            style={[styles.filterChip, active && styles.filterChipActive]}
+            onPress={() => setSelectedTerminal(terminal.id)}
+          >
+            <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>
+              {terminal.label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+
+  const formatStatus = (status) => String(status || 'requested').replace(/_/g, ' ').toUpperCase();
+  const formatFare = (value) => `Rs. ${Number(value || 0).toFixed(0)}`;
+  const formatPickupTime = (value) => (
+    value ? formatToIST(value, { dateStyle: 'medium', timeStyle: 'short' }) : 'TBD'
+  );
 
   if (loading) return <ActivityIndicator size="large" color={COLORS.primary} />;
 
@@ -260,6 +408,7 @@ const RidesTab = ({ adminToken }) => {
         data={rides}
         keyExtractor={(item) => item.ride_id}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchRides} />}
+        ListHeaderComponent={renderTerminalFilter}
         renderItem={({ item }) => (
           <View style={[styles.rideCard, SHADOWS.small]}>
             <View style={styles.rideHeader}>
@@ -281,9 +430,9 @@ const RidesTab = ({ adminToken }) => {
 
               <View style={[
                 styles.statusBadge,
-                { backgroundColor: item.ride_status === 'completed' ? COLORS.success : COLORS.warning }
+                { backgroundColor: getRideStatusColor(item.ride_status) }
               ]}>
-                <Text style={styles.statusText}>{item.ride_status.toUpperCase()}</Text>
+                <Text style={styles.statusText}>{formatStatus(item.ride_status)}</Text>
               </View>
             </View>
 
@@ -293,9 +442,35 @@ const RidesTab = ({ adminToken }) => {
               <Text style={styles.locationLabel}>{item.dropoff_location}</Text>
             </View>
 
+            <View style={styles.rideMetaGrid}>
+              <View style={styles.metaItem}>
+                <MaterialCommunityIcons name="clock-outline" size={14} color={COLORS.text} />
+                <Text style={styles.metaText}>{formatPickupTime(item.scheduled_pickup_time)}</Text>
+              </View>
+              <View style={styles.metaItem}>
+                <MaterialCommunityIcons name="bag-suitcase" size={14} color={COLORS.text} />
+                <Text style={styles.metaText}>{item.luggage_count || 0} bags</Text>
+              </View>
+              <View style={styles.metaItem}>
+                <MaterialCommunityIcons name="account-group" size={14} color={COLORS.text} />
+                <Text style={styles.metaText}>{item.passengers_count || 1} pax</Text>
+              </View>
+              <View style={styles.metaItem}>
+                <MaterialCommunityIcons name="car-side" size={14} color={COLORS.text} />
+                <Text style={styles.metaText}>{item.vehicle_type || 'taxi'}</Text>
+              </View>
+            </View>
+
+            {!!item.driver_name && (
+              <View style={styles.driverAssignedRow}>
+                <MaterialCommunityIcons name="shield-check" size={14} color={COLORS.success} />
+                <Text style={styles.driverAssignedText}>{item.driver_name} assigned</Text>
+              </View>
+            )}
+
             <View style={styles.fareRow}>
               <Text style={styles.fareLabel}>Est. Fare:</Text>
-              <Text style={styles.fareValue}>₹{item.estimated_fare}</Text>
+              <Text style={styles.fareValue}>{formatFare(item.estimated_fare)}</Text>
             </View>
           </View>
         )}
@@ -304,7 +479,7 @@ const RidesTab = ({ adminToken }) => {
 
       <TouchableOpacity
         style={[styles.fab, SHADOWS.medium]}
-        onPress={() => setShowRequestModal(true)}
+        onPress={openRequestModal}
       >
         <MaterialCommunityIcons name="plus" size={24} color={COLORS.white} />
       </TouchableOpacity>
@@ -312,31 +487,127 @@ const RidesTab = ({ adminToken }) => {
       <Modal visible={showRequestModal} transparent animationType="slide">
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Request Airport Ride</Text>
+            <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+              <Text style={styles.modalTitle}>Request Airport Ride</Text>
 
-            <TextInput
-              placeholder="Flight Number"
-              value={flightNumber}
-              onChangeText={setFlightNumber}
-              style={styles.input}
-            />
+              <Text style={styles.fieldLabel}>Ride phase</Text>
+              <View style={styles.choiceRow}>
+                {PHASE_OPTIONS.map((option) => {
+                  const active = rideForm.ride_phase === option.id;
+                  return (
+                    <TouchableOpacity
+                      key={option.id}
+                      style={[styles.choiceChip, active && styles.choiceChipActive]}
+                      onPress={() => setPhaseDefaults(option.id)}
+                    >
+                      <Text style={[styles.choiceChipText, active && styles.choiceChipTextActive]}>
+                        {option.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
 
-            <TouchableOpacity
-              style={[styles.button, { backgroundColor: COLORS.primary }]}
-              onPress={() => {
-                setShowRequestModal(false);
-                Alert.alert('Success', 'Ride requested');
-              }}
-            >
-              <Text style={styles.buttonText}>Request Ride</Text>
-            </TouchableOpacity>
+              <Text style={styles.fieldLabel}>Terminal</Text>
+              {renderChoiceGroup(TERMINAL_OPTIONS, rideForm.terminal_id, 'terminal_id')}
 
-            <TouchableOpacity
-              style={[styles.button, { backgroundColor: COLORS.light_gray }]}
-              onPress={() => setShowRequestModal(false)}
-            >
-              <Text style={styles.buttonText}>Cancel</Text>
-            </TouchableOpacity>
+              <Text style={styles.fieldLabel}>Flight number</Text>
+              <TextInput
+                placeholder="AI967"
+                value={rideForm.flight_number}
+                onChangeText={(value) => updateRideForm('flight_number', value)}
+                autoCapitalize="characters"
+                style={styles.input}
+              />
+
+              <Text style={styles.fieldLabel}>Flight type</Text>
+              {renderChoiceGroup(FLIGHT_TYPE_OPTIONS, rideForm.flight_type, 'flight_type')}
+
+              <Text style={styles.fieldLabel}>Passenger</Text>
+              <TextInput
+                placeholder="Passenger name"
+                value={rideForm.passenger_name}
+                onChangeText={(value) => updateRideForm('passenger_name', value)}
+                style={styles.input}
+              />
+
+              <Text style={styles.fieldLabel}>Phone</Text>
+              <TextInput
+                placeholder="+919876543210"
+                value={rideForm.phone_number}
+                onChangeText={(value) => updateRideForm('phone_number', value)}
+                keyboardType="phone-pad"
+                style={styles.input}
+              />
+
+              <Text style={styles.fieldLabel}>Pickup</Text>
+              <TextInput
+                placeholder="Pickup location"
+                value={rideForm.pickup_location}
+                onChangeText={(value) => updateRideForm('pickup_location', value)}
+                style={styles.input}
+              />
+
+              <Text style={styles.fieldLabel}>Dropoff</Text>
+              <TextInput
+                placeholder="Dropoff location"
+                value={rideForm.dropoff_location}
+                onChangeText={(value) => updateRideForm('dropoff_location', value)}
+                style={styles.input}
+              />
+
+              <Text style={styles.fieldLabel}>Vehicle</Text>
+              {renderChoiceGroup(VEHICLE_OPTIONS, rideForm.vehicle_type, 'vehicle_type')}
+
+              <View style={styles.inlineFields}>
+                <View style={styles.inlineField}>
+                  <Text style={styles.fieldLabel}>Passengers</Text>
+                  <TextInput
+                    value={rideForm.passengers_count}
+                    onChangeText={(value) => updateRideForm('passengers_count', value.replace(/[^0-9]/g, ''))}
+                    keyboardType="number-pad"
+                    style={styles.input}
+                  />
+                </View>
+                <View style={styles.inlineField}>
+                  <Text style={styles.fieldLabel}>Luggage</Text>
+                  <TextInput
+                    value={rideForm.luggage_count}
+                    onChangeText={(value) => updateRideForm('luggage_count', value.replace(/[^0-9]/g, ''))}
+                    keyboardType="number-pad"
+                    style={styles.input}
+                  />
+                </View>
+              </View>
+
+              <Text style={styles.fieldLabel}>Notes</Text>
+              <TextInput
+                placeholder="Arrival gate, special luggage, waiting request"
+                value={rideForm.notes}
+                onChangeText={(value) => updateRideForm('notes', value)}
+                style={[styles.input, styles.notesInput]}
+                multiline
+              />
+
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: COLORS.primary }, submitting && styles.buttonDisabled]}
+                onPress={submitAirportRide}
+                disabled={submitting}
+              >
+                {submitting ? (
+                  <ActivityIndicator color={COLORS.white} />
+                ) : (
+                  <Text style={styles.buttonText}>Request Ride</Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: COLORS.light_gray }]}
+                onPress={() => setShowRequestModal(false)}
+              >
+                <Text style={styles.secondaryButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -354,13 +625,8 @@ const ParkingTab = ({ adminToken }) => {
 
   const fetchParking = useCallback(async () => {
     try {
-      const res = await fetch('/api/v1/airport/terminals/term_BLR/parking/availability', {
-        headers: { Authorization: `Bearer ${adminToken}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setParking(data.data);
-      }
+      const data = await airportAPI.getParkingAvailability(adminToken, DEFAULT_TERMINAL_ID);
+      setParking(responseData(data, null));
     } catch (e) {
       console.error('Error fetching parking:', e);
     } finally {
@@ -453,13 +719,8 @@ const DemandTab = ({ adminToken }) => {
 
   const fetchDemand = useCallback(async () => {
     try {
-      const res = await fetch('/api/v1/airport/terminals/term_BLR/demand', {
-        headers: { Authorization: `Bearer ${adminToken}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setDemand(data.data || []);
-      }
+      const data = await airportAPI.getDemand(adminToken, DEFAULT_TERMINAL_ID);
+      setDemand(responseData(data, []));
     } catch (e) {
       console.error('Error fetching demand:', e);
     } finally {
@@ -843,6 +1104,65 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: COLORS.primary
   },
+  terminalFilter: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12
+  },
+  filterChip: {
+    minWidth: 52,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: '#D8DEE8',
+    alignItems: 'center'
+  },
+  filterChipActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary
+  },
+  filterChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: COLORS.primary
+  },
+  filterChipTextActive: {
+    color: COLORS.white
+  },
+  rideMetaGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 10
+  },
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.light_gray,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 6
+  },
+  metaText: {
+    fontSize: 10,
+    color: COLORS.text,
+    marginLeft: 4,
+    textTransform: 'capitalize'
+  },
+  driverAssignedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8
+  },
+  driverAssignedText: {
+    fontSize: 11,
+    color: COLORS.success,
+    marginLeft: 4,
+    fontWeight: '700'
+  },
   fab: {
     position: 'absolute',
     bottom: 20,
@@ -863,7 +1183,8 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.white,
     padding: 20,
     borderTopLeftRadius: 16,
-    borderTopRightRadius: 16
+    borderTopRightRadius: 16,
+    maxHeight: '88%'
   },
   modalTitle: {
     fontSize: 18,
@@ -879,14 +1200,65 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     fontSize: 14
   },
+  notesInput: {
+    minHeight: 72,
+    textAlignVertical: 'top'
+  },
+  fieldLabel: {
+    fontSize: 11,
+    color: COLORS.dark_gray,
+    fontWeight: '700',
+    marginBottom: 6
+  },
+  choiceRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12
+  },
+  choiceChip: {
+    minHeight: 38,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#D8DEE8',
+    justifyContent: 'center',
+    backgroundColor: COLORS.white
+  },
+  choiceChipActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary
+  },
+  choiceChipText: {
+    fontSize: 12,
+    color: COLORS.primary,
+    fontWeight: '700'
+  },
+  choiceChipTextActive: {
+    color: COLORS.white
+  },
+  inlineFields: {
+    flexDirection: 'row',
+    gap: 10
+  },
+  inlineField: {
+    flex: 1
+  },
   button: {
     paddingVertical: 12,
     borderRadius: 8,
     alignItems: 'center',
     marginBottom: 8
   },
+  buttonDisabled: {
+    opacity: 0.65
+  },
   buttonText: {
     color: COLORS.white,
+    fontWeight: 'bold'
+  },
+  secondaryButtonText: {
+    color: COLORS.dark_gray,
     fontWeight: 'bold'
   },
   summaryCard: {

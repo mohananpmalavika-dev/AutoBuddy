@@ -18,6 +18,7 @@ class RideType(str, Enum):
     AIRPORT = "airport"
     CORPORATE = "corporate"
     TOURISM = "tourism"
+    PET = "pet"
     GOODS = "goods"
 
 
@@ -68,7 +69,10 @@ class EnhancedBookingRequest(BaseModel):
     dropoff_longitude: float = Field(..., description="Dropoff longitude")
     
     # Service Selection
-    ride_type: RideType = Field(..., description="Type of ride: instant|scheduled|rental|airport|corporate|tourism|goods")
+    ride_type: RideType = Field(
+        ...,
+        description="Type of ride: instant|scheduled|rental|airport|corporate|tourism|goods|pet",
+    )
     vehicle_type_id: str = Field(..., description="Vehicle type: auto|taxi|xl|traveller|bus|minitruck|truck")
     vehicle_subtype_id: Optional[str] = Field(default=None, description="Vehicle subtype if applicable")
     

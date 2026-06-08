@@ -679,3 +679,48 @@ export async function apiRequest(path, options = {}, legacyPath = undefined, leg
 
   return requestPromise;
 }
+
+export const airportAPI = {
+  listTerminals: (token, query = {}) =>
+    apiRequest('/v1/airport/terminals', { token, query }),
+
+  listFlights: (token, terminalId, query = {}) =>
+    apiRequest(`/v1/airport/terminals/${encodeURIComponent(terminalId)}/flights`, { token, query }),
+
+  getFlight: (token, flightId) =>
+    apiRequest(`/v1/airport/flights/${encodeURIComponent(flightId)}`, { token }),
+
+  listRides: (token, terminalId, query = {}) =>
+    apiRequest(`/v1/airport/terminals/${encodeURIComponent(terminalId)}/rides`, { token, query }),
+
+  requestRide: (token, payload) =>
+    apiRequest('/v1/airport/rides/request', {
+      method: 'POST',
+      token,
+      body: payload,
+    }),
+
+  acceptRide: (token, rideId, driverId) =>
+    apiRequest(`/v1/airport/rides/${encodeURIComponent(rideId)}/accept`, {
+      method: 'POST',
+      token,
+      body: { driver_id: driverId },
+    }),
+
+  updateFlightDelay: (token, rideId, delayMinutes) =>
+    apiRequest(`/v1/airport/rides/${encodeURIComponent(rideId)}/flight-delay`, {
+      method: 'POST',
+      token,
+      body: { delay_minutes: delayMinutes },
+    }),
+
+  getParkingAvailability: (token, terminalId) =>
+    apiRequest(`/v1/airport/terminals/${encodeURIComponent(terminalId)}/parking/availability`, { token }),
+
+  getDemand: (token, terminalId, query = {}) =>
+    apiRequest(`/v1/airport/terminals/${encodeURIComponent(terminalId)}/demand`, { token, query }),
+};
+
+export async function requestAirportRide(token, payload) {
+  return airportAPI.requestRide(token, payload);
+}
