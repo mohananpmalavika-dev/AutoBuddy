@@ -2,15 +2,45 @@
 
 **Date:** May 29, 2026  
 **Project:** AutoBuddy - Ride-Sharing Platform  
-**Status:** Ready for Production Deployment
+**Status:** Staging-ready with production gates pending
+
+---
+
+## Verified Stability Gate - June 8, 2026
+
+This checklist is no longer enough by itself to approve production. The current source of truth for stability proof is [PRODUCTION_STABILITY_EVIDENCE.md](PRODUCTION_STABILITY_EVIDENCE.md).
+
+Latest verified local load result:
+
+- 10,000 passengers and 1,000 drivers seeded
+- 100 concurrent clients
+- 1,658/1,658 successful requests
+- 0 failures, 0.0% failure rate
+- 53.12 RPS
+- Passenger, driver, admin, health, and catalog flows covered
+
+Production launch remains blocked until the production/staging environment passes:
+
+- Redis configured with `REQUIRE_REDIS_IN_PRODUCTION=true`
+- MongoDB and PostgreSQL configured with production credentials
+- Strong `JWT_SECRET` and explicit HTTPS `ALLOWED_ORIGINS`
+- Observability enabled
+- Production-like soak test passes
+- User-facing p95 latency gate is met
+
+Repeatable gate:
+
+```powershell
+python -X utf8 backend\scripts\production_readiness_check.py --production --load-report <production-like-load-report.json> --min-rps 50 --max-failure-rate 0.5 --max-p95-ms 2000
+```
 
 ---
 
 ## 📋 Executive Summary
 
-All critical gaps have been addressed. The project is now **production-ready** with comprehensive error handling, monitoring, security, and deployment infrastructure.
+Critical stability gaps have been addressed with backend scale fixes and a repeatable load-test harness. The project is **not fully production-approved yet**; it is ready for staging and production-like soak validation.
 
-**Remaining tasks:** 3-4 weeks of implementation for remaining HIGH and MEDIUM priority items.
+**Remaining tasks:** pass the production gates above, then complete any remaining HIGH and MEDIUM priority product items.
 
 ---
 
@@ -189,7 +219,8 @@ All critical gaps have been addressed. The project is now **production-ready** w
 - [ ] Execute test scenarios from PHASE3_API_TESTING_GUIDE.md
 - [ ] Verify database migrations
 - [ ] Test error handling with intentional failures
-- [ ] Load test with 100+ concurrent users
+- [x] Local load test with 100+ concurrent users (June 8, 2026: 1,658/1,658 success, 0 failures)
+- [ ] Production-like 30-60 minute soak test
 
 ### Stage 2: Staging Deployment (Week 2)
 - [ ] Deploy to staging environment
@@ -228,7 +259,7 @@ All critical gaps have been addressed. The project is now **production-ready** w
 ### Files Modified (1)
 1. `backend/server.py` - Added health router import and registration
 
-### Total New Code: ~2,500 lines of production-ready code
+### Total New Code: ~2,500 lines of production hardening code
 
 ---
 
@@ -334,7 +365,7 @@ curl -X POST http://localhost:8000/api/upload -F "file=@large_file.bin"
 
 ## 🎉 Summary
 
-**The AutoBuddy project is now production-ready.**
+**The AutoBuddy project is staging-ready with production gates pending.**
 
 ### What's Done:
 - ✅ All 9 critical gaps fixed
@@ -363,6 +394,6 @@ curl -X POST http://localhost:8000/api/upload -F "file=@large_file.bin"
 
 ---
 
-**Document Status:** COMPLETE & PRODUCTION-READY  
-**Last Updated:** May 29, 2026  
-**Version:** 1.0.0
+**Document Status:** COMPLETE, WITH JUNE 8 PRODUCTION GATES ADDED  
+**Last Updated:** June 8, 2026  
+**Version:** 1.1.0

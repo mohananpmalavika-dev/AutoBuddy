@@ -44,70 +44,15 @@ from bson import ObjectId
 from bson.binary import Binary
 from bson.errors import InvalidId
 from app.core.config import get_settings
+from app.bootstrap import (
+    configure_socket_event_handlers,
+    initialize_default_catalogs,
+    register_modular_routers,
+)
 from app.db.retry import retry_on_db_error
 from app.db.client import create_mongo_client, create_database
 from app.database import SessionLocal, get_db
-from app.routers.auth import router as modular_auth_router
-from app.routers.analytics import router as modular_analytics_router
-from app.routers.driver_trust import router as modular_driver_trust_router
-from app.routers.ride_products import router as modular_ride_products_router
-from app.routers.women_only_rides import router as modular_women_only_rides_router
-from app.routers.rental_rides import router as modular_rental_rides_router
-from app.routers.revenue import router as modular_revenue_router
-from app.routers.security import router as modular_security_router
-from app.routers.safety import router as modular_safety_router
-from app.routers.features_routes import router as modular_features_router
-from app.routers.notifications_addon import router as modular_notifications_router
-from app.routers.tier1_driver_features import router as modular_tier1_router
-from app.routers.tier2_driver_features import router as modular_tier2_router
-from app.routers.tier3_polish_features import router as modular_tier3_router
-from app.routers.health import router as modular_health_router
-from app.routers.scheduled_rides import router as modular_scheduled_rides_router
-from app.routers.vehicles import router as modular_vehicles_router
-from app.routers.vehicle_types import router as modular_vehicle_types_router, init_default_vehicle_types
-from app.routers.support_tickets import router as modular_support_tickets_router
-from app.routers.uploads import router as modular_uploads_router
-from app.routers.admin_account_deletions import router as modular_admin_account_deletions_router
-from app.routers.admin_audit_compliance import router as modular_admin_audit_compliance_router
-from app.routers.admin_dispute_management import router as modular_admin_dispute_management_router
-from app.routers.admin_driver_management import router as modular_admin_driver_management_router
-from app.routers.admin_financial_management import router as modular_admin_financial_management_router
-from app.routers.admin_kyc_enhanced import router as modular_admin_kyc_enhanced_router
-from app.routers.admin_launch_visitors import router as modular_admin_launch_visitors_router
-from app.routers.admin_passenger_management import router as modular_admin_passenger_management_router
-from app.routers.admin_phone_requests import router as modular_admin_phone_requests_router
-from app.routers.admin_promotions_marketing import router as modular_admin_promotions_marketing_router
-from app.routers.admin_reports_analytics import router as modular_admin_reports_analytics_router
-from app.routers.admin_safety_compliance import router as modular_admin_safety_compliance_router
-from app.routers.admin_subscriptions_enhanced import router as modular_admin_subscriptions_enhanced_router
-from app.routers.admin_support_management import router as modular_admin_support_management_router
-from app.routers.admin_system_config import router as modular_admin_system_config_router
-from app.routers.admin_trip_management import router as modular_admin_trip_management_router
-from app.routers.admin_wallet_topups import router as modular_admin_wallet_topups_router
-from app.routers.admin_document_requirements import router as modular_admin_document_requirements_router
-from app.routers.rate_limit_config import router as modular_rate_limit_config_router, init_default_rate_limit_configs
-from app.routers.driver_documents import router as modular_driver_documents_router, get_driver_document_status
-from app.routers.driver_operations import router as modular_driver_operations_router
-from app.routers.passenger_documents import router as modular_passenger_documents_router
-from app.routers.admin_fare_management import router as modular_admin_fare_management_router
-from app.routers.driver_fare_override import router as modular_driver_fare_override_router
-from app.routers.driver_fare_proposals import router as modular_driver_fare_proposals_router
-from app.routers.admin_fare_proposals import router as modular_admin_fare_proposals_router
-from app.routers.fleet_advanced import router as modular_fleet_advanced_router
-from app.routers.operations_center import router as modular_operations_center_router
-from app.routers.corporate_portal import router as modular_corporate_portal_router
-from app.routers.airport_rides import router as modular_airport_router
-from app.routers.driver_heatmaps import router as modular_heatmaps_router
-from app.routers.fleet_profitability import router as modular_profitability_router
-from app.routers.ride_types_router import router as modular_ride_types_router, init_default_ride_types
-from app.routers.vehicle_types_extended import router as modular_vehicle_types_extended_router, init_default_vehicle_types_extended
-from app.routers.vehicles_canonical import router as modular_vehicles_canonical_router, init_canonical_vehicles
-from app.routers.bookings_extended import router as modular_bookings_extended_router
-from app.routers.coverage_admin import router as modular_coverage_admin_router
-from app.routers.operator_portal import (
-    admin_router as modular_operator_admin_router,
-    router as modular_operator_portal_router,
-)
+from app.routers.driver_documents import get_driver_document_status
 from app.services.email_delivery import send_otp_email_message
 from app.models.canonical_vehicle_model import CANONICAL_VEHICLES_COLLECTION, get_vehicle_by_id, get_vehicle_multiplier
 from app.models.document_catalog import (
@@ -119,21 +64,6 @@ from app.models.ride_type_compatibility import is_vehicle_compatible_with_ride_t
 from app.models.rental import calculate_rental_final_fare, rental_driver_eligibility
 from app.models.tourism import tourism_driver_eligibility
 from app.models.women_only import women_only_driver_eligibility
-from app.routers.dispatch_service import router as modular_dispatch_service_router
-from app.routers.stripe_webhooks import router as modular_stripe_webhooks_router
-from app.routers.ride_operations import router as modular_ride_operations_router
-from app.routers.notifications_backend import router as modular_notifications_backend_router
-from app.routers.support_backend import router as modular_support_backend_router
-from app.routers.lost_items_backend import router as modular_lost_items_backend_router
-from app.routers.ride_pooling_backend import router as modular_ride_pooling_backend_router
-from app.routers.assisted_rides import router as modular_assisted_rides_router
-from app.routers.promo_codes_backend import router as modular_promo_codes_backend_router
-from app.routers.accessibility_backend import router as modular_accessibility_backend_router
-from app.routers.realtime_tracking_v3 import router as phase3_tracking_router
-from app.routers.payment_processing_v3 import router as phase3_payment_router
-from app.routers.safety_insurance_v3 import router as phase3_safety_router
-from app.routers.analytics_intelligence_v3 import router as phase3_analytics_router
-from app.sockets import configure_socket_server as configure_legacy_socket_helpers
 from app.db.database import SessionLocal, get_feature_database_status
 from app.db.tier2_models import (
     DriverPaymentMethod,
@@ -196,10 +126,6 @@ from app.utils.rate_limiting import (
     get_rate_limit_profile_rule,
     get_rate_limit_rule_for_path,
     is_login_rate_limit_exempt_path,
-)
-from app.routers.rate_limit_config import (
-    init_default_rate_limit_configs,
-    get_effective_rate_limit,
 )
 
 try:
@@ -543,13 +469,7 @@ sio = socketio.AsyncServer(
     engineio_logger=False
 )
 app.state.sio = sio
-configure_legacy_socket_helpers(sio)
-# Register Fleet Portal Socket.IO events
-from app.sockets.fleet_events import register_fleet_socket_events
-register_fleet_socket_events(sio)
-# Register Operations Center Socket.IO events
-from app.sockets.operations_events import register_operations_socket_events
-register_operations_socket_events(sio)
+configure_socket_event_handlers(sio)
 socket_app = socketio.ASGIApp(sio, socketio_path=None)
 root_socket_app = socketio.ASGIApp(sio, socketio_path=None)
 
@@ -1082,11 +1002,7 @@ async def run_startup_bootstrap() -> None:
     logger.info("Startup bootstrap started")
     try:
         await seed_admin()
-        await init_default_vehicle_types(db)
-        await init_default_vehicle_types_extended(db)
-        await init_default_ride_types(db)
-        await init_canonical_vehicles(db)
-        await init_default_rate_limit_configs(db)
+        await initialize_default_catalogs(db)
         await ensure_rate_limit_defaults(db)
 
         from app.db.migration_fleet_advanced import create_fleet_advanced_indexes
@@ -3253,13 +3169,87 @@ def ensure_booking_participant(booking: Dict[str, Any], current_user: Dict[str, 
     if current_user["id"] not in allowed_ids:
         raise HTTPException(status_code=403, detail="Not authorized for this booking")
 
+def normalized_enum_text(value: Any) -> str:
+    text = str(value.value if isinstance(value, Enum) else value or "").strip().lower()
+    if "." in text:
+        text = text.rsplit(".", 1)[-1]
+    return text.replace("-", "_").replace(" ", "_")
+
+def booking_status_value(value: Any) -> str:
+    return normalized_enum_text(value)
+
+def booking_payment_satisfied(booking: Dict[str, Any]) -> bool:
+    payment_status = normalized_enum_text(booking.get("payment_status"))
+    payment_method = normalized_enum_text(booking.get("payment_method"))
+    ride_status = booking_status_value(booking.get("status"))
+    if payment_status in {
+        PaymentOrderStatus.PAID.value,
+        "paid",
+        "completed",
+        "verified",
+        "cash_collected",
+    }:
+        return True
+    return payment_method == PaymentMethod.CASH.value and ride_status == BookingStatus.COMPLETED.value
+
+TERMINAL_BOOKING_STATUSES = {
+    BookingStatus.COMPLETED.value,
+    BookingStatus.CANCELLED.value,
+    BookingStatus.REJECTED.value,
+    BookingStatus.NO_DRIVER_FOUND.value,
+    BookingStatus.BOOKING_FAILED.value,
+}
+
+BOOKING_STATUS_TRANSITIONS: Dict[str, set[str]] = {
+    BookingStatus.SCHEDULED.value: {BookingStatus.PENDING.value, BookingStatus.CANCELLED.value},
+    BookingStatus.SEARCHING.value: {
+        BookingStatus.PENDING.value,
+        BookingStatus.ACCEPTED.value,
+        BookingStatus.CANCELLED.value,
+        BookingStatus.NO_DRIVER_FOUND.value,
+    },
+    BookingStatus.PENDING.value: {
+        BookingStatus.ACCEPTED.value,
+        BookingStatus.CANCELLED.value,
+        BookingStatus.REJECTED.value,
+        BookingStatus.NO_DRIVER_FOUND.value,
+        BookingStatus.BOOKING_FAILED.value,
+    },
+    BookingStatus.ACCEPTED.value: {BookingStatus.DRIVER_ARRIVED.value, BookingStatus.CANCELLED.value},
+    BookingStatus.DRIVER_ARRIVED.value: {BookingStatus.IN_PROGRESS.value, BookingStatus.CANCELLED.value},
+    BookingStatus.IN_PROGRESS.value: {BookingStatus.COMPLETED.value, BookingStatus.CANCELLED.value},
+    BookingStatus.WAITING_FOR_PAYMENT.value: {BookingStatus.COMPLETED.value, BookingStatus.CANCELLED.value},
+    BookingStatus.RATING_PENDING.value: {BookingStatus.COMPLETED.value},
+}
+
+def validate_booking_status_transition(current_status: Any, target_status: Any, actor_role: Any) -> None:
+    current = booking_status_value(current_status)
+    target = booking_status_value(target_status)
+    role = normalized_enum_text(actor_role)
+
+    if not target:
+        raise HTTPException(status_code=400, detail="Target booking status is required")
+    if current == target:
+        return
+    if current in TERMINAL_BOOKING_STATUSES:
+        raise HTTPException(status_code=400, detail=f"Cannot change terminal booking status '{current}'")
+    if role == UserRole.DRIVER.value and target not in {
+        BookingStatus.DRIVER_ARRIVED.value,
+        BookingStatus.IN_PROGRESS.value,
+        BookingStatus.COMPLETED.value,
+        BookingStatus.CANCELLED.value,
+    }:
+        raise HTTPException(status_code=403, detail="Driver cannot set this booking status")
+
+    allowed_targets = BOOKING_STATUS_TRANSITIONS.get(current, set())
+    if target not in allowed_targets:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid booking status transition: {current or 'unknown'} -> {target}",
+        )
+
 def booking_status_allows_live_comm(status_value: Any) -> bool:
-    if isinstance(status_value, BookingStatus):
-        normalized = status_value.value
-    else:
-        normalized = str(status_value or "").strip().lower()
-        if "." in normalized:
-            normalized = normalized.split(".")[-1]
+    normalized = booking_status_value(status_value)
     return normalized in {
         BookingStatus.ACCEPTED.value,
         BookingStatus.DRIVER_ARRIVED.value,
@@ -3438,6 +3428,18 @@ RIDE_QUEUE_KEY = "queue:rides:pending"
 RIDE_QUEUE_PAYLOAD_PREFIX = "queue:rides:payload:"
 DRIVER_GEO_KEY = "geo:drivers:live"
 ANALYTICS_QUEUE_KEY = "queue:analytics:events"
+DISPATCH_DRIVER_ACCEPTANCE_TIMEOUT_SECONDS = max(
+    15,
+    min(300, int(os.environ.get("DISPATCH_DRIVER_ACCEPTANCE_TIMEOUT_SECONDS", "45"))),
+)
+DISPATCH_SEQUENTIAL_CANDIDATE_LIMIT = max(
+    3,
+    min(25, int(os.environ.get("DISPATCH_SEQUENTIAL_CANDIDATE_LIMIT", "10"))),
+)
+DISPATCH_RECENT_PENALTY_WINDOW_HOURS = max(
+    1,
+    min(48, int(os.environ.get("DISPATCH_RECENT_PENALTY_WINDOW_HOURS", "6"))),
+)
 RIDE_QUEUE_RETRY_BASE_SECONDS = max(3, int(os.environ.get("RIDE_QUEUE_RETRY_BASE_SECONDS", "8")))
 RIDE_QUEUE_MAX_ATTEMPTS = max(1, int(os.environ.get("RIDE_QUEUE_MAX_ATTEMPTS", "8")))
 ANALYTICS_WORKER_SLEEP_SECONDS = max(1, int(os.environ.get("ANALYTICS_WORKER_SLEEP_SECONDS", "2")))
@@ -3543,11 +3545,11 @@ async def prime_driver_geo_index() -> None:
         logger.exception("prime_driver_geo_index failed")
 
 
-async def enqueue_ride(booking_id: str, priority: int = 100):
+async def enqueue_ride(booking_id: str, priority: int = 0):
     if not redis_client or not booking_id:
         return
     normalized_booking_id = str(booking_id).strip()
-    score = int(get_ist_now().timestamp()) + int(priority)
+    score = int(get_ist_now().timestamp()) + max(0, int(priority))
     try:
         payload_key = _ride_queue_payload_key(normalized_booking_id)
         existing_attempts = safe_float(await redis_client.hget(payload_key, "attempts"), 0.0)
@@ -3570,10 +3572,15 @@ async def dequeue_next_ride() -> Optional[str]:
     if not redis_client:
         return None
     try:
-        item = await redis_client.zpopmin(RIDE_QUEUE_KEY, 1)
-        if not item:
+        due = await redis_client.zrange(RIDE_QUEUE_KEY, 0, 0, withscores=True)
+        if not due:
             return None
-        booking_id, _ = item[0]
+        booking_id, score = due[0]
+        if float(score) > int(get_ist_now().timestamp()):
+            return None
+        removed = await redis_client.zrem(RIDE_QUEUE_KEY, booking_id)
+        if not removed:
+            return None
         return str(booking_id)
     except Exception:
         logger.exception("dequeue_next_ride failed")
@@ -6035,6 +6042,51 @@ async def get_driver_stats_many(driver_ids: List[str]) -> Dict[str, Dict[str, fl
         stats["rejection_rate"] = rejected / max(total_attempts, 1.0)
     return stats_by_id
 
+
+async def get_recent_dispatch_attempt_penalties(driver_ids: List[str]) -> Dict[str, Dict[str, float]]:
+    unique_driver_ids = [
+        driver_id
+        for driver_id in list(dict.fromkeys(str(item or "").strip() for item in driver_ids))
+        if driver_id
+    ]
+    penalties = {driver_id: {"rejected": 0.0, "expired": 0.0} for driver_id in unique_driver_ids}
+    if not unique_driver_ids:
+        return penalties
+    cutoff = get_ist_now() - timedelta(hours=DISPATCH_RECENT_PENALTY_WINDOW_HOURS)
+    try:
+        rows = await db.dispatch_attempts.aggregate(
+            [
+                {
+                    "$match": {
+                        "driver_id": {"$in": unique_driver_ids},
+                        "response": {"$in": ["rejected", "expired"]},
+                        "$or": [
+                            {"responded_at": {"$gte": cutoff}},
+                            {"expired_at": {"$gte": cutoff}},
+                            {"created_at": {"$gte": cutoff}},
+                        ],
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": {"driver_id": "$driver_id", "response": "$response"},
+                        "count": {"$sum": 1},
+                    }
+                },
+            ]
+        ).to_list(None)
+    except Exception:
+        logger.warning("Recent dispatch penalty lookup failed; continuing without recency penalties", exc_info=True)
+        return penalties
+
+    for row in rows:
+        key = row.get("_id") or {}
+        driver_id = str(key.get("driver_id") or "").strip()
+        response = str(key.get("response") or "").strip().lower()
+        if driver_id in penalties and response in penalties[driver_id]:
+            penalties[driver_id][response] = float(row.get("count") or 0)
+    return penalties
+
 def get_driver_analytics_start(period: str) -> datetime:
     now = get_ist_now()
     normalized = str(period or "week").strip().lower()
@@ -6292,6 +6344,11 @@ def calculate_driver_rank_score(payload: Dict[str, Any]) -> float:
     rating = safe_float(payload.get("rating"), 4.5)
     cancellation_risk = safe_float(payload.get("cancellation_risk"), 0.5)
     idle_minutes = safe_float(payload.get("idle_minutes"), 0.0)
+    product_priority_bonus = safe_float(payload.get("product_priority_bonus"), 0.0)
+    product_suitability_bonus = safe_float(payload.get("product_suitability_bonus"), 0.0)
+    fatigue_penalty = safe_float(payload.get("fatigue_penalty"), 0.0)
+    decline_penalty = safe_float(payload.get("decline_penalty"), 0.0)
+    timeout_penalty = safe_float(payload.get("timeout_penalty"), 0.0)
     distance_score = max(0.0, 100.0 - (distance_km * 12.0))
     rating_score = min(100.0, rating * 20.0)
     acceptance_score = safe_float(driver_stats.get("acceptance_rate"), 0.0) * 100.0
@@ -6305,8 +6362,192 @@ def calculate_driver_rank_score(payload: Dict[str, Any]) -> float:
         + (completion_score * 0.15)
         + (cancellation_score * 0.10)
         + (idle_score * 0.05)
+        + product_priority_bonus
+        + product_suitability_bonus
+        - fatigue_penalty
+        - decline_penalty
+        - timeout_penalty
     )
-    return round(final_score, 2)
+    return round(max(0.0, final_score), 2)
+
+
+def normalized_dispatch_product_key(booking: Optional[Dict[str, Any]]) -> str:
+    source = booking or {}
+    try:
+        product = booking_product_key(source)
+    except NameError:
+        product = ""
+    if not product:
+        product = str(
+            source.get("ride_product")
+            or source.get("ride_type")
+            or source.get("booking_type")
+            or ""
+        ).strip().lower()
+    product = product.replace("-", "_").replace(" ", "_")
+    if product == "rental_hourly":
+        return "rental"
+    if product:
+        return product
+    if schedule_is_in_future(as_utc_naive(source.get("scheduled_for")), get_ist_now()):
+        return "scheduled"
+    return "normal"
+
+
+def dispatch_queue_priority_for_booking(booking: Optional[Dict[str, Any]]) -> int:
+    product = normalized_dispatch_product_key(booking)
+    if product == "airport":
+        return 0
+    if product == "scheduled":
+        return 0
+    if product in {"rental", "women_only"}:
+        return 1
+    return 2
+
+
+def dispatch_product_priority_bonus(booking: Optional[Dict[str, Any]]) -> float:
+    product = normalized_dispatch_product_key(booking)
+    bonus = {
+        "airport": 14.0,
+        "scheduled": 11.0,
+        "rental": 9.0,
+        "women_only": 8.0,
+    }.get(product, 0.0)
+    scheduled_for = as_utc_naive((booking or {}).get("scheduled_for"))
+    now = as_utc_naive(get_ist_now())
+    if product == "scheduled" and scheduled_for and now:
+        minutes_until = (scheduled_for - now).total_seconds() / 60.0
+        if minutes_until <= 45:
+            bonus += 6.0
+        elif minutes_until <= 120:
+            bonus += 3.0
+    return bonus
+
+
+def truthy_dispatch_value(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on", "enabled", "approved"}
+
+
+def driver_dispatch_product_suitability_bonus(driver: Optional[Dict[str, Any]], booking: Optional[Dict[str, Any]]) -> float:
+    source = driver or {}
+    product = normalized_dispatch_product_key(booking)
+    bonus = 0.0
+    accepted = set(get_driver_accepted_ride_types(source))
+
+    if product == "airport":
+        if truthy_dispatch_value(source.get("airport_enabled") or source.get("airport_pickup_enabled")):
+            bonus += 8.0
+        if truthy_dispatch_value(source.get("airport_permit_verified") or source.get("airport_badge_verified")):
+            bonus += 5.0
+        bonus += min(5.0, safe_float(source.get("airport_rating"), 0.0))
+        if safe_float(source.get("completed_airport_rides"), 0.0) >= 10:
+            bonus += 3.0
+    elif product == "scheduled":
+        if "scheduled" in accepted or truthy_dispatch_value(source.get("accepts_scheduled_rides")):
+            bonus += 8.0
+        bonus += min(5.0, safe_float(source.get("on_time_score"), 0.0))
+    elif product == "rental":
+        if truthy_dispatch_value(source.get("rental_enabled")):
+            bonus += 8.0
+        bonus += min(6.0, safe_float(source.get("rental_rating"), 0.0))
+        if "rental" in accepted or "rental_hourly" in accepted:
+            bonus += 4.0
+    elif product == "women_only":
+        gender = str(source.get("gender") or "").strip().lower()
+        if gender in {"female", "woman", "women"}:
+            bonus += 14.0
+        if truthy_dispatch_value(source.get("women_only_trusted_driver") or source.get("trusted_safety_driver")):
+            bonus += 8.0
+        bonus += min(8.0, safe_float(source.get("women_only_safety_score"), safe_float(source.get("safety_score"), 0.0)) / 12.5)
+    return round(bonus, 2)
+
+
+def calculate_driver_dispatch_penalties(
+    driver: Optional[Dict[str, Any]],
+    driver_stats: Optional[Dict[str, float]],
+    recent_attempts: Optional[Dict[str, float]] = None,
+) -> Dict[str, float]:
+    source = driver or {}
+    stats = driver_stats or {}
+    recent = recent_attempts or {}
+    recent_declines = safe_float(recent.get("rejected"), safe_float(source.get("recent_dispatch_declines"), 0.0))
+    recent_timeouts = safe_float(recent.get("expired"), safe_float(source.get("recent_dispatch_timeouts"), 0.0))
+    consecutive_declines = safe_float(source.get("consecutive_dispatch_declines"), 0.0)
+    rejection_rate = safe_float(stats.get("rejection_rate"), 0.0)
+    decline_penalty = min(35.0, (rejection_rate * 18.0) + (recent_declines * 5.0) + (consecutive_declines * 4.0))
+    timeout_penalty = min(24.0, recent_timeouts * 4.0)
+
+    shift_minutes = safe_float(
+        source.get("shift_minutes")
+        or source.get("online_minutes_today")
+        or source.get("current_shift_minutes"),
+        0.0,
+    )
+    rides_today = safe_float(source.get("rides_today") or source.get("completed_rides_today"), 0.0)
+    fatigue_score = safe_float(source.get("dispatch_fatigue_score") or source.get("fatigue_score"), 0.0)
+    if shift_minutes > 480:
+        fatigue_score += (shift_minutes - 480.0) / 60.0 * 3.0
+    if rides_today > 10:
+        fatigue_score += (rides_today - 10.0) * 1.5
+    fatigue_penalty = min(30.0, fatigue_score)
+    return {
+        "decline_penalty": round(decline_penalty, 2),
+        "timeout_penalty": round(timeout_penalty, 2),
+        "fatigue_penalty": round(fatigue_penalty, 2),
+        "total_penalty": round(decline_penalty + timeout_penalty + fatigue_penalty, 2),
+    }
+
+
+def ordered_unique_driver_ids(values: Any) -> List[str]:
+    seen = set()
+    ordered: List[str] = []
+    raw_values = values if isinstance(values, list) else []
+    for raw in raw_values:
+        if isinstance(raw, dict):
+            raw = raw.get("driver_id") or raw.get("user_id") or raw.get("id")
+        driver_id = str(raw or "").strip()
+        if not driver_id or driver_id in seen:
+            continue
+        seen.add(driver_id)
+        ordered.append(driver_id)
+    return ordered
+
+
+def dispatch_attempted_driver_ids(booking: Optional[Dict[str, Any]]) -> set[str]:
+    source = booking or {}
+    attempted = set(ordered_unique_driver_ids(source.get("dispatch_attempted_driver_ids") or []))
+    for entry in source.get("dispatch_attempt_history") or []:
+        if isinstance(entry, dict):
+            driver_id = str(entry.get("driver_id") or "").strip()
+            if driver_id:
+                attempted.add(driver_id)
+    return attempted
+
+
+def dispatch_candidate_queue_for_booking(booking: Optional[Dict[str, Any]]) -> List[str]:
+    source = booking or {}
+    queue: List[str] = []
+    queue.extend(ordered_unique_driver_ids(source.get("dispatch_candidate_queue") or []))
+    queue.extend(ordered_unique_driver_ids(source.get("candidate_driver_ids") or []))
+    queue.extend(ordered_unique_driver_ids(source.get("ai_ranked_drivers") or []))
+    return ordered_unique_driver_ids(queue)
+
+
+def select_next_dispatch_candidate(
+    booking: Optional[Dict[str, Any]],
+    ranked_driver_ids: Optional[List[str]] = None,
+    excluded_driver_ids: Optional[List[str]] = None,
+) -> Optional[str]:
+    excluded = set(ordered_unique_driver_ids(excluded_driver_ids or []))
+    excluded.update(dispatch_attempted_driver_ids(booking))
+    queue = dispatch_candidate_queue_for_booking(booking)
+    queue.extend(ordered_unique_driver_ids(ranked_driver_ids or []))
+    for driver_id in ordered_unique_driver_ids(queue):
+        if driver_id not in excluded:
+            return driver_id
+    return None
 
 
 async def detect_dispatch_fraud(passenger_id: str, pickup_location: Dict[str, Any]) -> Dict[str, Any]:
@@ -6519,13 +6760,16 @@ async def intelligent_find_drivers_for_booking(
     filter_preferences = load_driver_ride_filter_preferences(driver_ids)
     passenger_rating_summary = await get_user_rating_summary(passenger_id)
     passenger_rating = safe_float(passenger_rating_summary.get("average_rating"), 5.0)
-    busy_driver_ids, stats_by_driver_id = await asyncio.gather(
+    busy_driver_ids, stats_by_driver_id, recent_penalties_by_driver_id = await asyncio.gather(
         get_busy_driver_ids(driver_ids),
         get_driver_stats_many(driver_ids),
+        get_recent_dispatch_attempt_penalties(driver_ids),
     )
 
     ranked: List[Dict[str, Any]] = []
     filtered_out: List[Dict[str, Any]] = []
+    product_priority_bonus = dispatch_product_priority_bonus(booking)
+    dispatch_product = normalized_dispatch_product_key(booking)
     for driver in drivers:
         driver_id = str(driver.get("user_id") or "").strip()
         if not driver_id or driver_id in blocked_set:
@@ -6561,6 +6805,12 @@ async def intelligent_find_drivers_for_booking(
             idle_minutes = 60.0
         rating = safe_float(driver.get("rating"), 4.5)
         cancellation_risk = predict_cancellation_risk(stats, distance_km, surge_multiplier)
+        product_suitability_bonus = driver_dispatch_product_suitability_bonus(driver, booking)
+        penalties = calculate_driver_dispatch_penalties(
+            driver,
+            stats,
+            recent_penalties_by_driver_id.get(driver_id),
+        )
         score = calculate_driver_rank_score(
             {
                 "distance_km": distance_km,
@@ -6568,6 +6818,11 @@ async def intelligent_find_drivers_for_booking(
                 "rating": rating,
                 "cancellation_risk": cancellation_risk,
                 "idle_minutes": idle_minutes,
+                "product_priority_bonus": product_priority_bonus,
+                "product_suitability_bonus": product_suitability_bonus,
+                "fatigue_penalty": penalties["fatigue_penalty"],
+                "decline_penalty": penalties["decline_penalty"],
+                "timeout_penalty": penalties["timeout_penalty"],
             }
         )
         ranked.append(
@@ -6580,12 +6835,18 @@ async def intelligent_find_drivers_for_booking(
                 "completion_rate": round(safe_float(stats.get("completion_rate"), 0.0), 2),
                 "cancellation_risk": cancellation_risk,
                 "rank_score": score,
+                "dispatch_product": dispatch_product,
+                "product_priority_bonus": product_priority_bonus,
+                "product_suitability_bonus": product_suitability_bonus,
+                "fatigue_penalty": penalties["fatigue_penalty"],
+                "decline_penalty": penalties["decline_penalty"],
+                "timeout_penalty": penalties["timeout_penalty"],
                 "surge_multiplier": surge_multiplier,
                 "demand_supply": supply_demand,
                 "fraud_risk": fraud,
             }
         )
-    ranked.sort(key=lambda item: item.get("rank_score", 0.0), reverse=True)
+    ranked.sort(key=lambda item: (-item.get("rank_score", 0.0), item.get("distance_km", 9999.0)))
     selected = ranked[: max(1, int(limit or 1))]
 
     await db.dispatch_logs.insert_one(
@@ -6601,11 +6862,344 @@ async def intelligent_find_drivers_for_booking(
             "ranked_drivers": ranked[:20],
             "selected_driver_ids": [item["driver_id"] for item in selected],
             "filtered_driver_ids": filtered_out[:50],
+            "dispatch_product": dispatch_product,
+            "product_priority_bonus": product_priority_bonus,
             "passenger_rating": passenger_rating,
             "created_at": get_ist_now(),
         }
     )
     return selected
+
+
+def dispatch_expiry_datetime(value: Any) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    return None
+
+
+def active_dispatch_driver_id(booking: Optional[Dict[str, Any]]) -> Optional[str]:
+    source = booking or {}
+    current = str(source.get("current_dispatch_driver_id") or "").strip()
+    if current:
+        return current
+    if not source.get("dispatch_expires_at") and str(source.get("dispatch_status") or "") != "awaiting_driver_acceptance":
+        return None
+    candidates = ordered_unique_driver_ids(source.get("candidate_driver_ids") or [])
+    return candidates[0] if candidates else None
+
+
+async def update_driver_dispatch_response_metrics(driver_id: str, response: str, now: Optional[datetime] = None) -> None:
+    normalized_driver_id = str(driver_id or "").strip()
+    if not normalized_driver_id:
+        return
+    response_value = str(response or "").strip().lower()
+    timestamp = now or get_ist_now()
+    update_doc: Dict[str, Any] = {
+        "$set": {
+            "last_dispatch_response": response_value,
+            "last_dispatch_response_at": timestamp,
+            "updated_at": timestamp,
+        }
+    }
+    if response_value == "accepted":
+        update_doc["$set"].update(
+            {
+                "consecutive_dispatch_declines": 0,
+                "recent_dispatch_declines": 0,
+                "recent_dispatch_timeouts": 0,
+            }
+        )
+    elif response_value == "rejected":
+        update_doc["$inc"] = {
+            "dispatch_decline_count": 1,
+            "recent_dispatch_declines": 1,
+            "consecutive_dispatch_declines": 1,
+            "dispatch_fatigue_score": 2,
+        }
+    elif response_value == "expired":
+        update_doc["$inc"] = {
+            "dispatch_timeout_count": 1,
+            "recent_dispatch_timeouts": 1,
+            "consecutive_dispatch_declines": 1,
+            "dispatch_fatigue_score": 1,
+        }
+    try:
+        await db.drivers.update_one({"user_id": normalized_driver_id}, update_doc)
+    except Exception:
+        logger.exception("Failed to update dispatch response metrics for driver_id=%s", normalized_driver_id)
+
+
+async def record_dispatch_attempt_sent(
+    booking_id: str,
+    driver_id: str,
+    *,
+    sequence: int,
+    expires_at: datetime,
+    reason: str,
+) -> None:
+    now = get_ist_now()
+    await db.dispatch_attempts.update_one(
+        {
+            "booking_id": booking_id,
+            "driver_id": driver_id,
+        },
+        {
+            "$set": {
+                "response": "sent",
+                "sequence": int(sequence),
+                "reason": str(reason or "dispatch"),
+                "expires_at": expires_at,
+                "sent_at": now,
+                "updated_at": now,
+            },
+            "$setOnInsert": {
+                "id": str(uuid.uuid4()),
+                "booking_id": booking_id,
+                "driver_id": driver_id,
+                "created_at": now,
+            },
+        },
+        upsert=True,
+    )
+
+
+async def expire_active_dispatch_candidate_if_due(
+    booking: Dict[str, Any],
+    *,
+    force: bool = False,
+    reason: str = "acceptance_timeout",
+) -> bool:
+    booking_id = str(booking.get("id") or "").strip()
+    driver_id = active_dispatch_driver_id(booking)
+    if not booking_id or not driver_id:
+        return False
+    now = get_ist_now()
+    expires_at = dispatch_expiry_datetime(booking.get("dispatch_expires_at"))
+    if not force and expires_at and as_utc_naive(expires_at) > as_utc_naive(now):
+        return False
+
+    await db.dispatch_attempts.update_one(
+        {
+            "booking_id": booking_id,
+            "driver_id": driver_id,
+        },
+        {
+            "$set": {
+                "response": "expired",
+                "responded_at": now,
+                "expired_at": now,
+                "timeout_reason": reason,
+                "updated_at": now,
+            },
+            "$setOnInsert": {
+                "id": str(uuid.uuid4()),
+                "booking_id": booking_id,
+                "driver_id": driver_id,
+                "created_at": now,
+            },
+        },
+        upsert=True,
+    )
+    await update_driver_dispatch_response_metrics(driver_id, "expired", now)
+
+    attempted = ordered_unique_driver_ids(
+        list(dispatch_attempted_driver_ids(booking)) + [driver_id]
+    )
+    remaining_active = [
+        item for item in ordered_unique_driver_ids(booking.get("candidate_driver_ids") or [])
+        if item != driver_id
+    ]
+    await db.bookings.update_one(
+        {
+            "id": booking_id,
+            "status": {"$in": [BookingStatus.PENDING, BookingStatus.PENDING.value]},
+            "driver_id": None,
+        },
+        {
+            "$set": {
+                "candidate_driver_ids": remaining_active,
+                "current_dispatch_driver_id": remaining_active[0] if remaining_active else None,
+                "dispatch_attempted_driver_ids": attempted,
+                "dispatch_status": "driver_acceptance_timeout",
+                "updated_at": now,
+            },
+            "$push": {
+                "dispatch_attempt_history": {
+                    "driver_id": driver_id,
+                    "response": "expired",
+                    "reason": reason,
+                    "at": now,
+                }
+            },
+        },
+    )
+    await cache_delete(f"driver_pending_requests:{driver_id}")
+    return True
+
+
+async def dispatch_next_candidate_for_booking(
+    booking_id: str,
+    *,
+    reason: str = "dispatch_retry",
+    extra_excluded_driver_ids: Optional[List[str]] = None,
+) -> bool:
+    booking = await db.bookings.find_one({"id": booking_id})
+    if not booking:
+        return False
+    if booking_status_value(booking.get("status")) != BookingStatus.PENDING.value or booking.get("driver_id"):
+        return False
+
+    now = get_ist_now()
+    excluded_driver_ids = set(await get_excluded_driver_ids_for_passenger(str(booking.get("passenger_id") or "")))
+    excluded_driver_ids.update(ordered_unique_driver_ids(extra_excluded_driver_ids or []))
+    excluded_driver_ids.update(dispatch_attempted_driver_ids(booking))
+    active_driver = active_dispatch_driver_id(booking)
+    if active_driver:
+        excluded_driver_ids.add(active_driver)
+
+    queue = dispatch_candidate_queue_for_booking(booking)
+    next_driver_id = select_next_dispatch_candidate(
+        booking,
+        ranked_driver_ids=queue,
+        excluded_driver_ids=list(excluded_driver_ids),
+    )
+    ranked_drivers: List[Dict[str, Any]] = []
+
+    if not next_driver_id:
+        pricing = await get_pricing_rules()
+        radius_cfg = get_driver_search_radius_config(pricing)
+        ranked_drivers = await intelligent_find_drivers_for_booking(
+            booking,
+            limit=DISPATCH_SEQUENTIAL_CANDIDATE_LIMIT,
+            max_radius_km=float(radius_cfg["long_radius_km"]),
+            excluded_driver_ids=list(excluded_driver_ids),
+        )
+        ranked_ids = [item["driver_id"] for item in ranked_drivers]
+        next_driver_id = select_next_dispatch_candidate(
+            booking,
+            ranked_driver_ids=ranked_ids,
+            excluded_driver_ids=list(excluded_driver_ids),
+        )
+        queue = ordered_unique_driver_ids(queue + ranked_ids)
+
+    attempts = int(safe_float(booking.get("dispatch_attempt_count"), 0.0)) + 1
+    if not next_driver_id:
+        if attempts < RIDE_QUEUE_MAX_ATTEMPTS:
+            retry_delay = min(60, RIDE_QUEUE_RETRY_BASE_SECONDS * max(1, attempts))
+            await db.bookings.update_one(
+                {
+                    "id": booking_id,
+                    "status": {"$in": [BookingStatus.PENDING, BookingStatus.PENDING.value]},
+                    "driver_id": None,
+                },
+                {
+                    "$set": {
+                        "candidate_driver_ids": [],
+                        "current_dispatch_driver_id": None,
+                        "dispatch_status": "searching_retry",
+                        "dispatch_attempt_count": attempts,
+                        "dispatch_candidate_queue": queue,
+                        "updated_at": now,
+                    }
+                },
+            )
+            await enqueue_ride(booking_id, priority=retry_delay)
+        else:
+            await db.bookings.update_one(
+                {
+                    "id": booking_id,
+                    "status": {"$in": [BookingStatus.PENDING, BookingStatus.PENDING.value]},
+                    "driver_id": None,
+                },
+                {
+                    "$set": {
+                        "candidate_driver_ids": [],
+                        "current_dispatch_driver_id": None,
+                        "dispatch_status": "no_drivers_available",
+                        "dispatch_attempt_count": attempts,
+                        "dispatch_candidate_queue": queue,
+                        "updated_at": now,
+                    }
+                },
+            )
+        await write_analytics_event(
+            "DISPATCH_RETRY",
+            str(booking.get("passenger_id") or ""),
+            {
+                "booking_id": booking_id,
+                "attempts": attempts,
+                "has_candidates": False,
+                "reason": reason,
+            },
+        )
+        return False
+
+    expires_at = now + timedelta(seconds=DISPATCH_DRIVER_ACCEPTANCE_TIMEOUT_SECONDS)
+    attempted = ordered_unique_driver_ids(list(dispatch_attempted_driver_ids(booking)) + [next_driver_id])
+    queue = ordered_unique_driver_ids([next_driver_id] + queue)
+    await db.bookings.update_one(
+        {
+            "id": booking_id,
+            "status": {"$in": [BookingStatus.PENDING, BookingStatus.PENDING.value]},
+            "driver_id": None,
+        },
+        {
+            "$set": {
+                "candidate_driver_ids": [next_driver_id],
+                "current_dispatch_driver_id": next_driver_id,
+                "dispatch_candidate_queue": queue,
+                "dispatch_attempted_driver_ids": attempted,
+                "dispatch_attempt_count": attempts,
+                "dispatch_status": "awaiting_driver_acceptance",
+                "dispatch_last_reason": reason,
+                "dispatch_expires_at": expires_at,
+                "dispatch_acceptance_timeout_seconds": DISPATCH_DRIVER_ACCEPTANCE_TIMEOUT_SECONDS,
+                "updated_at": now,
+            },
+            "$push": {
+                "dispatch_attempt_history": {
+                    "driver_id": next_driver_id,
+                    "response": "sent",
+                    "reason": reason,
+                    "expires_at": expires_at,
+                    "at": now,
+                }
+            },
+        },
+    )
+    await record_dispatch_attempt_sent(
+        booking_id,
+        next_driver_id,
+        sequence=attempts,
+        expires_at=expires_at,
+        reason=reason,
+    )
+    await clear_driver_pending_request_cache([next_driver_id])
+    await emit_new_booking_to_drivers(
+        booking_id=booking_id,
+        target_driver_ids=[next_driver_id],
+        include_unavailable=False,
+    )
+    await enqueue_ride(booking_id, priority=DISPATCH_DRIVER_ACCEPTANCE_TIMEOUT_SECONDS)
+    await write_analytics_event(
+        "DISPATCH_MATCH_FOUND",
+        str(booking.get("passenger_id") or ""),
+        {
+            "booking_id": booking_id,
+            "attempts": attempts,
+            "candidate_count": 1,
+            "driver_id": next_driver_id,
+            "reason": reason,
+            "ranked_driver_count": len(ranked_drivers),
+        },
+    )
+    return True
+
 
 async def is_driver_in_active_ride(driver_id: str) -> bool:
     active_statuses = [BookingStatus.ACCEPTED, BookingStatus.DRIVER_ARRIVED, BookingStatus.IN_PROGRESS]
@@ -6617,96 +7211,28 @@ async def attempt_auto_assign_for_pending_booking(booking_id: str) -> bool:
     booking = await db.bookings.find_one({"id": booking_id})
     if not booking:
         return False
-    if booking.get("status") != BookingStatus.PENDING or booking.get("driver_id"):
+    if booking_status_value(booking.get("status")) != BookingStatus.PENDING.value or booking.get("driver_id"):
         return False
 
     pickup_data = booking.get("pickup_location")
     if not pickup_data:
         return False
 
-    pricing = await get_pricing_rules()
-    radius_cfg = get_driver_search_radius_config(pricing)
-    excluded_driver_ids = await get_excluded_driver_ids_for_passenger(str(booking.get("passenger_id") or ""))
-    best_driver = await find_best_driver_for_booking(
-        Location(**pickup_data),
-        candidate_driver_ids=booking.get("candidate_driver_ids") or None,
-        max_search_radius_km=float(radius_cfg["long_radius_km"]),
-        excluded_driver_ids=excluded_driver_ids,
-    )
-    if not best_driver:
-        return False
-
     now = get_ist_now()
-    surge_multiplier = max(1.0, safe_float(booking.get("surge_multiplier"), 1.0))
-    fare_multiplier = float(best_driver.get("fare_multiplier", 1.0))
-    effective_pricing = await get_effective_pricing_for_driver_profile(best_driver, pricing)
-    distance_km = float(booking.get("distance_km", 0.0) or 0.0)
-    time_multiplier = float(booking.get("fare_time_multiplier", 0.0) or 0.0)
-    if time_multiplier <= 0:
-        time_multiplier = get_time_multiplier()
-    base_route_fare = (effective_pricing.base_fare + (distance_km * effective_pricing.per_km_rate)) * time_multiplier
-    base_route_fare = max(base_route_fare, effective_pricing.minimum_fare)
-    pickup_charge = compute_driver_pickup_charge(
-        driver_location=best_driver.get("current_location"),
-        pickup_location=pickup_data,
-        pricing=effective_pricing,
-    )
-    updated_estimate = (
-        round((base_route_fare * surge_multiplier * fare_multiplier) + float(pickup_charge["pickup_surcharge"]), 2)
-        if base_route_fare > 0
-        else base_route_fare
-    )
+    active_driver = active_dispatch_driver_id(booking)
+    expires_at = dispatch_expiry_datetime(booking.get("dispatch_expires_at"))
+    if active_driver and expires_at and as_utc_naive(expires_at) > as_utc_naive(now):
+        remaining_seconds = max(1, int((as_utc_naive(expires_at) - as_utc_naive(now)).total_seconds()))
+        await enqueue_ride(booking_id, priority=remaining_seconds)
+        return True
 
-    assign_result = await db.bookings.update_one(
-        {"id": booking_id, "status": BookingStatus.PENDING, "driver_id": None},
-        {
-            "$set": {
-                "driver_id": best_driver["user_id"],
-                "status": BookingStatus.ACCEPTED,
-                "base_route_fare": round(base_route_fare, 2),
-                "estimated_fare": updated_estimate,
-                "pickup_surcharge": float(pickup_charge["pickup_surcharge"]),
-                "extra_pickup_distance_km": float(pickup_charge["extra_pickup_distance_km"]),
-                "driver_to_pickup_distance_km": float(pickup_charge["driver_distance_km"]),
-                "dispatch_status": "accepted",
-                "accepted_driver_score_updated_at": now,
-                "updated_at": now,
-                "assigned_at": now,
-            }
-        },
-    )
-    if assign_result.modified_count != 1:
-        return False
+    if active_driver:
+        await expire_active_dispatch_candidate_if_due(booking, force=True)
 
-    await db.drivers.update_one(
-        {"user_id": best_driver["user_id"]},
-        {"$set": {"is_available": False, "last_assigned_at": now}, "$inc": {"assigned_count": 1}},
+    return await dispatch_next_candidate_for_booking(
+        booking_id,
+        reason="driver_timeout" if active_driver else "dispatch_retry",
     )
-
-    await emit_to_user(
-        best_driver["user_id"],
-        "booking_auto_assigned",
-        {
-            "booking_id": booking_id,
-            "timestamp": now.isoformat(),
-        },
-    )
-    await emit_to_user(
-        booking["passenger_id"],
-        "booking_driver_assigned",
-        {
-            "booking_id": booking_id,
-            "driver_id": best_driver["user_id"],
-            "timestamp": now.isoformat(),
-        },
-    )
-    await notify_user(
-        booking["passenger_id"],
-        title="Driver Assigned",
-        body="A nearby driver has accepted your AutoBuddy ride.",
-        data={"booking_id": booking_id, "driver_id": best_driver["user_id"]},
-    )
-    return True
 
 async def retry_auto_assignment_for_pending_booking(booking_id: str):
     """Retry assignment for pending booking in background using current live driver state."""
@@ -12135,6 +12661,8 @@ async def create_booking(
     dispatch_demand_supply: Optional[Dict[str, Any]] = None
     dispatch_fraud_ai: Optional[Dict[str, Any]] = None
     dispatch_ai_ranked_drivers: List[Dict[str, Any]] = []
+    dispatch_candidate_queue: List[str] = []
+    dispatch_expires_at: Optional[datetime] = None
 
     if selected_driver_id:
         dispatch_algorithm = "manual_selected_driver_v1"
@@ -12182,6 +12710,7 @@ async def create_booking(
         if (not is_scheduled) and await is_driver_in_active_ride(selected_driver_id):
             raise HTTPException(status_code=400, detail="Selected driver is currently on an active ride")
         candidate_driver_ids = [selected_driver_id]
+        dispatch_candidate_queue = [selected_driver_id]
     elif not is_scheduled:
         booking_preview = {
             "id": booking_id,
@@ -12206,9 +12735,12 @@ async def create_booking(
                 limit=8,
                 max_radius_km=long_radius_km,
                 excluded_driver_ids=list(excluded_driver_ids),
-            )
-        candidate_driver_ids = [item["driver_id"] for item in ranked_drivers]
+        )
+        dispatch_candidate_queue = [item["driver_id"] for item in ranked_drivers]
+        candidate_driver_ids = dispatch_candidate_queue[:1]
         dispatch_ai_ranked_drivers = ranked_drivers[:10]
+        if candidate_driver_ids:
+            dispatch_status = "awaiting_driver_acceptance"
         if ranked_drivers:
             top_ranked = ranked_drivers[0]
             surge_multiplier = max(1.0, safe_float(top_ranked.get("surge_multiplier"), 1.0))
@@ -12232,6 +12764,11 @@ async def create_booking(
             ride_type=booking.ride_type or "normal",
         )
         candidate_driver_ids = [item["user_id"] for item in scheduled_candidates]
+        dispatch_candidate_queue = list(candidate_driver_ids)
+
+    if (not is_scheduled) and candidate_driver_ids:
+        dispatch_expires_at = now + timedelta(seconds=DISPATCH_DRIVER_ACCEPTANCE_TIMEOUT_SECONDS)
+        dispatch_status = "awaiting_driver_acceptance"
 
     effective_pricing_for_estimate = selected_driver_pricing or pricing
     route_fare_for_estimate = (effective_pricing_for_estimate.base_fare + (distance * effective_pricing_for_estimate.per_km_rate)) * time_multiplier
@@ -12270,7 +12807,12 @@ async def create_booking(
         "ride_type_multiplier": ride_type_multiplier,
         "dispatch_algorithm": dispatch_algorithm,
         "dispatch_status": dispatch_status,
-        "dispatch_attempt_count": 0,
+        "dispatch_candidate_queue": dispatch_candidate_queue,
+        "dispatch_attempted_driver_ids": candidate_driver_ids[:] if (not is_scheduled) else [],
+        "current_dispatch_driver_id": candidate_driver_ids[0] if ((not is_scheduled) and candidate_driver_ids) else None,
+        "dispatch_expires_at": dispatch_expires_at,
+        "dispatch_acceptance_timeout_seconds": DISPATCH_DRIVER_ACCEPTANCE_TIMEOUT_SECONDS,
+        "dispatch_attempt_count": 1 if ((not is_scheduled) and candidate_driver_ids) else 0,
         "fraud_review_required": fraud_review_required,
         "fraud_ai": dispatch_fraud_ai,
         "demand_supply": dispatch_demand_supply,
@@ -12335,7 +12877,17 @@ async def create_booking(
     await clear_active_ride_cache(None, current_user["id"])
     await clear_driver_pending_request_cache(candidate_driver_ids)
     if not is_scheduled:
-        await enqueue_ride(booking_id)
+        if candidate_driver_ids and dispatch_expires_at:
+            await record_dispatch_attempt_sent(
+                booking_id,
+                candidate_driver_ids[0],
+                sequence=1,
+                expires_at=dispatch_expires_at,
+                reason="booking_created",
+            )
+            await enqueue_ride(booking_id, priority=DISPATCH_DRIVER_ACCEPTANCE_TIMEOUT_SECONDS)
+        else:
+            await enqueue_ride(booking_id, priority=dispatch_queue_priority_for_booking(booking_dict))
 
     if is_scheduled and scheduled_for:
         asyncio.create_task(schedule_booking_assignment(booking_id, scheduled_for))
@@ -12376,9 +12928,14 @@ async def create_booking(
             await notify_user(
                 current_user["id"],
                 title="Finding Driver",
-                body=f"We sent your request to the nearest {len(candidate_driver_ids)} drivers.",
-                data={"booking_id": booking_id, "candidate_driver_ids": candidate_driver_ids},
+                body="We sent your request to the best nearby driver and will retry automatically if needed.",
+                data={
+                    "booking_id": booking_id,
+                    "candidate_driver_ids": candidate_driver_ids,
+                    "dispatch_expires_at": dispatch_expires_at.isoformat() if dispatch_expires_at else None,
+                },
             )
+            asyncio.create_task(retry_auto_assignment_for_pending_booking(booking_id))
         else:
             asyncio.create_task(retry_auto_assignment_for_pending_booking(booking_id))
             await notify_user(
@@ -12659,11 +13216,13 @@ async def build_booking_receipt_payload(booking: Dict[str, Any], current_user: D
     distance_km = receipt_money(booking.get("actual_distance_km") or booking.get("distance_km"))
     created_at = booking.get("trip_completed_at") or booking.get("updated_at") or booking.get("created_at") or get_ist_now()
     status_value = enum_response_value(booking.get("status"))
-    payment_status = (
-        "completed"
-        if status_value == BookingStatus.COMPLETED.value
-        else str(booking.get("payment_status") or status_value or "pending")
-    )
+    payment_status = normalized_enum_text(booking.get("payment_status"))
+    if not payment_status:
+        payment_status = (
+            PaymentOrderStatus.PAID.value
+            if booking_payment_satisfied(booking)
+            else "pending"
+        )
 
     breakdown = []
     if cancellation_fee > 0 and status_value == BookingStatus.CANCELLED.value:
@@ -12841,7 +13400,7 @@ async def accept_booking(booking_id: str, current_user: dict = Depends(get_curre
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
     
-    if booking["status"] != BookingStatus.PENDING:
+    if booking_status_value(booking.get("status")) != BookingStatus.PENDING.value:
         raise HTTPException(status_code=400, detail="Booking is no longer available")
     candidate_driver_ids = booking.get("candidate_driver_ids") or []
     if candidate_driver_ids and current_user["id"] not in candidate_driver_ids:
@@ -12868,6 +13427,7 @@ async def accept_booking(booking_id: str, current_user: dict = Depends(get_curre
         pickup_location=booking.get("pickup_location") or {},
         pricing=effective_pricing,
     )
+    accepted_at = get_ist_now()
     await db.dispatch_attempts.update_one(
         {
             "booking_id": booking_id,
@@ -12876,11 +13436,19 @@ async def accept_booking(booking_id: str, current_user: dict = Depends(get_curre
         {
             "$set": {
                 "response": "accepted",
-                "responded_at": get_ist_now(),
-            }
+                "responded_at": accepted_at,
+                "updated_at": accepted_at,
+            },
+            "$setOnInsert": {
+                "id": str(uuid.uuid4()),
+                "booking_id": booking_id,
+                "driver_id": current_user["id"],
+                "created_at": accepted_at,
+            },
         },
         upsert=True,
     )
+    await update_driver_dispatch_response_metrics(current_user["id"], "accepted", accepted_at)
     
     # Update fare with driver's multiplier
     distance_km = float(booking.get("distance_km", 0.0) or 0.0)
@@ -12895,12 +13463,19 @@ async def accept_booking(booking_id: str, current_user: dict = Depends(get_curre
         2,
     )
     
-    await db.bookings.update_one(
-        {"id": booking_id},
+    assign_result = await db.bookings.update_one(
+        {
+            "id": booking_id,
+            "status": {"$in": [BookingStatus.PENDING, BookingStatus.PENDING.value]},
+            "driver_id": None,
+        },
         {
             "$set": {
                 "driver_id": current_user["id"],
-                "status": BookingStatus.ACCEPTED,
+                "status": BookingStatus.ACCEPTED.value,
+                "candidate_driver_ids": [],
+                "current_dispatch_driver_id": current_user["id"],
+                "dispatch_expires_at": None,
                 "base_route_fare": round(base_route_fare, 2),
                 "estimated_fare": final_estimated_fare,
                 "pickup_surcharge": float(pickup_charge["pickup_surcharge"]),
@@ -12917,11 +13492,21 @@ async def accept_booking(booking_id: str, current_user: dict = Depends(get_curre
                     booking.get("drop_location") or booking.get("dropoff_location"),
                 ),
                 "dispatch_status": "accepted",
-                "accepted_driver_score_updated_at": get_ist_now(),
-                "updated_at": get_ist_now()
+                "accepted_driver_score_updated_at": accepted_at,
+                "assigned_at": accepted_at,
+                "updated_at": accepted_at
+            },
+            "$push": {
+                "dispatch_attempt_history": {
+                    "driver_id": current_user["id"],
+                    "response": "accepted",
+                    "at": accepted_at,
+                }
             }
         }
     )
+    if assign_result.modified_count != 1:
+        raise HTTPException(status_code=409, detail="Booking was already assigned")
     await sync_booking_product_sidecar_status(
         booking,
         BookingStatus.ACCEPTED,
@@ -12951,13 +13536,13 @@ async def accept_booking(booking_id: str, current_user: dict = Depends(get_curre
     # Set driver as unavailable
     await db.drivers.update_one(
         {"user_id": current_user["id"]},
-        {"$set": {"is_available": False}}
+        {"$set": {"is_available": False, "last_assigned_at": accepted_at}, "$inc": {"assigned_count": 1}}
     )
     await cache_delete(f"driver_profile:{current_user['id']}")
 
     status_payload = {
         "booking_id": booking_id,
-        "status": BookingStatus.ACCEPTED,
+        "status": BookingStatus.ACCEPTED.value,
         "timestamp": get_ist_now().isoformat(),
     }
     await sio.emit("booking_status_changed", status_payload, room=ride_room(booking_id))
@@ -12988,7 +13573,7 @@ async def accept_booking(booking_id: str, current_user: dict = Depends(get_curre
         booking["passenger_id"],
         title="Ride Accepted",
         body=f"{current_user.get('name', 'Your driver')} accepted your ride.",
-        data={"booking_id": booking_id, "status": str(BookingStatus.ACCEPTED)},
+        data={"booking_id": booking_id, "status": BookingStatus.ACCEPTED.value},
     )
 
     return {
@@ -13007,13 +13592,14 @@ async def reject_booking(booking_id: str, current_user: dict = Depends(get_curre
     booking = await db.bookings.find_one({"id": booking_id})
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
-    if booking.get("status") != BookingStatus.PENDING:
+    if booking_status_value(booking.get("status")) != BookingStatus.PENDING.value:
         raise HTTPException(status_code=400, detail="Booking is no longer available")
 
     candidate_driver_ids = booking.get("candidate_driver_ids") or []
     if candidate_driver_ids and current_user["id"] not in candidate_driver_ids:
         raise HTTPException(status_code=403, detail="This booking request is not assigned to you")
 
+    rejected_at = get_ist_now()
     await db.dispatch_attempts.update_one(
         {
             "booking_id": booking_id,
@@ -13022,35 +13608,65 @@ async def reject_booking(booking_id: str, current_user: dict = Depends(get_curre
         {
             "$set": {
                 "response": "rejected",
-                "responded_at": get_ist_now(),
-            }
+                "responded_at": rejected_at,
+                "updated_at": rejected_at,
+            },
+            "$setOnInsert": {
+                "id": str(uuid.uuid4()),
+                "booking_id": booking_id,
+                "driver_id": current_user["id"],
+                "created_at": rejected_at,
+            },
         },
         upsert=True,
+    )
+    await update_driver_dispatch_response_metrics(current_user["id"], "rejected", rejected_at)
+    attempted = ordered_unique_driver_ids(
+        list(dispatch_attempted_driver_ids(booking)) + [current_user["id"]]
     )
     await db.bookings.update_one(
         {"id": booking_id},
         {
-            "$inc": {"dispatch_attempt_count": 1},
             "$set": {
                 "dispatch_status": "driver_rejected",
-                "updated_at": get_ist_now(),
+                "dispatch_attempted_driver_ids": attempted,
+                "current_dispatch_driver_id": None,
+                "dispatch_expires_at": None,
+                "updated_at": rejected_at,
+            },
+            "$push": {
+                "dispatch_attempt_history": {
+                    "driver_id": current_user["id"],
+                    "response": "rejected",
+                    "at": rejected_at,
+                }
             },
             "$pull": {"candidate_driver_ids": current_user["id"]},
         },
     )
     await cache_delete(f"driver_pending_requests:{current_user['id']}")
-    await enqueue_ride(booking_id)
-
-    asyncio.create_task(retry_auto_assignment_for_pending_booking(booking_id))
+    dispatched_next = await dispatch_next_candidate_for_booking(
+        booking_id,
+        reason="driver_rejected",
+        extra_excluded_driver_ids=[current_user["id"]],
+    )
+    if not dispatched_next:
+        await enqueue_ride(booking_id, priority=dispatch_queue_priority_for_booking(booking))
+        asyncio.create_task(retry_auto_assignment_for_pending_booking(booking_id))
     await notify_user(
         booking["passenger_id"],
         title="Finding Another Driver",
-        body="A driver declined your ride. We are finding another nearby driver.",
-        data={"booking_id": booking_id},
+        body=(
+            "A driver declined your ride. We sent it to the next best nearby driver."
+            if dispatched_next
+            else "A driver declined your ride. We are finding another nearby driver."
+        ),
+        data={"booking_id": booking_id, "next_driver_dispatched": dispatched_next},
     )
     return {
         "message": "Ride rejected. Searching another driver.",
         "booking_id": booking_id,
+        "next_driver_dispatched": dispatched_next,
     }
 
 @api_router.get("/bookings/{booking_id}/dispatch-summary")
@@ -13109,26 +13725,29 @@ async def update_booking_status(booking_id: str, status_update: BookingStatusUpd
     booking = await db.bookings.find_one({"id": booking_id})
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
-    was_already_completed = booking.get("status") == BookingStatus.COMPLETED
+    current_status = booking_status_value(booking.get("status"))
+    target_status = booking_status_value(status_update.status)
+    was_already_completed = current_status == BookingStatus.COMPLETED.value
 
     if current_user["role"] != UserRole.ADMIN:
         if current_user["role"] != UserRole.DRIVER or booking.get("driver_id") != current_user["id"]:
             raise HTTPException(status_code=403, detail="Only assigned driver can update ride status")
+    validate_booking_status_transition(current_status, target_status, current_user["role"])
     
     now_utc = get_ist_now()
     update_data = {
-        "status": status_update.status,
+        "status": target_status,
         "updated_at": now_utc
     }
 
-    if status_update.status == BookingStatus.DRIVER_ARRIVED:
+    if target_status == BookingStatus.DRIVER_ARRIVED.value:
         ride_start_otp = f"{random.randint(1000, 9999)}"
         update_data["ride_start_otp"] = ride_start_otp
         update_data["ride_start_otp_generated_at"] = now_utc
         update_data["ride_start_otp_verified_at"] = None
 
-    if status_update.status == BookingStatus.IN_PROGRESS and current_user["role"] != UserRole.ADMIN:
-        if booking["status"] != BookingStatus.DRIVER_ARRIVED:
+    if target_status == BookingStatus.IN_PROGRESS.value and current_user["role"] != UserRole.ADMIN:
+        if current_status != BookingStatus.DRIVER_ARRIVED.value:
             raise HTTPException(status_code=400, detail="Driver must mark arrived before starting trip")
         expected_otp = str(booking.get("ride_start_otp") or "").strip()
         provided_otp = str(status_update.ride_start_otp or "").strip()
@@ -13169,9 +13788,9 @@ async def update_booking_status(booking_id: str, status_update: BookingStatusUpd
         )
 
     # If completing ride, set final fare
-    if status_update.status == BookingStatus.COMPLETED:
+    if target_status == BookingStatus.COMPLETED.value:
         if current_user["role"] != UserRole.ADMIN:
-            if booking["status"] != BookingStatus.IN_PROGRESS:
+            if current_status != BookingStatus.IN_PROGRESS.value:
                 raise HTTPException(status_code=400, detail="Ride must be in progress before completion")
             expected_end_otp = str(booking.get("ride_end_otp") or "").strip()
             provided_end_otp = str(status_update.ride_end_otp or "").strip()
@@ -13314,6 +13933,14 @@ async def update_booking_status(booking_id: str, status_update: BookingStatusUpd
         update_data["trip_completed_at"] = now_utc
         update_data["ride_start_otp"] = None
         update_data["ride_end_otp"] = None
+        if normalized_enum_text(booking.get("payment_method")) == PaymentMethod.CASH.value:
+            update_data["payment_status"] = PaymentOrderStatus.PAID.value
+            update_data["payment_completed_at"] = now_utc
+            update_data["payment_collection_method"] = PaymentMethod.CASH.value
+        elif booking_payment_satisfied(booking):
+            update_data["payment_status"] = normalized_enum_text(booking.get("payment_status")) or PaymentOrderStatus.PAID.value
+        else:
+            update_data["payment_status"] = "pending"
         
         # Update driver stats
         if booking.get("driver_id"):
@@ -13340,7 +13967,7 @@ async def update_booking_status(booking_id: str, status_update: BookingStatusUpd
                 )
     
     # If cancelled, make driver available again
-    if status_update.status == BookingStatus.CANCELLED:
+    if target_status == BookingStatus.CANCELLED.value:
         update_data["ride_start_otp"] = None
         update_data["ride_end_otp"] = None
         if booking.get("driver_id"):
@@ -13354,10 +13981,10 @@ async def update_booking_status(booking_id: str, status_update: BookingStatusUpd
         {"$set": update_data}
     )
     sidecar_set_fields: Dict[str, Any] = {
-        "dispatch_status": normalize_status_text(status_update.status),
+        "dispatch_status": target_status,
         "updated_at": now_utc,
     }
-    if status_update.status == BookingStatus.DRIVER_ARRIVED:
+    if target_status == BookingStatus.DRIVER_ARRIVED.value:
         sidecar_set_fields.update(
             {
                 "pickup_otp": update_data.get("ride_start_otp"),
@@ -13366,7 +13993,7 @@ async def update_booking_status(booking_id: str, status_update: BookingStatusUpd
                 "driver_arrived_at": now_utc,
             }
         )
-    elif status_update.status == BookingStatus.IN_PROGRESS:
+    elif target_status == BookingStatus.IN_PROGRESS.value:
         sidecar_set_fields.update(
             {
                 "dispatch_status": "trip_started",
@@ -13376,7 +14003,7 @@ async def update_booking_status(booking_id: str, status_update: BookingStatusUpd
                 "actual_distance_km": update_data.get("actual_distance_km", 0.0),
             }
         )
-    elif status_update.status == BookingStatus.COMPLETED:
+    elif target_status == BookingStatus.COMPLETED.value:
         fare_breakdown = update_data.get("fare_breakdown") if isinstance(update_data.get("fare_breakdown"), dict) else {}
         trip_summary = {
             "booking_id": booking_id,
@@ -13405,7 +14032,7 @@ async def update_booking_status(booking_id: str, status_update: BookingStatusUpd
                     "extra_km_charge": fare_breakdown.get("extra_km_charge"),
                 }
             )
-    elif status_update.status == BookingStatus.CANCELLED:
+    elif target_status == BookingStatus.CANCELLED.value:
         sidecar_set_fields.update(
             {
                 "dispatch_status": "cancelled",
@@ -13414,16 +14041,16 @@ async def update_booking_status(booking_id: str, status_update: BookingStatusUpd
         )
     await sync_booking_product_sidecar_status(
         booking,
-        status_update.status,
+        target_status,
         set_fields=sidecar_set_fields,
     )
     if booking.get("driver_id"):
         await cache_delete(f"driver_profile:{booking['driver_id']}")
     await clear_active_ride_cache(booking.get("driver_id"), booking.get("passenger_id"))
     await clear_driver_pending_request_cache(booking.get("candidate_driver_ids") or [])
-    if status_update.status != BookingStatus.PENDING:
+    if target_status != BookingStatus.PENDING.value:
         await remove_ride_from_queue(booking_id)
-    if status_update.status == BookingStatus.COMPLETED:
+    if target_status == BookingStatus.COMPLETED.value:
         try:
             completed_booking = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
             if completed_booking:
@@ -13442,40 +14069,40 @@ async def update_booking_status(booking_id: str, status_update: BookingStatusUpd
 
     status_payload = {
         "booking_id": booking_id,
-        "status": status_update.status,
+        "status": target_status,
         "timestamp": get_ist_now().isoformat(),
     }
     await emit_to_user(booking["passenger_id"], "booking_status_changed", status_payload)
     if booking.get("driver_id"):
         await emit_to_user(booking["driver_id"], "booking_status_changed", status_payload)
 
-    if status_update.status == BookingStatus.DRIVER_ARRIVED:
+    if target_status == BookingStatus.DRIVER_ARRIVED.value:
         passenger_otp = str(update_data.get("ride_start_otp") or "")
         await notify_user(
             booking["passenger_id"],
             title="Driver Arrived",
             body=f"Share OTP {passenger_otp} with your driver to start the ride.",
-            data={"booking_id": booking_id, "status": str(status_update.status), "ride_start_otp": passenger_otp},
+            data={"booking_id": booking_id, "status": target_status, "ride_start_otp": passenger_otp},
         )
-    elif status_update.status == BookingStatus.IN_PROGRESS:
+    elif target_status == BookingStatus.IN_PROGRESS.value:
         completion_otp = str(update_data.get("ride_end_otp") or "")
         await notify_user(
             booking["passenger_id"],
             title="Trip Started",
             body=f"Ride started. Share completion OTP {completion_otp} when you reach destination.",
-            data={"booking_id": booking_id, "status": str(status_update.status), "ride_end_otp": completion_otp},
+            data={"booking_id": booking_id, "status": target_status, "ride_end_otp": completion_otp},
         )
-    elif status_update.status == BookingStatus.COMPLETED:
-        status_label = str(status_update.status).replace("_", " ").title()
+    elif target_status == BookingStatus.COMPLETED.value:
+        status_label = target_status.replace("_", " ").title()
         await notify_user(
             booking["passenger_id"],
             title="Ride Update",
             body=f"Ride status changed: {status_label}.",
-            data={"booking_id": booking_id, "status": str(status_update.status)},
+            data={"booking_id": booking_id, "status": target_status},
         )
 
-    response_payload: Dict[str, Any] = {"message": "Status updated", "status": status_update.status}
-    if status_update.status == BookingStatus.COMPLETED:
+    response_payload: Dict[str, Any] = {"message": "Status updated", "status": target_status}
+    if target_status == BookingStatus.COMPLETED.value:
         response_payload["final_fare"] = update_data.get("final_fare")
         response_payload["actual_distance_km"] = update_data.get("actual_distance_km")
     return response_payload
@@ -14988,8 +15615,52 @@ async def create_payment_order(payload: PaymentOrderCreate, current_user: dict =
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
 
-    if current_user["role"] == UserRole.PASSENGER and booking["passenger_id"] != current_user["id"]:
+    current_role = normalized_enum_text(current_user.get("role"))
+    if current_role not in {UserRole.PASSENGER.value, UserRole.ADMIN.value}:
+        raise HTTPException(status_code=403, detail="Only passenger can create ride payment")
+    if current_role == UserRole.PASSENGER.value and booking["passenger_id"] != current_user["id"]:
         raise HTTPException(status_code=403, detail="Not authorized")
+    if booking_status_value(booking.get("status")) != BookingStatus.COMPLETED.value:
+        raise HTTPException(status_code=400, detail="Complete the trip before creating payment")
+    if booking_payment_satisfied(booking):
+        existing_paid_order = await db.payment_orders.find_one(
+            {
+                "booking_id": payload.booking_id,
+                "status": PaymentOrderStatus.PAID.value,
+            },
+            sort=[("created_at", -1)],
+        )
+        if existing_paid_order:
+            return PaymentOrderResponse(
+                order_id=existing_paid_order["order_id"],
+                booking_id=payload.booking_id,
+                amount=round(float(existing_paid_order.get("amount") or 0), 2),
+                status=PaymentOrderStatus.PAID,
+                provider=existing_paid_order.get("provider", "upi_intent"),
+                upi_intent=existing_paid_order.get("upi_intent"),
+                stripe_client_secret=existing_paid_order.get("stripe_client_secret"),
+                stripe_payment_intent_id=existing_paid_order.get("stripe_payment_intent_id"),
+            )
+        raise HTTPException(status_code=409, detail="Payment already completed for this booking")
+
+    existing_open_order = await db.payment_orders.find_one(
+        {
+            "booking_id": payload.booking_id,
+            "status": {"$in": [PaymentOrderStatus.CREATED.value, PaymentOrderStatus.PENDING_VERIFICATION.value]},
+        },
+        sort=[("created_at", -1)],
+    )
+    if existing_open_order:
+        return PaymentOrderResponse(
+            order_id=existing_open_order["order_id"],
+            booking_id=payload.booking_id,
+            amount=round(float(existing_open_order.get("amount") or 0), 2),
+            status=PaymentOrderStatus(normalized_enum_text(existing_open_order.get("status"))),
+            provider=existing_open_order.get("provider", "upi_intent"),
+            upi_intent=existing_open_order.get("upi_intent"),
+            stripe_client_secret=existing_open_order.get("stripe_client_secret"),
+            stripe_payment_intent_id=existing_open_order.get("stripe_payment_intent_id"),
+        )
 
     amount = float(booking.get("final_fare") or booking.get("estimated_fare") or 0)
     if amount <= 0:
@@ -15025,7 +15696,7 @@ async def create_payment_order(payload: PaymentOrderCreate, current_user: dict =
         "driver_id": booking.get("driver_id"),
         "amount": round(amount, 2),
         "currency": "INR",
-        "status": PaymentOrderStatus.CREATED,
+        "status": PaymentOrderStatus.CREATED.value,
         "provider": provider,
         "upi_intent": upi_intent,
         "stripe_client_secret": stripe_client_secret,
@@ -15053,15 +15724,27 @@ async def verify_payment(payload: PaymentVerifyRequest, current_user: dict = Dep
     order = await db.payment_orders.find_one({"order_id": payload.order_id})
     if not order:
         raise HTTPException(status_code=404, detail="Payment order not found")
+    booking = await db.bookings.find_one({"id": order["booking_id"]})
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
 
-    if current_user["role"] == UserRole.PASSENGER and order["passenger_id"] != current_user["id"]:
+    current_role = normalized_enum_text(current_user.get("role"))
+    if current_role not in {UserRole.PASSENGER.value, UserRole.ADMIN.value}:
+        raise HTTPException(status_code=403, detail="Only passenger can verify ride payment")
+    if current_role == UserRole.PASSENGER.value and order["passenger_id"] != current_user["id"]:
         raise HTTPException(status_code=403, detail="Not authorized")
+    if booking_status_value(booking.get("status")) != BookingStatus.COMPLETED.value:
+        raise HTTPException(status_code=400, detail="Complete the trip before verifying payment")
+    expected_amount = round(float(booking.get("final_fare") or booking.get("estimated_fare") or 0), 2)
+    order_amount = round(float(order.get("amount") or 0), 2)
+    if expected_amount <= 0 or abs(order_amount - expected_amount) > 0.01:
+        raise HTTPException(status_code=400, detail="Payment amount does not match completed trip fare")
 
-    if order.get("status") == PaymentOrderStatus.PAID:
+    if normalized_enum_text(order.get("status")) == PaymentOrderStatus.PAID.value:
         return {
             "message": "Payment already verified",
             "order_id": payload.order_id,
-            "status": PaymentOrderStatus.PAID,
+            "status": PaymentOrderStatus.PAID.value,
         }
 
     if order.get("provider") == "stripe" and STRIPE_SECRET_KEY:
@@ -15076,6 +15759,10 @@ async def verify_payment(payload: PaymentVerifyRequest, current_user: dict = Dep
             raise
         except Exception as exc:
             raise HTTPException(status_code=400, detail=f"Unable to verify Stripe payment: {exc}")
+    else:
+        transaction_ref = str(payload.transaction_ref or "").strip()
+        if len(transaction_ref) < 4:
+            raise HTTPException(status_code=400, detail="Enter a valid payment reference or UTR")
 
     now = get_ist_now()
 
@@ -15083,8 +15770,8 @@ async def verify_payment(payload: PaymentVerifyRequest, current_user: dict = Dep
         {"order_id": payload.order_id},
         {
             "$set": {
-                "status": PaymentOrderStatus.PAID,
-                "transaction_ref": payload.transaction_ref,
+                "status": PaymentOrderStatus.PAID.value,
+                "transaction_ref": str(payload.transaction_ref or "").strip(),
                 "paid_at": now,
                 "updated_at": now,
             }
@@ -15095,8 +15782,9 @@ async def verify_payment(payload: PaymentVerifyRequest, current_user: dict = Dep
         {"id": order["booking_id"]},
         {
             "$set": {
-                "payment_status": PaymentOrderStatus.PAID,
+                "payment_status": PaymentOrderStatus.PAID.value,
                 "payment_order_id": payload.order_id,
+                "payment_completed_at": now,
                 "updated_at": now,
             }
         },
@@ -15156,7 +15844,7 @@ async def verify_payment(payload: PaymentVerifyRequest, current_user: dict = Dep
     return {
         "message": "Payment verified",
         "order_id": payload.order_id,
-        "status": PaymentOrderStatus.PAID,
+        "status": PaymentOrderStatus.PAID.value,
     }
 
 
@@ -16415,11 +17103,24 @@ async def create_rating(rating_data: RatingCreate, current_user: dict = Depends(
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
     
-    if booking["status"] != BookingStatus.COMPLETED:
+    current_role = normalized_enum_text(current_user.get("role"))
+    if current_role not in {UserRole.PASSENGER.value, UserRole.DRIVER.value}:
+        raise HTTPException(status_code=403, detail="Only ride participants can rate a ride")
+    ensure_booking_participant(booking, current_user)
+
+    if booking_status_value(booking.get("status")) != BookingStatus.COMPLETED.value:
         raise HTTPException(status_code=400, detail="Can only rate completed rides")
+    if not booking_payment_satisfied(booking):
+        raise HTTPException(status_code=400, detail="Complete payment before rating this ride")
+    existing_rating = await db.ratings.find_one(
+        {"booking_id": rating_data.booking_id, "from_user_id": current_user["id"]},
+        {"_id": 0, "id": 1},
+    )
+    if existing_rating:
+        raise HTTPException(status_code=409, detail="You have already rated this ride")
     
     # Determine who is being rated
-    if current_user["role"] == UserRole.PASSENGER:
+    if current_role == UserRole.PASSENGER.value:
         rated_user_id = booking.get("driver_id")
     else:
         rated_user_id = booking["passenger_id"]
@@ -16427,6 +17128,7 @@ async def create_rating(rating_data: RatingCreate, current_user: dict = Depends(
     if not rated_user_id:
         raise HTTPException(status_code=400, detail="No one to rate")
     
+    now = get_ist_now()
     rating_doc = {
         "id": str(uuid.uuid4()),
         "booking_id": rating_data.booking_id,
@@ -16434,13 +17136,26 @@ async def create_rating(rating_data: RatingCreate, current_user: dict = Depends(
         "to_user_id": rated_user_id,
         "rating": rating_data.rating,
         "comment": rating_data.comment,
-        "created_at": get_ist_now()
+        "created_at": now
     }
     
     await db.ratings.insert_one(rating_doc)
+    await db.bookings.update_one(
+        {"id": rating_data.booking_id},
+        {
+            "$set": {
+                "updated_at": now,
+                (
+                    "passenger_rating_id"
+                    if current_role == UserRole.PASSENGER.value
+                    else "driver_rating_id"
+                ): rating_doc["id"],
+            }
+        },
+    )
     
     # Update driver's average rating using aggregation pipeline
-    if current_user["role"] == UserRole.PASSENGER and rated_user_id:
+    if current_role == UserRole.PASSENGER.value and rated_user_id:
         result = await db.ratings.aggregate([
             {"$match": {"to_user_id": rated_user_id}},
             {"$group": {"_id": None, "avg_rating": {"$avg": "$rating"}}}
@@ -18638,11 +19353,15 @@ async def emit_new_booking_to_drivers(
             continue
         if booking and not driver_matches_booking_service(driver, booking):
             continue
+        dispatch_expires_at = dispatch_expiry_datetime((booking or {}).get("dispatch_expires_at"))
         await sio.emit(
             'new_booking_available',
             {
                 'message': 'New ride request available',
                 'booking_id': booking_id,
+                'dispatch_driver_id': active_dispatch_driver_id(booking),
+                'acceptance_timeout_seconds': DISPATCH_DRIVER_ACCEPTANCE_TIMEOUT_SECONDS,
+                'dispatch_expires_at': dispatch_expires_at.isoformat() if dispatch_expires_at else None,
                 'timestamp': get_ist_now().isoformat()
             },
             room=user_room(driver_id),
@@ -18659,7 +19378,7 @@ async def ride_dispatch_worker():
                 continue
 
             booking = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
-            if not booking or booking.get("status") != BookingStatus.PENDING:
+            if not booking or booking_status_value(booking.get("status")) != BookingStatus.PENDING.value:
                 await remove_ride_from_queue(booking_id)
                 continue
 
@@ -18667,73 +19386,21 @@ async def ride_dispatch_worker():
                 await remove_ride_from_queue(booking_id)
                 continue
 
-            if booking.get("candidate_driver_ids"):
-                # Already has candidate drivers selected by request-time dispatch.
-                await remove_ride_from_queue(booking_id)
-                continue
-
-            attempts = await increment_ride_queue_attempts(booking_id)
-            drivers = await find_nearest_drivers_mongo_geo(
-                booking.get("pickup_location") or {},
-                limit=5,
-                max_distance_km=8,
-                vehicle_type_id=booking.get("vehicle_type_id"),
-                vehicle_subtype_id=booking.get("vehicle_subtype_id"),
-                ride_type=booking.get("ride_product") or booking.get("ride_type"),
-                booking_context=booking,
-            )
-            candidate_driver_ids = [str(item.get("user_id") or "").strip() for item in drivers if item.get("user_id")]
-            if not candidate_driver_ids:
-                if attempts < RIDE_QUEUE_MAX_ATTEMPTS:
-                    retry_delay = min(60, RIDE_QUEUE_RETRY_BASE_SECONDS * max(1, attempts))
-                    await enqueue_ride(booking_id, priority=retry_delay)
-                else:
-                    await db.bookings.update_one(
-                        {"id": booking_id},
-                        {
-                            "$set": {
-                                "dispatch_status": "no_drivers_available",
-                                "dispatch_attempt_count": int(attempts),
-                                "updated_at": get_ist_now(),
-                            }
-                        },
-                    )
-                await write_analytics_event(
-                    "DISPATCH_RETRY",
-                    str(booking.get("passenger_id") or ""),
-                    {
-                        "booking_id": booking_id,
-                        "attempts": int(attempts),
-                        "has_candidates": False,
-                    },
+            active_driver = active_dispatch_driver_id(booking)
+            expires_at = dispatch_expiry_datetime(booking.get("dispatch_expires_at"))
+            if active_driver and expires_at and as_utc_naive(expires_at) > as_utc_naive(get_ist_now()):
+                remaining_seconds = max(
+                    1,
+                    int((as_utc_naive(expires_at) - as_utc_naive(get_ist_now())).total_seconds()),
                 )
+                await enqueue_ride(booking_id, priority=remaining_seconds)
                 continue
 
-            await db.bookings.update_one(
-                {"id": booking_id},
-                {
-                    "$set": {
-                        "candidate_driver_ids": candidate_driver_ids,
-                        "dispatch_status": "queued_dispatched",
-                        "dispatch_attempt_count": int(attempts),
-                        "updated_at": get_ist_now(),
-                    }
-                },
-            )
-            await write_analytics_event(
-                "DISPATCH_MATCH_FOUND",
-                str(booking.get("passenger_id") or ""),
-                {
-                    "booking_id": booking_id,
-                    "attempts": int(attempts),
-                    "candidate_count": len(candidate_driver_ids),
-                },
-            )
-            await clear_driver_pending_request_cache(candidate_driver_ids)
-            await emit_new_booking_to_drivers(
-                booking_id=booking_id,
-                target_driver_ids=candidate_driver_ids,
-                include_unavailable=False,
+            if active_driver:
+                await expire_active_dispatch_candidate_if_due(booking, force=True)
+            await dispatch_next_candidate_for_booking(
+                booking_id,
+                reason="driver_timeout" if active_driver else "queue_worker",
             )
             await remove_ride_from_queue(booking_id)
         except Exception as exc:
@@ -18923,80 +19590,7 @@ async def global_options_handler(full_path: str, request: Request):
 # Include the router in the main app and mount Socket.IO under both legacy
 # /socket.io and current /ws/socket.io paths. Serving both paths avoids
 # frontend/backend deploy-order mismatches during rolling releases.
-app.include_router(modular_auth_router)
-app.include_router(modular_analytics_router)
-app.include_router(modular_driver_trust_router)
-app.include_router(modular_ride_products_router)
-app.include_router(modular_women_only_rides_router)
-app.include_router(modular_rental_rides_router)
-app.include_router(modular_revenue_router)
-app.include_router(modular_security_router)
-app.include_router(modular_safety_router)
-app.include_router(modular_features_router)
-app.include_router(modular_notifications_router)
-app.include_router(modular_tier1_router)
-app.include_router(modular_tier2_router)
-app.include_router(modular_tier3_router)
-app.include_router(modular_health_router)
-app.include_router(modular_scheduled_rides_router)
-app.include_router(modular_vehicles_canonical_router)
-app.include_router(modular_vehicles_router)
-app.include_router(modular_vehicle_types_router)
-app.include_router(modular_vehicle_types_extended_router)
-app.include_router(modular_ride_types_router)
-app.include_router(modular_bookings_extended_router)
-app.include_router(modular_coverage_admin_router)
-app.include_router(modular_operator_portal_router)
-app.include_router(modular_operator_admin_router)
-app.include_router(modular_support_tickets_router)
-app.include_router(modular_uploads_router)
-app.include_router(modular_admin_account_deletions_router)
-app.include_router(modular_admin_audit_compliance_router)
-app.include_router(modular_admin_dispute_management_router)
-app.include_router(modular_admin_driver_management_router)
-app.include_router(modular_admin_financial_management_router)
-app.include_router(modular_admin_kyc_enhanced_router)
-app.include_router(modular_admin_launch_visitors_router)
-app.include_router(modular_admin_passenger_management_router)
-app.include_router(modular_admin_phone_requests_router)
-app.include_router(modular_admin_promotions_marketing_router)
-app.include_router(modular_admin_reports_analytics_router)
-app.include_router(modular_admin_safety_compliance_router)
-app.include_router(modular_admin_subscriptions_enhanced_router)
-app.include_router(modular_admin_support_management_router)
-app.include_router(modular_admin_system_config_router)
-app.include_router(modular_admin_trip_management_router)
-app.include_router(modular_admin_wallet_topups_router)
-app.include_router(modular_admin_document_requirements_router)
-app.include_router(modular_driver_documents_router)
-app.include_router(modular_driver_operations_router)
-app.include_router(modular_passenger_documents_router)
-app.include_router(modular_admin_fare_management_router)
-app.include_router(modular_driver_fare_override_router)
-app.include_router(modular_driver_fare_proposals_router)
-app.include_router(modular_admin_fare_proposals_router)
-app.include_router(modular_fleet_advanced_router)
-app.include_router(modular_operations_center_router)
-app.include_router(modular_corporate_portal_router)
-app.include_router(modular_airport_router)
-app.include_router(modular_heatmaps_router)
-app.include_router(modular_profitability_router)
-app.include_router(modular_rate_limit_config_router)
-app.include_router(modular_dispatch_service_router)
-app.include_router(modular_stripe_webhooks_router)
-app.include_router(modular_ride_operations_router)
-app.include_router(modular_notifications_backend_router)
-app.include_router(modular_support_backend_router)
-app.include_router(modular_lost_items_backend_router)
-app.include_router(modular_ride_pooling_backend_router)
-app.include_router(modular_assisted_rides_router)
-app.include_router(modular_promo_codes_backend_router)
-app.include_router(modular_accessibility_backend_router)
-# Phase 3 Router Integration
-app.include_router(phase3_tracking_router, prefix="/api/v3/tracking", tags=["Phase 3 - Real-time Tracking"])
-app.include_router(phase3_payment_router, prefix="/api/v3/payments", tags=["Phase 3 - Payment Processing"])
-app.include_router(phase3_safety_router, prefix="/api/v3/safety", tags=["Phase 3 - Safety & Insurance"])
-app.include_router(phase3_analytics_router, prefix="/api/v3/analytics", tags=["Phase 3 - Analytics Intelligence"])
+register_modular_routers(app)
 app.include_router(api_router)
 app.mount("/socket.io", root_socket_app)
 app.mount("/ws", socket_app)

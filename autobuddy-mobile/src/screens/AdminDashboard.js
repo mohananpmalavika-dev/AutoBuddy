@@ -78,6 +78,7 @@ const KERALA_DISTRICTS = [
 const AIRPORT_ALLOWED_DISTRICTS = ['Thiruvananthapuram', 'Ernakulam', 'Kozhikode'];
 const ADMIN_MENU_OPTIONS = [
   { key: 'analytics', label: 'Overview' },
+  { key: 'control_center', label: 'Control Center' },
   { key: 'trips', label: 'Ongoing Trips' },
   { key: 'users', label: 'Users & Live' },
   { key: 'role_report', label: 'Role Report' },
@@ -364,6 +365,68 @@ function normalizeListResponse(payload, keys = []) {
   return [];
 }
 
+function defaultAdminControlCenterState() {
+  return {
+    capabilities: {},
+    fares: {},
+    drivers: [],
+    passengers: [],
+    disputes: [],
+    refunds: [],
+    commissionConfig: {},
+    commissionSummary: {},
+    documents: [],
+    liveRides: [],
+    blockedUsers: [],
+  };
+}
+
+function normalizeAdminControlCenterResponses(responses = []) {
+  const [
+    capabilities,
+    fares,
+    drivers,
+    passengers,
+    disputes,
+    refunds,
+    commissionConfig,
+    commissionSummary,
+    documents,
+    liveRides,
+    blockedUsers,
+  ] = responses;
+
+  return {
+    capabilities: capabilities?.capabilities || capabilities?.data?.capabilities || {},
+    fares: fares || {},
+    drivers: normalizeListResponse(drivers, ['drivers']),
+    passengers: normalizeListResponse(passengers, ['passengers']),
+    disputes: normalizeListResponse(disputes, ['disputes']),
+    refunds: normalizeListResponse(refunds, ['refunds']),
+    commissionConfig: commissionConfig || {},
+    commissionSummary: commissionSummary || {},
+    documents: normalizeListResponse(documents, ['documents']),
+    liveRides: normalizeListResponse(liveRides, ['rides', 'bookings', 'trips']),
+    blockedUsers: normalizeListResponse(blockedUsers, ['users']),
+  };
+}
+
+function adminControlSubjectLabel(row) {
+  return (
+    row?.name ||
+    row?.full_name ||
+    row?.driver_name ||
+    row?.passenger_name ||
+    row?.email ||
+    row?.phone ||
+    row?.id ||
+    row?.user_id ||
+    row?.booking_id ||
+    row?.document_id ||
+    'Record'
+  );
+}
+
 function normalizeAdminKycRequest(row, subjectType = 'driver') {
   const role = subjectType === 'passenger' ? 'passenger' : 'driver';
   const subjectId = String(
@@ -615,6 +678,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
   const [approvedDriverFareConfigs, setApprovedDriverFareConfigs] = useState([]);
   const [ongoingTrips, setOngoingTrips] = useState([]);
   const [tripCancelReasons, setTripCancelReasons] = useState({});
+  const [adminControlCenter, setAdminControlCenter] = useState(defaultAdminControlCenterState());
   const [activeAdminMenu, setActiveAdminMenu] = useState(PRIMARY_ADMIN_MENU_KEY);
   const [showAdminMenus, setShowAdminMenus] = useState(false);
   const [driverUsers, setDriverUsers] = useState([]);
@@ -728,6 +792,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
     const loadLaunchVisits = shouldFetch('launch_visits');
     const loadSpin = shouldFetch('spin');
     const loadRideProducts = shouldFetch('ride_products');
+    const loadControlCenter = shouldFetch('control_center');
 
     const pending = loadKyc ? await adminAPI.getKycPending().catch(() => []) : null;
     const pendingPassengerKyc = loadKyc ? await adminAPI.getPassengerKycPending().catch(() => []) : null;
@@ -756,6 +821,21 @@ export default function AdminDashboard({ token, user, onLogout }) {
     const spinWinWinnerRows = loadSpin ? await adminAPI.getSpinWinWinners({ limit: 50 }).catch(() => []) : null;
     const rideProductsDistrictSettings = loadRideProducts
       ? await adminAPI.getRideProductsDistrictConfig().catch(() => null)
+      : null;
+    const controlCenterResponses = loadControlCenter
+      ? await Promise.all([
+          adminAPI.getAdminControlCapabilities().catch(() => null),
+          adminAPI.getAdminControlFares().catch(() => null),
+          adminAPI.getAdminControlDrivers({ limit: 50 }).catch(() => null),
+          adminAPI.getAdminControlPassengers({ limit: 50 }).catch(() => null),
+          adminAPI.getAdminControlDisputes({ limit: 50 }).catch(() => null),
+          adminAPI.getAdminControlRefunds({ limit: 50 }).catch(() => null),
+          adminAPI.getAdminControlCommissionConfig().catch(() => null),
+          adminAPI.getAdminControlCommissionSummary({ limit: 200 }).catch(() => null),
+          adminAPI.getAdminControlDocuments({ status: 'all', limit: 50 }).catch(() => null),
+          adminAPI.getAdminControlLiveRides({ limit: 50 }).catch(() => null),
+          adminAPI.getAdminControlBlockedUsers({ limit: 50 }).catch(() => null),
+        ])
       : null;
     const dashboardStats = normalizeAdminDashboardStats(dashboard);
     
@@ -911,6 +991,9 @@ export default function AdminDashboard({ token, user, onLogout }) {
     }
     if (rideProductsDistrictSettings) {
       setRideProductDistrictConfig(normalizeRideProductDistrictConfig(rideProductsDistrictSettings));
+    }
+    if (controlCenterResponses) {
+      setAdminControlCenter(normalizeAdminControlCenterResponses(controlCenterResponses));
     }
     setMessage('Admin dashboard refreshed.');
   };
@@ -2074,6 +2157,80 @@ export default function AdminDashboard({ token, user, onLogout }) {
       await refreshAdminData();
     }
   };
+
+  const controlCenterCards = useMemo(() => {
+    const fares = adminControlCenter.fares || {};
+    const commissionTotals = adminControlCenter.commissionSummary?.totals || {};
+    const commissionRate = Number(adminControlCenter.commissionConfig?.default_platform_rate || 0);
+    const statusOf = (row) => String(row?.status || row?.verification_status || '').toLowerCase();
+    const countStatus = (rows, statuses) => {
+      const wanted = new Set(statuses);
+      return (rows || []).filter((row) => wanted.has(statusOf(row))).length;
+    };
+    return [
+      {
+        key: 'fares',
+        label: 'Fares',
+        value: Number(fares.fare_configuration_count || fares.fare_configurations?.length || 0),
+        meta: `Base Rs ${Number(fares.pricing_rules?.base_fare || 0).toFixed(2)} | Per km Rs ${Number(fares.pricing_rules?.per_km_rate || 0).toFixed(2)}`,
+      },
+      {
+        key: 'drivers',
+        label: 'Drivers',
+        value: adminControlCenter.drivers.length,
+        meta: `${countStatus(adminControlCenter.drivers, ['active'])} active | ${countStatus(adminControlCenter.drivers, ['blocked', 'banned', 'suspended'])} blocked`,
+        rows: adminControlCenter.drivers.slice(0, 3).map((row) => `${adminControlSubjectLabel(row)} - ${row.status || 'active'}`),
+      },
+      {
+        key: 'passengers',
+        label: 'Passengers',
+        value: adminControlCenter.passengers.length,
+        meta: `${countStatus(adminControlCenter.passengers, ['active'])} active | ${countStatus(adminControlCenter.passengers, ['blocked', 'banned', 'suspended'])} blocked`,
+        rows: adminControlCenter.passengers.slice(0, 3).map((row) => `${adminControlSubjectLabel(row)} - ${row.status || 'active'}`),
+      },
+      {
+        key: 'disputes',
+        label: 'Disputes',
+        value: adminControlCenter.disputes.length,
+        meta: `${countStatus(adminControlCenter.disputes, ['open', 'assigned', 'investigating'])} open | ${countStatus(adminControlCenter.disputes, ['resolved'])} resolved`,
+        rows: adminControlCenter.disputes.slice(0, 3).map((row) => `${adminControlSubjectLabel(row)} - ${row.status || 'open'}`),
+      },
+      {
+        key: 'refunds',
+        label: 'Refunds',
+        value: adminControlCenter.refunds.length,
+        meta: `${countStatus(adminControlCenter.refunds, ['paid'])} paid | ${countStatus(adminControlCenter.refunds, ['approved'])} approved`,
+        rows: adminControlCenter.refunds.slice(0, 3).map((row) => `${adminControlSubjectLabel(row)} - Rs ${Number(row.amount || 0).toFixed(2)}`),
+      },
+      {
+        key: 'commissions',
+        label: 'Commissions',
+        value: `Rs ${Number(commissionTotals.platform_commission || 0).toFixed(2)}`,
+        meta: `Default rate ${(commissionRate * 100).toFixed(1)}% | Driver share Rs ${Number(commissionTotals.driver_share || 0).toFixed(2)}`,
+      },
+      {
+        key: 'documents',
+        label: 'Documents',
+        value: adminControlCenter.documents.length,
+        meta: `${countStatus(adminControlCenter.documents, ['pending', 'needs_resubmission'])} pending | ${countStatus(adminControlCenter.documents, ['approved'])} approved`,
+        rows: adminControlCenter.documents.slice(0, 3).map((row) => `${row.collection || 'document'} - ${row.status || row.verification_status || 'pending'}`),
+      },
+      {
+        key: 'live_rides',
+        label: 'Live Rides',
+        value: adminControlCenter.liveRides.length,
+        meta: `${countStatus(adminControlCenter.liveRides, ['in_progress'])} in progress | ${countStatus(adminControlCenter.liveRides, ['accepted', 'driver_arrived'])} assigned`,
+        rows: adminControlCenter.liveRides.slice(0, 3).map((row) => `${row.id || row.booking_id || 'Ride'} - ${row.status || 'active'}`),
+      },
+      {
+        key: 'blocked_users',
+        label: 'Blocked Users',
+        value: adminControlCenter.blockedUsers.length,
+        meta: `${adminControlCenter.blockedUsers.length} blocked, banned or suspended`,
+        rows: adminControlCenter.blockedUsers.slice(0, 3).map((row) => `${adminControlSubjectLabel(row)} - ${row.status || 'blocked'}`),
+      },
+    ];
+  }, [adminControlCenter]);
 
   const formatDateTime = (value) => {
     if (!value) {
@@ -3709,6 +3866,31 @@ export default function AdminDashboard({ token, user, onLogout }) {
           />
         </View>
 
+        <View style={[styles.section, activeAdminMenu !== 'control_center' && styles.hiddenSection]}>
+          <Text style={styles.sectionTitle}>Admin Control Center</Text>
+          <View style={styles.controlGrid}>
+            {controlCenterCards.map((card) => (
+              <View key={card.key} style={styles.controlCard}>
+                <View style={styles.controlCardHeader}>
+                  <Text style={styles.controlCardTitle}>{card.label}</Text>
+                  <Text style={styles.controlCardValue}>{String(card.value)}</Text>
+                </View>
+                <Text style={styles.controlMeta}>{card.meta}</Text>
+                {(card.rows || []).slice(0, 3).map((row, index) => (
+                  <Text key={`${card.key}-${index}`} style={styles.controlListText}>
+                    {row}
+                  </Text>
+                ))}
+              </View>
+            ))}
+          </View>
+          {Object.keys(adminControlCenter.capabilities || {}).length === 0 && !loading && (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyText}>Control Center data is not loaded yet.</Text>
+            </View>
+          )}
+        </View>
+
         <View style={[styles.section, activeAdminMenu !== 'rate_limits' && styles.hiddenSection]}>
           <AdminRateLimitConfig
             token={token}
@@ -3908,6 +4090,35 @@ const styles = StyleSheet.create({
   section: { marginBottom: 30 },
   sectionTitle: { fontSize: 21, fontWeight: '800', color: COLORS.textMain, marginBottom: 12 },
   sectionSubtitle: { fontSize: 16, fontWeight: '800', color: '#274335', marginBottom: 10, marginTop: 4 },
+  controlGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 12,
+  },
+  controlCard: {
+    flexBasis: '48%',
+    flexGrow: 1,
+    minWidth: 240,
+    minHeight: 152,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#D7E2DA',
+    borderRadius: 12,
+    padding: 14,
+    ...SHADOWS.card,
+  },
+  controlCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginBottom: 8,
+  },
+  controlCardTitle: { color: '#1E3126', fontSize: 16, fontWeight: '900', flexShrink: 1 },
+  controlCardValue: { color: '#2E7D32', fontSize: 20, fontWeight: '900', textAlign: 'right' },
+  controlMeta: { color: '#355243', fontSize: 13, lineHeight: 18, marginBottom: 6 },
+  controlListText: { color: '#303A33', fontSize: 12, lineHeight: 17 },
   inputLabel: { fontSize: 14, color: '#303A33', fontWeight: '700', marginBottom: 6 },
   input: {
     borderWidth: 1,

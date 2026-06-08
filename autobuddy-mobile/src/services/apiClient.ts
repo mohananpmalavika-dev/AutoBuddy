@@ -1320,6 +1320,70 @@ export const adminAPI = {
 
   unblockUser: (userId: string) =>
     axiosInstance.put(`/api/admin/users/${userId}/unblock`, {}),
+
+  // Unified Admin Control Center
+  getAdminControlCapabilities: () =>
+    axiosInstance.get('/api/admin/control/capabilities'),
+
+  getAdminControlFares: () =>
+    axiosInstance.get('/api/admin/control/fares'),
+
+  updateAdminControlPricing: (data: any) =>
+    axiosInstance.put('/api/admin/control/fares/pricing', data),
+
+  getAdminControlDrivers: (params?: any) =>
+    axiosInstance.get('/api/admin/control/drivers', { params }),
+
+  updateAdminControlDriverStatus: (driverId: string, data: any) =>
+    axiosInstance.put(`/api/admin/control/drivers/${driverId}/status`, data),
+
+  getAdminControlPassengers: (params?: any) =>
+    axiosInstance.get('/api/admin/control/passengers', { params }),
+
+  updateAdminControlPassengerStatus: (passengerId: string, data: any) =>
+    axiosInstance.put(`/api/admin/control/passengers/${passengerId}/status`, data),
+
+  getAdminControlDisputes: (params?: any) =>
+    axiosInstance.get('/api/admin/control/disputes', { params }),
+
+  updateAdminControlDispute: (disputeId: string, data: any) =>
+    axiosInstance.put(`/api/admin/control/disputes/${disputeId}/control`, data),
+
+  getAdminControlRefunds: (params?: any) =>
+    axiosInstance.get('/api/admin/control/refunds', { params }),
+
+  processAdminControlRefund: (data: any) =>
+    axiosInstance.post('/api/admin/control/refunds/process', data),
+
+  reviewAdminControlRefund: (refundId: string, data: any) =>
+    axiosInstance.put(`/api/admin/control/refunds/${refundId}/review`, data),
+
+  getAdminControlCommissionConfig: () =>
+    axiosInstance.get('/api/admin/control/commissions/config'),
+
+  updateAdminControlCommissionConfig: (data: any) =>
+    axiosInstance.put('/api/admin/control/commissions/config', data),
+
+  getAdminControlCommissionSummary: (params?: any) =>
+    axiosInstance.get('/api/admin/control/commissions/summary', { params }),
+
+  getAdminControlDocuments: (params?: any) =>
+    axiosInstance.get('/api/admin/control/documents/review-queue', { params }),
+
+  reviewAdminControlDocument: (collection: string, documentId: string, data: any) =>
+    axiosInstance.put(`/api/admin/control/documents/${collection}/${documentId}/review`, data),
+
+  getAdminControlLiveRides: (params?: any) =>
+    axiosInstance.get('/api/admin/control/live-rides', { params }),
+
+  controlAdminLiveRide: (bookingId: string, data: any) =>
+    axiosInstance.put(`/api/admin/control/live-rides/${bookingId}/control`, data),
+
+  getAdminControlBlockedUsers: (params?: any) =>
+    axiosInstance.get('/api/admin/control/blocked-users', { params }),
+
+  setAdminControlBlockedUser: (userId: string, data: any) =>
+    axiosInstance.put(`/api/admin/control/blocked-users/${userId}`, data),
 };
 
 // =====================================================================
