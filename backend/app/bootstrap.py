@@ -62,6 +62,7 @@ def register_modular_routers(app: "FastAPI") -> None:
     from app.routers.admin_system_config import router as admin_system_config_router
     from app.routers.admin_trip_management import router as admin_trip_management_router
     from app.routers.admin_wallet_topups import router as admin_wallet_topups_router
+    from app.routers.advanced_features import router as advanced_features_router
     from app.routers.airport_rides import router as airport_router
     from app.routers.analytics import router as analytics_router
     from app.routers.analytics_intelligence_v3 import router as phase3_analytics_router
@@ -125,6 +126,7 @@ def register_modular_routers(app: "FastAPI") -> None:
         revenue_router,
         security_router,
         safety_router,
+        advanced_features_router,
         features_router,
         notifications_router,
         tier1_router,

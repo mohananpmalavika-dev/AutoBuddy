@@ -243,6 +243,7 @@ def test_full_server_route_graph_contains_critical_routes(monkeypatch):
         '/api/admin/wallet/topups/pending',
         '/api/admin/control/capabilities',
         '/api/uploads/profile-photo',
+        '/api/advanced/surge/airport/{airport_code}',
     }
 
     assert expected_paths <= mounted_paths
@@ -651,6 +652,7 @@ def test_full_server_smoke_requests_reach_real_app(monkeypatch):
 
     protected_paths = [
         '/api/v1/passengers/preferences',
+        '/api/advanced/surge/airport/HYD',
         '/api/admin/dashboard',
         '/api/uploads/download/example',
     ]
