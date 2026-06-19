@@ -13,10 +13,12 @@ def configure_socket_event_handlers(sio: "socketio.AsyncServer") -> None:
     from app.sockets import configure_socket_server
     from app.sockets.fleet_events import register_fleet_socket_events
     from app.sockets.operations_events import register_operations_socket_events
+    from app.sockets.realtime_updates import register_realtime_handlers
 
     configure_socket_server(sio)
     register_fleet_socket_events(sio)
     register_operations_socket_events(sio)
+    register_realtime_handlers(sio)
 
 
 async def initialize_default_catalogs(db: "AsyncIOMotorDatabase") -> None:
@@ -70,6 +72,7 @@ def register_modular_routers(app: "FastAPI") -> None:
     from app.routers.auth import router as auth_router
     from app.routers.bookings_extended import router as bookings_extended_router
     from app.routers.corporate_portal import router as corporate_portal_router
+    from app.routers.core_flows import router as core_flows_router
     from app.routers.coverage_admin import router as coverage_admin_router
     from app.routers.dispatch_service import router as dispatch_service_router
     from app.routers.driver_documents import router as driver_documents_router
@@ -118,6 +121,7 @@ def register_modular_routers(app: "FastAPI") -> None:
 
     routers = (
         auth_router,
+        core_flows_router,
         analytics_router,
         driver_trust_router,
         ride_products_router,
