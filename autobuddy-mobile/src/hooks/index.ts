@@ -3,6 +3,9 @@ export { useAuth } from './useAuth';
 export { useUserProfile } from './useUserProfile';
 export { useRoleAccess } from './useRoleAccess';
 
+// Admin
+export { useAdminMetrics, useSystemHealth, useAdminAlerts, useComplianceData, useSystemConfig, useAdminUserManagement, useAdminReports } from './useAdminDashboard';
+
 // Ride Management
 export { useRideHistory } from './useRideHistory';
 export { useRideReceipts } from './useRideReceipts';

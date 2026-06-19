@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,88 +10,27 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAdminMetrics, useSystemHealth, useAdminAlerts } from '../hooks/useAdminDashboard';
 
-export interface SystemMetrics {
-  activeUsers: number;
-  totalUsers: number;
-  dailyRevenue: number;
-  ridesToday: number;
-  avgRating: number;
-  newDriversToday: number;
-  openTickets: number;
-  complianceScore: number;
-}
-
-export interface SystemHealth {
-  apiServer: 'operational' | 'degraded' | 'down';
-  database: 'healthy' | 'warning' | 'critical';
-  cache: 'operational' | 'degraded' | 'down';
-  paymentGateway: 'operational' | 'degraded' | 'down';
-  apiUptime: string;
-  dbResponseTime: string;
-  cacheHitRate: string;
-  paymentTransactions: string;
-}
-
-export interface AdminAlert {
-  id: string;
-  type: 'system' | 'compliance' | 'fraud' | 'performance';
-  title: string;
-  message: string;
-  severity: 'low' | 'medium' | 'high' | 'critical';
-  timestamp: Date;
-}
+type TimeRange = '24h' | '7d' | '30d';
 
 interface AdminDashboardProps {
   token: string;
   onLogout: () => void;
+  onNavigate?: (screen: string, params?: any) => void;
 }
-
-type TimeRange = '24h' | '7d' | '30d';
 
 export default function AdminDashboard({
   token,
   onLogout,
+  onNavigate,
 }: AdminDashboardProps) {
   const [timeRange, setTimeRange] = useState<TimeRange>('24h');
-  const [metrics, setMetrics] = useState<SystemMetrics>({
-    activeUsers: 8543,
-    totalUsers: 125340,
-    dailyRevenue: 562400,
-    ridesToday: 4231,
-    avgRating: 4.6,
-    newDriversToday: 23,
-    openTickets: 145,
-    complianceScore: 97,
-  });
-  const [health, setHealth] = useState<SystemHealth>({
-    apiServer: 'operational',
-    database: 'healthy',
-    cache: 'operational',
-    paymentGateway: 'operational',
-    apiUptime: '99.95%',
-    dbResponseTime: '12ms',
-    cacheHitRate: '87%',
-    paymentTransactions: '12.4k',
-  });
-  const [alerts, setAlerts] = useState<AdminAlert[]>([
-    {
-      id: '1',
-      type: 'fraud',
-      title: 'Suspicious Activity Detected',
-      message: 'Account ID: USR-4521 - Multiple failed payment attempts',
-      severity: 'high',
-      timestamp: new Date(),
-    },
-    {
-      id: '2',
-      type: 'compliance',
-      title: 'Compliance Issue',
-      message: 'Driver DRV-8901 missing required documentation',
-      severity: 'medium',
-      timestamp: new Date(Date.now() - 3600000),
-    },
-  ]);
+
+  // Use actual admin hooks
+  const { metrics, loading: metricsLoading, error: metricsError, refetch: refetchMetrics } = useAdminMetrics(token, timeRange);
+  const { health, loading: healthLoading, error: healthError, refetch: refetchHealth } = useSystemHealth(token);
+  const { alerts, loading: alertsLoading, error: alertsError, refetch: refetchAlerts } = useAdminAlerts(token);
 
   const getHealthColor = (status: string) => {
     switch (status) {
@@ -348,32 +287,50 @@ export default function AdminDashboard({
         <View style={styles.actionsSection}>
           <Text style={styles.sectionTitle}>Management</Text>
           <View style={styles.actionsGrid}>
-            <Pressable style={styles.actionButton}>
+            <Pressable
+              style={styles.actionButton}
+              onPress={() => onNavigate?.('AdminUserManagement')}
+            >
               <MaterialIcons name="people" size={28} color="#2196F3" />
               <Text style={styles.actionLabel}>Users</Text>
             </Pressable>
 
-            <Pressable style={styles.actionButton}>
+            <Pressable
+              style={styles.actionButton}
+              onPress={() => onNavigate?.('AdminDriverManagement')}
+            >
               <MaterialIcons name="directions-car" size={28} color="#2196F3" />
               <Text style={styles.actionLabel}>Drivers</Text>
             </Pressable>
 
-            <Pressable style={styles.actionButton}>
+            <Pressable
+              style={styles.actionButton}
+              onPress={() => onNavigate?.('AdminPayments')}
+            >
               <MaterialIcons name="payment" size={28} color="#2196F3" />
               <Text style={styles.actionLabel}>Payments</Text>
             </Pressable>
 
-            <Pressable style={styles.actionButton}>
+            <Pressable
+              style={styles.actionButton}
+              onPress={() => onNavigate?.('AdminCompliance')}
+            >
               <MaterialIcons name="warning" size={28} color="#2196F3" />
               <Text style={styles.actionLabel}>Compliance</Text>
             </Pressable>
 
-            <Pressable style={styles.actionButton}>
+            <Pressable
+              style={styles.actionButton}
+              onPress={() => onNavigate?.('AdminReports')}
+            >
               <MaterialIcons name="bar-chart" size={28} color="#2196F3" />
               <Text style={styles.actionLabel}>Reports</Text>
             </Pressable>
 
-            <Pressable style={styles.actionButton}>
+            <Pressable
+              style={styles.actionButton}
+              onPress={() => onNavigate?.('AdminSettings')}
+            >
               <MaterialIcons name="settings" size={28} color="#2196F3" />
               <Text style={styles.actionLabel}>Settings</Text>
             </Pressable>
