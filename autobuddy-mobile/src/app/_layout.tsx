@@ -8,23 +8,11 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import RealtimeNotificationHost from '@/components/RealtimeNotificationHost';
 import { initializeBackgroundNotifications } from '@/lib/backgroundNotificationService';
-
-// Feature Context Providers
-import { NotificationProvider } from '@/contexts/NotificationContext';
-import { RatingsProvider } from '@/contexts/RatingsContext';
-import { SavedPlacesProvider } from '@/contexts/SavedPlacesContext';
-import { PreferencesProvider } from '@/contexts/PreferencesContext';
-import { ScheduledRidesProvider } from '@/contexts/ScheduledRidesContext';
-import { PaymentMethodsProvider } from '@/contexts/PaymentMethodsContext';
-import { FavoritesProvider } from '@/contexts/FavoritesContext';
-import { PromoCodesProvider } from '@/contexts/PromoCodesContext';
-import { SupportProvider } from '@/contexts/SupportContext';
-import { AccessibilityProvider } from '@/contexts/AccessibilityContext';
+import { AppStateProvider } from '@/contexts/AppStateProvider';
 
 const RootView = Platform.OS === 'web' ? View : GestureHandlerRootView;
 const HOME_ROUTES = new Set(['/', '/app']);
 
-// Initialize Sentry for error monitoring
 const SENTRY_DSN = process.env.EXPO_PUBLIC_SENTRY_DSN || '';
 if (SENTRY_DSN) {
   Sentry.init({
@@ -37,7 +25,6 @@ if (SENTRY_DSN) {
 export default function TabLayout() {
   const colorScheme = useColorScheme();
 
-  // Initialize background notifications on app startup
   useEffect(() => {
     async function setupBackgroundNotifications() {
       try {
@@ -53,31 +40,12 @@ export default function TabLayout() {
   return (
     <RootView style={{ flex: 1 }}>
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-        {/* Wrap all feature contexts */}
-        <NotificationProvider>
-          <RatingsProvider>
-            <SavedPlacesProvider>
-              <PreferencesProvider>
-                <ScheduledRidesProvider>
-                  <PaymentMethodsProvider>
-                    <FavoritesProvider>
-                      <PromoCodesProvider>
-                        <SupportProvider>
-                          <AccessibilityProvider>
-                            <AnimatedSplashOverlay />
-                            <Slot />
-                            <RouteHomeButton />
-                            <RealtimeNotificationHost />
-                          </AccessibilityProvider>
-                        </SupportProvider>
-                      </PromoCodesProvider>
-                    </FavoritesProvider>
-                  </PaymentMethodsProvider>
-                </ScheduledRidesProvider>
-              </PreferencesProvider>
-            </SavedPlacesProvider>
-          </RatingsProvider>
-        </NotificationProvider>
+        <AppStateProvider>
+          <AnimatedSplashOverlay />
+          <Slot />
+          <RouteHomeButton />
+          <RealtimeNotificationHost />
+        </AppStateProvider>
       </ThemeProvider>
     </RootView>
   );

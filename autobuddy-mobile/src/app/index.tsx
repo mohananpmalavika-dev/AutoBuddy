@@ -12,8 +12,7 @@ import { normalizeAuthSessionFromPayload } from '../lib/authSession';
 import type { ApiNotification, AppSession, PlanOption, SubscriptionConfigPayload, SubscriptionStatusPayload, UserRole } from '../lib/models';
 import { resolveRoleScreenKey } from '../lib/navigation';
 import { getPlanOptions } from '../lib/subscriptions';
-import { clearSession, loadSession, saveSession } from '../lib/session';
-import { loadSession as loadPersistentSession, saveSession as savePersistentSession, clearSession as clearPersistentSession, subscribeSession as subscribePersistentSession, extendSessionExpiry, isSessionValid } from '../lib/persistentSessionManager';
+import { loadSession, saveSession, clearSession, subscribeSession, extendSessionExpiry, isSessionValid } from '../lib/persistentSessionManager';
 import { initializeBackgroundNotifications } from '../lib/backgroundNotificationService';
 import { disconnectSocket } from '../services/socketClient';
 import '../services/driverBackgroundTracking';
@@ -57,16 +56,6 @@ function getCurrentWebBundleIds(): string[] {
 
 function normalizeStoredSession(candidate: StoredSessionCandidate | null | undefined): AppSession | null {
   return normalizeAuthSessionFromPayload(candidate);
-}
-
-function pickStoredSession(
-  persistentSession: StoredSessionCandidate | null,
-  legacySession: StoredSessionCandidate | null,
-): AppSession | null {
-  const persistent = normalizeStoredSession(persistentSession);
-  const legacy = normalizeStoredSession(legacySession);
-
-  return persistent?.refresh_token ? persistent : legacy?.refresh_token ? legacy : persistent || legacy;
 }
 
 export default function HomeScreen() {
@@ -259,18 +248,15 @@ export default function HomeScreen() {
   useEffect(() => {
     async function hydrate() {
       try {
-        const persistentStored = await loadPersistentSession();
-        const legacyStored = await loadSession();
-        const stored = pickStoredSession(persistentStored, legacyStored);
+        const stored = await loadSession();
 
         if (!stored?.token) {
-          setSession(null);
+          setBooting(false);
           return;
         }
+
         let activeSession: AppSession | null = stored;
 
-        // Keep previously saved user for resilient sessions across restarts,
-        // even when backend is temporarily unavailable at boot.
         if (stored?.user) {
           setSession(stored);
           if (stored.user?.id) {
@@ -280,35 +266,28 @@ export default function HomeScreen() {
 
         try {
           const user = await apiRequest<AppSession['user']>('/auth/me', { token: stored.token });
-          const refreshedStored = pickStoredSession(await loadPersistentSession(), await loadSession()) || stored;
-          const nextSession = { ...stored, ...refreshedStored, token: refreshedStored.token || stored.token, user };
+          const nextSession = { ...stored, user };
           activeSession = nextSession;
           setSession(nextSession);
-          
-          // Save to both persistent and legacy session
-          await savePersistentSession(nextSession);
           await saveSession(nextSession);
-          
-          // Extend session expiry on successful auth
           await extendSessionExpiry();
         } catch (err: unknown) {
           if (isAuthSessionInvalid(err)) {
             const localSessionStillValid = await isSessionValid().catch(() => false);
             if (localSessionStillValid) {
+              setBooting(false);
               return;
             }
             setSession(null);
-            await clearPersistentSession();
             await clearSession();
+            setBooting(false);
             return;
           }
-          // Keep existing stored session and let in-screen API retries recover.
           if (!stored?.user) {
             setSession(null);
           }
         }
 
-        // Initialize background services for persistent connectivity
         if (activeSession?.token) {
           await initializeBackgroundNotifications();
         }
@@ -330,21 +309,14 @@ export default function HomeScreen() {
     }
 
     setSession(normalizedSession);
-    // Persist session data
-    await savePersistentSession(normalizedSession);
     await saveSession(normalizedSession);
     await extendSessionExpiry();
 
-    // Provide persistent Sentry context for user/driver issues
     if (normalizedSession?.user?.id) {
       Sentry.setUser({ id: String(normalizedSession.user.id) });
     }
   }, []);
 
-  /**
-   * Handle logout - ONLY CLEARS SESSION ON EXPLICIT USER ACTION
-   * Closing browser/app does NOT trigger logout
-   */
   const handleLogout = useCallback(async () => {
     setSession(null);
     setShowPlanGate(false);
@@ -352,14 +324,9 @@ export default function HomeScreen() {
     setPlanOptions([]);
     setPlanSelectionError('');
 
-    // Clear Sentry user context when the session is ended
     Sentry.setUser(null);
 
-    // Only clear when user explicitly logs out
-    await clearPersistentSession();
     await clearSession();
-
-    // Disconnect socket
     disconnectSocket();
   }, []);
 
@@ -370,13 +337,11 @@ export default function HomeScreen() {
     }
   }, [isWeb]);
 
-  // Subscribe to persistent session changes for auto-restore functionality
   useEffect(() => {
-    const unsubscribe = subscribePersistentSession((session: AppSession | null) => {
+    const unsubscribe = subscribeSession((session: AppSession | null) => {
       if (session && session.token) {
         setSession(session);
       } else {
-        // Session was explicitly cleared
         setSession(null);
       }
     });
@@ -686,10 +651,10 @@ export default function HomeScreen() {
 
   if (booting) {
     return renderCenteredShell(
-      'Loading AutoBuddy...',
+      'Preparing secure ride experience...',
       <>
         <ActivityIndicator size="large" color={COLORS.primary} />
-        <Text style={styles.loaderText}>Preparing secure ride experience</Text>
+        <Text style={styles.loaderText}>Loading AutoBuddy</Text>
       </>,
     );
   }
@@ -699,12 +664,18 @@ export default function HomeScreen() {
   }
 
   if (checkingSubscriptionGate) {
-    return renderCenteredShell('Checking subscription...', <ActivityIndicator size="large" color={COLORS.primary} />);
+    return renderCenteredShell(
+      'Finalizing your setup...',
+      <>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+        <Text style={styles.loaderText}>Verifying subscription plan</Text>
+      </>,
+    );
   }
 
   if (showPlanGate && ['driver', 'operator', 'passenger'].includes(session.user.role)) {
     return renderCenteredShell(
-      'Choose Subscription Plan',
+      'Choose Your Plan',
       <View style={[styles.shellCardWrap, isCompactWeb && styles.shellCardWrapCompact]}>
         <SubscriptionGate
           role={gateRole || 'passenger'}
