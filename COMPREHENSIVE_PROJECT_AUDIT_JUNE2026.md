@@ -523,8 +523,6 @@ The AutoBuddy platform has extensive documentation claiming 100% feature complet
 - [ ] Conversation archiving not working
 - [ ] Blocked users not properly implemented
 
-**Effort:** 2-3 hours  
-**Priority:** LOW
 
 ---
 
@@ -536,8 +534,6 @@ The AutoBuddy platform has extensive documentation claiming 100% feature complet
 - [ ] Profile card display may be incomplete
 - [ ] Favorite driver quick-booking incomplete
 
-**Effort:** 2-3 hours  
-**Priority:** LOW
 
 ---
 
@@ -549,8 +545,6 @@ The AutoBuddy platform has extensive documentation claiming 100% feature complet
 - [ ] Earnings projection algorithm not tested
 - [ ] Traffic pattern analysis not implemented
 
-**Effort:** 4-5 hours  
-**Priority:** LOW
 
 ---
 
@@ -562,8 +556,6 @@ The AutoBuddy platform has extensive documentation claiming 100% feature complet
 - [ ] Daily spin reset not working correctly
 - [ ] Prize redemption workflow incomplete
 
-**Effort:** 3-4 hours  
-**Priority:** LOW
 
 ---
 
@@ -574,9 +566,6 @@ The AutoBuddy platform has extensive documentation claiming 100% feature complet
 - [ ] Promotion eligibility not verified
 - [ ] Discount application not fully working
 - [ ] Expired promotion handling incomplete
-
-**Effort:** 2-3 hours  
-**Priority:** LOW
 
 ---
 
