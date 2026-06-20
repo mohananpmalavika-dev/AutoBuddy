@@ -8,15 +8,18 @@
 
 ## Overview
 
-The dispatch system is the critical link between passenger ride requests and available drivers. It implements a **multi-factor matching algorithm** that evaluates drivers on five dimensions:
+The dispatch system is the critical link between passenger ride requests and available drivers. It implements a **comprehensive multi-factor matching algorithm** that evaluates drivers on eight dimensions:
 
-- **Distance** (30%) - Proximity to pickup location
-- **Rating** (20%) - Driver quality metrics  
+- **Distance** (25%) - Proximity to pickup location
+- **Rating** (15%) - Driver quality metrics  
 - **Acceptance Rate** (15%) - Driver reliability
-- **Vehicle Match** (20%) - Vehicle type and capacity
-- **ETA** (15%) - Time to passenger location
+- **Vehicle Match** (15%) - Vehicle type and capacity
+- **ETA** (10%) - Time to passenger location
+- **Hot Zone Boost** (5%) - High-demand area incentive
+- **Load Balancing** (10%) - Fair work distribution across drivers
+- **Surge Pricing** (5%) - Peak demand considerations
 
-The system uses **first-accept-wins conflict resolution** to ensure exactly one driver gets matched to a ride, with automatic decline-all for other drivers.
+The system uses **first-accept-wins conflict resolution** to ensure exactly one driver gets matched to a ride, with automatic decline-all for other drivers. **Load balancing** ensures no single driver gets overwhelmed, and **hot zone targeting** encourages drivers to high-demand areas.
 
 ---
 
@@ -57,37 +60,33 @@ The system uses **first-accept-wins conflict resolution** to ensure exactly one 
 **Scoring breakdown (0-100 total):**
 
 ```python
-# Component scores with max values:
-distance_score = 30      # Exponential decay, closer = better
-rating_score = 20        # Linear from 0-5 stars
-acceptance_score = 15    # >95% = full points
-vehicle_score = 20       # Exact match = 20, pooling capable = 15
-eta_score = 15           # <5 min = 15 points, 0 at 15 min
+# Component scores with weighted values:
+distance_score = 25        # Exponential decay, closer = better (max 25 pts)
+rating_score = 15          # Linear from 0-5 stars (max 15 pts)
+acceptance_score = 15      # >95% = full points (max 15 pts)
+vehicle_score = 15         # Exact match = 15, pooling capable = 10 (max 15 pts)
+eta_score = 10             # <5 min = 10 points, 0 at 15 min (max 10 pts)
+hot_zone_score = 5         # High-demand area bonus (max 5 pts)
+load_balance_score = 10    # Distribution across drivers (max 10 pts)
+surge_bonus = 5            # Peak hour incentive (max 5 pts)
 
-# Weighted total:
-total = (
-    distance_score * 0.30 +      # 30% weight
-    rating_score * 0.20 +        # 20% weight
-    acceptance_score * 0.15 +    # 15% weight
-    vehicle_score * 0.20 +       # 20% weight
-    eta_score * 0.15             # 15% weight
-)  # Result: 0-100
+# Total weighted: 25 + 15 + 15 + 15 + 10 + 5 + 10 + 5 = 100%
 ```
 
 **Distance scoring (exponential decay):**
 ```
-0.5km: 30 points
-2km: 22.5 points
-5km: 9 points
-10km: 1 point
+0.5km: 25 points
+2km: 18.75 points
+5km: 7.5 points
+10km: 0.8 points
 >10km: negligible
 ```
 
 **Rating scoring (linear):**
 ```
-5.0 stars: 20 points
-4.5 stars: 18 points
-4.0 stars: 16 points
+5.0 stars: 15 points
+4.5 stars: 13.5 points
+4.0 stars: 12 points
 2.0 stars: 0 points
 ```
 
@@ -99,6 +98,191 @@ total = (
 80% acceptance: 8 points
 <70% acceptance: 0 points
 ```
+
+**Vehicle matching:**
+```
+Exact type match + empty: 15 points
+Exact type match + has passengers: 10 points
+Different type: 0 points
+```
+
+**ETA scoring:**
+```
+<5 minutes: 10 points
+5-10 minutes: 7-10 points (linear degradation)
+10-15 minutes: 0-7 points
+>15 minutes: 0 points
+```
+
+**Hot Zone Bonus (5 points):**
+- Airport zone: +5 points (base 2.5x surge)
+- CBD: +5 points (base 2.0x surge)
+- Railway Station: +5 points (base 1.8x surge)
+- Shopping District: +5 points (base 1.6x surge)
+
+Drivers in high-demand zones get priority to incentivize coverage.
+
+**Load Balancing (0-10 points):**
+```
+Load Factor = (active_rides * 0.3) + (pending_offers * 0.2) + (completed_recently * 0.1)
+
+Idle (load <0.2): 10 points (10 * (1 - 0.1))
+Available (0.2-0.5): 7-10 points
+Busy (0.5-0.8): 4-7 points
+Fully Loaded (>0.8): 2-4 points
+```
+
+Prevents overloading single drivers while distributing work fairly.
+
+**Surge Pricing Consideration (0-5 points):**
+```
+Off-peak (1.0x): 0 points
+Normal (1.2x): 2 points
+Peak/Hot Zone (1.5x): 4 points
+Peak + Hot Zone (2.0x+): 5 points
+```
+
+Encourages drivers toward high-demand periods and locations.
+
+---
+
+#### 2. Hot Zones & Demand Heatmap
+
+**Predefined Hot Zones:**
+
+```python
+HOT_ZONES = [
+    {
+        "name": "Airport",
+        "center": (28.5621, 77.1200),
+        "radius_km": 3.0,
+        "base_surge": 2.5
+    },
+    {
+        "name": "CBD (Connaught Place)",
+        "center": (28.7041, 77.1025),
+        "radius_km": 2.5,
+        "base_surge": 2.0
+    },
+    {
+        "name": "Railway Station",
+        "center": (28.6432, 77.2197),
+        "radius_km": 2.0,
+        "base_surge": 1.8
+    },
+    {
+        "name": "Shopping District",
+        "center": (28.5244, 77.1855),
+        "radius_km": 1.5,
+        "base_surge": 1.6
+    }
+]
+```
+
+**Surge Multiplier Logic:**
+```
+- Normal (off-peak): 1.0x (base fare)
+- Off-peak in hot zone: 1.0x
+- Peak hours (8-10am, 6-9pm): 1.2x
+- Peak hours in hot zone: 1.5x
+- Airport during peak: 2.5x (max surge)
+```
+
+**Endpoint:**
+```http
+GET /api/v3/dispatch/hot-zones
+
+Response:
+{
+  "hot_zones": [
+    {
+      "zone_name": "Airport",
+      "center": {"lat": 28.5621, "lng": 77.1200},
+      "radius_km": 3.0,
+      "current_surge": 2.5,
+      "demand_level": "HIGH"
+    }
+  ]
+}
+```
+
+---
+
+#### 3. Load Balancing System
+
+**Load Factor Calculation (0-1 scale):**
+
+```python
+def calculate_load_factor(driver_id):
+    active_rides = count(driver's current in_progress + arrived)
+    pending_offers = count(driver's PENDING offers in last 15 min)
+    completed_recently = count(driver's rides completed in last 15 min)
+
+    load = (active_rides * 0.3) + (pending_offers * 0.2) + (completed_recently * 0.1)
+    return min(1.0, load)  # Cap at 100%
+```
+
+**Examples:**
+
+```
+Driver Status                              Load Factor    Load Score
+─────────────────────────────────────────────────────────────────
+Idle (no rides, no offers)                 0.0            10.0 pts
+1 active ride, no pending                  0.3            7.0 pts
+2 active rides, 2 pending offers           0.9            1.0 pts
+3 active rides, 5 pending offers           1.0 (capped)   0.0 pts
+```
+
+Lower-loaded drivers are prioritized to prevent burnout and ensure quality service.
+
+**Endpoint:**
+```http
+GET /api/v3/dispatch/driver-load/{driver_id}
+
+Response:
+{
+  "driver_id": "driver_1",
+  "load_factor": 0.45,
+  "load_percent": 45,
+  "status": "AVAILABLE",
+  "recommendation": "Can accept 1-2 more rides"
+}
+```
+
+---
+
+#### 4. Surge Pricing Integration
+
+**Passenger Experience:**
+```http
+POST /api/v3/dispatch/match-ride/with-surge-info
+
+Response:
+{
+  "ride_id": "ride-123",
+  "top_candidates": [...],
+  "surge_pricing": {
+    "multiplier": 1.5,
+    "is_peak_hours": true,
+    "in_hot_zone": true,
+    "hot_zone_name": "Airport",
+    "estimated_base_fare": 100,
+    "estimated_with_surge": 150
+  }
+}
+```
+
+Passengers see surge pricing upfront before confirming ride, allowing informed decision-making.
+
+**Driver Earnings Impact:**
+```
+Base fare: ₹100
+1.0x multiplier: ₹100 (off-peak, normal area)
+1.5x multiplier: ₹150 (peak hours)
+2.5x multiplier: ₹250 (peak at airport)
+```
+
+---
 
 ---
 
@@ -449,21 +633,19 @@ Call POST /{ride_id}/complete (ride finished)
 
 ## Endpoints
 
-### 1. Match Ride
+### 1. Match Ride (with surge pricing)
 ```http
-POST /api/v3/dispatch/match-ride
+POST /api/v3/dispatch/match-ride/with-surge
 
 Request:
 {
   "ride_id": "ride-123",
   "passenger_id": "pass-456",
-  "passenger_rating": 4.9,
   "pickup_lat": 12.9716,
   "pickup_lng": 77.5946,
   "dropoff_lat": 12.9352,
   "dropoff_lng": 77.6245,
-  "vehicle_type": "auto",
-  "preferred_drivers": ["driver_1", "driver_2"]
+  "vehicle_type": "auto"
 }
 
 Response:
@@ -472,24 +654,100 @@ Response:
   "top_candidates": [
     {
       "driver_id": "driver_1",
-      "match_score": 92.5,
+      "match_score": 87.5,
       "distance_km": 2.5,
       "eta_minutes": 6.2,
-      "distance_score": 28.5,
-      "rating_score": 18.0,
+      "distance_score": 24.5,
+      "rating_score": 14.0,
       "acceptance_rate_score": 15.0,
-      "vehicle_score": 20.0,
-      "eta_score": 14.5,
-      "reasons": ["Very close", "Highly rated", "Reliable driver"]
+      "vehicle_score": 15.0,
+      "eta_score": 8.2,
+      "hot_zone_score": 5.0,
+      "load_balance_score": 8.3,
+      "surge_bonus": 3.2,
+      "reasons": ["Very close", "Highly rated", "In high-demand zone"]
     }
-    // 4 more...
   ],
   "dispatch_started_at": "2026-06-20T18:45:00+05:30",
-  "expires_in_seconds": 12
+  "surge_pricing": {
+    "multiplier": 1.5,
+    "is_peak_hours": true,
+    "in_hot_zone": true,
+    "hot_zone_name": "Airport",
+    "estimated_base_fare": 250,
+    "estimated_with_surge": 375
+  }
 }
 ```
 
-### 2. Offer Response
+### 2. Hot Zones Heatmap
+```http
+GET /api/v3/dispatch/hot-zones
+
+Response:
+{
+  "current_time": "2026-06-20T18:45:00+05:30",
+  "is_peak_hours": true,
+  "hot_zones": [
+    {
+      "zone_name": "Airport",
+      "center": {"lat": 28.5621, "lng": 77.1200},
+      "radius_km": 3.0,
+      "base_surge": 2.5,
+      "current_surge": 3.75,
+      "is_peak": true,
+      "demand_level": "HIGH"
+    },
+    {
+      "zone_name": "CBD",
+      "center": {"lat": 28.7041, "lng": 77.1025},
+      "radius_km": 2.5,
+      "base_surge": 2.0,
+      "current_surge": 3.0,
+      "is_peak": true,
+      "demand_level": "HIGH"
+    }
+  ],
+  "driver_strategy": "Focus on high-surge zones for better earnings"
+}
+```
+
+### 3. Driver Load Status
+```http
+GET /api/v3/dispatch/driver-load/{driver_id}
+
+Response:
+{
+  "driver_id": "driver_1",
+  "load_factor": 0.45,
+  "load_percent": 45,
+  "status": "AVAILABLE",
+  "recommendation": "Can accept 1-2 more rides",
+  "timestamp": "2026-06-20T18:45:00+05:30"
+}
+```
+
+### 4. Dispatch Analytics
+```http
+GET /api/v3/dispatch/dispatch-analytics
+
+Response:
+{
+  "timestamp": "2026-06-20T18:45:00+05:30",
+  "active_sessions": 42,
+  "matched_rides": 128,
+  "expired_searches": 5,
+  "offer_acceptance_rate": 94.2,
+  "total_offers_sent": 645,
+  "system_health": {
+    "average_match_time_seconds": 2.1,
+    "broadcasts_per_second": 15,
+    "database_connections": 8
+  }
+}
+```
+
+### 5. Offer Response
 ```http
 POST /api/v3/dispatch/offer-response/{ride_id}/{driver_id}
 
@@ -521,7 +779,7 @@ Response:
 }
 ```
 
-### 3. Dispatch Status
+### 6. Dispatch Status
 ```http
 GET /api/v3/dispatch/dispatch-status/{ride_id}
 
@@ -534,41 +792,40 @@ Response:
   "accepted_count": 1,
   "declined_count": 2,
   "pending_count": 2,
-  "created_at": "2026-06-20T18:45:00+05:30",
-  "expires_at": "2026-06-20T18:45:12+05:30",
-  "offers": [
-    {
-      "driver_id": "driver_1",
-      "status": "ACCEPTED",
-      "match_score": 92.5,
-      "distance_km": 2.5,
-      "eta_minutes": 6.2,
-      "offered_at": "2026-06-20T18:45:00+05:30",
-      "response_at": "2026-06-20T18:45:02+05:30"
-    }
-    // 4 more...
-  ]
+  "offers": [...]
 }
 ```
 
-### 4. Driver Metrics
+### 7. Driver Metrics
 ```http
 GET /api/v3/dispatch/driver-metrics?driver_id=driver_1&days=30
 
 Response:
 {
   "driver_id": "driver_1",
-  "period_days": 30,
   "total_offers": 245,
   "accepted": 237,
-  "declined": 8,
   "acceptance_rate": 96.7,
-  "average_match_score": 87.2,
-  "reliability_score": 106.4  // capped at 100
+  "average_match_score": 87.2
 }
 ```
 
-### 5. WebSocket Dispatch
+### 8. WebSocket Analytics
+```ws
+WS /api/v3/dispatch/ws/dispatch-analytics
+
+Receive (every 5 seconds):
+{
+  "timestamp": "2026-06-20T18:45:00+05:30",
+  "active_rides": 24,
+  "pending_offers": 12,
+  "average_match_score": 87.5,
+  "surge_zones_active": 3,
+  "system_status": "HEALTHY"
+}
+```
+
+### 9. WebSocket Dispatch
 ```ws
 WS /api/v3/dispatch/ws/{ride_id}/driver-dispatch/{driver_id}
 
@@ -592,12 +849,18 @@ Send (driver response):
 
 - [ ] Haversine distance calculation accurate vs maps API
 - [ ] Distance score exponential decay at correct thresholds
-- [ ] Rating score linear 0-20 across 0-5 stars
+- [ ] Rating score linear 0-15 across 0-5 stars
 - [ ] Acceptance rate scoring at breakpoints (70%, 95%, 98%)
-- [ ] Vehicle match: exact type gets 20, pooling gets 15, mismatch gets 0
-- [ ] ETA score: <5min = 15pts, 15min+ = 0pts
+- [ ] Vehicle match: exact type gets 15, pooling gets 10, mismatch gets 0
+- [ ] ETA score: <5min = 10pts, 15min+ = 0pts
+- [ ] Hot zone detection correctly identifies zones
+- [ ] Hot zone bonus applied only to drivers in zone
+- [ ] Load factor calculation: 0.3 per active ride, 0.2 per pending, 0.1 per recent
+- [ ] Load balance score: fully loaded = 0pts, idle = 10pts
+- [ ] Surge multiplier: peak = 1.5x, hot zone = 2.5x base
+- [ ] Surge bonus correctly affects final score (0-5 points)
 - [ ] Total score never exceeds 100
-- [ ] Top 5 drivers sorted correctly by score
+- [ ] Top 5 drivers sorted correctly by total score
 - [ ] First driver to accept blocks other offers
 - [ ] Auto-decline all others when one accepts
 - [ ] Offer expires after 12 seconds
@@ -608,6 +871,13 @@ Send (driver response):
 - [ ] Concurrent acceptances (edge case) - only first wins
 - [ ] Re-dispatch to tier 2 drivers if tier 1 all decline
 - [ ] WebSocket disconnection gracefully handled
+- [ ] Hot zones heatmap shows accurate current surge
+- [ ] Load factor accounts for recent completions
+- [ ] Load balancing prevents single driver overload
+- [ ] Surge pricing visible to passengers upfront
+- [ ] Analytics dashboard shows accurate metrics
+- [ ] Peak hours correctly identified (8-10am, 6-9pm)
+- [ ] Off-peak surge multiplier = 1.0x baseline
 
 ---
 
