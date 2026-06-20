@@ -42,6 +42,14 @@ class EmployeeRoleType(str, Enum):
     COMPANY_ADMIN = "company_admin"
 
 
+class InvoiceStatus(str, Enum):
+    GENERATED = "generated"
+    SENT = "sent"
+    VIEWED = "viewed"
+    PAID = "paid"
+    OVERDUE = "overdue"
+
+
 class CorporateCompany(BaseModel):
     """Main corporate company entity."""
     id: str = Field(default_factory=lambda: str(get_ist_now().timestamp()))
@@ -267,40 +275,48 @@ class CorporateInvoice(BaseModel):
     id: str = Field(default_factory=lambda: str(get_ist_now().timestamp()))
     company_id: str
     invoice_number: str  # e.g., "INV-2024-001"
-    
+
     # Period
-    billing_month: str  # YYYY-MM
-    start_date: datetime
-    end_date: datetime
-    
+    billing_period_start: datetime
+    billing_period_end: datetime
+
     # Charges
     total_rides: int
-    total_ride_cost: float
-    platform_fee: float  # % of ride cost
-    taxes: float
+    total_employees: int
     total_amount: float
-    
-    # Employee breakdown
-    employee_breakdown: List[Dict[str, Any]] = Field(default_factory=list)
-    
-    # Payment status
-    status: str  # "draft", "sent", "pending", "paid", "overdue"
-    payment_due_date: datetime
-    payment_date: Optional[datetime] = None
-    
+
+    # Breakdown by employee and department
+    breakdown_by_employee: List[Dict[str, Any]] = Field(default_factory=list)
+    breakdown_by_department: List[Dict[str, Any]] = Field(default_factory=list)
+
+    # Invoice status
+    invoice_status: InvoiceStatus = InvoiceStatus.GENERATED
+
+    # Important dates
+    issued_date: datetime = Field(default_factory=get_ist_now)
+    due_date: datetime
+
+    # Payment tracking
+    payment_received_date: Optional[datetime] = None
+    paid_amount: Optional[float] = None
+    payment_method: Optional[str] = None  # "card", "bank_transfer", etc
+
     # Additional info
     notes: Optional[str] = None
     created_at: datetime = Field(default_factory=get_ist_now)
-    
+    updated_at: datetime = Field(default_factory=get_ist_now)
+
     class Config:
         json_schema_extra = {
             "example": {
                 "company_id": "corp_123",
-                "invoice_number": "INV-2024-003",
-                "billing_month": "2024-03",
-                "total_rides": 125,
-                "total_ride_cost": 25000,
-                "total_amount": 27500
+                "invoice_number": "INV-2026-06-001",
+                "billing_period_start": "2026-06-01",
+                "billing_period_end": "2026-06-30",
+                "total_rides": 156,
+                "total_employees": 24,
+                "total_amount": 2340,
+                "invoice_status": "generated"
             }
         }
 

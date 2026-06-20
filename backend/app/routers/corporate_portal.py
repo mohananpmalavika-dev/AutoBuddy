@@ -12,10 +12,12 @@ from uuid import uuid4
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import ReturnDocument
+from sqlalchemy.orm import Session
 
 from app.db.deps import get_db
 from app.utils.rbac import get_current_user_from_request
 from app.utils.time_helpers import get_ist_now
+from app.routers.corporate_billing_production import CorporateBillingService
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/corporate", tags=["corporate_portal"])
@@ -91,6 +93,23 @@ def _user_id(current_user: Dict[str, Any]) -> str:
         or current_user.get("sub")
         or current_user.get("_id")
     )
+
+
+async def _update_employee_spending_on_approval(
+    db: Session, employee_id: str, ride_cost: float
+) -> None:
+    """Update employee spending when ride is approved (integration hook with CorporateBillingService)"""
+    try:
+        from app.db.corporate_portal_models import CorporateEmployee
+        from sqlalchemy import select, update
+
+        stmt = select(CorporateEmployee).where(CorporateEmployee.id == employee_id)
+        employee = db.execute(stmt).scalar_one_or_none()
+        if employee:
+            employee.budget_spent_this_month += ride_cost
+            db.commit()
+    except Exception as e:
+        logger.warning(f"Failed to update employee spending: {str(e)}")
 
 
 def _company_lookup(company_id: str) -> Dict[str, Any]:
