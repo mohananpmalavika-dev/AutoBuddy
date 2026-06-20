@@ -13,6 +13,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { DriverDocumentStatus, DocumentStatus } from '../components/DriverDocumentStatus';
 import { DriverEarningsWidget, EarningsData } from '../components/DriverEarningsWidget';
 import { RideRequestCard, RideRequest } from '../components/DriverRideRequestCard';
+import DriverRideManagement from '../components/DriverRideManagement';
 
 interface DriverDashboardSimplifiedProps {
   token: string;
@@ -189,15 +190,15 @@ export function DriverDashboardSimplified({
 
       {/* Main content */}
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Ride request modal (if there's an active request) */}
-        {rideRequest && (
-          <View style={styles.rideRequestContainer}>
-            <RideRequestCard
-              ride={rideRequest}
-              onAccept={handleRideAccept}
-              onDecline={handleRideDecline}
-            />
-          </View>
+        {/* Show ride management when online */}
+        {isOnline && (
+          <DriverRideManagement
+            token={token}
+            driverId={user?.id}
+            userId={user?.id}
+            onRideAccepted={() => setActiveTab('map')}
+            onRideCompleted={() => setActiveTab('rides')}
+          />
         )}
 
         {/* Tab content */}
