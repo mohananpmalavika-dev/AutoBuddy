@@ -11,6 +11,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useDriverDispatch, RideOffer } from '../hooks/useDriverDispatch';
 import { useRideLifecycleManager } from '../hooks/useRideLifecycleManager';
 import { useRidePaymentProcessing } from '../hooks/useRidePaymentProcessing';
+import { useRidePaymentCapture } from '../hooks/useRidePaymentCapture';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import { RideRequestCard } from '../components/DriverRideRequestCard';
 
@@ -45,10 +46,16 @@ export function DriverRideManagement({
   const dispatch = useDriverDispatch(token, driverId);
   const lifecycle = useRideLifecycleManager(token, userId);
   const payment = useRidePaymentProcessing(token, userId);
+  const paymentCapture = useRidePaymentCapture(token);
   const notifications = usePushNotifications(token, userId);
 
   const queueRef = useRef<RideOffer[]>([]);
   const expiredOffersRef = useRef<Set<string>>(new Set());
+  const activeRideRef = useRef<{
+    rideId: string;
+    paymentSessionId: string;
+    fare: number;
+  } | null>(null);
 
   // Initialize: fetch offers when driver goes online
   useEffect(() => {
@@ -144,6 +151,13 @@ export function DriverRideManagement({
           fare.totalFare,
           'default' // Use default payment method
         );
+
+        // Store active ride info for completion
+        activeRideRef.current = {
+          rideId: currentOffer.rideId,
+          paymentSessionId: authId,
+          fare: fare.totalFare,
+        };
 
         // Notify passenger
         await notifications.sendLocalNotification({
@@ -270,6 +284,56 @@ export function DriverRideManagement({
       }
     },
     [currentOffer, dispatch]
+  );
+
+  /**
+   * Complete ride and capture payment
+   * Called when passenger marks ride complete
+   */
+  const handleRideCompleted = useCallback(
+    async (rideId: string) => {
+      if (!activeRideRef.current || !token) return;
+
+      try {
+        // Complete ride in lifecycle
+        await lifecycle.completeRide(rideId);
+
+        // Capture the authorized payment
+        const rideInfo = activeRideRef.current;
+        const result = await paymentCapture.captureRidePayment(
+          rideInfo.paymentSessionId,
+          rideId,
+          rideInfo.fare
+        );
+
+        // Notify passenger of payment confirmation
+        await notifications.sendLocalNotification({
+          title: 'Payment Confirmed',
+          body: `Ride completed • Amount charged: ₹${rideInfo.fare}`,
+          type: 'payment_update',
+          data: {
+            rideId: rideId,
+            status: 'completed',
+            transactionId: result.transactionId,
+          },
+        });
+
+        Alert.alert(
+          'Ride Completed',
+          `Payment captured: ₹${rideInfo.fare.toFixed(2)}`
+        );
+
+        // Clear active ride
+        activeRideRef.current = null;
+        onRideCompleted?.(rideId);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Payment capture failed';
+        Alert.alert('Error', message);
+        console.error('[DriverRideManagement] Ride completion failed:', error);
+      }
+    },
+    [token, lifecycle, paymentCapture, notifications, onRideCompleted]
   );
 
   if (!isOnline) {
