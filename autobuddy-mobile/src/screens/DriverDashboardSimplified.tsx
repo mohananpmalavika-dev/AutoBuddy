@@ -16,6 +16,8 @@ import { RideRequestCard, RideRequest } from '../components/DriverRideRequestCar
 import DriverRideManagement from '../components/DriverRideManagement';
 import { DocumentExpiryAlertBanner, DocumentExpiryListScreen } from '../screens/document-expiry/DocumentExpiryScreens';
 import { useDocumentExpiry } from '../hooks/useDocumentExpiry';
+import { ReferralProgramScreen } from '../screens/referral/ReferralScreens';
+import { SuspensionAppealScreens } from '../screens/suspension/SuspensionAppealScreens';
 
 interface DriverDashboardSimplifiedProps {
   token: string;
@@ -23,7 +25,7 @@ interface DriverDashboardSimplifiedProps {
   onLogout: () => void;
 }
 
-type TabType = 'map' | 'rides' | 'earnings' | 'profile' | 'documents-expiry';
+type TabType = 'map' | 'rides' | 'earnings' | 'profile' | 'documents-expiry' | 'referral' | 'suspension';
 
 export function DriverDashboardSimplified({
   token,
@@ -249,6 +251,18 @@ export function DriverDashboardSimplified({
         {activeTab === 'documents-expiry' && (
           <View style={styles.tabContent}>
             <DocumentExpiryListScreen driverId={user?.id} authToken={token} />
+          </View>
+        )}
+
+        {activeTab === 'referral' && (
+          <View style={styles.tabContent}>
+            <ReferralProgramScreen userId={user?.id} authToken={token} />
+          </View>
+        )}
+
+        {activeTab === 'suspension' && (
+          <View style={styles.tabContent}>
+            <SuspensionAppealScreens userId={user?.id} authToken={token} />
           </View>
         )}
 
