@@ -1,262 +1,256 @@
-import { useState, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import axios from 'axios';
 
-export interface Vehicle {
-  id: string;
-  driverId: string;
-  type: 'sedan' | 'suv' | 'hatchback' | 'auto' | 'bike';
-  registrationNumber: string;
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+
+interface Vehicle {
+  vehicle_id: string;
+  vehicle_type: string;
+  registration_number: string;
   make: string;
   model: string;
   year: number;
   color: string;
-  fuelType: 'petrol' | 'diesel' | 'electric' | 'hybrid';
-  registrationExpiry: Date;
-  insuranceExpiry: Date;
-  pollutionExpiry: Date;
-  pucNumber?: string;
-  registrationCertificate?: string;
-  insuranceCertificate?: string;
-  documents: {
-    type: 'rc' | 'insurance' | 'pollution' | 'puc';
-    fileUrl: string;
-    expiryDate: Date;
-  }[];
-  maintenanceHistory: MaintenanceRecord[];
-  status: 'active' | 'inactive' | 'maintenance' | 'rejected';
-  createdAt: Date;
-  lastVerified?: Date;
+  is_active: boolean;
+  is_verified: boolean;
 }
 
-export interface MaintenanceRecord {
-  id: string;
-  vehicleId: string;
-  date: Date;
-  type: 'service' | 'repair' | 'inspection';
-  description: string;
-  cost: number;
-  nextDueDate?: Date;
-  mileage?: number;
+interface VehicleDocument {
+  document_id: string;
+  type: string;
+  number: string;
+  expiry_date: string;
+  status: string;
+  days_to_expiry: number;
+  is_expiring_soon: boolean;
+  verified: boolean;
 }
 
-interface UseVehicleManagementReturn {
-  vehicles: Vehicle[];
-  loading: boolean;
-  error: Error | null;
-  fetchVehicles: () => Promise<void>;
-  addVehicle: (vehicleData: Omit<Vehicle, 'id' | 'createdAt' | 'documents' | 'maintenanceHistory'>) => Promise<Vehicle | null>;
-  updateVehicle: (vehicleId: string, updates: Partial<Vehicle>) => Promise<boolean>;
-  deleteVehicle: (vehicleId: string) => Promise<boolean>;
-  uploadVehicleDocument: (vehicleId: string, docType: string, filePath: string) => Promise<boolean>;
-  getExpiringDocuments: (daysUntilExpiry?: number) => Vehicle[];
-  addMaintenanceRecord: (vehicleId: string, record: Omit<MaintenanceRecord, 'id'>) => Promise<boolean>;
-  getMaintenanceHistory: (vehicleId: string) => MaintenanceRecord[];
-  setVehicleStatus: (vehicleId: string, status: Vehicle['status']) => Promise<boolean>;
-  getActiveVehicles: () => Vehicle[];
-  getVehicleStats: () => any;
+interface VehicleInsurance {
+  insurance_id: string;
+  provider_name: string;
+  policy_number: string;
+  cover_type: string;
+  sum_insured: number;
+  expiry_date: string;
+  days_to_expiry: number;
+  is_active: boolean;
 }
 
-export const useVehicleManagement = (token: string | null, driverId: string): UseVehicleManagementReturn => {
+interface MaintenanceRecord {
+  maintenance_id: string;
+  service_type: string;
+  date: string;
+  cost?: number;
+  service_center: string;
+}
+
+export const useVehicleManagement = (driverId: string | null, authToken: string | null) => {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
-
-  const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+  const [documents, setDocuments] = useState<VehicleDocument[]>([]);
+  const [insurance, setInsurance] = useState<VehicleInsurance | null>(null);
+  const [maintenanceHistory, setMaintenanceHistory] = useState<MaintenanceRecord[]>([]);
+  const [expiringDocuments, setExpiringDocuments] = useState<VehicleDocument[]>([]);
+  const [expiringInsurance, setExpiringInsurance] = useState<VehicleInsurance[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchVehicles = useCallback(async () => {
-    if (!token) return;
-    setLoading(true);
+    if (!driverId || !authToken) return;
     try {
-      const response = await axios.get(`${API_BASE_URL}/drivers/${driverId}/vehicles`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setVehicles(response.data);
+      setIsLoading(true);
+      const response = await axios.get(
+        `${API_BASE_URL}/api/v3/vehicle-management/vehicles/${driverId}`,
+        { headers: { Authorization: `Bearer ${authToken}` } }
+      );
+      setVehicles(response.data.vehicles);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err : new Error('Failed to fetch vehicles'));
+      console.error('Error fetching vehicles:', err);
+      setError('Failed to load vehicles');
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
-  }, [token, driverId, API_BASE_URL]);
+  }, [driverId, authToken]);
 
   const addVehicle = useCallback(
-    async (vehicleData: Omit<Vehicle, 'id' | 'createdAt' | 'documents' | 'maintenanceHistory'>): Promise<Vehicle | null> => {
-      if (!token) return null;
+    async (vehicleType: string, registrationNumber: string, make: string, model: string, year: number, color: string, licensePlate: string) => {
+      if (!driverId || !authToken) return false;
       try {
-        const response = await axios.post(
-          `${API_BASE_URL}/drivers/${driverId}/vehicles`,
-          { ...vehicleData, driverId },
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        const newVehicle = response.data;
-        setVehicles((prev) => [...prev, newVehicle]);
-        return newVehicle;
-      } catch (err) {
-        setError(err instanceof Error ? err : new Error('Failed to add vehicle'));
-        return null;
-      }
-    },
-    [token, driverId, API_BASE_URL]
-  );
-
-  const updateVehicle = useCallback(
-    async (vehicleId: string, updates: Partial<Vehicle>): Promise<boolean> => {
-      if (!token) return false;
-      try {
-        await axios.put(
-          `${API_BASE_URL}/drivers/${driverId}/vehicles/${vehicleId}`,
-          updates,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        setVehicles((prev) =>
-          prev.map((v) => (v.id === vehicleId ? { ...v, ...updates } : v))
-        );
-        return true;
-      } catch (err) {
-        setError(err instanceof Error ? err : new Error('Failed to update vehicle'));
-        return false;
-      }
-    },
-    [token, driverId, API_BASE_URL]
-  );
-
-  const deleteVehicle = useCallback(
-    async (vehicleId: string): Promise<boolean> => {
-      if (!token) return false;
-      try {
-        await axios.delete(
-          `${API_BASE_URL}/drivers/${driverId}/vehicles/${vehicleId}`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        setVehicles((prev) => prev.filter((v) => v.id !== vehicleId));
-        return true;
-      } catch (err) {
-        setError(err instanceof Error ? err : new Error('Failed to delete vehicle'));
-        return false;
-      }
-    },
-    [token, driverId, API_BASE_URL]
-  );
-
-  const uploadVehicleDocument = useCallback(
-    async (vehicleId: string, docType: string, filePath: string): Promise<boolean> => {
-      if (!token) return false;
-      try {
-        const formData = new FormData();
-        formData.append('file', {
-          uri: filePath,
-          type: 'application/pdf',
-          name: `${docType}_${Date.now()}.pdf`,
-        } as any);
-        formData.append('docType', docType);
-
+        setIsLoading(true);
         await axios.post(
-          `${API_BASE_URL}/drivers/${driverId}/vehicles/${vehicleId}/documents`,
-          formData,
+          `${API_BASE_URL}/api/v3/vehicle-management/vehicles/add`,
           {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              'Content-Type': 'multipart/form-data',
-            },
+            vehicle_type: vehicleType,
+            registration_number: registrationNumber,
+            make,
+            model,
+            year,
+            color,
+            license_plate: licensePlate
+          },
+          {
+            params: { driver_id: driverId },
+            headers: { Authorization: `Bearer ${authToken}` }
           }
-        );
-        return true;
-      } catch (err) {
-        setError(err instanceof Error ? err : new Error('Failed to upload document'));
-        return false;
-      }
-    },
-    [token, driverId, API_BASE_URL]
-  );
-
-  const getExpiringDocuments = useCallback(
-    (daysUntilExpiry = 30): Vehicle[] => {
-      const now = new Date();
-      const futureDate = new Date(now.getTime() + daysUntilExpiry * 24 * 60 * 60 * 1000);
-
-      return vehicles.filter((vehicle) => {
-        const expiringDocs = [
-          vehicle.registrationExpiry,
-          vehicle.insuranceExpiry,
-          vehicle.pollutionExpiry,
-        ];
-
-        return expiringDocs.some(
-          (date) => date && new Date(date) <= futureDate && new Date(date) > now
-        );
-      });
-    },
-    [vehicles]
-  );
-
-  const addMaintenanceRecord = useCallback(
-    async (vehicleId: string, record: Omit<MaintenanceRecord, 'id'>): Promise<boolean> => {
-      if (!token) return false;
-      try {
-        await axios.post(
-          `${API_BASE_URL}/drivers/${driverId}/vehicles/${vehicleId}/maintenance`,
-          record,
-          { headers: { Authorization: `Bearer ${token}` } }
         );
         await fetchVehicles();
         return true;
       } catch (err) {
-        setError(err instanceof Error ? err : new Error('Failed to add maintenance record'));
+        console.error('Error adding vehicle:', err);
         return false;
+      } finally {
+        setIsLoading(false);
       }
     },
-    [token, driverId, API_BASE_URL, fetchVehicles]
+    [driverId, authToken, fetchVehicles]
   );
 
-  const getMaintenanceHistory = useCallback(
-    (vehicleId: string): MaintenanceRecord[] => {
-      const vehicle = vehicles.find((v) => v.id === vehicleId);
-      return vehicle?.maintenanceHistory || [];
+  const getVehicleDetails = useCallback(
+    async (vehicleId: string) => {
+      if (!authToken) return null;
+      try {
+        setIsLoading(true);
+        const response = await axios.get(
+          `${API_BASE_URL}/api/v3/vehicle-management/vehicles/${vehicleId}/details`,
+          { headers: { Authorization: `Bearer ${authToken}` } }
+        );
+        setDocuments(response.data.documents || []);
+        setInsurance(response.data.insurance);
+        return response.data;
+      } catch (err) {
+        console.error('Error fetching vehicle details:', err);
+        return null;
+      } finally {
+        setIsLoading(false);
+      }
     },
-    [vehicles]
+    [authToken]
   );
 
-  const setVehicleStatus = useCallback(
-    async (vehicleId: string, status: Vehicle['status']): Promise<boolean> => {
-      return updateVehicle(vehicleId, { status });
+  const updateVehicle = useCallback(
+    async (vehicleId: string, updates: any) => {
+      if (!authToken) return false;
+      try {
+        setIsLoading(true);
+        await axios.put(
+          `${API_BASE_URL}/api/v3/vehicle-management/vehicles/${vehicleId}`,
+          updates,
+          { headers: { Authorization: `Bearer ${authToken}` } }
+        );
+        await fetchVehicles();
+        return true;
+      } catch (err) {
+        console.error('Error updating vehicle:', err);
+        return false;
+      } finally {
+        setIsLoading(false);
+      }
     },
-    [updateVehicle]
+    [authToken, fetchVehicles]
   );
 
-  const getActiveVehicles = useCallback(() => {
-    return vehicles.filter((v) => v.status === 'active');
-  }, [vehicles]);
+  const deleteVehicle = useCallback(
+    async (vehicleId: string) => {
+      if (!authToken) return false;
+      try {
+        setIsLoading(true);
+        await axios.delete(
+          `${API_BASE_URL}/api/v3/vehicle-management/vehicles/${vehicleId}`,
+          { headers: { Authorization: `Bearer ${authToken}` } }
+        );
+        await fetchVehicles();
+        return true;
+      } catch (err) {
+        console.error('Error deleting vehicle:', err);
+        return false;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [authToken, fetchVehicles]
+  );
 
-  const getVehicleStats = useCallback(() => {
-    return {
-      total: vehicles.length,
-      active: vehicles.filter((v) => v.status === 'active').length,
-      maintenance: vehicles.filter((v) => v.status === 'maintenance').length,
-      expiring: getExpiringDocuments().length,
-      byType: vehicles.reduce(
-        (acc, v) => {
-          acc[v.type] = (acc[v.type] || 0) + 1;
-          return acc;
-        },
-        {} as Record<string, number>
-      ),
-    };
-  }, [vehicles, getExpiringDocuments]);
+  const getExpiringDocuments = useCallback(async () => {
+    if (!driverId || !authToken) return;
+    try {
+      const response = await axios.get(
+        `${API_BASE_URL}/api/v3/vehicle-management/drivers/${driverId}/documents/expiring-soon`,
+        { headers: { Authorization: `Bearer ${authToken}` } }
+      );
+      setExpiringDocuments(response.data.expiring_documents);
+    } catch (err) {
+      console.error('Error fetching expiring documents:', err);
+    }
+  }, [driverId, authToken]);
+
+  const getExpiringInsurance = useCallback(async () => {
+    if (!driverId || !authToken) return;
+    try {
+      const response = await axios.get(
+        `${API_BASE_URL}/api/v3/vehicle-management/drivers/${driverId}/insurance/expiring-soon`,
+        { headers: { Authorization: `Bearer ${authToken}` } }
+      );
+      setExpiringInsurance(response.data.expiring_insurance);
+    } catch (err) {
+      console.error('Error fetching expiring insurance:', err);
+    }
+  }, [driverId, authToken]);
+
+  const recordMaintenance = useCallback(
+    async (vehicleId: string, serviceType: string, description: string, maintenanceDate: string, cost: number | null, serviceCenter: string) => {
+      if (!driverId || !authToken) return false;
+      try {
+        setIsLoading(true);
+        await axios.post(
+          `${API_BASE_URL}/api/v3/vehicle-management/vehicles/${vehicleId}/maintenance/record`,
+          {
+            service_type: serviceType,
+            description,
+            maintenance_date: maintenanceDate,
+            cost,
+            service_center: serviceCenter
+          },
+          {
+            params: { driver_id: driverId, vehicle_id: vehicleId },
+            headers: { Authorization: `Bearer ${authToken}` }
+          }
+        );
+        return true;
+      } catch (err) {
+        console.error('Error recording maintenance:', err);
+        return false;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [driverId, authToken]
+  );
+
+  useEffect(() => {
+    if (driverId && authToken) {
+      fetchVehicles();
+      getExpiringDocuments();
+      getExpiringInsurance();
+    }
+  }, [driverId, authToken, fetchVehicles, getExpiringDocuments, getExpiringInsurance]);
 
   return {
     vehicles,
-    loading,
+    documents,
+    insurance,
+    maintenanceHistory,
+    expiringDocuments,
+    expiringInsurance,
+    isLoading,
     error,
     fetchVehicles,
     addVehicle,
+    getVehicleDetails,
     updateVehicle,
     deleteVehicle,
-    uploadVehicleDocument,
     getExpiringDocuments,
-    addMaintenanceRecord,
-    getMaintenanceHistory,
-    setVehicleStatus,
-    getActiveVehicles,
-    getVehicleStats,
+    getExpiringInsurance,
+    recordMaintenance
   };
 };
