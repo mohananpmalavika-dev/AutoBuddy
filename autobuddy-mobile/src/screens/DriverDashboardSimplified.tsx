@@ -14,6 +14,8 @@ import { DriverDocumentStatus, DocumentStatus } from '../components/DriverDocume
 import { DriverEarningsWidget, EarningsData } from '../components/DriverEarningsWidget';
 import { RideRequestCard, RideRequest } from '../components/DriverRideRequestCard';
 import DriverRideManagement from '../components/DriverRideManagement';
+import { DocumentExpiryAlertBanner, DocumentExpiryListScreen } from '../screens/document-expiry/DocumentExpiryScreens';
+import { useDocumentExpiry } from '../hooks/useDocumentExpiry';
 
 interface DriverDashboardSimplifiedProps {
   token: string;
@@ -21,7 +23,7 @@ interface DriverDashboardSimplifiedProps {
   onLogout: () => void;
 }
 
-type TabType = 'map' | 'rides' | 'earnings' | 'profile';
+type TabType = 'map' | 'rides' | 'earnings' | 'profile' | 'documents-expiry';
 
 export function DriverDashboardSimplified({
   token,
@@ -37,6 +39,7 @@ export function DriverDashboardSimplified({
   const [loading, setLoading] = useState(false);
   const [alerts, setAlerts] = useState<number>(0);
   const [todayEarnings, setTodayEarnings] = useState(0);
+  const { criticalAlertCount } = useDocumentExpiry(user?.id, token);
 
   useEffect(() => {
     loadDashboardData();
@@ -190,6 +193,14 @@ export function DriverDashboardSimplified({
 
       {/* Main content */}
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Document Expiry Alert Banner */}
+        <DocumentExpiryAlertBanner
+          driverId={user?.id}
+          authToken={token}
+          onViewAll={() => setActiveTab('documents-expiry')}
+          onRenewNow={(docId) => setActiveTab('documents-expiry')}
+        />
+
         {/* Show ride management when online */}
         {isOnline && (
           <DriverRideManagement
@@ -232,6 +243,12 @@ export function DriverDashboardSimplified({
               documents={documents}
               onUploadDocument={handleUploadDocument}
             />
+          </View>
+        )}
+
+        {activeTab === 'documents-expiry' && (
+          <View style={styles.tabContent}>
+            <DocumentExpiryListScreen driverId={user?.id} authToken={token} />
           </View>
         )}
 
