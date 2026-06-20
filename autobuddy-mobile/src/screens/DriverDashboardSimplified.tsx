@@ -14,6 +14,7 @@ import { DriverDocumentStatus, DocumentStatus } from '../components/DriverDocume
 import { DriverEarningsWidget, EarningsData } from '../components/DriverEarningsWidget';
 import { RideRequestCard, RideRequest } from '../components/DriverRideRequestCard';
 import DriverRideManagement from '../components/DriverRideManagement';
+import { ComplianceAlertBanner } from '../components/ComplianceAlertBanner';
 import { DocumentExpiryAlertBanner, DocumentExpiryListScreen } from '../screens/document-expiry/DocumentExpiryScreens';
 import { useDocumentExpiry } from '../hooks/useDocumentExpiry';
 import { ReferralProgramScreen } from '../screens/referral/ReferralScreens';
@@ -202,6 +203,14 @@ export function DriverDashboardSimplified({
           authToken={token}
           onViewAll={() => setActiveTab('documents-expiry')}
           onRenewNow={(docId) => setActiveTab('documents-expiry')}
+        />
+
+        {/* Compliance Alert Banner */}
+        <ComplianceAlertBanner
+          token={token}
+          userId={user?.id}
+          userType="driver"
+          onPress={() => setActiveTab('rides')}
         />
 
         {/* Show ride management when online */}

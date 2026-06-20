@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { SingleScreenBooking } from './PassengerSingleScreenBooking';
 import { ScheduleRideModal } from './ScheduleRideModal';
 import { DriverInfoCard } from './DriverInfoCard';
+import { ComplianceAlertBanner } from '../components/ComplianceAlertBanner';
 import {
   usePassengerBooking,
   usePassengerRideTracking,
@@ -369,6 +370,17 @@ export default function PassengerDashboard({
           <View style={styles.notificationBadge} />
         </Pressable>
       </View>
+
+      {/* Compliance Alert Banner */}
+      <ComplianceAlertBanner
+        token={token}
+        userId={user?.id || 'unknown'}
+        userType="passenger"
+        onPress={() => {
+          // Navigate to compliance screen
+          // This would be handled by your navigation prop
+        }}
+      />
 
       {/* Content */}
       {activeTab === 'home' && renderHomeTab()}

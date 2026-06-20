@@ -46,6 +46,9 @@ import VideoCallScreen from './screens/VideoCallScreen';
 import LanguageSettingsScreen from './screens/LanguageSettingsScreen';
 import AccessibilityFeaturesScreen from './screens/AccessibilityFeaturesScreen';
 
+// Compliance Screens
+import { RideComplianceRulesScreen } from './screens/RideComplianceRulesScreen';
+
 // Settings Screens
 import SettingsScreen from './screens/SettingsScreen';
 
@@ -149,6 +152,7 @@ const DriverTabs = () => (
           VehicleManagement: 'directions-car',
           RouteOptimization: 'map',
           RidePooling: 'groups',
+          Compliance: 'security',
           Incentives: 'star',
           Financial: 'wallet',
           Analytics: 'analytics',
@@ -179,6 +183,11 @@ const DriverTabs = () => (
       name="RidePooling"
       component={RidePoolingScreen}
       options={{ title: 'Pooling' }}
+    />
+    <Tab.Screen
+      name="Compliance"
+      component={RideComplianceRulesScreen}
+      options={{ title: 'Compliance' }}
     />
     <Tab.Screen
       name="Incentives"
@@ -212,6 +221,7 @@ const PassengerTabs = () => (
           PassengerDashboard: 'dashboard',
           RideBooking: 'directions-car',
           Insurance: 'shield',
+          Compliance: 'security',
           Financial: 'wallet',
           Support: 'help',
           Settings: 'settings',
@@ -236,6 +246,11 @@ const PassengerTabs = () => (
       name="Insurance"
       component={PassengerInsuranceScreen}
       options={{ title: 'Insurance' }}
+    />
+    <Tab.Screen
+      name="Compliance"
+      component={RideComplianceRulesScreen}
+      options={{ title: 'Compliance' }}
     />
     <Tab.Screen
       name="Financial"
@@ -264,8 +279,13 @@ const OperatorStack = () => (
     />
     <Stack.Screen
       name="Compliance"
+      component={RideComplianceRulesScreen}
+      options={{ title: 'Compliance & Rules' }}
+    />
+    <Stack.Screen
+      name="Moderation"
       component={ModerationDashboard}
-      options={{ title: 'Compliance' }}
+      options={{ title: 'Moderation' }}
     />
     <Stack.Screen
       name="Analytics"
@@ -281,6 +301,11 @@ const AdminStack = () => (
       name="AdminDashboard"
       component={ModerationDashboard}
       options={{ title: 'Admin' }}
+    />
+    <Stack.Screen
+      name="Compliance"
+      component={RideComplianceRulesScreen}
+      options={{ title: 'Compliance & Rules' }}
     />
     <Stack.Screen
       name="Moderation"
