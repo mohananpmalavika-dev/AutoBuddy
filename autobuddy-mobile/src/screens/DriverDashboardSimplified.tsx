@@ -18,6 +18,7 @@ import { DocumentExpiryAlertBanner, DocumentExpiryListScreen } from '../screens/
 import { useDocumentExpiry } from '../hooks/useDocumentExpiry';
 import { ReferralProgramScreen } from '../screens/referral/ReferralScreens';
 import { SuspensionAppealScreens } from '../screens/suspension/SuspensionAppealScreens';
+import InsuranceScreens from '../screens/insurance/InsuranceScreens';
 
 interface DriverDashboardSimplifiedProps {
   token: string;
@@ -25,7 +26,7 @@ interface DriverDashboardSimplifiedProps {
   onLogout: () => void;
 }
 
-type TabType = 'map' | 'rides' | 'earnings' | 'profile' | 'documents-expiry' | 'referral' | 'suspension';
+type TabType = 'map' | 'rides' | 'earnings' | 'profile' | 'documents-expiry' | 'referral' | 'suspension' | 'insurance';
 
 export function DriverDashboardSimplified({
   token,
@@ -266,9 +267,15 @@ export function DriverDashboardSimplified({
           </View>
         )}
 
+        {activeTab === 'insurance' && (
+          <View style={styles.tabContent}>
+            <InsuranceScreens userId={user?.id} authToken={token} />
+          </View>
+        )}
+
         {activeTab === 'profile' && (
           <View style={styles.tabContent}>
-            <ProfileTab user={user} onLogout={onLogout} />
+            <ProfileTab user={user} onLogout={onLogout} onNavigateToInsurance={() => setActiveTab('insurance')} />
           </View>
         )}
       </ScrollView>
@@ -345,9 +352,10 @@ function RidesHistoryTab() {
 interface ProfileTabProps {
   user: any;
   onLogout: () => void;
+  onNavigateToInsurance?: () => void;
 }
 
-function ProfileTab({ user, onLogout }: ProfileTabProps) {
+function ProfileTab({ user, onLogout, onNavigateToInsurance }: ProfileTabProps) {
   return (
     <View style={styles.profileContainer}>
       <View style={styles.profileHeader}>
@@ -365,6 +373,14 @@ function ProfileTab({ user, onLogout }: ProfileTabProps) {
         <ProfileOption icon="email" label="Email" value={user?.email} />
         <ProfileOption icon="directions-car" label="Vehicle" value="Honda City" />
       </View>
+
+      <Pressable
+        style={styles.insuranceButton}
+        onPress={onNavigateToInsurance}
+      >
+        <MaterialIcons name="security" size={20} color="#fff" />
+        <Text style={styles.insuranceButtonText}>View Insurance & Coverage</Text>
+      </Pressable>
 
       <Pressable
         style={styles.logoutButton}
@@ -626,6 +642,22 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#000',
     marginTop: 4,
+  },
+  insuranceButton: {
+    backgroundColor: '#2196F3',
+    borderRadius: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  insuranceButtonText: {
+    marginLeft: 8,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
   },
   logoutButton: {
     backgroundColor: '#ffebee',
