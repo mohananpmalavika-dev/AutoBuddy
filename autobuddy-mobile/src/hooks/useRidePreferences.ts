@@ -1,308 +1,168 @@
-import { useState, useCallback } from 'react';
-import axios from 'axios';
+import { useState, useCallback, useEffect } from 'react';
 
 export interface RidePreferences {
-  id: string;
-  driverId: string;
-  rideTypes: {
-    rides: boolean;
-    pools: boolean;
-    longRides: boolean;
-    scheduledRides: boolean;
-  };
-  passengerFilters: {
-    minRating: number;
-    maxRidesCancelled: number;
-    acceptNewPassengers: boolean;
-    acceptFemalePassengersOnly: boolean;
-  };
-  stopPreferences: {
-    allowStops: boolean;
-    maxStops: number;
-    stopPenaltyPreference: 'none' | 'low' | 'medium' | 'high';
-  };
-  rideLength: {
-    minDistance: number;
-    maxDistance: number;
-    minDuration: number;
-    maxDuration: number;
-  };
-  musicAndEnvironment: {
-    musicPreference: 'no_music' | 'passenger_choice' | 'driver_choice';
-    acTemperature: number;
-    allowSmokingBreaks: boolean;
-    allowPets: boolean;
-  };
-  communicationLevel: 'quiet' | 'normal' | 'chatty';
-  acceptanceTimeout: number;
-  autoAcceptRides: boolean;
-  preferredAreas: string[];
-  avoidAreas: string[];
-  updatedAt: Date;
+  passenger_id: string;
+  music_preference: 'no_preference' | 'neutral' | 'preferred';
+  ac_preference: 'cold' | 'cool' | 'warm' | 'hot';
+  communication_level: 'quiet' | 'normal' | 'chatty';
+  vehicle_type_preference: string[] | null;
 }
 
 interface UseRidePreferencesReturn {
   preferences: RidePreferences | null;
-  loading: boolean;
-  error: Error | null;
-  fetchPreferences: () => Promise<void>;
-  updatePreferences: (updates: Partial<RidePreferences>) => Promise<boolean>;
-  updateRideTypes: (rideTypes: RidePreferences['rideTypes']) => Promise<boolean>;
-  updatePassengerFilters: (filters: RidePreferences['passengerFilters']) => Promise<boolean>;
-  updateStopPreferences: (stops: RidePreferences['stopPreferences']) => Promise<boolean>;
-  updateRideLength: (rideLength: RidePreferences['rideLength']) => Promise<boolean>;
-  updateMusicAndEnvironment: (settings: RidePreferences['musicAndEnvironment']) => Promise<boolean>;
-  updateCommunicationLevel: (level: RidePreferences['communicationLevel']) => Promise<boolean>;
-  toggleAutoAccept: (enabled: boolean) => Promise<boolean>;
-  addPreferredArea: (area: string) => Promise<boolean>;
-  removePreferredArea: (area: string) => Promise<boolean>;
-  addAvoidArea: (area: string) => Promise<boolean>;
-  removeAvoidArea: (area: string) => Promise<boolean>;
-  resetToDefaults: () => Promise<boolean>;
-  validateRide: (rideDetails: any) => boolean;
+  isLoading: boolean;
+  isSaving: boolean;
+  error: string | null;
+  updatePreferences: (updates: Partial<RidePreferences>) => Promise<void>;
+  resetToDefaults: () => Promise<void>;
+  getPreferenceSummary: () => string[];
 }
 
-const DEFAULT_PREFERENCES: Omit<RidePreferences, 'id' | 'driverId' | 'updatedAt'> = {
-  rideTypes: {
-    rides: true,
-    pools: false,
-    longRides: true,
-    scheduledRides: true,
-  },
-  passengerFilters: {
-    minRating: 4.0,
-    maxRidesCancelled: 5,
-    acceptNewPassengers: true,
-    acceptFemalePassengersOnly: false,
-  },
-  stopPreferences: {
-    allowStops: true,
-    maxStops: 3,
-    stopPenaltyPreference: 'medium',
-  },
-  rideLength: {
-    minDistance: 0,
-    maxDistance: 500,
-    minDuration: 5,
-    maxDuration: 480,
-  },
-  musicAndEnvironment: {
-    musicPreference: 'passenger_choice',
-    acTemperature: 22,
-    allowSmokingBreaks: false,
-    allowPets: false,
-  },
-  communicationLevel: 'normal',
-  acceptanceTimeout: 30,
-  autoAcceptRides: false,
-  preferredAreas: [],
-  avoidAreas: [],
-};
+const API_BASE = 'http://localhost:8000/api/v3/preferences';
 
-export const useRidePreferences = (token: string | null, driverId: string): UseRidePreferencesReturn => {
+export function useRidePreferences(passengerId: string | undefined, authToken: string): UseRidePreferencesReturn {
   const [preferences, setPreferences] = useState<RidePreferences | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+  useEffect(() => {
+    if (passengerId && authToken) {
+      fetchPreferences();
+    }
+  }, [passengerId, authToken]);
 
   const fetchPreferences = useCallback(async () => {
-    if (!token) return;
-    setLoading(true);
+    if (!passengerId || !authToken) return;
+
+    setIsLoading(true);
+    setError(null);
     try {
-      const response = await axios.get(
-        `${API_BASE_URL}/drivers/${driverId}/preferences`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      setPreferences(response.data);
-      setError(null);
+      const response = await fetch(`${API_BASE}/ride/${passengerId}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          setPreferences({
+            passenger_id: passengerId,
+            music_preference: 'neutral',
+            ac_preference: 'cool',
+            communication_level: 'normal',
+            vehicle_type_preference: null,
+          });
+        } else {
+          throw new Error('Failed to fetch preferences');
+        }
+        return;
+      }
+
+      const data = await response.json();
+      setPreferences(data);
     } catch (err) {
-      setError(err instanceof Error ? err : new Error('Failed to fetch preferences'));
-      setPreferences(null);
+      setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
-  }, [token, driverId, API_BASE_URL]);
+  }, [passengerId, authToken]);
 
   const updatePreferences = useCallback(
-    async (updates: Partial<RidePreferences>): Promise<boolean> => {
-      if (!token || !preferences) return false;
+    async (updates: Partial<RidePreferences>) => {
+      if (!passengerId || !authToken || !preferences) return;
+
+      setIsSaving(true);
+      setError(null);
+
       try {
-        const response = await axios.put(
-          `${API_BASE_URL}/drivers/${driverId}/preferences`,
-          updates,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        setPreferences(response.data);
-        setError(null);
-        return true;
+        const updatedPrefs = { ...preferences, ...updates };
+
+        const response = await fetch(`${API_BASE}/ride/${passengerId}`, {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            music_preference: updatedPrefs.music_preference,
+            ac_preference: updatedPrefs.ac_preference,
+            communication_level: updatedPrefs.communication_level,
+            vehicle_type_preference: updatedPrefs.vehicle_type_preference,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to update preferences');
+        }
+
+        const data = await response.json();
+        setPreferences(data);
       } catch (err) {
-        setError(err instanceof Error ? err : new Error('Failed to update preferences'));
-        return false;
+        setError(err instanceof Error ? err.message : 'Failed to update preferences');
+        throw err;
+      } finally {
+        setIsSaving(false);
       }
     },
-    [token, driverId, API_BASE_URL, preferences]
+    [passengerId, authToken, preferences]
   );
 
-  const updateRideTypes = useCallback(
-    async (rideTypes: RidePreferences['rideTypes']): Promise<boolean> => {
-      return updatePreferences({ rideTypes });
-    },
-    [updatePreferences]
-  );
+  const resetToDefaults = useCallback(async () => {
+    if (!passengerId || !authToken) return;
 
-  const updatePassengerFilters = useCallback(
-    async (passengerFilters: RidePreferences['passengerFilters']): Promise<boolean> => {
-      return updatePreferences({ passengerFilters });
-    },
-    [updatePreferences]
-  );
+    setIsSaving(true);
+    setError(null);
 
-  const updateStopPreferences = useCallback(
-    async (stopPreferences: RidePreferences['stopPreferences']): Promise<boolean> => {
-      return updatePreferences({ stopPreferences });
-    },
-    [updatePreferences]
-  );
-
-  const updateRideLength = useCallback(
-    async (rideLength: RidePreferences['rideLength']): Promise<boolean> => {
-      return updatePreferences({ rideLength });
-    },
-    [updatePreferences]
-  );
-
-  const updateMusicAndEnvironment = useCallback(
-    async (musicAndEnvironment: RidePreferences['musicAndEnvironment']): Promise<boolean> => {
-      return updatePreferences({ musicAndEnvironment });
-    },
-    [updatePreferences]
-  );
-
-  const updateCommunicationLevel = useCallback(
-    async (communicationLevel: RidePreferences['communicationLevel']): Promise<boolean> => {
-      return updatePreferences({ communicationLevel });
-    },
-    [updatePreferences]
-  );
-
-  const toggleAutoAccept = useCallback(
-    async (enabled: boolean): Promise<boolean> => {
-      return updatePreferences({ autoAcceptRides: enabled });
-    },
-    [updatePreferences]
-  );
-
-  const addPreferredArea = useCallback(
-    async (area: string): Promise<boolean> => {
-      if (!preferences) return false;
-      const updatedAreas = [...new Set([...preferences.preferredAreas, area])];
-      return updatePreferences({ preferredAreas: updatedAreas });
-    },
-    [preferences, updatePreferences]
-  );
-
-  const removePreferredArea = useCallback(
-    async (area: string): Promise<boolean> => {
-      if (!preferences) return false;
-      const updatedAreas = preferences.preferredAreas.filter((a) => a !== area);
-      return updatePreferences({ preferredAreas: updatedAreas });
-    },
-    [preferences, updatePreferences]
-  );
-
-  const addAvoidArea = useCallback(
-    async (area: string): Promise<boolean> => {
-      if (!preferences) return false;
-      const updatedAreas = [...new Set([...preferences.avoidAreas, area])];
-      return updatePreferences({ avoidAreas: updatedAreas });
-    },
-    [preferences, updatePreferences]
-  );
-
-  const removeAvoidArea = useCallback(
-    async (area: string): Promise<boolean> => {
-      if (!preferences) return false;
-      const updatedAreas = preferences.avoidAreas.filter((a) => a !== area);
-      return updatePreferences({ avoidAreas: updatedAreas });
-    },
-    [preferences, updatePreferences]
-  );
-
-  const resetToDefaults = useCallback(async (): Promise<boolean> => {
-    if (!token) return false;
     try {
-      const defaultPrefs = {
-        ...DEFAULT_PREFERENCES,
-        id: preferences?.id || '',
-        driverId,
-        updatedAt: new Date(),
-      };
-      const response = await axios.post(
-        `${API_BASE_URL}/drivers/${driverId}/preferences/reset`,
-        {},
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      setPreferences(response.data);
-      return true;
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error('Failed to reset preferences'));
-      return false;
-    }
-  }, [token, driverId, API_BASE_URL, preferences]);
+      const response = await fetch(`${API_BASE}/ride/${passengerId}/reset`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
 
-  const validateRide = useCallback(
-    (rideDetails: any): boolean => {
-      if (!preferences) return true;
-
-      // Check ride type
-      if (rideDetails.isPool && !preferences.rideTypes.pools) return false;
-      if (rideDetails.isLongRide && !preferences.rideTypes.longRides) return false;
-      if (rideDetails.isScheduled && !preferences.rideTypes.scheduledRides) return false;
-
-      // Check passenger rating
-      if (rideDetails.passengerRating < preferences.passengerFilters.minRating) return false;
-
-      // Check stops
-      if (
-        rideDetails.stops &&
-        rideDetails.stops.length > preferences.stopPreferences.maxStops
-      ) {
-        return false;
+      if (!response.ok) {
+        throw new Error('Failed to reset preferences');
       }
 
-      // Check ride length
-      if (rideDetails.distance < preferences.rideLength.minDistance) return false;
-      if (rideDetails.distance > preferences.rideLength.maxDistance) return false;
-      if (rideDetails.duration < preferences.rideLength.minDuration) return false;
-      if (rideDetails.duration > preferences.rideLength.maxDuration) return false;
+      const data = await response.json();
+      setPreferences(data.preferences);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reset preferences');
+      throw err;
+    } finally {
+      setIsSaving(false);
+    }
+  }, [passengerId, authToken]);
 
-      // Check avoid areas
-      if (preferences.avoidAreas.includes(rideDetails.pickupArea)) return false;
+  const getPreferenceSummary = useCallback((): string[] => {
+    if (!preferences) return [];
 
-      return true;
-    },
-    [preferences]
-  );
+    const summary: string[] = [];
+
+    if (preferences.music_preference !== 'neutral') {
+      summary.push(`🎵 ${preferences.music_preference === 'preferred' ? 'Music preferred' : 'No music'}`);
+    }
+
+    const tempEmoji = { cold: '❄️', cool: '🌡️', warm: '☀️', hot: '🔥' };
+    summary.push(`${tempEmoji[preferences.ac_preference]} ${preferences.ac_preference.charAt(0).toUpperCase() + preferences.ac_preference.slice(1)}`);
+
+    if (preferences.communication_level !== 'normal') {
+      const commEmoji = preferences.communication_level === 'quiet' ? '🤐' : '💬';
+      summary.push(`${commEmoji} ${preferences.communication_level.charAt(0).toUpperCase() + preferences.communication_level.slice(1)}`);
+    }
+
+    if (preferences.vehicle_type_preference && preferences.vehicle_type_preference.length > 0) {
+      summary.push(`🚖 ${preferences.vehicle_type_preference.join(', ')}`);
+    }
+
+    return summary;
+  }, [preferences]);
 
   return {
     preferences,
-    loading,
+    isLoading,
+    isSaving,
     error,
-    fetchPreferences,
     updatePreferences,
-    updateRideTypes,
-    updatePassengerFilters,
-    updateStopPreferences,
-    updateRideLength,
-    updateMusicAndEnvironment,
-    updateCommunicationLevel,
-    toggleAutoAccept,
-    addPreferredArea,
-    removePreferredArea,
-    addAvoidArea,
-    removeAvoidArea,
     resetToDefaults,
-    validateRide,
+    getPreferenceSummary,
   };
-};
+}

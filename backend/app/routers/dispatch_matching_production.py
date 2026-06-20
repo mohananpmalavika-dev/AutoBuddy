@@ -373,6 +373,47 @@ def calculate_hot_zone_bonus(lat: float, lng: float) -> float:
     is_hot, zone_name = is_in_hot_zone(lat, lng)
     return 5.0 if is_hot else 0.0
 
+def calculate_preference_match_score(driver: DriverLocation, passenger_prefs: dict) -> float:
+    """
+    Calculate preference alignment score (0-10 scale)
+    Penalizes drivers that don't match passenger ride preferences
+    Preferences: music, AC temperature, communication level, vehicle type
+    """
+    if not passenger_prefs:
+        return 10.0  # No preferences = perfect match
+
+    score = 10.0
+    penalties = 0
+
+    # 1. Music preference (0-3 points)
+    music_pref = passenger_prefs.get('music_preference', 'neutral')
+    driver_likes_music = getattr(driver, 'likes_music', True)
+    if music_pref == 'not_preferred' and driver_likes_music:
+        penalties += 3
+    elif music_pref == 'preferred' and not driver_likes_music:
+        penalties += 1.5
+
+    # 2. Communication level (0-3 points)
+    comm_map = {'quiet': 0, 'normal': 1, 'chatty': 2}
+    passenger_comm = comm_map.get(passenger_prefs.get('communication_level', 'normal'), 1)
+    driver_comm = comm_map.get(getattr(driver, 'communication_level', 'normal'), 1)
+    comm_distance = abs(driver_comm - passenger_comm)
+    penalties += comm_distance * 1.2
+
+    # 3. Vehicle type alignment (0-2.5 points)
+    vehicle_types = passenger_prefs.get('vehicle_type_preference')
+    if vehicle_types and driver.vehicle_type not in vehicle_types:
+        penalties += 2.5
+
+    # 4. AC capability (0-1.5 points)
+    ac_pref = passenger_prefs.get('ac_preference', 'cool')
+    driver_ac = getattr(driver, 'ac_capability', True)
+    if not driver_ac and ac_pref != 'none':
+        penalties += 1.5
+
+    final_score = max(2.0, score - penalties)
+    return final_score
+
 def calculate_match_score(
     driver: DriverLocation,
     ride_request: RideRequest,
@@ -426,18 +467,40 @@ def calculate_match_score(
     )
     surge_bonus = (surge_multiplier - 1.0) * 5.0  # 0-5 points depending on surge
 
+    # Preference matching (get from passenger preferences if available)
+    passenger_prefs = getattr(ride_request, 'preferences', None)
+    if not passenger_prefs and hasattr(ride_request, 'passenger_id'):
+        # Try to fetch passenger preferences from database
+        from sqlalchemy import select
+        from app.db.models_features import PassengerPreferences
+        stmt = select(PassengerPreferences).where(
+            PassengerPreferences.passenger_id == ride_request.passenger_id
+        )
+        prefs_obj = db.execute(stmt).scalar_one_or_none()
+        if prefs_obj:
+            passenger_prefs = {
+                'music_preference': prefs_obj.music_preference,
+                'ac_preference': prefs_obj.ac_preference,
+                'communication_level': prefs_obj.communication_level,
+                'vehicle_type_preference': prefs_obj.vehicle_type_preference.split(',') if prefs_obj.vehicle_type_preference else None
+            }
+
+    preference_score = calculate_preference_match_score(driver, passenger_prefs)
+
     # Weighted total (100 points max)
-    # Distance: 25%, Rating: 15%, Acceptance: 15%, Vehicle: 15%, ETA: 10%,
-    # Hot zone: 5%, Load balance: 10%, Surge: 5%
+    # Updated weighting with 10% for preferences:
+    # Distance: 22.5%, Rating: 15%, Acceptance: 15%, Vehicle: 15%, ETA: 10%,
+    # Hot zone: 5%, Load balance: 7.5%, Surge: 5%, Preferences: 10%
     total_score = (
-        distance_score * 0.25 +      # 25%
-        rating_score * 0.15 +        # 15%
-        acceptance_score * 0.15 +    # 15%
-        vehicle_score * 0.15 +       # 15%
-        eta_score * 0.10 +           # 10%
-        hot_zone_score * 0.05 +      # 5% (hot zone bonus)
-        load_balance_score * 0.10 +  # 10% (load balance)
-        max(0, surge_bonus * 0.05)   # 5% (surge consideration)
+        distance_score * 0.225 +      # 22.5% (was 25%)
+        rating_score * 0.15 +         # 15% (unchanged)
+        acceptance_score * 0.15 +     # 15% (unchanged)
+        vehicle_score * 0.15 +        # 15% (unchanged)
+        eta_score * 0.10 +            # 10% (unchanged)
+        hot_zone_score * 0.05 +       # 5% (unchanged)
+        load_balance_score * 0.075 +  # 7.5% (was 10%)
+        max(0, surge_bonus * 0.05) +  # 5% (unchanged)
+        preference_score * 0.10       # 10% (NEW - preferences)
     )
 
     in_hot_zone, zone_name = is_in_hot_zone(driver.latitude, driver.longitude)
@@ -454,6 +517,7 @@ def calculate_match_score(
         "load_factor": load_factor,
         "surge_bonus": surge_bonus,
         "surge_multiplier": surge_multiplier,
+        "preference_score": preference_score,
         "distance_km": distance_km,
         "eta_minutes": eta_minutes
     }
