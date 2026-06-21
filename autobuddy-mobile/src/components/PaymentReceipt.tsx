@@ -8,6 +8,7 @@ import {
   Share,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import * as Linking from 'expo-linking';
 
 export interface RideReceipt {
   transactionId: string;
@@ -46,9 +47,17 @@ export function PaymentReceipt({ receipt, onClose }: PaymentReceiptProps) {
     }
   };
 
-  const handleViewReceipt = () => {
-    // TODO: Open receipt PDF or web view
-    console.log('Opening receipt:', receipt.receiptUrl);
+  const handleViewReceipt = async () => {
+    try {
+      // Open receipt PDF or web view using the receiptUrl
+      if (receipt.receiptUrl) {
+        await Linking.openURL(receipt.receiptUrl);
+      } else {
+        console.warn('No receipt URL available');
+      }
+    } catch (error) {
+      console.error('Error opening receipt:', error);
+    }
   };
 
   return (

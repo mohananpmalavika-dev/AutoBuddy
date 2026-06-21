@@ -36,9 +36,11 @@ export function InsuranceScreens({ userId, authToken }: InsuranceScreensProps) {
     fetchPolicyTerms,
     calculateDaysUntilExpiry,
     formatCoverageLimit,
+    fileClaimWithDocuments,
   } = useDriverInsurance(userId, authToken);
 
   const [activeTab, setActiveTab] = useState<'coverage' | 'claims' | 'history'>('coverage');
+  const [showFileClaim, setShowFileClaim] = useState(false);
 
   if (isLoading && !activePlan) {
     return (
@@ -300,6 +302,7 @@ function ClaimsTab({ claims, userId, authToken }: ClaimsTabProps) {
         onClose={() => setShowFileClaim(false)}
         userId={userId}
         authToken={authToken}
+        onFileClaimWithDocuments={fileClaimWithDocuments}
       />
     </View>
   );
@@ -407,9 +410,18 @@ interface FileClaimModalProps {
   onClose: () => void;
   userId: string;
   authToken: string;
+  onFileClaimWithDocuments: (
+    tripId: string,
+    claimType: string,
+    description: string,
+    incidentDateTime: string,
+    incidentLocation: string,
+    claimAmount: number,
+    documents?: File[]
+  ) => Promise<any>;
 }
 
-function FileClaimModal({ visible, onClose, userId, authToken }: FileClaimModalProps) {
+function FileClaimModal({ visible, onClose, userId, authToken, onFileClaimWithDocuments }: FileClaimModalProps) {
   const [claimType, setClaimType] = useState('');
   const [description, setDescription] = useState('');
   const [incidentLocation, setIncidentLocation] = useState('');
@@ -424,9 +436,27 @@ function FileClaimModal({ visible, onClose, userId, authToken }: FileClaimModalP
 
     setIsSubmitting(true);
     try {
-      // TODO: Call API to file claim
+      // Generate a trip ID (in real scenario, this would be from selected trip)
+      const tripId = `trip_${Date.now()}`;
+      const incidentDateTime = new Date().toISOString();
+
+      await onFileClaimWithDocuments(
+        tripId,
+        claimType,
+        description,
+        incidentDateTime,
+        incidentLocation,
+        parseFloat(claimAmount)
+      );
+
       Alert.alert('Success', 'Claim submitted successfully');
+      setClaimType('');
+      setDescription('');
+      setIncidentLocation('');
+      setClaimAmount('');
       onClose();
+    } catch (error) {
+      Alert.alert('Error', `Failed to submit claim: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsSubmitting(false);
     }

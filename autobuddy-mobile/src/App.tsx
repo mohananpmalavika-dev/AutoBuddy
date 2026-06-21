@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { initializeApiClient, post, del, handleApiError } from './utils/apiClient';
 
 // Auth screens
 import LoginScreen from './screens/auth/LoginScreen';
@@ -47,12 +49,34 @@ export default function App() {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        // TODO: Retrieve stored token from secure storage (AsyncStorage, SecureStore, etc)
-        // const storedToken = await SecureStore.getItemAsync('auth_token');
-        // if (storedToken) {
-        //   const user = await fetchUserProfile(storedToken);
-        //   setSession({ token: storedToken, user });
-        // }
+        const storedToken = await AsyncStorage.getItem('authToken');
+        if (storedToken) {
+          // Reinitialize API client with stored token
+          initializeApiClient(storedToken);
+          // Parse stored user data
+          const storedUserId = await AsyncStorage.getItem('userId');
+          const storedRole = await AsyncStorage.getItem('userRole');
+          const storedUserName = await AsyncStorage.getItem('userName');
+          const storedUserEmail = await AsyncStorage.getItem('userEmail');
+          const storedUserPhone = await AsyncStorage.getItem('userPhone');
+
+          if (storedUserId && storedRole && storedUserName && storedUserPhone) {
+            setSession({
+              token: storedToken,
+              user: {
+                id: storedUserId,
+                name: storedUserName,
+                email: storedUserEmail || undefined,
+                phone: storedUserPhone,
+                role: storedRole as any,
+              },
+            });
+            // Mark passenger as onboarded if role is passenger
+            if (storedRole === 'passenger') {
+              setPassengerOnboarded(true);
+            }
+          }
+        }
       } catch (error) {
         console.error('Auth check failed:', error);
       } finally {
@@ -66,16 +90,42 @@ export default function App() {
   const handleLogin = async (credentials: { phone: string; password: string }) => {
     try {
       setLoading(true);
-      // TODO: Call login API
-      // const response = await apiRequest('/auth/login', {
-      //   method: 'POST',
-      //   body: credentials,
-      // });
-      // Store token securely
-      // await SecureStore.setItemAsync('auth_token', response.token);
-      // setSession(response);
+      const response = await post<any>('/api/auth/login', credentials);
+
+      if (response.status === 'success' && response.data) {
+        const { access_token, user } = response.data;
+
+        // Store token and user data
+        await AsyncStorage.setItem('authToken', access_token);
+        await AsyncStorage.setItem('userId', user.id);
+        await AsyncStorage.setItem('userRole', user.role);
+        await AsyncStorage.setItem('userName', user.name || user.phone);
+        await AsyncStorage.setItem('userEmail', user.email || '');
+        await AsyncStorage.setItem('userPhone', user.phone);
+
+        // Reinitialize API client with new token
+        initializeApiClient(access_token);
+
+        // Set session
+        setSession({
+          token: access_token,
+          user: {
+            id: user.id,
+            name: user.name || user.phone,
+            email: user.email,
+            phone: user.phone,
+            role: user.role,
+            photo: user.photo,
+          },
+        });
+
+        // For passengers, mark as needing onboarding
+        if (user.role === 'passenger') {
+          setPassengerOnboarded(false);
+        }
+      }
     } catch (error) {
-      console.error('Login failed:', error);
+      console.error('Login failed:', handleApiError(error));
     } finally {
       setLoading(false);
     }
@@ -84,20 +134,42 @@ export default function App() {
   const handleSignup = async (data: any) => {
     try {
       setLoading(true);
-      // TODO: Call signup API
-      // const response = await apiRequest('/auth/signup', {
-      //   method: 'POST',
-      //   body: data,
-      // });
-      // Store token securely
-      // await SecureStore.setItemAsync('auth_token', response.token);
-      // setSession(response);
-      // For passengers, show onboarding
-      // if (response.user.role === 'passenger') {
-      //   setPassengerOnboarded(true);
-      // }
+      const response = await post<any>('/api/auth/signup', data);
+
+      if (response.status === 'success' && response.data) {
+        const { access_token, user } = response.data;
+
+        // Store token and user data
+        await AsyncStorage.setItem('authToken', access_token);
+        await AsyncStorage.setItem('userId', user.id);
+        await AsyncStorage.setItem('userRole', user.role);
+        await AsyncStorage.setItem('userName', user.name || user.phone);
+        await AsyncStorage.setItem('userEmail', user.email || '');
+        await AsyncStorage.setItem('userPhone', user.phone);
+
+        // Reinitialize API client with new token
+        initializeApiClient(access_token);
+
+        // Set session
+        setSession({
+          token: access_token,
+          user: {
+            id: user.id,
+            name: user.name || user.phone,
+            email: user.email,
+            phone: user.phone,
+            role: user.role,
+            photo: user.photo,
+          },
+        });
+
+        // For passengers, show onboarding
+        if (user.role === 'passenger') {
+          setPassengerOnboarded(false);
+        }
+      }
     } catch (error) {
-      console.error('Signup failed:', error);
+      console.error('Signup failed:', handleApiError(error));
     } finally {
       setLoading(false);
     }
@@ -105,31 +177,41 @@ export default function App() {
 
   const handleLogout = async () => {
     try {
-      // TODO: Call logout API if needed
-      // await apiRequest('/auth/logout', { method: 'POST', token: session?.token });
+      // Call logout API if session exists
+      if (session?.token) {
+        try {
+          await del('/api/auth/logout');
+        } catch (error) {
+          // Continue with logout even if API call fails
+          console.warn('Logout API call failed, clearing local data:', error);
+        }
+      }
 
-      // Clear stored token
-      // await SecureStore.deleteItemAsync('auth_token');
+      // Clear stored token and user data
+      await AsyncStorage.removeItem('authToken');
+      await AsyncStorage.removeItem('userId');
+      await AsyncStorage.removeItem('userRole');
+      await AsyncStorage.removeItem('userName');
+      await AsyncStorage.removeItem('userEmail');
+      await AsyncStorage.removeItem('userPhone');
 
       setSession(null);
       setPassengerOnboarded(false);
     } catch (error) {
-      console.error('Logout failed:', error);
+      console.error('Logout failed:', handleApiError(error));
     }
   };
 
   const handlePassengerOnboardingComplete = async (data: any) => {
     try {
       setLoading(true);
-      // TODO: Call API to save onboarding data
-      // await apiRequest('/passengers/onboarding/complete', {
-      //   method: 'POST',
-      //   token: session?.token,
-      //   body: data,
-      // });
-      setPassengerOnboarded(true);
+      const response = await post<any>('/api/passengers/onboarding/complete', data);
+
+      if (response.status === 'success') {
+        setPassengerOnboarded(true);
+      }
     } catch (error) {
-      console.error('Onboarding failed:', error);
+      console.error('Onboarding failed:', handleApiError(error));
     } finally {
       setLoading(false);
     }
