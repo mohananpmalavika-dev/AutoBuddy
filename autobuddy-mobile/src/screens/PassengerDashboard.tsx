@@ -29,6 +29,8 @@ import {
 import { useVoiceBooking } from '../hooks/useVoiceBooking';
 import VoiceBookingOverlay from '../components/VoiceBookingOverlay';
 import VoiceFloatingButton from '../components/VoiceFloatingButton';
+import PredictiveBookingCard from '../components/PredictiveBookingCard';
+import { usePredictiveBooking } from '../hooks/usePredictiveBooking';
 
 interface PassengerDashboardProps {
   token: string;
@@ -129,6 +131,12 @@ export default function PassengerDashboard({
       name: 'Work',
     },
   ];
+
+  // Predictive morning booking — one-tap commute suggestion
+  const predictiveBooking = usePredictiveBooking(
+    token,
+    profile?.name?.split(' ')[0] || user?.name || 'there'
+  );
 
   // -------------------------------------------------------------------------
   // Voice booking handlers – WhatsApp flow
@@ -447,6 +455,24 @@ export default function PassengerDashboard({
         {activeTab === 'history' && renderHistoryTab()}
         {activeTab === 'profile' && renderProfileTab()}
       </ScrollView>
+
+      {/* Predictive morning booking card */}
+      <PredictiveBookingCard
+        state={{
+          greeting: predictiveBooking.greeting,
+          origin: predictiveBooking.origin,
+          destination: predictiveBooking.destination,
+          isMorningWindow: predictiveBooking.isMorningWindow,
+          rideOptions: predictiveBooking.rideOptions,
+          selectedOptionId: predictiveBooking.selectedOptionId,
+          bookingStatus: predictiveBooking.bookingStatus,
+          bookingResult: predictiveBooking.bookingResult,
+          errorMessage: predictiveBooking.errorMessage,
+        }}
+        onSelectOption={predictiveBooking.selectOption}
+        onBook={predictiveBooking.bookRide}
+        onDismiss={predictiveBooking.dismiss}
+      />
 
       {/* Voice indicator pill (shows when voice is active but overlay is closed) */}
       {renderVoiceIndicator()}

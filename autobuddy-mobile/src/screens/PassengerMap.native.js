@@ -60,6 +60,8 @@ import RideNotesPanel from '../components/RideNotesPanel';
 import LocationSharingPanel from '../components/LocationSharingPanel';
 import RideStatsPanel from '../components/RideStatsPanel';
 import RidePoolingPanel from './RidePoolingPanel';
+import PredictiveBookingCard from '../components/PredictiveBookingCard';
+import { usePredictiveBooking } from '../hooks/usePredictiveBooking';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useNotificationManager } from '../hooks/useNotificationManager';
 import { usePassengerRideRealtime } from '../hooks/usePassengerRideRealtime';
