@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import { SingleScreenBooking } from '../components/PassengerSingleScreenBooking';
 import { ScheduleRideModal } from '../components/ScheduleRideModal';
 import { DriverInfoCard } from '../components/DriverInfoCard';
@@ -39,7 +40,7 @@ interface PassengerDashboardProps {
   onLogout: () => void;
 }
 
-type DashboardTab = 'home' | 'active' | 'history' | 'calendar' | 'profile';
+type DashboardTab = 'home' | 'active' | 'history' | 'calendar' | 'travel' | 'profile';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -53,6 +54,7 @@ export default function PassengerDashboard({
   const [bookingDestination, setBookingDestination] = useState('');
   const [bookingRideType, setBookingRideType] = useState('economy');
   const [voiceOverlayVisible, setVoiceOverlayVisible] = useState(false);
+  const navigation = useNavigation<any>();
 
   // Standard booking hooks
   const { booking, loading: bookingLoading, bookRide, cancelBooking } =
@@ -398,6 +400,28 @@ export default function PassengerDashboard({
     );
   };
 
+  const renderTravelTab = () => {
+    // Navigate to TravelIntent screen
+    React.useEffect(() => {
+      if (activeTab === 'travel') {
+        navigation.navigate('TravelIntent', { token, user });
+      }
+    }, [activeTab]);
+    
+    return (
+      <View style={styles.tabContent}>
+        <View style={styles.emptyState}>
+          <MaterialIcons name="place" size={64} color="#2196F3" />
+          <Text style={styles.emptyStateTitle}>Redirecting...</Text>
+          <Text style={styles.emptyStateSubtitle}>
+            Opening travel assistant
+          </Text>
+          <ActivityIndicator size="large" color="#2196F3" style={{marginTop: 20}} />
+        </View>
+      </View>
+    );
+  };
+
   // Voice state indicator that appears during active voice session
   const renderVoiceIndicator = () => {
     if (voiceState === 'idle' || voiceState === 'done') return null;
@@ -457,6 +481,7 @@ export default function PassengerDashboard({
         {activeTab === 'calendar' && (
           <CalendarBookingScreen token={token} userId={user?.id || ''} />
         )}
+        {activeTab === 'travel' && renderTravelTab()}
         {activeTab === 'profile' && renderProfileTab()}
       </ScrollView>
 
@@ -511,7 +536,7 @@ export default function PassengerDashboard({
           { key: 'home', icon: 'home', label: 'Home' },
           { key: 'active', icon: 'directions-car', label: 'Active' },
           { key: 'history', icon: 'history', label: 'History' },
-          { key: 'calendar', icon: 'calendar-today', label: 'Calendar' },
+          { key: 'travel', icon: 'place', label: 'Travel' },
           { key: 'profile', icon: 'person', label: 'Profile' },
         ] as const).map(tab => (
           <Pressable

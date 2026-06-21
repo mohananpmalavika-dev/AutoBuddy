@@ -22,6 +22,9 @@ import OperatorDashboard from './screens/OperatorDashboard';
 // Admin screens
 import AdminDashboard from './screens/AdminDashboard';
 
+// AI Travel Intent Engine
+import TravelIntentDashboard from './screens/TravelIntentDashboard';
+
 // Types
 export type AppSession = {
   token: string;
@@ -282,6 +285,15 @@ export default function App() {
                     )}
                   />
                 )}
+                <Stack.Screen
+                  name="TravelIntent"
+                  children={() => (
+                    <TravelIntentDashboard
+                      token={session.token}
+                      user={session.user}
+                    />
+                  )}
+                />
               </>
             )}
 
