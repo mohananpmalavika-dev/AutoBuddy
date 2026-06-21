@@ -1392,11 +1392,7 @@ export default function DriverCommandPage({
     : activeRideNavigation.pickup || activeRideNavigation.drop;
   const mapCenter = normalizeLocation(driverLocation) || mapDestination || DEFAULT_CENTER;
   const mapOrigin = normalizeLocation(driverLocation);
-  const fallbackUrl = buildMapFallbackUrl({
-    center: mapCenter,
-    origin: mapOrigin,
-    destination: mapDestination,
-  });
+  const fallbackUrl = '';
 
   const renderRequestsTab = () => {
     if (activeRide) {
@@ -1941,10 +1937,8 @@ export default function DriverCommandPage({
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}>
         <View style={[styles.mapShell, compactLayout ? styles.mapShellCompact : styles.mapShellDesktop]}>
-          <WebGoogleLiveMap
-            apiKey={googleMapsWebKey}
+          <WebLeafletMap
             title="AutoBuddy driver map"
-            fallbackUrl={fallbackUrl}
             mapStyle={styles.map}
             defaultCenter={mapCenter}
             pickupLocation={activeRideNavigation.pickup}

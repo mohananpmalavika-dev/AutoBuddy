@@ -405,7 +405,6 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     return nextStatus;
   }, []);
 
-  const googleMapsWebKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
   const placesConfigured = isPlacesConfigured();
   const activeRideStatus = String(activeRide?.status || '').toLowerCase();
   const activeRideId = String(activeRide?.id || '').trim() || null;
@@ -908,42 +907,6 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     const driverPlace = resolveCoords(driverLocation || activeRide?.driver_location);
     const routeOrigin = navigatingToPickup || navigatingToDrop ? (driverPlace || pickup) : null;
     const routeDestination = navigatingToPickup ? pickup : navigatingToDrop ? drop : null;
-    const hasRoute =
-      !!routeOrigin &&
-      !!routeDestination &&
-      (Math.abs(routeOrigin.latitude - routeDestination.latitude) > 0.000001 ||
-        Math.abs(routeOrigin.longitude - routeDestination.longitude) > 0.000001);
-    const place = driverPlace || pickup || drop;
-    const usingBasicEmbed = !googleMapsWebKey;
-    let fallbackUrl = '';
-
-    if (usingBasicEmbed) {
-      if (hasRoute) {
-        fallbackUrl = `https://maps.google.com/maps?saddr=${routeOrigin.latitude},${routeOrigin.longitude}&daddr=${routeDestination.latitude},${routeDestination.longitude}&output=embed`;
-      } else if (pickup && drop) {
-        fallbackUrl = `https://maps.google.com/maps?saddr=${pickup.latitude},${pickup.longitude}&daddr=${drop.latitude},${drop.longitude}&output=embed`;
-      } else if (driverPlace && !pickup && !drop) {
-        fallbackUrl = `https://maps.google.com/maps?ll=${driverPlace.latitude},${driverPlace.longitude}&z=14&output=embed`;
-      } else if (place) {
-        fallbackUrl = `https://maps.google.com/maps?q=${place.latitude},${place.longitude}&z=14&output=embed`;
-      } else {
-        fallbackUrl = `https://maps.google.com/maps?q=${DEFAULT_CITY_LOCATION.latitude},${DEFAULT_CITY_LOCATION.longitude}&z=11&output=embed`;
-      }
-    } else if (hasRoute) {
-      fallbackUrl = `https://www.google.com/maps/embed/v1/directions?key=${encodeURIComponent(googleMapsWebKey)}&origin=${routeOrigin.latitude},${routeOrigin.longitude}&destination=${routeDestination.latitude},${routeDestination.longitude}&avoid=tolls|highways`;
-    } else if (pickup && drop) {
-      fallbackUrl = `https://www.google.com/maps/embed/v1/directions?key=${encodeURIComponent(googleMapsWebKey)}&origin=${pickup.latitude},${pickup.longitude}&destination=${drop.latitude},${drop.longitude}&avoid=tolls|highways`;
-    } else if (driverPlace && !pickup && !drop) {
-      fallbackUrl = `https://www.google.com/maps/embed/v1/view?key=${encodeURIComponent(
-        googleMapsWebKey,
-      )}&center=${driverPlace.latitude},${driverPlace.longitude}&zoom=14&maptype=roadmap`;
-    } else if (place) {
-      fallbackUrl = `https://www.google.com/maps/embed/v1/place?key=${encodeURIComponent(googleMapsWebKey)}&q=${place.latitude},${place.longitude}&zoom=14`;
-    } else {
-      fallbackUrl = `https://www.google.com/maps/embed/v1/view?key=${encodeURIComponent(
-        googleMapsWebKey,
-      )}&center=${DEFAULT_CITY_LOCATION.latitude},${DEFAULT_CITY_LOCATION.longitude}&zoom=11&maptype=roadmap`;
-    }
 
     return {
       pickup,
@@ -951,9 +914,8 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       driverPlace,
       routeOrigin,
       routeDestination,
-      fallbackUrl,
     };
-  }, [googleMapsWebKey, activeRide, driverLocation, navigatingToDrop, navigatingToPickup]);
+  }, [activeRide, driverLocation, navigatingToDrop, navigatingToPickup]);
 
   const runAction = useCallback(async (fn, successText) => {
     try {

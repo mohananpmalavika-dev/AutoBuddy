@@ -772,7 +772,6 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     return normalizeLanguageCode(window.localStorage.getItem('autobuddy_lang') || 'en');
   });
   const placesConfigured = isPlacesConfigured();
-  const googleMapsWebKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
   const liveTrackStatuses = useMemo(() => LIVE_DRIVER_TRACKING_STATUSES, []);
   const t = useMemo(() => resolvePassengerLocale(languageCode), [languageCode]);
   const rideProductLabels = useMemo(() => getPassengerRideProductLabels(t), [t]);
@@ -1029,44 +1028,6 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     const destination = selectedDropoffLocation;
     const driverLiveLocation = isDriverLiveSharing ? liveDriverLocation : null;
     const liveTarget = activeBookingStatus === 'in_progress' ? (destination || origin) : (origin || destination);
-    const usingBasicEmbed = !googleMapsWebKey;
-    let fallbackUrl = '';
-
-    if (usingBasicEmbed) {
-      if (isDriverLiveSharing && driverLiveLocation && liveTarget) {
-        fallbackUrl = `https://www.google.com/maps?output=embed&saddr=${driverLiveLocation.latitude},${driverLiveLocation.longitude}&daddr=${liveTarget.latitude},${liveTarget.longitude}`;
-      } else if (isDriverLiveSharing && driverLiveLocation) {
-        fallbackUrl = `https://www.google.com/maps?output=embed&q=${driverLiveLocation.latitude},${driverLiveLocation.longitude}&z=15`;
-      } else if (origin && destination) {
-        fallbackUrl = `https://www.google.com/maps?output=embed&saddr=${origin.latitude},${origin.longitude}&daddr=${destination.latitude},${destination.longitude}`;
-      } else {
-        const location = origin || destination;
-        fallbackUrl = location
-          ? `https://www.google.com/maps?output=embed&q=${location.latitude},${location.longitude}&z=14`
-          : 'https://www.google.com/maps?output=embed&q=13.0827,80.2707&z=11';
-      }
-    } else if (isDriverLiveSharing && driverLiveLocation && liveTarget) {
-      fallbackUrl = `https://www.google.com/maps/embed/v1/directions?key=${encodeURIComponent(
-        googleMapsWebKey,
-      )}&origin=${driverLiveLocation.latitude},${driverLiveLocation.longitude}&destination=${liveTarget.latitude},${liveTarget.longitude}&avoid=tolls|highways`;
-    } else if (isDriverLiveSharing && driverLiveLocation) {
-      fallbackUrl = `https://www.google.com/maps/embed/v1/place?key=${encodeURIComponent(
-        googleMapsWebKey,
-      )}&q=${driverLiveLocation.latitude},${driverLiveLocation.longitude}&zoom=15`;
-    } else if (origin && destination) {
-      fallbackUrl = `https://www.google.com/maps/embed/v1/directions?key=${encodeURIComponent(
-        googleMapsWebKey,
-      )}&origin=${origin.latitude},${origin.longitude}&destination=${destination.latitude},${destination.longitude}&avoid=tolls|highways`;
-    } else {
-      const location = origin || destination;
-      fallbackUrl = location
-        ? `https://www.google.com/maps/embed/v1/place?key=${encodeURIComponent(
-            googleMapsWebKey,
-          )}&q=${location.latitude},${location.longitude}&zoom=14`
-        : `https://www.google.com/maps/embed/v1/view?key=${encodeURIComponent(
-            googleMapsWebKey,
-          )}&center=13.0827,80.2707&zoom=11&maptype=roadmap`;
-    }
 
     const routeOrigin = isDriverLiveSharing && driverLiveLocation && liveTarget
       ? driverLiveLocation
@@ -1076,14 +1037,13 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       : destination;
 
     return {
-      fallbackUrl,
       origin,
       destination,
       driverLiveLocation,
       routeOrigin,
       routeDestination,
     };
-  }, [googleMapsWebKey, selectedPickupLocation, selectedDropoffLocation, liveDriverLocation, activeBookingStatus, isDriverLiveSharing]);
+  }, [selectedPickupLocation, selectedDropoffLocation, liveDriverLocation, activeBookingStatus, isDriverLiveSharing]);
 
   const fareExpectation = useMemo(() => {
     const parsed = Number(String(fareExpectationInput || '').trim());
