@@ -9,7 +9,7 @@ import {
   Alert,
 } from 'react-native';
 import type { ViewStyle } from 'react-native';
-import WebGoogleLiveMap from './WebGoogleLiveMap';
+import WebLeafletMap from './WebLeafletMap';
 import { COLORS, SHADOWS } from '../theme';
 import { demandTrafficAPI } from '../services/apiClient';
 
@@ -163,8 +163,7 @@ export default function DemandHeatmapIntegration({
 
       {currentLocation && (
         <View style={styles.mapContainer}>
-          <WebGoogleLiveMap
-            apiKey={GOOGLE_MAPS_WEB_KEY}
+          <WebLeafletMap
             title="Demand heatmap"
             fallbackUrl={mapFallbackUrl}
             defaultCenter={mapCenter}

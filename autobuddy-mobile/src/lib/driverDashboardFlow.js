@@ -80,11 +80,11 @@ export function buildGoogleMapsDirectionsUrl({ origin, destination }) {
   if (!destination) {
     return '';
   }
-  const destinationQuery = `${destination.latitude},${destination.longitude}`;
+  const destStr = `${destination.latitude},${destination.longitude}`;
   if (!origin) {
-    return `https://www.google.com/maps/search/?api=1&query=${destinationQuery}`;
+    return `https://www.openstreetmap.org/?mlat=${destination.latitude}&mlon=${destination.longitude}`;
   }
-  return `https://www.google.com/maps/dir/?api=1&origin=${origin.latitude},${origin.longitude}&destination=${destinationQuery}&travelmode=driving`;
+  return `https://www.openstreetmap.org/directions?from=${origin.latitude},${origin.longitude}&to=${destStr}`;
 }
 
 export function runDriverQuickAction(action, handlers = {}) {

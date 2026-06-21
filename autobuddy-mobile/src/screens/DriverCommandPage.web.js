@@ -44,8 +44,7 @@ import SupportTicketPanel from '../components/SupportTicketPanel';
 import { TaxReportWidget } from '../components/TaxReportWidget';
 import TrafficAlerts from '../components/TrafficAlerts';
 import VehicleManagementPanel from '../components/VehicleManagementPanel';
-import WebGoogleLiveMap from '../components/WebGoogleLiveMap';
-
+import WebLeafletMap from '../components/WebLeafletMap';
 // Lazy load NotificationCenter to break circular dependency
 const NotificationCenter = lazy(() => import('../components/NotificationCenter'));
 import { DRIVER_QUICK_ACTIONS } from '../constants/driverQuickActions';
@@ -347,21 +346,6 @@ function hasMapPoint(point) {
   return Number.isFinite(point?.latitude) && Number.isFinite(point?.longitude);
 }
 
-function buildMapFallbackUrl({ center, origin, destination } = {}) {
-  const originPoint = normalizeLocation(origin);
-  const destinationPoint = normalizeLocation(destination);
-  if (hasMapPoint(originPoint) && hasMapPoint(destinationPoint)) {
-    const source = `${originPoint.latitude},${originPoint.longitude}`;
-    const target = `${destinationPoint.latitude},${destinationPoint.longitude}`;
-    return `https://www.google.com/maps?saddr=${encodeURIComponent(source)}&daddr=${encodeURIComponent(target)}&dirflg=d&output=embed`;
-  }
-
-  const point = normalizeLocation(center || destination || origin);
-  if (!hasMapPoint(point)) {
-    return '';
-  }
-  return `https://www.google.com/maps?ll=${encodeURIComponent(`${point.latitude},${point.longitude}`)}&z=15&output=embed`;
-}
 
 function getUpcomingCount(payload) {
   const counts = payload?.counts || {};
@@ -631,7 +615,6 @@ export default function DriverCommandPage({
   const activeRideId = String(activeRide?.id || '').trim();
   const activeRideStatus = String(activeRide?.status || '').toLowerCase();
   const displayIsAccepting = isAccepting || Boolean(activeRideId);
-  const googleMapsWebKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
   const compactLayout = width < 760;
   const keralaSafety = useKeralaSafety({
     token,

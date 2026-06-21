@@ -26,7 +26,7 @@ import {
 import { COLORS, SHADOWS, TYPOGRAPHY } from '../theme';
 import WebCommandBar from '../components/WebCommandBar';
 import RevenueCard from '../components/RevenueCard';
-import WebGoogleLiveMap from '../components/WebGoogleLiveMap';
+import WebLeafletMap from '../components/WebLeafletMap';
 import {
   FadeSlideView,
   GlassCard,
@@ -3988,8 +3988,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         <View style={[styles.container, isMobileWeb && styles.containerMobile]}>
           {!isMobileWeb && <WebCommandBar />}
         <View style={[styles.mapContainer, isMobileWeb && styles.mapContainerMobile]}>
-          <WebGoogleLiveMap
-            apiKey={googleMapsWebKey}
+          <WebLeafletMap
             title={t.passengerMapTitle}
             fallbackUrl={mapState.fallbackUrl}
             mapStyle={[styles.mapIframe, isMobileWeb && styles.mapIframeMobile]}
@@ -4986,14 +4985,12 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                 {activeBooking && (
                   <>
                     {/* Live map visualization with driver tracking */}
-                    {(activeBookingStatus === 'driver_arrived' || activeBookingStatus === 'in_progress') && (
+                      {(activeBookingStatus === 'driver_arrived' || activeBookingStatus === 'in_progress') && (
                       <View style={{ marginVertical: 12, borderRadius: 12, overflow: 'hidden' }}>
-                        <WebGoogleLiveMap
-                          passengerLocation={normalizeLocation(activeBooking.pickup_location)}
+                        <WebLeafletMap
                           driverLocation={liveDriverLocation}
+                          pickupLocation={normalizeLocation(activeBooking.pickup_location)}
                           dropoffLocation={normalizeLocation(activeBooking.drop_location || activeBooking.dropoff_location)}
-                          eta={etaToPickup || etaToDrop}
-                          status={activeBookingStatus}
                           showStatusOverlay={false}
                         />
                       </View>

@@ -18,7 +18,7 @@ import KeralaSafetyCard from '../components/KeralaSafetyCard';
 import DriverTrustCard from '../components/DriverTrustCard';
 import DriverKycPanel from '../components/DriverKycPanel';
 import RevenueCard from '../components/RevenueCard';
-import WebGoogleLiveMap from '../components/WebGoogleLiveMap';
+import WebLeafletMap from '../components/WebLeafletMap';
 import {
   FadeSlideView,
   GlassCard,
@@ -2256,8 +2256,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       <View style={styles.container}>
         <WebCommandBar />
         <View style={styles.mapContainer}>
-          <WebGoogleLiveMap
-            apiKey={googleMapsWebKey}
+          <WebLeafletMap
             title="Live Driver Map"
             fallbackUrl={mapState.fallbackUrl}
             mapStyle={styles.mapIframe}
