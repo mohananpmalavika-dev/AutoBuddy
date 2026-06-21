@@ -3753,10 +3753,13 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const renderPassengerQuickBooking = () => (
     <View style={[styles.quickBookingSheet, isMobileWeb && styles.quickBookingSheetMobile]}>
       <View style={styles.quickSheetHandle} />
-      <View style={styles.quickBookingHeader}>
+          <View style={styles.quickBookingHeader}>
         <View style={styles.quickBookingTitleBlock}>
           <Text style={styles.quickGreeting}>Hi {user?.name || 'there'}</Text>
-          <Text style={[styles.quickTitle, isMobileWeb && styles.quickTitleMobile]}>Where are you going?</Text>
+          <Text style={[styles.quickTitle, isMobileWeb && styles.quickTitleMobile]}>What do you need today?</Text>
+          <Text style={[styles.quickSubtitle, isMobileWeb && styles.quickSubtitleMobile]}>
+            Cards + Voice. AI fills pickup & destination, then you book.
+          </Text>
         </View>
         <View style={styles.quickHeaderActions}>
           <NotificationBell
