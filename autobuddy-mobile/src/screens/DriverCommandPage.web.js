@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, Suspense, lazy } from 'react';
 import {
   ActivityIndicator,
   Linking,
@@ -31,7 +31,6 @@ import EarningsPanel from '../components/EarningsPanel';
 import EnhancedSettingsPanel from '../components/EnhancedSettingsPanel';
 import { FavoritePassengersPanel } from '../components/FavoritePassengersPanel';
 import KeralaSafetyCard from '../components/KeralaSafetyCard';
-import NotificationCenter from '../components/NotificationCenter';
 import PassengerSafetyRatingsPanel from '../components/PassengerSafetyRatingsPanel';
 import ProfileManagementPanel from '../components/ProfileManagementPanel';
 import RideCommunicationCard from '../components/RideCommunicationCard';
@@ -46,6 +45,9 @@ import { TaxReportWidget } from '../components/TaxReportWidget';
 import TrafficAlerts from '../components/TrafficAlerts';
 import VehicleManagementPanel from '../components/VehicleManagementPanel';
 import WebGoogleLiveMap from '../components/WebGoogleLiveMap';
+
+// Lazy load NotificationCenter to break circular dependency
+const NotificationCenter = lazy(() => import('../components/NotificationCenter'));
 import { DRIVER_QUICK_ACTIONS } from '../constants/driverQuickActions';
 import { useDriverRideQueueSocket } from '../hooks/useDriverRideQueueSocket';
 import { useKeralaSafety } from '../hooks/useKeralaSafety';
@@ -1715,20 +1717,22 @@ export default function DriverCommandPage({
         );
       case 'notifications':
         return (
-          <NotificationCenter
-            token={token}
-            onClose={() => setActiveTab('requests')}
-            onNotificationPress={(notification) => {
-              const target = String(notification?.screen || notification?.target || notification?.type || '').toLowerCase();
-              if (target.includes('earning')) {
-                setActiveTab('earnings');
-              } else if (target.includes('support')) {
-                setActiveTab('support');
-              } else if (target.includes('document')) {
-                setActiveTab('documents');
-              }
-            }}
-          />
+          <Suspense fallback={<ActivityIndicator size="large" color={COLORS.primary} />}>
+            <NotificationCenter
+              token={token}
+              onClose={() => setActiveTab('requests')}
+              onNotificationPress={(notification) => {
+                const target = String(notification?.screen || notification?.target || notification?.type || '').toLowerCase();
+                if (target.includes('earning')) {
+                  setActiveTab('earnings');
+                } else if (target.includes('support')) {
+                  setActiveTab('support');
+                } else if (target.includes('document')) {
+                  setActiveTab('documents');
+                }
+              }}
+            />
+          </Suspense>
         );
       case 'fare':
         return (
