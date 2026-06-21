@@ -1,11 +1,39 @@
 import axios, { AxiosInstance, AxiosError, AxiosResponse } from 'axios';
 
+// Standardized API Response Types
+export interface PaginationMeta {
+  total: number;
+  limit: number;
+  offset: number;
+  page: number;
+  pages: number;
+  has_next: boolean;
+  has_prev: boolean;
+}
+
+export interface StandardApiResponse<T = any> {
+  status: 'success' | 'error' | 'partial';
+  message: string;
+  data?: T;
+  error?: {
+    code: string;
+    message: string;
+    details?: Record<string, any>;
+  };
+  pagination?: PaginationMeta;
+  metadata?: Record<string, any>;
+  timestamp: string;
+  version: string;
+  request_id?: string;
+}
+
 export interface ApiErrorResponse {
   code: string;
   message: string;
   details?: Record<string, any>;
   statusCode: number;
   timestamp: Date;
+  request_id?: string;
 }
 
 export interface ApiConfig {
@@ -13,6 +41,7 @@ export interface ApiConfig {
   timeout: number;
   retryAttempts: number;
   retryDelay: number;
+  apiVersion: string;
 }
 
 const DEFAULT_CONFIG: ApiConfig = {
@@ -20,6 +49,7 @@ const DEFAULT_CONFIG: ApiConfig = {
   timeout: 30000,
   retryAttempts: 3,
   retryDelay: 1000,
+  apiVersion: 'v1',
 };
 
 let apiInstance: AxiosInstance | null = null;
@@ -47,6 +77,8 @@ export const initializeApiClient = (
         config.headers.Authorization = `Bearer ${token}`;
       }
       config.headers['Content-Type'] = 'application/json';
+      config.headers['X-API-Version'] = finalConfig.apiVersion;
+      config.headers['X-Client-Version'] = '1.0';
       return config;
     },
     (error) => Promise.reject(error)
@@ -107,7 +139,22 @@ export const cleanupApiClient = (): void => {
 
 export const handleApiError = (error: unknown): ApiErrorResponse => {
   if (axios.isAxiosError(error)) {
-    const axiosError = error as AxiosError<any>;
+    const axiosError = error as AxiosError<StandardApiResponse>;
+    const errorData = axiosError.response?.data;
+
+    // Extract from standardized response format
+    if (errorData?.error) {
+      return {
+        code: errorData.error.code || axiosError.code || 'UNKNOWN_ERROR',
+        message: errorData.error.message || axiosError.message,
+        details: errorData.error.details,
+        statusCode: axiosError.response?.status || 500,
+        timestamp: new Date(),
+        request_id: errorData.request_id,
+      };
+    }
+
+    // Fallback for non-standard responses
     return {
       code: axiosError.code || 'UNKNOWN_ERROR',
       message: axiosError.response?.data?.message || axiosError.message,
@@ -141,6 +188,21 @@ export const isNetworkError = (error: unknown): boolean => {
   return false;
 };
 
+export const validateStandardResponse = <T>(response: any): StandardApiResponse<T> => {
+  if (!response.status || !['success', 'error', 'partial'].includes(response.status)) {
+    console.warn('Response does not match standard format:', response);
+  }
+  return response as StandardApiResponse<T>;
+};
+
+export const extractResponseData = <T>(response: StandardApiResponse<T>): T | undefined => {
+  return response.data;
+};
+
+export const extractPagination = (response: StandardApiResponse<any>): PaginationMeta | undefined => {
+  return response.pagination;
+};
+
 export const isRetryableError = (error: unknown): boolean => {
   if (axios.isAxiosError(error)) {
     const status = error.response?.status;
@@ -166,7 +228,7 @@ export const makeRequest = async <T,>(
   url: string,
   data?: any,
   options: RequestOptions = {}
-): Promise<T> => {
+): Promise<StandardApiResponse<T>> => {
   const client = getApiClient();
 
   try {
@@ -177,8 +239,9 @@ export const makeRequest = async <T,>(
       timeout: options.timeout || DEFAULT_CONFIG.timeout,
     };
 
-    const response: AxiosResponse<T> = await client(config);
-    return response.data;
+    const response: AxiosResponse<StandardApiResponse<T>> = await client(config);
+    const validated = validateStandardResponse<T>(response.data);
+    return validated;
   } catch (error) {
     throw handleApiError(error);
   }
@@ -187,7 +250,7 @@ export const makeRequest = async <T,>(
 export const get = async <T,>(
   url: string,
   options?: RequestOptions
-): Promise<T> => {
+): Promise<StandardApiResponse<T>> => {
   return makeRequest<T>('GET', url, undefined, options);
 };
 
@@ -195,7 +258,7 @@ export const post = async <T,>(
   url: string,
   data?: any,
   options?: RequestOptions
-): Promise<T> => {
+): Promise<StandardApiResponse<T>> => {
   return makeRequest<T>('POST', url, data, options);
 };
 
@@ -203,7 +266,7 @@ export const put = async <T,>(
   url: string,
   data?: any,
   options?: RequestOptions
-): Promise<T> => {
+): Promise<StandardApiResponse<T>> => {
   return makeRequest<T>('PUT', url, data, options);
 };
 
@@ -211,13 +274,13 @@ export const patch = async <T,>(
   url: string,
   data?: any,
   options?: RequestOptions
-): Promise<T> => {
+): Promise<StandardApiResponse<T>> => {
   return makeRequest<T>('PATCH', url, data, options);
 };
 
 export const del = async <T,>(
   url: string,
   options?: RequestOptions
-): Promise<T> => {
+): Promise<StandardApiResponse<T>> => {
   return makeRequest<T>('DELETE', url, undefined, options);
 };

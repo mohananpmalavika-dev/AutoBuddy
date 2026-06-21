@@ -1,370 +1,200 @@
 import { useState, useCallback, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export interface InsuranceCoverage {
+export interface CoverageOption {
   id: string;
-  type: 'basic' | 'premium' | 'comprehensive';
   name: string;
   description: string;
-  monthlyPremium: number;
+  limit: number;
+  premium: number;
   deductible: number;
-  coverageLimit: number;
-  coverageDetails: {
-    accidentCoverage: boolean;
-    theftCoverage: boolean;
-    damageCoverage: boolean;
-    passengerInjury: boolean;
-    propertyDamage: boolean;
-    liabilityLimit: number;
-  };
-  activeSince: Date;
-  renewalDate: Date;
-  status: 'active' | 'inactive' | 'expired';
+  coverageType: 'liability' | 'collision' | 'comprehensive' | 'uninsured';
 }
 
 export interface InsuranceClaim {
   id: string;
-  claimNumber: string;
-  rideId?: string;
-  date: Date;
-  incidentType:
-    | 'accident'
-    | 'theft'
-    | 'damage'
-    | 'injury'
-    | 'property_damage'
-    | 'other';
-  description: string;
-  location: string;
-  amount: number;
+  date: string;
+  rideId: string;
   status: 'filed' | 'under_review' | 'approved' | 'rejected' | 'settled';
-  evidence: {
-    photos: string[];
-    documents: string[];
-    description: string;
-  };
-  estimatedAmount?: number;
-  approvedAmount?: number;
-  rejectionReason?: string;
-  filedDate: Date;
-  lastUpdated: Date;
+  claimType: string;
+  description: string;
+  amount: number;
+  approvalDate?: string;
   notes?: string;
 }
 
-export interface ClaimHistory extends InsuranceClaim {
-  resolvedDate?: Date;
-  resolution?: string;
+export interface InsuranceCoverage {
+  policyNumber: string;
+  provider: string;
+  startDate: string;
+  endDate: string;
+  status: 'active' | 'expired' | 'cancelled';
+  coverages: CoverageOption[];
+  claims: InsuranceClaim[];
+  totalCovered: number;
+  nextRenewalDate: string;
 }
-
-const INSURANCE_COVERAGE_STORAGE = 'insurance_coverage';
-const INSURANCE_CLAIMS_STORAGE = 'insurance_claims';
-const CLAIM_HISTORY_STORAGE = 'insurance_claim_history';
 
 export const useInsuranceCoverage = (token: string | null, userId: string) => {
   const [coverage, setCoverage] = useState<InsuranceCoverage | null>(null);
   const [claims, setClaims] = useState<InsuranceClaim[]>([]);
-  const [claimHistory, setClaimHistory] = useState<ClaimHistory[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Initialize
   useEffect(() => {
-    const initialize = async () => {
-      try {
-        setLoading(true);
-        const savedCoverage = await AsyncStorage.getItem(INSURANCE_COVERAGE_STORAGE);
-        const savedClaims = await AsyncStorage.getItem(INSURANCE_CLAIMS_STORAGE);
-        const savedHistory = await AsyncStorage.getItem(CLAIM_HISTORY_STORAGE);
-
-        if (savedCoverage) {
-          const parsedCoverage = JSON.parse(savedCoverage);
-          parsedCoverage.activeSince = new Date(parsedCoverage.activeSince);
-          parsedCoverage.renewalDate = new Date(parsedCoverage.renewalDate);
-          setCoverage(parsedCoverage);
-        } else {
-          // Initialize default coverage
-          await initializeDefaultCoverage();
-        }
-
-        if (savedClaims) {
-          const parsedClaims = JSON.parse(savedClaims).map((c: any) => ({
-            ...c,
-            date: new Date(c.date),
-            filedDate: new Date(c.filedDate),
-            lastUpdated: new Date(c.lastUpdated),
-          }));
-          setClaims(parsedClaims);
-        }
-
-        if (savedHistory) {
-          const parsedHistory = JSON.parse(savedHistory).map((h: any) => ({
-            ...h,
-            date: new Date(h.date),
-            filedDate: new Date(h.filedDate),
-            lastUpdated: new Date(h.lastUpdated),
-            resolvedDate: h.resolvedDate ? new Date(h.resolvedDate) : undefined,
-          }));
-          setClaimHistory(parsedHistory);
-        }
-      } catch (err) {
-        setError(`Init failed: ${err}`);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (token && userId) initialize();
+    if (token && userId) {
+      loadCoverageData();
+    }
   }, [token, userId]);
 
-  // Initialize default coverage
-  const initializeDefaultCoverage = useCallback(async () => {
+  const loadCoverageData = useCallback(async () => {
     try {
-      const defaultCoverage: InsuranceCoverage = {
-        id: `coverage_${Date.now()}`,
-        type: 'premium',
-        name: 'AutoBuddy Premium Protection',
-        description: 'Comprehensive coverage for all ride-related incidents',
-        monthlyPremium: 299,
-        deductible: 1000,
-        coverageLimit: 100000,
-        coverageDetails: {
-          accidentCoverage: true,
-          theftCoverage: true,
-          damageCoverage: true,
-          passengerInjury: true,
-          propertyDamage: true,
-          liabilityLimit: 100000,
-        },
-        activeSince: new Date(),
-        renewalDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-        status: 'active',
-      };
-
-      setCoverage(defaultCoverage);
-      await AsyncStorage.setItem(INSURANCE_COVERAGE_STORAGE, JSON.stringify(defaultCoverage));
+      setLoading(true);
+      const cached = await AsyncStorage.getItem(`autobuddy_cache_insurance_${userId}`);
+      if (cached) {
+        const data = JSON.parse(cached);
+        setCoverage(data.coverage);
+        setClaims(data.claims || []);
+      }
+      setError(null);
     } catch (err) {
-      console.error('Failed to initialize coverage:', err);
+      setError('Failed to load insurance data');
+    } finally {
+      setLoading(false);
     }
-  }, []);
+  }, [userId]);
 
-  // Get coverage details
-  const getCoverageDetails = useCallback((): InsuranceCoverage | null => {
-    return coverage;
-  }, [coverage]);
+  const getCoverageDetails = useCallback(async (): Promise<InsuranceCoverage | null> => {
+    if (!token) return null;
+    try {
+      const response = await fetch(
+        `https://api.autobuddy.com/v1/user/${userId}/insurance/coverage`,
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      );
+      if (!response.ok) throw new Error('Failed to fetch coverage');
+      const data = await response.json();
+      const coverageData: InsuranceCoverage = data.data;
+      setCoverage(coverageData);
+      await AsyncStorage.setItem(
+        `autobuddy_cache_insurance_${userId}`,
+        JSON.stringify({ coverage: coverageData, claims })
+      );
+      return coverageData;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed');
+      return null;
+    }
+  }, [token, userId, claims]);
 
-  // Get active claims
-  const getActiveClaims = useCallback((): InsuranceClaim[] => {
-    return claims.filter(c => c.status !== 'settled' && c.status !== 'rejected');
-  }, [claims]);
+  const getActiveClaims = useCallback(async (): Promise<InsuranceClaim[]> => {
+    if (!token) return [];
+    try {
+      const response = await fetch(
+        `https://api.autobuddy.com/v1/user/${userId}/insurance/claims`,
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      );
+      if (!response.ok) throw new Error('Failed to fetch claims');
+      const data = await response.json();
+      const claimsList: InsuranceClaim[] = data.data || [];
+      setClaims(claimsList);
+      return claimsList;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed');
+      return [];
+    }
+  }, [token, userId]);
 
-  // Get claims by status
-  const getClaimsByStatus = useCallback(
-    (status: InsuranceClaim['status']): InsuranceClaim[] => {
-      return claims.filter(c => c.status === status);
-    },
-    [claims]
-  );
-
-  // File insurance claim
   const fileInsuranceClaim = useCallback(
-    async (claimData: {
-      rideId?: string;
-      incidentType: InsuranceClaim['incidentType'];
-      description: string;
-      location: string;
-      amount: number;
-      evidence: InsuranceClaim['evidence'];
-    }): Promise<InsuranceClaim> => {
+    async (rideId: string, claimType: string, description: string, amount: number): Promise<InsuranceClaim | null> => {
+      if (!token) return null;
       try {
-        const newClaim: InsuranceClaim = {
-          id: `claim_${Date.now()}`,
-          claimNumber: `CLM-${Date.now().toString().slice(-6)}`,
-          rideId: claimData.rideId,
-          date: new Date(),
-          incidentType: claimData.incidentType,
-          description: claimData.description,
-          location: claimData.location,
-          amount: claimData.amount,
-          status: 'filed',
-          evidence: claimData.evidence,
-          filedDate: new Date(),
-          lastUpdated: new Date(),
-        };
-
-        const updatedClaims = [newClaim, ...claims];
-        setClaims(updatedClaims);
-        await AsyncStorage.setItem(INSURANCE_CLAIMS_STORAGE, JSON.stringify(updatedClaims));
-
+        const response = await fetch(
+          `https://api.autobuddy.com/v1/user/${userId}/insurance/claims`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ ride_id: rideId, claim_type: claimType, description, amount }),
+          }
+        );
+        if (!response.ok) throw new Error('Failed to file claim');
+        const data = await response.json();
+        const newClaim: InsuranceClaim = data.data;
+        setClaims([newClaim, ...claims]);
         return newClaim;
       } catch (err) {
-        const errorMsg = `Claim filing failed: ${err}`;
-        setError(errorMsg);
-        throw new Error(errorMsg);
+        setError(err instanceof Error ? err.message : 'Failed');
+        return null;
       }
     },
-    [claims]
+    [token, userId, claims]
   );
 
-  // Update claim status
   const updateClaimStatus = useCallback(
-    async (
-      claimId: string,
-      newStatus: InsuranceClaim['status'],
-      approvedAmount?: number,
-      rejectionReason?: string
-    ): Promise<void> => {
+    async (claimId: string, status: string, notes?: string): Promise<boolean> => {
+      if (!token) return false;
       try {
-        const updatedClaims = claims.map(c => {
-          if (c.id === claimId) {
-            return {
-              ...c,
-              status: newStatus,
-              approvedAmount: approvedAmount || c.approvedAmount,
-              rejectionReason: rejectionReason || c.rejectionReason,
-              lastUpdated: new Date(),
-            };
+        const response = await fetch(
+          `https://api.autobuddy.com/v1/insurance/claims/${claimId}`,
+          {
+            method: 'PATCH',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ status, notes }),
           }
-          return c;
-        });
-
-        setClaims(updatedClaims);
-        await AsyncStorage.setItem(INSURANCE_CLAIMS_STORAGE, JSON.stringify(updatedClaims));
-
-        // If settled or rejected, move to history
-        if (newStatus === 'settled' || newStatus === 'rejected') {
-          const claim = updatedClaims.find(c => c.id === claimId);
-          if (claim) {
-            const historyEntry: ClaimHistory = {
-              ...claim,
-              resolvedDate: new Date(),
-              resolution: newStatus === 'settled' ? 'approved' : 'rejected',
-            };
-            const updatedHistory = [historyEntry, ...claimHistory];
-            setClaimHistory(updatedHistory);
-            await AsyncStorage.setItem(CLAIM_HISTORY_STORAGE, JSON.stringify(updatedHistory));
-          }
-        }
+        );
+        if (!response.ok) throw new Error('Failed to update');
+        return true;
       } catch (err) {
-        const errorMsg = `Status update failed: ${err}`;
-        setError(errorMsg);
-        throw new Error(errorMsg);
+        setError(err instanceof Error ? err.message : 'Failed');
+        return false;
       }
     },
-    [claims, claimHistory]
+    [token]
   );
 
-  // Get claim history
-  const getClaimHistory = useCallback((): ClaimHistory[] => {
-    return claimHistory;
-  }, [claimHistory]);
-
-  // Get claim by ID
-  const getClaimById = useCallback(
-    (claimId: string): InsuranceClaim | null => {
-      return claims.find(c => c.id === claimId) || null;
+  const getClaimHistory = useCallback(
+    (status?: string): InsuranceClaim[] => {
+      if (status) {
+        return claims.filter(c => c.status === status);
+      }
+      return claims;
     },
     [claims]
   );
 
-  // Get coverage summary
-  const getCoverageSummary = useCallback(() => {
-    if (!coverage) return null;
+  const getCoverageStatus = useCallback((): string => {
+    if (!coverage) return 'unknown';
+    if (coverage.status === 'active') return 'active';
+    if (coverage.status === 'expired') return 'expired';
+    return 'unknown';
+  }, [coverage]);
 
-    const totalClaims = claims.length;
-    const pendingClaims = claims.filter(c => c.status === 'under_review').length;
-    const approvedClaims = claims.filter(c => c.status === 'approved').length;
-    const settledClaims = claimHistory.filter(h => h.resolution === 'approved').length;
-    const totalApprovedAmount = claims
-      .filter(c => c.status === 'approved')
-      .reduce((sum, c) => sum + (c.approvedAmount || 0), 0);
+  const getTotalClaimedAmount = useCallback((): number => {
+    return claims.reduce((sum, claim) => sum + claim.amount, 0);
+  }, [claims]);
 
-    return {
-      coverageType: coverage.type,
-      coverageName: coverage.name,
-      monthlyPremium: coverage.monthlyPremium,
-      status: coverage.status,
-      renewalDate: coverage.renewalDate,
-      totalClaims,
-      pendingClaims,
-      approvedClaims,
-      settledClaims,
-      totalApprovedAmount,
-      coverageDetails: coverage.coverageDetails,
-    };
-  }, [coverage, claims, claimHistory]);
-
-  // Upgrade coverage plan
-  const upgradeCoveragePlan = useCallback(
-    async (newType: 'basic' | 'premium' | 'comprehensive'): Promise<void> => {
-      try {
-        if (!coverage) throw new Error('No coverage found');
-
-        const premiumMap = {
-          basic: 199,
-          premium: 299,
-          comprehensive: 499,
-        };
-
-        const updatedCoverage: InsuranceCoverage = {
-          ...coverage,
-          type: newType,
-          monthlyPremium: premiumMap[newType],
-          lastUpdated: new Date() as any,
-        };
-
-        setCoverage(updatedCoverage);
-        await AsyncStorage.setItem(INSURANCE_COVERAGE_STORAGE, JSON.stringify(updatedCoverage));
-      } catch (err) {
-        const errorMsg = `Upgrade failed: ${err}`;
-        setError(errorMsg);
-        throw new Error(errorMsg);
-      }
-    },
-    [coverage]
-  );
-
-  // Add claim notes
-  const addClaimNotes = useCallback(
-    async (claimId: string, notes: string): Promise<void> => {
-      try {
-        const updatedClaims = claims.map(c => {
-          if (c.id === claimId) {
-            return { ...c, notes };
-          }
-          return c;
-        });
-
-        setClaims(updatedClaims);
-        await AsyncStorage.setItem(INSURANCE_CLAIMS_STORAGE, JSON.stringify(updatedClaims));
-      } catch (err) {
-        const errorMsg = `Add notes failed: ${err}`;
-        setError(errorMsg);
-        throw new Error(errorMsg);
-      }
-    },
-    [claims]
-  );
+  const getPendingClaimsCount = useCallback((): number => {
+    return claims.filter(c => c.status === 'under_review' || c.status === 'filed').length;
+  }, [claims]);
 
   return {
-    // Methods
+    coverage,
+    claims,
+    loading,
+    error,
     getCoverageDetails,
     getActiveClaims,
-    getClaimsByStatus,
     fileInsuranceClaim,
     updateClaimStatus,
     getClaimHistory,
-    getClaimById,
-    getCoverageSummary,
-    upgradeCoveragePlan,
-    addClaimNotes,
-
-    // Data
-    coverage,
-    claims,
-    claimHistory,
-
-    // State
-    loading,
-    error,
+    getCoverageStatus,
+    getTotalClaimedAmount,
+    getPendingClaimsCount,
+    loadCoverageData,
   };
 };

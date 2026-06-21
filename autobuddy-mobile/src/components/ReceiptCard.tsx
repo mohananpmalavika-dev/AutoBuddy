@@ -1,14 +1,13 @@
 import React from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { View, StyleSheet, Text, TouchableOpacity } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Receipt } from '../hooks/useReceiptGeneration';
 
 interface ReceiptCardProps {
   receipt: Receipt;
-  onPress?: () => void;
-  onDownload?: () => void;
-  onEmail?: () => void;
-  style?: any;
+  onPress: (receipt: Receipt) => void;
+  onDownload: (receipt: Receipt) => void;
+  onEmail: (receipt: Receipt) => void;
 }
 
 export const ReceiptCard: React.FC<ReceiptCardProps> = ({
@@ -16,222 +15,138 @@ export const ReceiptCard: React.FC<ReceiptCardProps> = ({
   onPress,
   onDownload,
   onEmail,
-  style,
 }) => {
-  const formattedDate = new Date(receipt.date).toLocaleDateString();
-  const formattedTime = new Date(receipt.date).toLocaleTimeString();
-
-  const statusColor = {
-    completed: '#4CAF50',
-    pending: '#FF9800',
-    cancelled: '#F44336',
-  }[receipt.status];
-
   return (
-    <Pressable
-      style={[styles.card, style]}
-      onPress={onPress}
-      android_ripple={{ color: 'rgba(0,0,0,0.1)' }}
-    >
+    <TouchableOpacity style={styles.card} onPress={() => onPress(receipt)}>
       <View style={styles.header}>
-        <View style={styles.leftSection}>
-          <MaterialIcons name="receipt" size={28} color="#2196F3" />
-          <View style={styles.info}>
-            <Text style={styles.receiptId}>{receipt.id.slice(0, 12)}...</Text>
-            <Text style={styles.date}>
-              {formattedDate} • {formattedTime}
-            </Text>
-          </View>
+        <View style={styles.receiptInfo}>
+          <Text style={styles.receiptNumber}>Receipt #{receipt.receiptNumber}</Text>
+          <Text style={styles.date}>{receipt.date}</Text>
         </View>
-        <View style={styles.rightSection}>
-          <Text style={styles.fare}>₹{receipt.totalFare.toFixed(2)}</Text>
-          <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
-            <Text style={styles.statusText}>{receipt.status}</Text>
-          </View>
+        <Text style={styles.amount}>${receipt.total.toFixed(2)}</Text>
+      </View>
+
+      <View style={styles.routeSection}>
+        <View style={styles.routeRow}>
+          <MaterialIcons name="location-on" size={16} color="#666" />
+          <Text style={styles.routeText} numberOfLines={1}>
+            {receipt.pickup}
+          </Text>
+        </View>
+        <View style={styles.routeRow}>
+          <MaterialIcons name="location-on" size={16} color="#666" />
+          <Text style={styles.routeText} numberOfLines={1}>
+            {receipt.dropoff}
+          </Text>
         </View>
       </View>
 
-      <View style={styles.divider} />
-
-      <View style={styles.details}>
-        <View style={styles.detailRow}>
-          <View style={styles.detailItem}>
-            <MaterialIcons name="location_on" size={16} color="#666" />
-            <View style={styles.detailContent}>
-              <Text style={styles.detailLabel}>Pickup</Text>
-              <Text style={styles.detailValue} numberOfLines={1}>
-                {receipt.pickupLocation}
-              </Text>
-            </View>
-          </View>
-          <View style={styles.detailItem}>
-            <MaterialIcons name="directions" size={16} color="#666" />
-            <View style={styles.detailContent}>
-              <Text style={styles.detailLabel}>Distance</Text>
-              <Text style={styles.detailValue}>{receipt.distance} km</Text>
-            </View>
-          </View>
+      <View style={styles.footer}>
+        <View style={styles.details}>
+          <Text style={styles.detailText}>{receipt.distance} mi</Text>
+          <Text style={styles.separator}>•</Text>
+          <Text style={styles.detailText}>{receipt.vehicleType}</Text>
+          <Text style={styles.separator}>•</Text>
+          <Text style={styles.detailText}>Driver: {receipt.driver}</Text>
         </View>
 
-        <View style={styles.detailRow}>
-          <View style={styles.detailItem}>
-            <MaterialIcons name="person" size={16} color="#666" />
-            <View style={styles.detailContent}>
-              <Text style={styles.detailLabel}>Driver</Text>
-              <Text style={styles.detailValue} numberOfLines={1}>
-                {receipt.driverName}
-              </Text>
-            </View>
-          </View>
-          <View style={styles.detailItem}>
-            <MaterialIcons name="schedule" size={16} color="#666" />
-            <View style={styles.detailContent}>
-              <Text style={styles.detailLabel}>Duration</Text>
-              <Text style={styles.detailValue}>{receipt.duration} min</Text>
-            </View>
-          </View>
-        </View>
-      </View>
-
-      <View style={styles.actions}>
-        {onDownload && (
-          <Pressable
+        <View style={styles.actions}>
+          <TouchableOpacity
             style={styles.actionButton}
-            onPress={onDownload}
-            android_ripple={{ color: 'rgba(33, 150, 243, 0.2)' }}
+            onPress={() => onDownload(receipt)}
           >
             <MaterialIcons name="download" size={18} color="#2196F3" />
-            <Text style={styles.actionText}>Download</Text>
-          </Pressable>
-        )}
-        {onEmail && (
-          <Pressable
+          </TouchableOpacity>
+          <TouchableOpacity
             style={styles.actionButton}
-            onPress={onEmail}
-            android_ripple={{ color: 'rgba(33, 150, 243, 0.2)' }}
+            onPress={() => onEmail(receipt)}
           >
-            <MaterialIcons name="email" size={18} color="#2196F3" />
-            <Text style={styles.actionText}>Email</Text>
-          </Pressable>
-        )}
-        <Pressable
-          style={styles.actionButton}
-          onPress={onPress}
-          android_ripple={{ color: 'rgba(33, 150, 243, 0.2)' }}
-        >
-          <MaterialIcons name="arrow_forward" size={18} color="#2196F3" />
-          <Text style={styles.actionText}>View</Text>
-        </Pressable>
+            <MaterialIcons name="mail" size={18} color="#FF6F00" />
+          </TouchableOpacity>
+        </View>
       </View>
-    </Pressable>
+    </TouchableOpacity>
   );
 };
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    overflow: 'hidden',
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 12,
+    alignItems: 'flex-start',
+    marginBottom: 8,
   },
-  leftSection: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  info: {
-    marginLeft: 12,
+  receiptInfo: {
     flex: 1,
   },
-  receiptId: {
-    fontSize: 13,
-    fontWeight: 'bold',
+  receiptNumber: {
+    fontSize: 14,
+    fontWeight: '600',
     color: '#333',
   },
   date: {
-    fontSize: 11,
+    fontSize: 12,
     color: '#999',
     marginTop: 2,
   },
-  rightSection: {
-    alignItems: 'flex-end',
-  },
-  fare: {
+  amount: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
+    fontWeight: '700',
+    color: '#2196F3',
   },
-  statusBadge: {
-    marginTop: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 4,
+  routeSection: {
+    marginVertical: 8,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: '#f0f0f0',
   },
-  statusText: {
-    fontSize: 10,
-    fontWeight: 'bold',
-    color: 'white',
-    textTransform: 'uppercase',
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#F0F0F0',
-  },
-  details: {
-    padding: 12,
-  },
-  detailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  detailItem: {
-    flex: 1,
+  routeRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 4,
   },
-  detailContent: {
-    marginLeft: 8,
+  routeText: {
+    marginLeft: 6,
+    fontSize: 12,
+    color: '#666',
     flex: 1,
   },
-  detailLabel: {
-    fontSize: 10,
+  footer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  details: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  detailText: {
+    fontSize: 11,
     color: '#999',
   },
-  detailValue: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#333',
-    marginTop: 2,
+  separator: {
+    marginHorizontal: 4,
+    color: '#ddd',
   },
   actions: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-    backgroundColor: '#F9F9F9',
-    borderTopWidth: 1,
-    borderTopColor: '#F0F0F0',
+    gap: 8,
+    marginLeft: 12,
   },
   actionButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 8,
-    gap: 4,
-  },
-  actionText: {
-    fontSize: 12,
-    color: '#2196F3',
-    fontWeight: '600',
+    padding: 4,
   },
 });

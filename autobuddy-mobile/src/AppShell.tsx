@@ -52,6 +52,15 @@ import { RideComplianceRulesScreen } from './screens/RideComplianceRulesScreen';
 // Receipt Screen
 import { ReceiptDetailScreen } from './screens/ReceiptDetailScreen';
 
+// Family Management Screen
+import { FamilyManagementScreen } from './screens/FamilyManagementScreen';
+
+// Corporate Account Screen
+import { CorporateAccountScreen } from './screens/CorporateAccountScreen';
+
+// Operator Fleet Management Screen
+import { OperatorFleetManagementScreen } from './screens/OperatorFleetManagementScreen';
+
 // Settings Screens
 import SettingsScreen from './screens/SettingsScreen';
 
@@ -157,6 +166,7 @@ const DriverTabs = () => (
           RidePooling: 'groups',
           Compliance: 'security',
           Incentives: 'star',
+          Corporate: 'business',
           Financial: 'wallet',
           Analytics: 'analytics',
           Settings: 'settings',
@@ -198,6 +208,11 @@ const DriverTabs = () => (
       options={{ title: 'Incentives' }}
     />
     <Tab.Screen
+      name="Corporate"
+      component={CorporateAccountScreen}
+      options={{ title: 'Corporate' }}
+    />
+    <Tab.Screen
       name="Financial"
       component={WalletScreen}
       options={{ title: 'Wallet' }}
@@ -225,6 +240,7 @@ const PassengerTabs = () => (
           RideBooking: 'directions-car',
           Insurance: 'shield',
           Receipts: 'receipt',
+          Family: 'group',
           Compliance: 'security',
           Financial: 'wallet',
           Support: 'help',
@@ -257,6 +273,11 @@ const PassengerTabs = () => (
       options={{ title: 'Receipts' }}
     />
     <Tab.Screen
+      name="Family"
+      component={FamilyManagementScreen}
+      options={{ title: 'Family' }}
+    />
+    <Tab.Screen
       name="Compliance"
       component={RideComplianceRulesScreen}
       options={{ title: 'Compliance' }}
@@ -285,6 +306,11 @@ const OperatorStack = () => (
       name="OperatorDashboard"
       component={DriverDashboardScreen}
       options={{ title: 'Operations' }}
+    />
+    <Stack.Screen
+      name="FleetManagement"
+      component={OperatorFleetManagementScreen}
+      options={{ title: 'Fleet Management' }}
     />
     <Stack.Screen
       name="Compliance"
