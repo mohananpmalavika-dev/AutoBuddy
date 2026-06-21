@@ -49,6 +49,9 @@ import AccessibilityFeaturesScreen from './screens/AccessibilityFeaturesScreen';
 // Compliance Screens
 import { RideComplianceRulesScreen } from './screens/RideComplianceRulesScreen';
 
+// Receipt Screen
+import { ReceiptDetailScreen } from './screens/ReceiptDetailScreen';
+
 // Settings Screens
 import SettingsScreen from './screens/SettingsScreen';
 
@@ -221,6 +224,7 @@ const PassengerTabs = () => (
           PassengerDashboard: 'dashboard',
           RideBooking: 'directions-car',
           Insurance: 'shield',
+          Receipts: 'receipt',
           Compliance: 'security',
           Financial: 'wallet',
           Support: 'help',
@@ -246,6 +250,11 @@ const PassengerTabs = () => (
       name="Insurance"
       component={PassengerInsuranceScreen}
       options={{ title: 'Insurance' }}
+    />
+    <Tab.Screen
+      name="Receipts"
+      component={ReceiptDetailScreen}
+      options={{ title: 'Receipts' }}
     />
     <Tab.Screen
       name="Compliance"

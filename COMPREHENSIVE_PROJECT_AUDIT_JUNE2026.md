@@ -387,8 +387,6 @@ The AutoBuddy platform has extensive documentation claiming 100% feature complet
 - [ ] Coverage details not documented
 - [ ] Claim history not tracked
 
-**Effort:** 3-4 hours  
-**Priority:** MEDIUM
 
 ---
 
@@ -402,8 +400,6 @@ The AutoBuddy platform has extensive documentation claiming 100% feature complet
 - [ ] Vehicle type preference
 - [ ] Application of preferences in matching
 
-**Effort:** 3-4 hours  
-**Priority:** MEDIUM
 
 ---
 
@@ -415,8 +411,6 @@ The AutoBuddy platform has extensive documentation claiming 100% feature complet
 - [ ] Voice command support missing
 - [ ] Accessibility settings screen missing
 
-**Effort:** 4-5 hours  
-**Priority:** MEDIUM
 
 ---
 
@@ -429,9 +423,6 @@ The AutoBuddy platform has extensive documentation claiming 100% feature complet
 - [ ] Email receipt sending incomplete
 - [ ] Receipt archival/history incomplete
 
-**Effort:** 2-3 hours  
-**Priority:** MEDIUM
-
 ---
 
 ### 25. Expense Categorization
@@ -441,8 +432,6 @@ The AutoBuddy platform has extensive documentation claiming 100% feature complet
 - [ ] Expense tracking dashboard missing
 - [ ] Expense filtering/search not implemented
 
-**Effort:** 2-3 hours  
-**Priority:** MEDIUM
 
 ---
 
@@ -454,8 +443,6 @@ The AutoBuddy platform has extensive documentation claiming 100% feature complet
 - [ ] Billing consolidation not implemented
 - [ ] Corporate expense tracking not available
 
-**Effort:** 4-5 hours  
-**Priority:** MEDIUM
 
 ---
 
@@ -467,8 +454,6 @@ The AutoBuddy platform has extensive documentation claiming 100% feature complet
 - [ ] Family member management not available
 - [ ] Emergency sharing with family members not working
 
-**Effort:** 3-4 hours  
-**Priority:** MEDIUM
 
 ---
 
@@ -481,8 +466,6 @@ The AutoBuddy platform has extensive documentation claiming 100% feature complet
 - [ ] Toll information not displayed
 - [ ] ETA accuracy not verified
 
-**Effort:** 4-5 hours  
-**Priority:** MEDIUM
 
 ---
 
@@ -493,8 +476,6 @@ The AutoBuddy platform has extensive documentation claiming 100% feature complet
 - [ ] Compliance alert notifications not triggered
 - [ ] Safety guidelines not displayed
 
-**Effort:** 1-2 hours  
-**Priority:** MEDIUM
 
 ---
 
