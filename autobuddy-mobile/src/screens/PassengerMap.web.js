@@ -886,7 +886,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     return {
       latitude: Number(latitude.toFixed(6)),
       longitude: Number(longitude.toFixed(6)),
-      address: location.address || `Lat ${Number(latitude.toFixed(6))}, Lng ${Number(longitude.toFixed(6))}`,
+      address: location.address || 'Selected location',
     };
   }, []);
 
@@ -942,7 +942,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     activeBooking?.driver_live_location || activeBooking?.driver_location,
   );
   const formatCoordinateAddress = useCallback(
-    (latitude, longitude) => `Lat ${Number(latitude).toFixed(6)}, Lng ${Number(longitude).toFixed(6)}`,
+    (latitude, longitude) => {
+      return 'Selected point on map';
+    },
     [],
   );
   const buildLocationFromCoordinate = useCallback(
@@ -3750,16 +3752,124 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     );
   };
 
+  const SEMANTIC_CARDS = useMemo(
+    () => [
+      { key: 'office', emoji: '🏢', label: 'Office' },
+      { key: 'airport', emoji: '✈️', label: 'Airport' },
+      { key: 'home', emoji: '🏠', label: 'Home' },
+      { key: 'railway_station', emoji: '🚂', label: 'Railway Station' },
+      { key: 'lulu_mall', emoji: '🛍', label: 'Lulu Mall' },
+      { key: 'hospital', emoji: '🏥', label: 'Hospital' },
+    ],
+    [],
+  );
+
+  const semanticCardToNormalized = (key) => {
+    return String(key || '')
+      .toLowerCase()
+      .replace(/\s+/g, '_')
+      .replace(/[^a-z0-9_]/g, '');
+  };
+
+  const resolveSemanticDropoffFromHistory = useCallback(
+    (cardKey) => {
+      const normalized = semanticCardToNormalized(cardKey);
+      if (!normalized) {
+        return null;
+      }
+
+      // Best-effort: match by substring inside recent booking drop destinations.
+      const keywordMap = {
+        office: ['office', 'work', 'company'],
+        airport: ['airport'],
+        home: ['home', 'house', 'my place'],
+        railway_station: ['railway station', 'railway', 'station', 'bus stand', 'bus station'],
+        lulu_mall: ['lulu', 'lulu mall'],
+        hospital: ['hospital', 'clinic'],
+      };
+
+      const keywords = keywordMap[normalized] || [];
+      const bookings = Array.isArray(passengerBookings) ? passengerBookings : [];
+      for (let i = 0; i < bookings.length; i += 1) {
+        const booking = bookings[i];
+        const loc = normalizeLocation(booking.drop_location || booking.dropoff_location);
+        const address = String(loc?.address || '').toLowerCase();
+        if (!loc || !address) continue;
+        if (keywords.some((kw) => address.includes(String(kw).toLowerCase()))) {
+          return { ...loc, address: loc.address };
+        }
+      }
+      return null;
+    },
+    [passengerBookings, normalizeLocation],
+  );
+
+  const resolveSemanticDropoff = useCallback(
+    async (cardKey) => {
+      const byHistory = resolveSemanticDropoffFromHistory(cardKey);
+      if (byHistory) {
+        return byHistory;
+      }
+
+      // Fallback: use Places search by the semantic label.
+      if (!placesConfigured) {
+        return null;
+      }
+      const card = SEMANTIC_CARDS.find((c) => c.key === cardKey);
+      const query = card?.label || String(cardKey || '');
+      const suggestions = await searchPlaces(String(query).trim(), searchBias).catch(() => []);
+      const best = Array.isArray(suggestions) ? suggestions[0] : null;
+      if (!best?.placeId) {
+        return null;
+      }
+      const loc = await getPlaceLocation(best.placeId).catch(() => null);
+      if (!loc) return null;
+      return {
+        latitude: Number(loc.latitude),
+        longitude: Number(loc.longitude),
+        address: String(loc.address || loc.name || query).trim() || query,
+      };
+    },
+    [SEMANTIC_CARDS, getPlaceLocation, placesConfigured, resolveSemanticDropoffFromHistory, searchBias],
+  );
+
+  const handleSemanticCardPress = useCallback(
+    async (cardKey) => {
+      try {
+        setError('');
+        setMessage('');
+
+        // Auto-flow: always use current location as pickup (if not yet set), then set drop.
+        if (!pickupLocation) {
+          await autofillPickupFromCurrentLocation({ silent: true });
+        }
+
+        const drop = await resolveSemanticDropoff(cardKey);
+        if (!drop) {
+          setError('Could not find that place. Please use search once.');
+          return;
+        }
+
+        setLocationForPoint('dropoff', drop);
+        setSelectingPoint('pickup');
+
+        // One tap booking.
+        await createBooking();
+      } catch {
+        setError('Could not book from card.');
+      }
+    },
+    [autofillPickupFromCurrentLocation, createBooking, pickupLocation, resolveSemanticDropoff, setError, setLocationForPoint],
+  );
+
   const renderPassengerQuickBooking = () => (
     <View style={[styles.quickBookingSheet, isMobileWeb && styles.quickBookingSheetMobile]}>
       <View style={styles.quickSheetHandle} />
-          <View style={styles.quickBookingHeader}>
+      <View style={styles.quickBookingHeader}>
         <View style={styles.quickBookingTitleBlock}>
           <Text style={styles.quickGreeting}>Hi {user?.name || 'there'}</Text>
-          <Text style={[styles.quickTitle, isMobileWeb && styles.quickTitleMobile]}>What do you need today?</Text>
-          <Text style={[styles.quickSubtitle, isMobileWeb && styles.quickSubtitleMobile]}>
-            Cards + Voice. AI fills pickup & destination, then you book.
-          </Text>
+          <Text style={[styles.quickTitle, isMobileWeb && styles.quickTitleMobile]}>I need to go to...</Text>
+          <Text style={[styles.quickSubtitle, isMobileWeb && styles.quickSubtitleMobile]}>One tap booking. No typing.</Text>
         </View>
         <View style={styles.quickHeaderActions}>
           <NotificationBell
@@ -3776,6 +3886,22 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             <Text style={styles.quickMoreText}>{showPassengerMenus ? 'Hide' : 'Menu'}</Text>
           </TouchableOpacity>
         </View>
+      </View>
+
+      <View style={styles.semanticCardsRow}>
+        {SEMANTIC_CARDS.map((card) => (
+          <TouchableOpacity
+            key={card.key}
+            style={styles.semanticCard}
+            onPress={() => {
+              void handleSemanticCardPress(card.key);
+            }}>
+            <Text style={styles.semanticCardEmoji}>{card.emoji}</Text>
+            <Text style={styles.semanticCardLabel} numberOfLines={1}>
+              {card.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
       </View>
 
       <View style={styles.quickStepRow}>
@@ -5296,7 +5422,34 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   );
 }
 
-const styles = StyleSheet.create({
+  const styles = StyleSheet.create({
+    semanticCardsRow: {
+      flexDirection: 'row',
+      gap: 10,
+      marginTop: 8,
+      marginBottom: 6,
+      flexWrap: 'wrap',
+      justifyContent: 'space-between',
+    },
+    semanticCard: {
+      width: '31%',
+      paddingVertical: 10,
+      paddingHorizontal: 10,
+      borderRadius: 12,
+      backgroundColor: COLORS.white,
+      borderWidth: 1,
+      borderColor: COLORS.border,
+      alignItems: 'center',
+    },
+    semanticCardEmoji: {
+      fontSize: 20,
+    },
+    semanticCardLabel: {
+      marginTop: 6,
+      color: COLORS.textMain,
+      fontSize: 12,
+      fontWeight: '600',
+    },
   safeArea: { flex: 1, backgroundColor: COLORS.background },
   container: { flex: 1, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 16 },
   containerMobile: {
