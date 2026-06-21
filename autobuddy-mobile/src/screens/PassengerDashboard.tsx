@@ -31,6 +31,7 @@ import VoiceBookingOverlay from '../components/VoiceBookingOverlay';
 import VoiceFloatingButton from '../components/VoiceFloatingButton';
 import PredictiveBookingCard from '../components/PredictiveBookingCard';
 import { usePredictiveBooking } from '../hooks/usePredictiveBooking';
+import CalendarBookingScreen from './scheduled/CalendarBookingScreen';
 
 interface PassengerDashboardProps {
   token: string;
@@ -38,7 +39,7 @@ interface PassengerDashboardProps {
   onLogout: () => void;
 }
 
-type DashboardTab = 'home' | 'active' | 'history' | 'profile';
+type DashboardTab = 'home' | 'active' | 'history' | 'calendar' | 'profile';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -453,6 +454,9 @@ export default function PassengerDashboard({
         {activeTab === 'home' && renderHomeTab()}
         {activeTab === 'active' && renderActiveTab()}
         {activeTab === 'history' && renderHistoryTab()}
+        {activeTab === 'calendar' && (
+          <CalendarBookingScreen token={token} userId={user?.id || ''} />
+        )}
         {activeTab === 'profile' && renderProfileTab()}
       </ScrollView>
 
@@ -507,6 +511,7 @@ export default function PassengerDashboard({
           { key: 'home', icon: 'home', label: 'Home' },
           { key: 'active', icon: 'directions-car', label: 'Active' },
           { key: 'history', icon: 'history', label: 'History' },
+          { key: 'calendar', icon: 'calendar-today', label: 'Calendar' },
           { key: 'profile', icon: 'person', label: 'Profile' },
         ] as const).map(tab => (
           <Pressable

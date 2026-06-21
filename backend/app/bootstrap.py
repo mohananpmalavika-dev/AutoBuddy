@@ -119,6 +119,8 @@ def register_modular_routers(app: "FastAPI") -> None:
     from app.routers.vehicles import router as vehicles_router
     from app.routers.vehicles_canonical import router as vehicles_canonical_router
     from app.routers.women_only_rides import router as women_only_rides_router
+    from app.routers.calendar_booking import router as calendar_booking_router
+    from app.routers.family_assistant import router as family_assistant_router
 
     routers = (
         auth_router,
@@ -194,6 +196,8 @@ def register_modular_routers(app: "FastAPI") -> None:
         promo_codes_backend_router,
         accessibility_backend_router,
         ticket_detection_router,
+        calendar_booking_router,
+        family_assistant_router,
     )
     for router in routers:
         app.include_router(router)

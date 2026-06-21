@@ -1167,11 +1167,21 @@ async def on_startup():
         import app.routers.stripe_webhooks as stripe_webhooks
         import app.routers.ride_operations as ride_operations
         import app.routers.notifications_backend as notifications_backend
+        import app.routers.calendar_booking as calendar_booking_router
         
         dispatch_service.set_dependencies(db, sio)
         stripe_webhooks.set_dependencies(db, sio)
         ride_operations.set_dependencies(db, sio)
         notifications_backend.set_dependencies(db, sio)
+        
+        # Initialize calendar booking service
+        try:
+            from app.services.calendar_booking_service import CalendarBookingService
+            calendar_service = CalendarBookingService(db, ride_service=None)
+            calendar_booking_router.set_dependencies(db, calendar_service)
+            logging.getLogger("autobuddy.bootstrap").info("✓ Calendar booking service initialized")
+        except Exception as exc:
+            logging.getLogger("autobuddy.bootstrap").warning(f"Calendar booking service initialization failed: {exc}")
         
         import app.routers.driver_operations as driver_operations
         driver_operations.set_dependencies(db, sio)
