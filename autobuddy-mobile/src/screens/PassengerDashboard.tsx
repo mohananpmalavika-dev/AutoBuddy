@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,12 +8,15 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Platform,
+  Animated,
+  Dimensions,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { SingleScreenBooking } from './PassengerSingleScreenBooking';
-import { ScheduleRideModal } from './ScheduleRideModal';
-import { DriverInfoCard } from './DriverInfoCard';
+import { SingleScreenBooking } from '../components/PassengerSingleScreenBooking';
+import { ScheduleRideModal } from '../components/ScheduleRideModal';
+import { DriverInfoCard } from '../components/DriverInfoCard';
 import { ComplianceAlertBanner } from '../components/ComplianceAlertBanner';
 import {
   usePassengerBooking,
@@ -23,6 +26,9 @@ import {
   usePassengerHistory,
   usePassengerSchedule,
 } from '../hooks/usePassengerBooking';
+import { useVoiceBooking } from '../hooks/useVoiceBooking';
+import VoiceBookingOverlay from '../components/VoiceBookingOverlay';
+import VoiceFloatingButton from '../components/VoiceFloatingButton';
 
 interface PassengerDashboardProps {
   token: string;
@@ -31,6 +37,8 @@ interface PassengerDashboardProps {
 }
 
 type DashboardTab = 'home' | 'active' | 'history' | 'profile';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export default function PassengerDashboard({
   token,
@@ -41,8 +49,9 @@ export default function PassengerDashboard({
   const [scheduleModalVisible, setScheduleModalVisible] = useState(false);
   const [bookingDestination, setBookingDestination] = useState('');
   const [bookingRideType, setBookingRideType] = useState('economy');
+  const [voiceOverlayVisible, setVoiceOverlayVisible] = useState(false);
 
-  // Hooks
+  // Standard booking hooks
   const { booking, loading: bookingLoading, bookRide, cancelBooking } =
     usePassengerBooking(token);
   const { tracking } = usePassengerRideTracking(token, booking?.id);
@@ -51,6 +60,42 @@ export default function PassengerDashboard({
   const { rides, hasMore, loadMore: loadMoreRides } = usePassengerHistory(token);
   const { scheduled } = usePassengerSchedule(token);
 
+  // Voice booking hook – WhatsApp-style persistent mic
+  const lastIntentRef = useRef<any>(null);
+  const {
+    voiceState,
+    transcript,
+    lastIntent,
+    errorMessage: voiceError,
+    isVoiceAvailable,
+    startListening,
+    stopListening,
+    confirmAndBook,
+    reset: resetVoice,
+  } = useVoiceBooking({
+    onIntentParsed: () => {
+      // Auto-show overlay when intent is parsed
+      setVoiceOverlayVisible(true);
+    },
+    onBookingComplete: () => {
+      // Stay in overlay for 1.5s showing success then close
+      setTimeout(() => {
+        setVoiceOverlayVisible(false);
+      }, 1500);
+    },
+    onError: () => {
+      // Keep overlay open so user can retry
+    },
+    onStateChange: (state) => {
+      // If we're not in overlay and voice goes to confirming, show overlay
+      if (state === 'confirming' && !voiceOverlayVisible) {
+        setVoiceOverlayVisible(true);
+      }
+    },
+  });
+  // Keep latest intent accessible in callbacks
+  lastIntentRef.current = lastIntent;
+
   const handleBookRide = (rideData: any) => {
     if (!rideData.destination.trim()) {
       Alert.alert('Destination Required', 'Please enter your destination');
@@ -58,12 +103,7 @@ export default function PassengerDashboard({
     }
     setBookingDestination(rideData.destination);
     setBookingRideType(rideData.rideType);
-    bookRide(
-      'Current Location',
-      rideData.destination,
-      rideData.rideType,
-      150 // Mock fare
-    );
+    bookRide('Current Location', rideData.destination, rideData.rideType, 150);
   };
 
   const handleScheduleClick = () => {
@@ -90,14 +130,48 @@ export default function PassengerDashboard({
     },
   ];
 
-  // Render tabs
+  // -------------------------------------------------------------------------
+  // Voice booking handlers – WhatsApp flow
+  // -------------------------------------------------------------------------
+  const handleVoicePress = useCallback(() => {
+    // WhatsApp-style: tap mic to start/stop recording
+    if (voiceState === 'idle' || voiceState === 'error') {
+      resetVoice();
+      setTimeout(() => startListening(), 200);
+    } else if (voiceState === 'listening') {
+      stopListening();
+    }
+  }, [voiceState, resetVoice, startListening, stopListening]);
+
+  const handleVoiceConfirm = useCallback(async () => {
+    await confirmAndBook(token || undefined);
+  }, [confirmAndBook, token]);
+
+  const handleOpenVoice = useCallback(() => {
+    resetVoice();
+    setVoiceOverlayVisible(true);
+    setTimeout(() => startListening(), 400);
+  }, [resetVoice, startListening]);
+
+  const handleCloseVoice = useCallback(() => {
+    stopListening();
+    resetVoice();
+    setVoiceOverlayVisible(false);
+  }, [stopListening, resetVoice]);
+
+  const handleRetryVoice = useCallback(() => {
+    resetVoice();
+    setTimeout(() => startListening(), 300);
+  }, [resetVoice, startListening]);
+
+  // -------------------------------------------------------------------------
+  // Tab renderers
+  // -------------------------------------------------------------------------
   const renderHomeTab = () => (
     <View style={styles.tabContent}>
-      {/* Active booking */}
       {booking && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Your Active Ride</Text>
-
           {tracking && (
             <DriverInfoCard
               driver={{
@@ -116,15 +190,12 @@ export default function PassengerDashboard({
               }}
               onCall={() => Alert.alert('Calling driver...')}
               onMessage={() => Alert.alert('Opening message...')}
-              showEta={true}
+              showEta
             />
           )}
-
           <Pressable
             style={styles.cancelButton}
-            onPress={() => {
-              if (booking.id) cancelBooking(booking.id);
-            }}
+            onPress={() => { if (booking.id) cancelBooking(booking.id); }}
           >
             <MaterialIcons name="close" size={18} color="#D32F2F" />
             <Text style={styles.cancelButtonText}>Cancel Ride</Text>
@@ -132,7 +203,6 @@ export default function PassengerDashboard({
         </View>
       )}
 
-      {/* Booking interface */}
       {!booking && (
         <View style={styles.bookingSection}>
           <SingleScreenBooking
@@ -141,10 +211,37 @@ export default function PassengerDashboard({
             onScheduleClick={handleScheduleClick}
             loading={bookingLoading}
           />
+
+          {/* WhatsApp-style voice booking widget - always visible */}
+          {isVoiceAvailable && (
+            <View style={styles.voiceBookingWidget}>
+              <View style={styles.voiceBookingDivider}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.voiceBookingOr}>OR</Text>
+                <View style={styles.dividerLine} />
+              </View>
+
+              <View style={styles.voiceBookingRow}>
+                <View style={styles.voiceBookingContent}>
+                  <Text style={styles.voiceBookingTitle}>
+                    Book with your voice
+                  </Text>
+                  <Text style={styles.voiceBookingSubtitle}>
+                    Say "Book an auto to Kollam station"
+                  </Text>
+                </View>
+
+                <VoiceFloatingButton
+                  onPress={handleVoicePress}
+                  isAvailable={true}
+                  isListening={voiceState === 'listening'}
+                />
+              </View>
+            </View>
+          )}
         </View>
       )}
 
-      {/* Scheduled rides preview */}
       {scheduled.length > 0 && !booking && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>
@@ -177,54 +274,25 @@ export default function PassengerDashboard({
 
   const renderActiveTab = () => (
     <View style={styles.tabContent}>
-      {booking && tracking ? (
-        <View style={styles.section}>
-          <DriverInfoCard
-            driver={{
-              id: tracking.driverId,
-              name: tracking.driverName,
-              photo: tracking.driverPhoto,
-              rating: tracking.driverRating,
-              rideCount: 45,
-              vehicle: {
-                make: 'Toyota',
-                model: 'Innova',
-                licensePlate: 'KA01AB1234',
-                color: tracking.vehicleType,
-              },
-              eta: tracking.eta,
-            }}
-            onCall={() => Alert.alert('Calling driver...')}
-            onMessage={() => Alert.alert('Opening message...')}
-            showEta={true}
-          />
-
-          {/* Map placeholder */}
-          <View style={styles.mapPlaceholder}>
-            <MaterialIcons name="map" size={48} color="#ccc" />
-            <Text style={styles.mapPlaceholderText}>
-              Live map view (Ready for implementation)
-            </Text>
-          </View>
-
-          <Pressable style={styles.cancelButton}>
-            <MaterialIcons name="close" size={18} color="#D32F2F" />
-            <Text style={styles.cancelButtonText}>Cancel Ride</Text>
-          </Pressable>
+      <Text style={styles.sectionTitle}>Active Rides</Text>
+      {booking ? (
+        <View style={styles.activeRideCard}>
+          <MaterialIcons name="directions-car" size={48} color="#4CAF50" />
+          <Text style={styles.activeRideText}>
+            Ride to {booking.destination}
+          </Text>
+          <Text style={styles.activeRideStatus}>
+            Status: {booking.status}
+          </Text>
+          <Text style={styles.activeRideFare}>₹{booking.fare}</Text>
         </View>
       ) : (
         <View style={styles.emptyState}>
-          <MaterialIcons name="directions-car" size={64} color="#ccc" />
-          <Text style={styles.emptyStateTitle}>No Active Ride</Text>
+          <MaterialIcons name="local-taxi" size={64} color="#ccc" />
+          <Text style={styles.emptyStateTitle}>No active rides</Text>
           <Text style={styles.emptyStateSubtitle}>
-            Start by booking a ride or scheduling one for later
+            Book a ride to get started
           </Text>
-          <Pressable
-            style={styles.emptyStateButton}
-            onPress={() => setActiveTab('home')}
-          >
-            <Text style={styles.emptyStateButtonText}>Book Now</Text>
-          </Pressable>
         </View>
       )}
     </View>
@@ -232,250 +300,210 @@ export default function PassengerDashboard({
 
   const renderHistoryTab = () => (
     <View style={styles.tabContent}>
-      {rides.length > 0 ? (
+      <Text style={styles.sectionTitle}>Ride History</Text>
+      {rides.length === 0 ? (
+        <View style={styles.emptyState}>
+          <MaterialIcons name="history" size={64} color="#ccc" />
+          <Text style={styles.emptyStateTitle}>No rides yet</Text>
+          <Text style={styles.emptyStateSubtitle}>
+            Your ride history will appear here
+          </Text>
+        </View>
+      ) : (
         <FlatList
           data={rides}
           keyExtractor={item => item.id}
+          onEndReached={hasMore ? loadMoreRides : undefined}
+          onEndReachedThreshold={0.5}
           renderItem={({ item }) => (
-            <View style={styles.historyItem}>
-              <View style={styles.historyIcon}>
-                <MaterialIcons name="receipt" size={24} color="#2196F3" />
+            <View style={styles.historyCard}>
+              <View style={styles.historyCardHeader}>
+                <MaterialIcons name="directions-car" size={20} color="#2196F3" />
+                <Text style={styles.historyDriverName}>
+                  {item.driverName}
+                </Text>
+                <Text style={styles.historyFare}>₹{item.fare}</Text>
               </View>
-              <View style={styles.historyContent}>
-                <Text style={styles.historyDestination}>
+              <View style={styles.historyRoute}>
+                <Text style={styles.historyText}>
                   {item.origin} → {item.destination}
                 </Text>
-                <Text style={styles.historySubtext}>
-                  {new Date(item.date).toLocaleDateString()} • {item.distance} km
-                </Text>
               </View>
-              <Text style={styles.historyFare}>₹{item.fare}</Text>
-            </View>
-          )}
-          onEndReached={() => hasMore && loadMoreRides()}
-          scrollEnabled={true}
-        />
-      ) : (
-        <View style={styles.emptyState}>
-          <MaterialIcons name="history" size={64} color="#ccc" />
-          <Text style={styles.emptyStateTitle}>No Ride History</Text>
-          <Text style={styles.emptyStateSubtitle}>
-            Your completed rides will appear here
-          </Text>
-        </View>
-      )}
-    </View>
-  );
-
-  const renderProfileTab = () => (
-    <View style={styles.tabContent}>
-      {profile ? (
-        <ScrollView showsVerticalScrollIndicator={false}>
-          {/* Profile header */}
-          <View style={styles.profileHeader}>
-            <View style={styles.profileAvatar}>
-              <Text style={styles.profileAvatarText}>
-                {profile.name.charAt(0).toUpperCase()}
+              <Text style={styles.historyDate}>
+                {new Date(item.date).toLocaleDateString()}
               </Text>
             </View>
-            <View style={styles.profileInfo}>
-              <Text style={styles.profileName}>{profile.name}</Text>
-              <Text style={styles.profilePhone}>{profile.phone}</Text>
-              {profile.rating && (
-                <View style={styles.profileRating}>
-                  <MaterialIcons name="star" size={14} color="#FFB800" />
-                  <Text style={styles.profileRatingText}>
-                    {profile.rating.toFixed(1)} rating
-                  </Text>
-                </View>
-              )}
-            </View>
-          </View>
-
-          {/* Stats */}
-          <View style={styles.statsGrid}>
-            <View style={styles.statBox}>
-              <Text style={styles.statNumber}>{profile.totalRides}</Text>
-              <Text style={styles.statLabel}>Rides</Text>
-            </View>
-            <View style={styles.statBox}>
-              <MaterialIcons name="local-offer" size={24} color="#4CAF50" />
-              <Text style={styles.statLabel}>Save 10%</Text>
-            </View>
-            <View style={styles.statBox}>
-              <MaterialIcons name="verified" size={24} color="#2196F3" />
-              <Text style={styles.statLabel}>Verified</Text>
-            </View>
-          </View>
-
-          {/* Payment methods */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Payment Methods</Text>
-            {paymentMethods.map(method => (
-              <View key={method.id} style={styles.paymentItem}>
-                <MaterialIcons
-                  name={
-                    method.type === 'wallet'
-                      ? 'account-balance-wallet'
-                      : 'credit-card'
-                  }
-                  size={24}
-                  color="#2196F3"
-                />
-                <View style={styles.paymentItemContent}>
-                  <Text style={styles.paymentItemLabel}>{method.label}</Text>
-                  {method.isDefault && (
-                    <Text style={styles.paymentItemDefault}>Default</Text>
-                  )}
-                </View>
-              </View>
-            ))}
-          </View>
-
-          {/* Saved locations */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Saved Locations</Text>
-            {profile.savedLocations.map(location => (
-              <View key={location.id} style={styles.locationItem}>
-                <MaterialIcons name="location-on" size={24} color="#2196F3" />
-                <View style={styles.locationContent}>
-                  <Text style={styles.locationLabel}>{location.label}</Text>
-                  <Text style={styles.locationAddress} numberOfLines={1}>
-                    {location.address}
-                  </Text>
-                </View>
-              </View>
-            ))}
-          </View>
-
-          {/* Logout */}
-          <Pressable style={styles.logoutButton} onPress={onLogout}>
-            <MaterialIcons name="logout" size={20} color="#D32F2F" />
-            <Text style={styles.logoutButtonText}>Logout</Text>
-          </Pressable>
-        </ScrollView>
-      ) : (
-        <ActivityIndicator size="large" color="#2196F3" />
+          )}
+        />
       )}
     </View>
   );
 
+  const renderProfileTab = () => {
+    const p = profile;
+    return (
+      <View style={styles.tabContent}>
+        <View style={styles.profileHeader}>
+          <View style={styles.profileAvatar}>
+            <MaterialIcons name="person" size={48} color="#2196F3" />
+          </View>
+          <Text style={styles.profileName}>
+            {p?.name || user?.name || 'Passenger'}
+          </Text>
+          <Text style={styles.profileEmail}>
+            {p?.email || user?.email || ''}
+          </Text>
+          <Text style={styles.profilePhone}>
+            {p?.phone || user?.phone || ''}
+          </Text>
+        </View>
+
+        <View style={styles.profileStats}>
+          <View style={styles.profileStatItem}>
+            <Text style={styles.profileStatValue}>
+              {p?.totalRides || 0}
+            </Text>
+            <Text style={styles.profileStatLabel}>Rides</Text>
+          </View>
+          <View style={styles.profileStatDivider} />
+          <View style={styles.profileStatItem}>
+            <Text style={styles.profileStatValue}>
+              {p?.rating ? p.rating.toFixed(1) : '—'}
+            </Text>
+            <Text style={styles.profileStatLabel}>Rating</Text>
+          </View>
+          <View style={styles.profileStatDivider} />
+          <View style={styles.profileStatItem}>
+            <Text style={styles.profileStatValue}>
+              {paymentMethods.length}
+            </Text>
+            <Text style={styles.profileStatLabel}>Payments</Text>
+          </View>
+        </View>
+
+        <Pressable style={styles.logoutButton} onPress={onLogout}>
+          <MaterialIcons name="logout" size={20} color="#D32F2F" />
+          <Text style={styles.logoutButtonText}>Logout</Text>
+        </Pressable>
+      </View>
+    );
+  };
+
+  // Voice state indicator that appears during active voice session
+  const renderVoiceIndicator = () => {
+    if (voiceState === 'idle' || voiceState === 'done') return null;
+    if (voiceOverlayVisible) return null;
+
+    return (
+      <Pressable
+        style={styles.voiceIndicator}
+        onPress={() => setVoiceOverlayVisible(true)}
+      >
+        <View style={styles.voiceIndicatorContent}>
+          <MaterialIcons
+            name={voiceState === 'listening' ? 'graphic-eq' : 'mic'}
+            size={20}
+            color="#fff"
+          />
+          <Text style={styles.voiceIndicatorText}>
+            {voiceState === 'listening'
+              ? 'Listening...'
+              : voiceState === 'processing'
+                ? 'Processing...'
+                : 'Voice active'}
+          </Text>
+        </View>
+        <MaterialIcons name="chevron-right" size={20} color="#fff" />
+      </Pressable>
+    );
+  };
+
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <ComplianceAlertBanner token={token} userId={user?.id || ''} />
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>AutoBuddy</Text>
-        <Pressable style={styles.headerIcon}>
-          <MaterialIcons name="notifications" size={24} color="#2196F3" />
-          <View style={styles.notificationBadge} />
+        <View>
+          <Text style={styles.greeting}>
+            Hello, {profile?.name?.split(' ')[0] || user?.name || 'there'}
+          </Text>
+          <Text style={styles.headerSubtitle}>Where are you headed?</Text>
+        </View>
+
+        {/* Notification bell */}
+        <Pressable style={styles.notifButton}>
+          <MaterialIcons name="notifications-none" size={24} color="#333" />
         </Pressable>
       </View>
 
-      {/* Compliance Alert Banner */}
-      <ComplianceAlertBanner
-        token={token}
-        userId={user?.id || 'unknown'}
-        userType="passenger"
-        onPress={() => {
-          // Navigate to compliance screen
-          // This would be handled by your navigation prop
-        }}
+      {/* Main content */}
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {activeTab === 'home' && renderHomeTab()}
+        {activeTab === 'active' && renderActiveTab()}
+        {activeTab === 'history' && renderHistoryTab()}
+        {activeTab === 'profile' && renderProfileTab()}
+      </ScrollView>
+
+      {/* Voice indicator pill (shows when voice is active but overlay is closed) */}
+      {renderVoiceIndicator()}
+
+      {/* WhatsApp-style Voice Booking Overlay */}
+      <VoiceBookingOverlay
+        visible={voiceOverlayVisible}
+        voiceState={voiceState}
+        transcript={transcript}
+        lastIntent={lastIntent}
+        errorMessage={voiceError}
+        isVoiceAvailable={isVoiceAvailable}
+        onStartListening={handleOpenVoice}
+        onStopListening={stopListening}
+        onConfirm={handleVoiceConfirm}
+        onRetry={handleRetryVoice}
+        onClose={handleCloseVoice}
       />
 
-      {/* Content */}
-      {activeTab === 'home' && renderHomeTab()}
-      {activeTab === 'active' && renderActiveTab()}
-      {activeTab === 'history' && renderHistoryTab()}
-      {activeTab === 'profile' && renderProfileTab()}
-
-      {/* Bottom tabs */}
-      <View style={styles.tabBar}>
-        <Pressable
-          style={[styles.tab, activeTab === 'home' && styles.tabActive]}
-          onPress={() => setActiveTab('home')}
-        >
-          <MaterialIcons
-            name="home"
-            size={24}
-            color={activeTab === 'home' ? '#2196F3' : '#999'}
-          />
-          <Text
-            style={[
-              styles.tabLabel,
-              activeTab === 'home' && styles.tabLabelActive,
-            ]}
-          >
-            Home
-          </Text>
-        </Pressable>
-
-        <Pressable
-          style={[styles.tab, activeTab === 'active' && styles.tabActive]}
-          onPress={() => setActiveTab('active')}
-        >
-          <MaterialIcons
-            name="directions-car"
-            size={24}
-            color={activeTab === 'active' ? '#2196F3' : '#999'}
-          />
-          {booking && <View style={styles.tabBadge} />}
-          <Text
-            style={[
-              styles.tabLabel,
-              activeTab === 'active' && styles.tabLabelActive,
-            ]}
-          >
-            Active
-          </Text>
-        </Pressable>
-
-        <Pressable
-          style={[styles.tab, activeTab === 'history' && styles.tabActive]}
-          onPress={() => setActiveTab('history')}
-        >
-          <MaterialIcons
-            name="history"
-            size={24}
-            color={activeTab === 'history' ? '#2196F3' : '#999'}
-          />
-          <Text
-            style={[
-              styles.tabLabel,
-              activeTab === 'history' && styles.tabLabelActive,
-            ]}
-          >
-            History
-          </Text>
-        </Pressable>
-
-        <Pressable
-          style={[styles.tab, activeTab === 'profile' && styles.tabActive]}
-          onPress={() => setActiveTab('profile')}
-        >
-          <MaterialIcons
-            name="person"
-            size={24}
-            color={activeTab === 'profile' ? '#2196F3' : '#999'}
-          />
-          <Text
-            style={[
-              styles.tabLabel,
-              activeTab === 'profile' && styles.tabLabelActive,
-            ]}
-          >
-            Profile
-          </Text>
-        </Pressable>
-      </View>
-
-      {/* Schedule modal */}
+      {/* Schedule Ride Modal */}
       <ScheduleRideModal
         visible={scheduleModalVisible}
-        destination={bookingDestination}
+        destination={bookingDestination || 'Kollam Railway Station'}
         rideType={bookingRideType}
         onConfirm={handleScheduleConfirm}
         onCancel={() => setScheduleModalVisible(false)}
       />
+
+      {/* Bottom Tab Bar */}
+      <View style={styles.tabBar}>
+        {([
+          { key: 'home', icon: 'home', label: 'Home' },
+          { key: 'active', icon: 'directions-car', label: 'Active' },
+          { key: 'history', icon: 'history', label: 'History' },
+          { key: 'profile', icon: 'person', label: 'Profile' },
+        ] as const).map(tab => (
+          <Pressable
+            key={tab.key}
+            style={styles.tabItem}
+            onPress={() => setActiveTab(tab.key)}
+          >
+            <MaterialIcons
+              name={tab.icon as any}
+              size={24}
+              color={activeTab === tab.key ? '#4CAF50' : '#999'}
+            />
+            <Text
+              style={[
+                styles.tabLabel,
+                activeTab === tab.key && styles.tabLabelActive,
+              ]}
+            >
+              {tab.label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
     </SafeAreaView>
   );
 }
@@ -487,77 +515,83 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
-  headerTitle: {
+  greeting: {
     fontSize: 20,
     fontWeight: '700',
     color: '#000',
   },
-  headerIcon: {
-    position: 'relative',
+  headerSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 2,
   },
-  notificationBadge: {
-    position: 'absolute',
-    top: -4,
-    right: -4,
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#D32F2F',
+  notifButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#f5f5f5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 100,
   },
   tabContent: {
-    flex: 1,
-    overflow: 'hidden',
+    paddingHorizontal: 16,
+    paddingTop: 16,
   },
   section: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    marginBottom: 24,
   },
   sectionTitle: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '700',
     color: '#000',
     marginBottom: 12,
   },
   bookingSection: {
-    flex: 1,
-    paddingHorizontal: 0,
+    marginBottom: 24,
   },
   cancelButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: '#D32F2F',
     marginTop: 12,
-    gap: 8,
+    paddingVertical: 10,
+    backgroundColor: '#FFEBEE',
+    borderRadius: 8,
+    gap: 6,
   },
   cancelButtonText: {
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#D32F2F',
   },
   scheduledRideCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#E3F2FD',
-    borderRadius: 8,
-    padding: 12,
+    padding: 14,
     marginBottom: 8,
+    backgroundColor: '#f9f9f9',
+    borderRadius: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#2196F3',
   },
   scheduledRideIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#fff',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#E3F2FD',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
@@ -576,233 +610,244 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   scheduledRideDiscount: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#4CAF50',
-    fontWeight: '600',
+    fontWeight: '500',
     marginTop: 2,
   },
-  emptyState: {
-    flex: 1,
+  // --- WhatsApp-style voice widget ---
+  voiceBookingWidget: {
+    marginTop: 16,
+    paddingHorizontal: 4,
+  },
+  voiceBookingDivider: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 16,
+    marginBottom: 16,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#e0e0e0',
+  },
+  voiceBookingOr: {
+    fontSize: 12,
+    color: '#999',
+    fontWeight: '600',
+    marginHorizontal: 12,
+  },
+  voiceBookingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#f0fdf4',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+  },
+  voiceBookingContent: {
+    flex: 1,
+    marginRight: 12,
+  },
+  voiceBookingTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#166534',
+  },
+  voiceBookingSubtitle: {
+    fontSize: 12,
+    color: '#4ade80',
+    marginTop: 2,
+  },
+  // --- Active ride ---
+  activeRideCard: {
+    alignItems: 'center',
+    padding: 32,
+    backgroundColor: '#f0fdf4',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+  },
+  activeRideText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#000',
+    marginTop: 12,
+  },
+  activeRideStatus: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 4,
+  },
+  activeRideFare: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#4CAF50',
+    marginTop: 8,
+  },
+  // --- Empty state ---
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 48,
   },
   emptyStateTitle: {
     fontSize: 18,
-    fontWeight: '700',
-    color: '#000',
-    marginTop: 16,
+    fontWeight: '600',
+    color: '#999',
+    marginTop: 12,
   },
   emptyStateSubtitle: {
     fontSize: 14,
-    color: '#666',
-    marginTop: 8,
-    textAlign: 'center',
+    color: '#ccc',
+    marginTop: 4,
   },
-  emptyStateButton: {
-    backgroundColor: '#2196F3',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-    marginTop: 16,
-  },
-  emptyStateButtonText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#fff',
-  },
-  mapPlaceholder: {
-    height: 300,
+  // --- History ---
+  historyCard: {
+    padding: 14,
+    marginBottom: 8,
     backgroundColor: '#f9f9f9',
     borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 12,
   },
-  mapPlaceholderText: {
-    fontSize: 12,
-    color: '#999',
-    marginTop: 8,
-  },
-  historyItem: {
+  historyCardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    marginBottom: 6,
   },
-  historyIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#E3F2FD',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  historyContent: {
-    flex: 1,
-  },
-  historyDestination: {
+  historyDriverName: {
     fontSize: 14,
     fontWeight: '600',
     color: '#000',
-  },
-  historySubtext: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 2,
+    marginLeft: 8,
+    flex: 1,
   },
   historyFare: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#2196F3',
+    color: '#4CAF50',
   },
-  profileHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    backgroundColor: '#E3F2FD',
+  historyRoute: {
+    marginBottom: 4,
   },
-  profileAvatar: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#2196F3',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 16,
-  },
-  profileAvatarText: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#fff',
-  },
-  profileInfo: {
-    flex: 1,
-  },
-  profileName: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#000',
-  },
-  profilePhone: {
+  historyText: {
     fontSize: 13,
     color: '#666',
-    marginTop: 4,
   },
-  profileRating: {
-    flexDirection: 'row',
+  historyDate: {
+    fontSize: 11,
+    color: '#999',
+  },
+  // --- Profile ---
+  profileHeader: {
     alignItems: 'center',
-    gap: 4,
-    marginTop: 4,
+    paddingVertical: 24,
   },
-  profileRatingText: {
-    fontSize: 12,
-    color: '#666',
-    fontWeight: '600',
-  },
-  statsGrid: {
-    flexDirection: 'row',
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  statBox: {
-    flex: 1,
+  profileAvatar: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#E3F2FD',
     alignItems: 'center',
-    paddingVertical: 12,
-    backgroundColor: '#f9f9f9',
-    borderRadius: 8,
+    justifyContent: 'center',
+    marginBottom: 12,
   },
-  statNumber: {
+  profileName: {
     fontSize: 20,
     fontWeight: '700',
-    color: '#2196F3',
-  },
-  statLabel: {
-    fontSize: 11,
-    color: '#666',
-    marginTop: 4,
-    fontWeight: '600',
-  },
-  paymentItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-    gap: 12,
-  },
-  paymentItemContent: {
-    flex: 1,
-  },
-  paymentItemLabel: {
-    fontSize: 14,
-    fontWeight: '600',
     color: '#000',
   },
-  paymentItemDefault: {
-    fontSize: 11,
-    color: '#2196F3',
-    fontWeight: '600',
+  profileEmail: {
+    fontSize: 14,
+    color: '#666',
     marginTop: 2,
   },
-  locationItem: {
+  profilePhone: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 2,
+  },
+  profileStats: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-    gap: 12,
+    backgroundColor: '#f9f9f9',
+    borderRadius: 12,
+    paddingVertical: 16,
+    marginBottom: 24,
   },
-  locationContent: {
+  profileStatItem: {
     flex: 1,
+    alignItems: 'center',
   },
-  locationLabel: {
-    fontSize: 14,
-    fontWeight: '600',
+  profileStatValue: {
+    fontSize: 20,
+    fontWeight: '700',
     color: '#000',
   },
-  locationAddress: {
+  profileStatLabel: {
     fontSize: 12,
-    color: '#666',
+    color: '#999',
     marginTop: 2,
+  },
+  profileStatDivider: {
+    width: 1,
+    height: 32,
+    backgroundColor: '#e0e0e0',
   },
   logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginHorizontal: 16,
-    marginVertical: 16,
-    paddingVertical: 12,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: '#D32F2F',
+    paddingVertical: 14,
+    backgroundColor: '#FFEBEE',
+    borderRadius: 12,
     gap: 8,
   },
   logoutButtonText: {
-    fontSize: 14,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '600',
     color: '#D32F2F',
   },
+  // --- Voice indicator ---
+  voiceIndicator: {
+    position: 'absolute',
+    bottom: 80,
+    left: 20,
+    right: 20,
+    backgroundColor: '#333',
+    borderRadius: 24,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+  },
+  voiceIndicatorContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  voiceIndicatorText: {
+    fontSize: 14,
+    color: '#fff',
+    fontWeight: '500',
+  },
+  // --- Bottom tab bar ---
   tabBar: {
     flexDirection: 'row',
     borderTopWidth: 1,
     borderTopColor: '#f0f0f0',
     backgroundColor: '#fff',
+    paddingBottom: Platform.OS === 'ios' ? 20 : 8,
+    paddingTop: 8,
   },
-  tab: {
+  tabItem: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 10,
-    position: 'relative',
-  },
-  tabActive: {
-    borderTopWidth: 3,
-    borderTopColor: '#2196F3',
   },
   tabLabel: {
     fontSize: 11,
@@ -811,15 +856,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   tabLabelActive: {
-    color: '#2196F3',
-  },
-  tabBadge: {
-    position: 'absolute',
-    top: 2,
-    right: 8,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#D32F2F',
+    color: '#4CAF50',
+    fontWeight: '700',
   },
 });
