@@ -113,6 +113,7 @@ def register_modular_routers(app: "FastAPI") -> None:
     from app.routers.tier2_driver_features import router as tier2_router
     from app.routers.tier3_polish_features import router as tier3_router
     from app.routers.uploads import router as uploads_router
+    from app.routers.ticket_detection import router as ticket_detection_router
     from app.routers.vehicle_types import router as vehicle_types_router
     from app.routers.vehicle_types_extended import router as vehicle_types_extended_router
     from app.routers.vehicles import router as vehicles_router
@@ -192,6 +193,7 @@ def register_modular_routers(app: "FastAPI") -> None:
         assisted_rides_router,
         promo_codes_backend_router,
         accessibility_backend_router,
+        ticket_detection_router,
     )
     for router in routers:
         app.include_router(router)
