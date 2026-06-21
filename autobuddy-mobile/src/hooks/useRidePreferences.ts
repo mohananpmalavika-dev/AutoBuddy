@@ -1,168 +1,103 @@
 import { useState, useCallback, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+export type MusicPreference = 'none' | 'soft' | 'upbeat' | 'classical' | 'bollywood' | 'indie' | 'jazz';
+export type TemperaturePreference = 'cold' | 'cool' | 'neutral' | 'warm' | 'hot';
+export type CommunicationLevel = 'quiet' | 'minimal' | 'friendly' | 'chatty';
+export type StopPreference = 'no_stops' | 'one_stop' | 'two_stops' | 'three_stops';
+export type VehicleType = 'economy' | 'comfort' | 'premium';
 
 export interface RidePreferences {
-  passenger_id: string;
-  music_preference: 'no_preference' | 'neutral' | 'preferred';
-  ac_preference: 'cold' | 'cool' | 'warm' | 'hot';
-  communication_level: 'quiet' | 'normal' | 'chatty';
-  vehicle_type_preference: string[] | null;
+  userId: string;
+  musicPreference: MusicPreference;
+  temperaturePreference: TemperaturePreference;
+  communicationLevel: CommunicationLevel;
+  stopPreference: StopPreference;
+  vehicleType: VehicleType;
+  driverRatingMin: number;
+  allowSharedRides: boolean;
+  allowPets: boolean;
+  noSmoking: boolean;
+  enableAccessibility: boolean;
+  preferWomenDriver: boolean;
 }
 
-interface UseRidePreferencesReturn {
-  preferences: RidePreferences | null;
-  isLoading: boolean;
-  isSaving: boolean;
-  error: string | null;
-  updatePreferences: (updates: Partial<RidePreferences>) => Promise<void>;
-  resetToDefaults: () => Promise<void>;
-  getPreferenceSummary: () => string[];
-}
+const RIDE_PREFERENCES_STORAGE = 'ride_preferences';
 
-const API_BASE = 'http://localhost:8000/api/v3/preferences';
-
-export function useRidePreferences(passengerId: string | undefined, authToken: string): UseRidePreferencesReturn {
+export const useRidePreferences = (token: string | null, userId: string) => {
   const [preferences, setPreferences] = useState<RidePreferences | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (passengerId && authToken) {
-      fetchPreferences();
-    }
-  }, [passengerId, authToken]);
-
-  const fetchPreferences = useCallback(async () => {
-    if (!passengerId || !authToken) return;
-
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await fetch(`${API_BASE}/ride/${passengerId}`, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-
-      if (!response.ok) {
-        if (response.status === 404) {
-          setPreferences({
-            passenger_id: passengerId,
-            music_preference: 'neutral',
-            ac_preference: 'cool',
-            communication_level: 'normal',
-            vehicle_type_preference: null,
-          });
+    const initialize = async () => {
+      try {
+        setLoading(true);
+        const saved = await AsyncStorage.getItem(RIDE_PREFERENCES_STORAGE);
+        if (saved) {
+          setPreferences(JSON.parse(saved));
         } else {
-          throw new Error('Failed to fetch preferences');
+          const defaults: RidePreferences = {
+            userId,
+            musicPreference: 'soft',
+            temperaturePreference: 'neutral',
+            communicationLevel: 'friendly',
+            stopPreference: 'one_stop',
+            vehicleType: 'economy',
+            driverRatingMin: 4,
+            allowSharedRides: true,
+            allowPets: false,
+            noSmoking: true,
+            enableAccessibility: false,
+            preferWomenDriver: false,
+          };
+          setPreferences(defaults);
+          await AsyncStorage.setItem(RIDE_PREFERENCES_STORAGE, JSON.stringify(defaults));
         }
-        return;
+      } catch (err) {
+        setError(`Init failed: ${err}`);
+      } finally {
+        setLoading(false);
       }
-
-      const data = await response.json();
-      setPreferences(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [passengerId, authToken]);
+    };
+    if (token && userId) initialize();
+  }, [token, userId]);
 
   const updatePreferences = useCallback(
     async (updates: Partial<RidePreferences>) => {
-      if (!passengerId || !authToken || !preferences) return;
-
-      setIsSaving(true);
-      setError(null);
-
       try {
-        const updatedPrefs = { ...preferences, ...updates };
-
-        const response = await fetch(`${API_BASE}/ride/${passengerId}`, {
-          method: 'PATCH',
-          headers: {
-            Authorization: `Bearer ${authToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            music_preference: updatedPrefs.music_preference,
-            ac_preference: updatedPrefs.ac_preference,
-            communication_level: updatedPrefs.communication_level,
-            vehicle_type_preference: updatedPrefs.vehicle_type_preference,
-          }),
-        });
-
-        if (!response.ok) {
-          throw new Error('Failed to update preferences');
-        }
-
-        const data = await response.json();
-        setPreferences(data);
+        if (!preferences) return;
+        const updated = { ...preferences, ...updates };
+        setPreferences(updated);
+        await AsyncStorage.setItem(RIDE_PREFERENCES_STORAGE, JSON.stringify(updated));
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to update preferences');
+        setError(`Update failed: ${err}`);
         throw err;
-      } finally {
-        setIsSaving(false);
       }
     },
-    [passengerId, authToken, preferences]
+    [preferences]
   );
 
-  const resetToDefaults = useCallback(async () => {
-    if (!passengerId || !authToken) return;
-
-    setIsSaving(true);
-    setError(null);
-
-    try {
-      const response = await fetch(`${API_BASE}/ride/${passengerId}/reset`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to reset preferences');
+  const updateSingle = useCallback(
+    async (key: keyof RidePreferences, value: any) => {
+      try {
+        if (!preferences) return;
+        const updated = { ...preferences, [key]: value };
+        setPreferences(updated);
+        await AsyncStorage.setItem(RIDE_PREFERENCES_STORAGE, JSON.stringify(updated));
+      } catch (err) {
+        setError(`Update failed: ${err}`);
+        throw err;
       }
-
-      const data = await response.json();
-      setPreferences(data.preferences);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to reset preferences');
-      throw err;
-    } finally {
-      setIsSaving(false);
-    }
-  }, [passengerId, authToken]);
-
-  const getPreferenceSummary = useCallback((): string[] => {
-    if (!preferences) return [];
-
-    const summary: string[] = [];
-
-    if (preferences.music_preference !== 'neutral') {
-      summary.push(`🎵 ${preferences.music_preference === 'preferred' ? 'Music preferred' : 'No music'}`);
-    }
-
-    const tempEmoji = { cold: '❄️', cool: '🌡️', warm: '☀️', hot: '🔥' };
-    summary.push(`${tempEmoji[preferences.ac_preference]} ${preferences.ac_preference.charAt(0).toUpperCase() + preferences.ac_preference.slice(1)}`);
-
-    if (preferences.communication_level !== 'normal') {
-      const commEmoji = preferences.communication_level === 'quiet' ? '🤐' : '💬';
-      summary.push(`${commEmoji} ${preferences.communication_level.charAt(0).toUpperCase() + preferences.communication_level.slice(1)}`);
-    }
-
-    if (preferences.vehicle_type_preference && preferences.vehicle_type_preference.length > 0) {
-      summary.push(`🚖 ${preferences.vehicle_type_preference.join(', ')}`);
-    }
-
-    return summary;
-  }, [preferences]);
+    },
+    [preferences]
+  );
 
   return {
     preferences,
-    isLoading,
-    isSaving,
+    loading,
     error,
     updatePreferences,
-    resetToDefaults,
-    getPreferenceSummary,
+    updateSingle,
   };
-}
+};
