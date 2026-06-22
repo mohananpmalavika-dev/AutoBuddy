@@ -14,6 +14,10 @@ from fastapi import APIRouter, Query, HTTPException
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 import os
+import logging
+
+# Setup logging
+logger = logging.getLogger(__name__)
 
 # Explicitly disable any external API calls
 DISABLE_EXTERNAL_APIS = True
@@ -139,13 +143,18 @@ async def reverse_geocode(
     Accepts latitude/longitude or lat/lng parameters.
     Returns address, city, state, country, and location type.
     """
+    logger.info(f"reverse_geocode called: lat={latitude}, lon={longitude}, alt_lat={lat}, alt_lng={lng}")
+    
     try:
         # Handle both parameter naming conventions
         final_lat = latitude if latitude is not None else lat
         final_lng = longitude if longitude is not None else lng
         
+        logger.debug(f"Using final_lat={final_lat}, final_lng={final_lng}")
+        
         # Validate inputs exist
         if final_lat is None or final_lng is None:
+            logger.warning(f"Missing parameters: lat={final_lat}, lng={final_lng}")
             return {
                 "success": False,
                 "error": "Missing parameters. Provide latitude & longitude (or lat & lng)",
@@ -156,7 +165,9 @@ async def reverse_geocode(
         try:
             final_lat = float(final_lat)
             final_lng = float(final_lng)
-        except (ValueError, TypeError):
+            logger.debug(f"Converted to float: lat={final_lat}, lng={final_lng}")
+        except (ValueError, TypeError) as e:
+            logger.error(f"Type conversion failed: {e}")
             return {
                 "success": False,
                 "error": "Invalid parameter format. Latitude and longitude must be numbers.",
@@ -165,12 +176,14 @@ async def reverse_geocode(
         
         # Validate ranges
         if final_lat < -90 or final_lat > 90:
+            logger.warning(f"Invalid latitude: {final_lat}")
             return {
                 "success": False,
                 "error": "Invalid latitude. Must be between -90 and 90.",
                 "received": final_lat,
             }
         if final_lng < -180 or final_lng > 180:
+            logger.warning(f"Invalid longitude: {final_lng}")
             return {
                 "success": False,
                 "error": "Invalid longitude. Must be between -180 and 180.",
@@ -178,10 +191,12 @@ async def reverse_geocode(
             }
         
         # Find nearest location (mock implementation)
+        logger.debug(f"Finding nearest location for {final_lat}, {final_lng}")
         location = find_nearest_location(final_lat, final_lng, radius_km=10)
+        logger.debug(f"Found location: {location}")
         
         if location:
-            return {
+            result = {
                 "success": True,
                 "address": location.get("address"),
                 "city": location.get("city"),
@@ -191,9 +206,11 @@ async def reverse_geocode(
                 "latitude": final_lat,
                 "longitude": final_lng,
             }
+            logger.info(f"Returning matched location: {result['address']}")
+            return result
         else:
             # Return generic address if no match found
-            return {
+            result = {
                 "success": True,
                 "address": f"Location at {final_lat:.4f}, {final_lng:.4f}",
                 "city": "Unknown",
@@ -203,8 +220,11 @@ async def reverse_geocode(
                 "latitude": final_lat,
                 "longitude": final_lng,
             }
+            logger.info(f"Returning generic location: {result['address']}")
+            return result
     
     except Exception as e:
+        logger.exception(f"Reverse geocode error: {type(e).__name__}: {str(e)}")
         try:
             import traceback as tb
             error_traceback = tb.format_exc()
