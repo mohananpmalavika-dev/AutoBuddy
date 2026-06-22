@@ -111,8 +111,7 @@ class PaymentSession(Base):
     captured_at = Column(DateTime, nullable=True)
     expires_at = Column(DateTime, nullable=False, index=True)  # 15 min
 
-    # Metadata
-    metadata = Column(JSON, nullable=True)  # Flexible data storage
+    session_metadata = Column(JSON, nullable=True)  # Flexible data storage - renamed from 'metadata' (reserved in SQLAlchemy)
 
     def to_dict(self):
         return {
@@ -251,7 +250,7 @@ class SavedPaymentMethod(Base):
     last_used_at = Column(DateTime, nullable=True)
 
     # Metadata
-    metadata = Column(JSON, nullable=True)
+    payment_metadata = Column(JSON, nullable=True)  # Flexible data storage - renamed from 'metadata' (reserved in SQLAlchemy)
 
     __table_args__ = (
         Index('ix_pm_user_default', 'user_id', 'is_default'),
