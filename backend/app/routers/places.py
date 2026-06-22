@@ -2,14 +2,22 @@
 Places Router - Geocoding and Location Services
 
 Handles:
-- Reverse geocoding (lat/lon → address)
-- Place autocomplete search
-- Place details lookup
+- Reverse geocoding (lat/lon → address) - MOCK DATA ONLY
+- Place autocomplete search - MOCK DATA ONLY
+- Place details lookup - MOCK DATA ONLY
+
+IMPORTANT: This router uses ONLY mock database data.
+NO external API calls. NO Google Maps API. Fully offline.
 """
 
 from fastapi import APIRouter, Query, HTTPException
 from typing import Optional, List, Dict, Any
 from datetime import datetime
+import os
+
+# Explicitly disable any external API calls
+DISABLE_EXTERNAL_APIS = True
+MOCK_DATA_ONLY = True
 
 router = APIRouter(prefix="/api/places", tags=["places"])
 
@@ -318,4 +326,27 @@ async def places_health():
         "timestamp": datetime.utcnow().isoformat(),
         "mock_locations_count": len(MOCK_LOCATIONS),
         "mock_places_count": len(MOCK_PLACES),
+        "external_apis_enabled": not DISABLE_EXTERNAL_APIS,
+        "mock_data_only": MOCK_DATA_ONLY,
+    }
+
+
+@router.get("/debug")
+async def places_debug():
+    """Debug endpoint to verify places service is working correctly."""
+    return {
+        "status": "debug",
+        "service": "places",
+        "version": "2.0-mock-only",
+        "timestamp": datetime.utcnow().isoformat(),
+        "disable_external_apis": DISABLE_EXTERNAL_APIS,
+        "mock_data_only": MOCK_DATA_ONLY,
+        "available_endpoints": [
+            "/api/places/reverse-geocode",
+            "/api/places/autocomplete",
+            "/api/places/details",
+            "/api/places/health",
+            "/api/places/debug",
+        ],
+        "note": "This service uses ONLY mock data. No external API calls are made.",
     }
