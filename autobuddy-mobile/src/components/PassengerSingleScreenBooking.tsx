@@ -95,6 +95,7 @@ export function SingleScreenBooking({
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [isVoiceInput, setIsVoiceInput] = useState(false);
   const [suggestedLocations, setSuggestedLocations] = useState<Location[]>([]);
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
 
   // Mock fare estimation
   useEffect(() => {
@@ -122,17 +123,42 @@ export function SingleScreenBooking({
     }
   }, [destination, selectedRideType]);
 
-  // Mock location suggestions
+  // Fetch location suggestions from backend API
   useEffect(() => {
-    if (destination.length > 0) {
-      // Simulate location search
-      const filtered = savedLocations.filter(loc =>
-        loc.address.toLowerCase().includes(destination.toLowerCase())
-      );
-      setSuggestedLocations(filtered);
-      setShowSuggestions(filtered.length > 0);
+    if (destination.length >= 3) {
+      setIsLoadingSuggestions(true);
+      
+      // Call backend autocomplete endpoint
+      fetch(`https://autobuddy-z1vx.onrender.com/api/places/autocomplete?input=${encodeURIComponent(destination)}&language=en`)
+        .then(response => response.json())
+        .then(data => {
+          if (Array.isArray(data)) {
+            const locations: Location[] = data.map(item => ({
+              latitude: item.latitude || 0,
+              longitude: item.longitude || 0,
+              address: item.address || item.name || '',
+              name: item.name || item.address || '',
+            }));
+            setSuggestedLocations(locations);
+            setShowSuggestions(locations.length > 0);
+          } else {
+            setSuggestedLocations([]);
+            setShowSuggestions(false);
+          }
+        })
+        .catch(error => {
+          console.error('Autocomplete error:', error);
+          // Fallback to savedLocations if API fails
+          const filtered = savedLocations.filter(loc =>
+            loc.address.toLowerCase().includes(destination.toLowerCase())
+          );
+          setSuggestedLocations(filtered);
+          setShowSuggestions(filtered.length > 0);
+        })
+        .finally(() => setIsLoadingSuggestions(false));
     } else {
       setShowSuggestions(false);
+      setSuggestedLocations([]);
     }
   }, [destination, savedLocations]);
 
@@ -235,27 +261,34 @@ export function SingleScreenBooking({
       </View>
 
       {/* Location suggestions */}
-      {showSuggestions && suggestedLocations.length > 0 && (
+      {showSuggestions && (
         <View style={styles.suggestionsContainer}>
-          <FlatList
-            data={suggestedLocations}
-            keyExtractor={item => `${item.latitude}-${item.longitude}`}
-            scrollEnabled={false}
-            renderItem={({ item }) => (
-              <Pressable
-                style={styles.suggestionItem}
-                onPress={() => handleSelectLocation(item)}
-              >
-                <MaterialIcons name="location-on" size={20} color="#2196F3" />
-                <View style={styles.suggestionContent}>
-                  <Text style={styles.suggestionTitle}>{item.address}</Text>
-                  {item.name && (
-                    <Text style={styles.suggestionSubtitle}>{item.name}</Text>
-                  )}
-                </View>
-              </Pressable>
-            )}
-          />
+          {isLoadingSuggestions ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color="#2196F3" />
+              <Text style={styles.loadingText}>Finding locations...</Text>
+            </View>
+          ) : suggestedLocations.length > 0 ? (
+            <FlatList
+              data={suggestedLocations}
+              keyExtractor={(item, index) => `${item.address}-${index}`}
+              scrollEnabled={false}
+              renderItem={({ item }) => (
+                <Pressable
+                  style={styles.suggestionItem}
+                  onPress={() => handleSelectLocation(item)}
+                >
+                  <MaterialIcons name="location-on" size={20} color="#2196F3" />
+                  <View style={styles.suggestionContent}>
+                    <Text style={styles.suggestionTitle}>{item.address}</Text>
+                    {item.name && item.name !== item.address && (
+                      <Text style={styles.suggestionSubtitle}>{item.name}</Text>
+                    )}
+                  </View>
+                </Pressable>
+              )}
+            />
+          ) : null}
         </View>
       )}
 
@@ -512,6 +545,17 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#999',
     marginTop: 2,
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+  },
+  loadingText: {
+    marginLeft: 12,
+    fontSize: 14,
+    color: '#666',
   },
   rideTypesContainer: {
     paddingHorizontal: 16,
