@@ -205,12 +205,17 @@ async def reverse_geocode(
             }
     
     except Exception as e:
-        import traceback
+        try:
+            import traceback as tb
+            error_traceback = tb.format_exc()
+        except:
+            error_traceback = "Unknown error"
+        
         return {
             "success": False,
             "error": "Geocoding failed",
             "detail": str(e),
-            "traceback": traceback.format_exc(),
+            "traceback": error_traceback,
         }
 
 
@@ -328,6 +333,7 @@ async def places_health():
         "mock_places_count": len(MOCK_PLACES),
         "external_apis_enabled": not DISABLE_EXTERNAL_APIS,
         "mock_data_only": MOCK_DATA_ONLY,
+        "version": "2.0",
     }
 
 
@@ -349,4 +355,6 @@ async def places_debug():
             "/api/places/debug",
         ],
         "note": "This service uses ONLY mock data. No external API calls are made.",
+        "mock_locations": list(MOCK_LOCATIONS.keys())[:3],
+        "mock_places": list(MOCK_PLACES.keys())[:3],
     }
