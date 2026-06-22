@@ -1024,7 +1024,15 @@ async def run_startup_bootstrap() -> None:
         await create_heatmap_indexes(db)
         await create_fleet_profitability_indexes(db)
 
-        bootstrap_features(db)
+        # Skip feature bootstrap if db is Motor (MongoDB)
+        # Features will be registered on-demand during runtime
+        try:
+            bootstrap_features(db)
+        except TypeError as e:
+            if "MotorCollection object is not callable" in str(e):
+                logger.warning("Skipping feature bootstrap - using MongoDB. Features will be registered on-demand.")
+            else:
+                raise
 
         referral_backfill = await backfill_referrals_for_existing_users(db)
         if referral_backfill.get("ran"):
