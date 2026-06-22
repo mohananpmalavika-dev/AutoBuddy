@@ -11222,56 +11222,6 @@ async def places_details(place_id: str, language: str = "en"):
         "address": result.get("formatted_address") or result.get("name") or f"Lat {lat}, Lng {lng}",
     }
 
-@api_router.get("/places/reverse-geocode")
-async def places_reverse_geocode(latitude: float, longitude: float, language: str = "en"):
-    # Validate latitude and longitude parameters
-    if latitude is None or longitude is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Missing required parameters: latitude and longitude must be provided"
-        )
-    
-    try:
-        lat_float = float(latitude)
-        lon_float = float(longitude)
-    except (TypeError, ValueError):
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid parameters: latitude and longitude must be valid numbers"
-        )
-    
-    # Validate coordinate ranges
-    if not (-90 <= lat_float <= 90):
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid latitude: must be between -90 and 90"
-        )
-    
-    if not (-180 <= lon_float <= 180):
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid longitude: must be between -180 and 180"
-        )
-    
-    try:
-        payload = await fetch_google_maps_json(
-            "geocode/json",
-            {
-                "latlng": f"{lat_float},{lon_float}",
-                "language": language or "en",
-            },
-            allow_zero_results=True,
-        )
-        first = (payload.get("results") or [None])[0]
-        return {"address": first.get("formatted_address") if isinstance(first, dict) else None}
-    except Exception as e:
-        # Log the error but provide user-friendly message
-        logger.error(f"Error calling Google Maps API for reverse geocoding: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail="Unable to reverse geocode location. Please try again later."
-        )
-
 @api_router.get("/drivers/nearby", response_model=List[NearbyDriverResponse])
 async def get_nearby_drivers(
     latitude: float,
