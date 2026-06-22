@@ -19,6 +19,7 @@ import { SingleScreenBooking } from '../components/PassengerSingleScreenBooking'
 import { ScheduleRideModal } from '../components/ScheduleRideModal';
 import { DriverInfoCard } from '../components/DriverInfoCard';
 import { ComplianceAlertBanner } from '../components/ComplianceAlertBanner';
+import { AIInsightsWidget } from '../screens/AIInsightsScreen';
 import {
   usePassengerBooking,
   usePassengerRideTracking,
@@ -33,6 +34,7 @@ import VoiceFloatingButton from '../components/VoiceFloatingButton';
 import PredictiveBookingCard from '../components/PredictiveBookingCard';
 import { usePredictiveBooking } from '../hooks/usePredictiveBooking';
 import CalendarBookingScreen from './scheduled/CalendarBookingScreen';
+import ModeSelectionScreen from './ModeSelectionScreen';
 
 interface PassengerDashboardProps {
   token: string;
@@ -40,7 +42,7 @@ interface PassengerDashboardProps {
   onLogout: () => void;
 }
 
-type DashboardTab = 'home' | 'active' | 'history' | 'calendar' | 'travel' | 'profile';
+type DashboardTab = 'home' | 'active' | 'history' | 'calendar' | 'travel' | 'profile' | 'mode';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -250,6 +252,16 @@ export default function PassengerDashboard({
               </View>
             </View>
           )}
+
+          {/* AI Insights Widget */}
+          <AIInsightsWidget 
+            userId={user?.id || ''}
+            onQuickBook={(destination) => {
+              setBookingDestination(`${destination.lat},${destination.lng}`);
+              setBookingRideType('economy');
+            }}
+            onViewAll={() => setActiveTab('travel')}
+          />
         </View>
       )}
 
@@ -353,7 +365,7 @@ export default function PassengerDashboard({
   const renderProfileTab = () => {
     const p = profile;
     return (
-      <View style={styles.tabContent}>
+      <ScrollView style={styles.tabContent}>
         <View style={styles.profileHeader}>
           <View style={styles.profileAvatar}>
             <MaterialIcons name="person" size={48} color="#2196F3" />
@@ -392,33 +404,32 @@ export default function PassengerDashboard({
           </View>
         </View>
 
+        <Pressable style={styles.modeSelectionButton} onPress={() => setActiveTab('mode')}>
+          <MaterialIcons name="tune" size={20} color="#2196F3" />
+          <Text style={styles.modeSelectionButtonText}>Mode Selection</Text>
+          <MaterialIcons name="chevron-right" size={20} color="#2196F3" />
+        </Pressable>
+
         <Pressable style={styles.logoutButton} onPress={onLogout}>
           <MaterialIcons name="logout" size={20} color="#D32F2F" />
           <Text style={styles.logoutButtonText}>Logout</Text>
         </Pressable>
-      </View>
+      </ScrollView>
     );
   };
 
   const renderTravelTab = () => {
-    // Navigate to TravelIntent screen
-    React.useEffect(() => {
-      if (activeTab === 'travel') {
-        navigation.navigate('TravelIntent', { token, user });
-      }
-    }, [activeTab]);
-    
     return (
-      <View style={styles.tabContent}>
-        <View style={styles.emptyState}>
-          <MaterialIcons name="place" size={64} color="#2196F3" />
-          <Text style={styles.emptyStateTitle}>Redirecting...</Text>
-          <Text style={styles.emptyStateSubtitle}>
-            Opening travel assistant
-          </Text>
-          <ActivityIndicator size="large" color="#2196F3" style={{marginTop: 20}} />
-        </View>
-      </View>
+      <ScrollView style={styles.tabContent}>
+        <AIInsightsScreen
+          userId={user?.id || ''}
+          onQuickBook={(destination) => {
+            setBookingDestination(`${destination.lat},${destination.lng}`);
+            setBookingRideType('economy');
+            setActiveTab('home');
+          }}
+        />
+      </ScrollView>
     );
   };
 
@@ -483,6 +494,7 @@ export default function PassengerDashboard({
         )}
         {activeTab === 'travel' && renderTravelTab()}
         {activeTab === 'profile' && renderProfileTab()}
+        {activeTab === 'mode' && <ModeSelectionScreen />}
       </ScrollView>
 
       {/* Predictive morning booking card */}
@@ -862,6 +874,23 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: '#D32F2F',
+  },
+  modeSelectionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    backgroundColor: '#E3F2FD',
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  modeSelectionButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#2196F3',
+    flex: 1,
+    marginLeft: 8,
   },
   // --- Voice indicator ---
   voiceIndicator: {

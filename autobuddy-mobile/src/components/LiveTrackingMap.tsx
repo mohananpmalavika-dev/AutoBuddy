@@ -90,10 +90,19 @@ export const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({
   useEffect(() => {
     if (!isAutoFollowEnabled || !displayedLocation || !mapRef.current) return;
 
+    // Validate coordinates before animating
+    const lat = Number(displayedLocation.latitude);
+    const lon = Number(displayedLocation.longitude);
+    
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      console.warn('Invalid location coordinates for map animation:', displayedLocation);
+      return;
+    }
+
     mapRef.current.animateToRegion(
       {
-        latitude: displayedLocation.latitude,
-        longitude: displayedLocation.longitude,
+        latitude: lat,
+        longitude: lon,
         latitudeDelta: 0.01,
         longitudeDelta: 0.01,
       },

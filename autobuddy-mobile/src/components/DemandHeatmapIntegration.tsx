@@ -144,10 +144,17 @@ export default function DemandHeatmapIntegration({
     setLoading(true);
     setError('');
     try {
-      const payload = await demandTrafficAPI.getDemandHeatmap(
-        currentLocation?.latitude,
-        currentLocation?.longitude
-      );
+      // Validate coordinates before making API call
+      const lat = Number(currentLocation?.latitude);
+      const lon = Number(currentLocation?.longitude);
+      
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        setError('Location unavailable. Please enable location services.');
+        setLoading(false);
+        return;
+      }
+      
+      const payload = await demandTrafficAPI.getDemandHeatmap(lat, lon);
       const hotspots = getHotspotRows(payload)
         .map(normalizeHotspot)
         .filter((hotspot): hotspot is DemandHotspot => Boolean(hotspot));

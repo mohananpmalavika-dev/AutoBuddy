@@ -732,10 +732,16 @@ export const driverAPI = {
     axiosInstance.get('/api/drivers/profile'),
 
   // Get list of available drivers near coordinates
-  getNearbyDrivers: (latitude: number, longitude: number, radius_km?: number) =>
-    axiosInstance.get(
-      `/api/drivers/available/list?latitude=${latitude}&longitude=${longitude}&radius_km=${radius_km || 5}`
-    ),
+  getNearbyDrivers: (latitude: number, longitude: number, radius_km?: number) => {
+    const lat = Number(latitude);
+    const lon = Number(longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      return Promise.reject(new Error('Invalid coordinates: latitude and longitude must be valid numbers'));
+    }
+    return axiosInstance.get(
+      `/api/drivers/available/list?latitude=${lat}&longitude=${lon}&radius_km=${radius_km || 5}`
+    );
+  },
 
   // Start shift
   startShift: (driverId: string, data: any = {}) =>
@@ -789,12 +795,18 @@ export const rideAPI = {
     axiosInstance.post(`/api/rides/${bookingId}/cancel-ride`, { reason }),
 
   // Update ride location (GPS tracking)
-  updateLocation: (bookingId: string, latitude: number, longitude: number) =>
-    axiosInstance.post(`/api/rides/${bookingId}/update-ride-location`, {
-      latitude,
-      longitude,
+  updateLocation: (bookingId: string, latitude: number, longitude: number) => {
+    const lat = Number(latitude);
+    const lon = Number(longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      return Promise.reject(new Error('Invalid coordinates: latitude and longitude must be valid numbers'));
+    }
+    return axiosInstance.post(`/api/rides/${bookingId}/update-ride-location`, {
+      latitude: lat,
+      longitude: lon,
       timestamp: istISOString(new Date()),
-    }),
+    });
+  },
 
   // Get ride status and tracking
   getRideStatus: (bookingId: string) =>
@@ -1027,10 +1039,21 @@ export const driverSafetyAPI = {
 
 export const demandTrafficAPI = {
   // Get demand heatmap data for driver earnings optimization
-  getDemandHeatmap: (latitude?: number, longitude?: number) =>
-    axiosInstance.get('/api/drivers/demand-heatmap', {
+  getDemandHeatmap: (latitude?: number, longitude?: number) => {
+    if (latitude !== undefined && longitude !== undefined) {
+      const lat = Number(latitude);
+      const lon = Number(longitude);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        return Promise.reject(new Error('Invalid coordinates: latitude and longitude must be valid numbers'));
+      }
+      return axiosInstance.get('/api/drivers/demand-heatmap', {
+        params: { latitude: lat, longitude: lon },
+      });
+    }
+    return axiosInstance.get('/api/drivers/demand-heatmap', {
       params: { latitude, longitude },
-    }),
+    });
+  },
 
   // Get real-time traffic alerts and route options
   getTrafficAlerts: (origin: any, destination: any) =>
@@ -1049,10 +1072,16 @@ export const demandTrafficAPI = {
     axiosInstance.post('/api/drivers/traffic-report', incidentData),
 
   // Get earnings forecast based on location and time
-  getEarningsForecast: (latitude: number, longitude: number) =>
-    axiosInstance.get('/api/drivers/earnings-forecast', {
-      params: { latitude, longitude },
-    }),
+  getEarningsForecast: (latitude: number, longitude: number) => {
+    const lat = Number(latitude);
+    const lon = Number(longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      return Promise.reject(new Error('Invalid coordinates: latitude and longitude must be valid numbers'));
+    }
+    return axiosInstance.get('/api/drivers/earnings-forecast', {
+      params: { latitude: lat, longitude: lon },
+    });
+  },
 };
 
 // =====================================================================

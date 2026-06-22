@@ -4,6 +4,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { initializeApiClient, post, del, handleApiError } from './utils/apiClient';
+import { UserModeProvider } from './contexts/UserModeContext';
 
 // Auth screens
 import LoginScreen from './screens/auth/LoginScreen';
@@ -229,13 +230,14 @@ export default function App() {
   }
 
   return (
-    <NavigationContainer>
-      <Stack.Navigator
-        screenOptions={{
-          headerShown: false,
-          animationEnabled: true,
-        }}
-      >
+    <UserModeProvider userId={session?.user?.id || ''}>
+      <NavigationContainer>
+        <Stack.Navigator
+          screenOptions={{
+            headerShown: false,
+            animationEnabled: true,
+          }}
+        >
         {!session ? (
           // Auth Stack
           <>
@@ -337,5 +339,6 @@ export default function App() {
         )}
       </Stack.Navigator>
     </NavigationContainer>
+    </UserModeProvider>
   );
 }

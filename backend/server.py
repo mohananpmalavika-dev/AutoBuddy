@@ -49,6 +49,10 @@ from app.bootstrap import (
     initialize_default_catalogs,
     register_modular_routers,
 )
+from app.routers.user_mode import router as user_mode_router
+from app.routers.premium_ui import router as premium_ui_router
+from app.routers.ai_visibility import router as ai_visibility_router
+from app.services.feature_service import bootstrap_features
 from app.db.retry import retry_on_db_error
 from app.db.client import create_mongo_client, create_database
 from app.database import SessionLocal, get_db
@@ -1018,6 +1022,8 @@ async def run_startup_bootstrap() -> None:
         await create_airport_indexes(db)
         await create_heatmap_indexes(db)
         await create_fleet_profitability_indexes(db)
+
+        bootstrap_features(db)
 
         referral_backfill = await backfill_referrals_for_existing_users(db)
         if referral_backfill.get("ran"):
@@ -11142,6 +11148,19 @@ async def places_autocomplete(
     if len(text) < 3:
         return []
 
+    # Validate latitude/longitude if provided
+    if latitude is not None and longitude is not None:
+        try:
+            lat_float = float(latitude)
+            lon_float = float(longitude)
+            
+            if not (-90 <= lat_float <= 90):
+                raise HTTPException(status_code=400, detail="Invalid latitude: must be between -90 and 90")
+            if not (-180 <= lon_float <= 180):
+                raise HTTPException(status_code=400, detail="Invalid longitude: must be between -180 and 180")
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Invalid latitude or longitude: must be valid numbers")
+
     params: Dict[str, Any] = {
         "input": text,
         "language": language or "en",
@@ -11196,16 +11215,53 @@ async def places_details(place_id: str, language: str = "en"):
 
 @api_router.get("/places/reverse-geocode")
 async def places_reverse_geocode(latitude: float, longitude: float, language: str = "en"):
-    payload = await fetch_google_maps_json(
-        "geocode/json",
-        {
-            "latlng": f"{latitude},{longitude}",
-            "language": language or "en",
-        },
-        allow_zero_results=True,
-    )
-    first = (payload.get("results") or [None])[0]
-    return {"address": first.get("formatted_address") if isinstance(first, dict) else None}
+    # Validate latitude and longitude parameters
+    if latitude is None or longitude is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Missing required parameters: latitude and longitude must be provided"
+        )
+    
+    try:
+        lat_float = float(latitude)
+        lon_float = float(longitude)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid parameters: latitude and longitude must be valid numbers"
+        )
+    
+    # Validate coordinate ranges
+    if not (-90 <= lat_float <= 90):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid latitude: must be between -90 and 90"
+        )
+    
+    if not (-180 <= lon_float <= 180):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid longitude: must be between -180 and 180"
+        )
+    
+    try:
+        payload = await fetch_google_maps_json(
+            "geocode/json",
+            {
+                "latlng": f"{lat_float},{lon_float}",
+                "language": language or "en",
+            },
+            allow_zero_results=True,
+        )
+        first = (payload.get("results") or [None])[0]
+        return {"address": first.get("formatted_address") if isinstance(first, dict) else None}
+    except Exception as e:
+        # Log the error but provide user-friendly message
+        logger.error(f"Error calling Google Maps API for reverse geocoding: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to reverse geocode location. Please try again later."
+        )
 
 @api_router.get("/drivers/nearby", response_model=List[NearbyDriverResponse])
 async def get_nearby_drivers(
@@ -19602,6 +19658,9 @@ async def global_options_handler(full_path: str, request: Request):
 # frontend/backend deploy-order mismatches during rolling releases.
 register_modular_routers(app)
 app.include_router(api_router)
+app.include_router(user_mode_router)
+app.include_router(premium_ui_router)
+app.include_router(ai_visibility_router)
 app.mount("/socket.io", root_socket_app)
 app.mount("/ws", socket_app)
 
