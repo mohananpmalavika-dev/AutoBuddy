@@ -2,12 +2,9 @@
 Places Router - Geocoding and Location Services
 
 Handles:
-- Reverse geocoding (lat/lon → address) - MOCK DATA ONLY
-- Place autocomplete search - MOCK DATA ONLY
-- Place details lookup - MOCK DATA ONLY
-
-IMPORTANT: This router uses ONLY mock database data.
-NO external API calls. NO Google Maps API. Fully offline.
+- Reverse geocoding (lat/lon → address) - Uses Nominatim/OpenStreetMap
+- Place autocomplete search - Uses mock data
+- Place details lookup - Uses mock data
 """
 
 from fastapi import APIRouter, Query, HTTPException
@@ -15,19 +12,20 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 import os
 import logging
+import httpx
 
 # Setup logging
 logger = logging.getLogger(__name__)
 
-# Explicitly disable any external API calls
-DISABLE_EXTERNAL_APIS = True
-MOCK_DATA_ONLY = True
+# Nominatim API endpoint (OpenStreetMap's free reverse geocoding)
+NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse"
 
 router = APIRouter(prefix="/api/places", tags=["places"])
 
 
 # Mock database of locations in Kerala/India for testing
 MOCK_LOCATIONS = {
+    # Kochi area
     "8.5241,76.9366": {
         "address": "Kochi, Kerala",
         "city": "Kochi",
@@ -35,12 +33,12 @@ MOCK_LOCATIONS = {
         "country": "India",
         "type": "city",
     },
-    "8.7426,76.7873": {
-        "address": "Thiruvananthapuram, Kerala",
-        "city": "Thiruvananthapuram",
+    "9.9676,76.3261": {
+        "address": "MG Road, Kochi",
+        "city": "Kochi",
         "state": "Kerala",
         "country": "India",
-        "type": "city",
+        "type": "area",
     },
     "8.6753,76.8589": {
         "address": "Ernakulathappan, Kochi",
@@ -49,6 +47,36 @@ MOCK_LOCATIONS = {
         "country": "India",
         "type": "area",
     },
+    "8.8965,76.5667": {
+        "address": "Fort Kochi, Kochi",
+        "city": "Kochi",
+        "state": "Kerala",
+        "country": "India",
+        "type": "area",
+    },
+    "8.9270,76.3906": {
+        "address": "Cochin International Airport, Kochi",
+        "city": "Kochi",
+        "state": "Kerala",
+        "country": "India",
+        "type": "landmark",
+    },
+    # Thiruvananthapuram area
+    "8.7426,76.7873": {
+        "address": "Thiruvananthapuram, Kerala",
+        "city": "Thiruvananthapuram",
+        "state": "Kerala",
+        "country": "India",
+        "type": "city",
+    },
+    "8.7249,76.7367": {
+        "address": "Vazhuthacaud, Thiruvananthapuram",
+        "city": "Thiruvananthapuram",
+        "state": "Kerala",
+        "country": "India",
+        "type": "area",
+    },
+    # Kollam area
     "8.5344,76.2450": {
         "address": "Kollam, Kerala",
         "city": "Kollam",
@@ -56,12 +84,51 @@ MOCK_LOCATIONS = {
         "country": "India",
         "type": "city",
     },
+    "8.8956,76.5687": {
+        "address": "Kollam City Center",
+        "city": "Kollam",
+        "state": "Kerala",
+        "country": "India",
+        "type": "area",
+    },
+    # Kottayam area
     "8.4942,76.8194": {
         "address": "Kottayam, Kerala",
         "city": "Kottayam",
         "state": "Kerala",
         "country": "India",
         "type": "city",
+    },
+    "8.5123,76.8234": {
+        "address": "Kottayam City Center",
+        "city": "Kottayam",
+        "state": "Kerala",
+        "country": "India",
+        "type": "area",
+    },
+    # Pathanamthitta area
+    "9.2756,76.7871": {
+        "address": "Pathanamthitta, Kerala",
+        "city": "Pathanamthitta",
+        "state": "Kerala",
+        "country": "India",
+        "type": "city",
+    },
+    # Alappuzha area
+    "9.4981,76.3388": {
+        "address": "Alappuzha, Kerala",
+        "city": "Alappuzha",
+        "state": "Kerala",
+        "country": "India",
+        "type": "city",
+    },
+    # Ernakulam area
+    "9.6355,76.2263": {
+        "address": "Ernakulam Junction",
+        "city": "Ernakulam",
+        "state": "Kerala",
+        "country": "India",
+        "type": "area",
     },
 }
 
@@ -129,6 +196,75 @@ def find_nearest_location(lat: float, lng: float, radius_km: float = 5) -> Optio
     return nearest
 
 
+async def call_nominatim_reverse(lat: float, lng: float, language: str = "en") -> Optional[Dict[str, str]]:
+    """
+    Call Nominatim (OpenStreetMap) API for reverse geocoding.
+    Free, no API key required. Returns real place names.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            params = {
+                "lat": lat,
+                "lon": lng,
+                "format": "json",
+                "zoom": 18,
+                "addressdetails": 1,
+                "language": language,
+            }
+            
+            # Add User-Agent header (Nominatim requires it)
+            headers = {
+                "User-Agent": "AutoBuddy/1.0 (https://auto-buddy.in)"
+            }
+            
+            response = await client.get(NOMINATIM_URL, params=params, headers=headers)
+            
+            if response.status_code == 200:
+                data = response.json()
+                address_parts = data.get("address", {})
+                
+                # Extract meaningful location info from Nominatim response
+                city = (
+                    address_parts.get("city")
+                    or address_parts.get("town")
+                    or address_parts.get("village")
+                    or address_parts.get("hamlet")
+                    or "Unknown"
+                )
+                
+                state = (
+                    address_parts.get("state")
+                    or "Unknown"
+                )
+                
+                # Use display_name as full address
+                address = data.get("display_name", f"Location at {lat:.4f}, {lng:.4f}")
+                
+                country = address_parts.get("country", "India")
+                
+                logger.info(f"Nominatim reverse geocode success: {address}")
+                
+                return {
+                    "address": address,
+                    "city": city,
+                    "state": state,
+                    "country": country,
+                }
+            else:
+                logger.warning(f"Nominatim API returned status {response.status_code}")
+                return None
+    
+    except httpx.TimeoutException:
+        logger.warning(f"Nominatim reverse geocode timeout for {lat}, {lng}")
+        return None
+    except httpx.RequestError as e:
+        logger.warning(f"Nominatim request error: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Nominatim reverse geocode error: {e}")
+        return None
+
+
 @router.get("/reverse-geocode")
 async def reverse_geocode(
     latitude: Optional[float] = Query(None),
@@ -137,7 +273,7 @@ async def reverse_geocode(
     lng: Optional[float] = Query(None),
     language: str = Query("en"),
 ) -> Dict[str, Any]:
-    """Reverse geocode a location (lat/lng to address)."""
+    """Reverse geocode a location (lat/lng to address) using Nominatim/OpenStreetMap."""
     try:
         # Determine which coordinates to use
         final_lat = latitude if latitude is not None else lat
@@ -185,26 +321,22 @@ async def reverse_geocode(
                 "type": "location",
             }
         
-        # Try to find nearest location from mock data
-        try:
-            location = find_nearest_location(final_lat, final_lng, radius_km=10)
-        except Exception as inner_err:
-            logger.warning(f"find_nearest_location error: {inner_err}")
-            location = None
+        # Call Nominatim API for real reverse geocoding
+        geocoded = await call_nominatim_reverse(final_lat, final_lng, language)
         
-        # Return result with coordinates
-        if location:
+        if geocoded:
             return {
                 "success": True,
-                "address": location.get("address", f"Location at {final_lat:.4f}, {final_lng:.4f}"),
-                "city": location.get("city", "Unknown"),
-                "state": location.get("state", "Unknown"),
-                "country": location.get("country", "India"),
-                "type": location.get("type", "location"),
+                "address": geocoded.get("address", f"Location at {final_lat:.4f}, {final_lng:.4f}"),
+                "city": geocoded.get("city", "Unknown"),
+                "state": geocoded.get("state", "Unknown"),
+                "country": geocoded.get("country", "India"),
+                "type": "location",
                 "latitude": final_lat,
                 "longitude": final_lng,
             }
         else:
+            # Fallback if Nominatim fails
             return {
                 "success": True,
                 "address": f"Location at {final_lat:.4f}, {final_lng:.4f}",
