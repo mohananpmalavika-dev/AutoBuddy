@@ -146,12 +146,17 @@ export function SingleScreenBooking({
           maxFare: Math.round(data.estimated_fare * 1.05),
           estimatedTime: data.estimated_time_minutes || 15,
           distance: data.distance || 0,
-          surgeMultiplier: data.surge_multiplier > 1 ? data.surge_multiplier : undefined,
+          surgeMultiplier: (data.surge_multiplier && data.surge_multiplier > 1) ? data.surge_multiplier : undefined,
         });
       } catch (error) {
         console.error('Fare estimation error:', error);
         // Show fallback estimate on error
-        const distance = selectedDestinationLocation.latitude && selectedDestinationLocation.longitude 
+        if (!pickupLocation || !selectedDestinationLocation) {
+          setFareEstimate(null);
+          return;
+        }
+        
+        const distance = (selectedDestinationLocation.latitude && selectedDestinationLocation.longitude && pickupLocation.latitude && pickupLocation.longitude)
           ? estimateDistanceKm(pickupLocation.latitude, pickupLocation.longitude, 
                               selectedDestinationLocation.latitude, selectedDestinationLocation.longitude)
           : 5;
@@ -195,9 +200,18 @@ export function SingleScreenBooking({
     if (destination.length >= 3) {
       setIsLoadingSuggestions(true);
       
+      const controller = new AbortController();
+      
       // Call backend autocomplete endpoint
-      fetch(`https://autobuddy-z1vx.onrender.com/api/places/autocomplete?input=${encodeURIComponent(destination)}&language=en`)
-        .then(response => response.json())
+      fetch(`https://autobuddy-z1vx.onrender.com/api/places/autocomplete?input=${encodeURIComponent(destination)}&language=en`, {
+        signal: controller.signal,
+      })
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`Autocomplete API error: ${response.status}`);
+          }
+          return response.json();
+        })
         .then(data => {
           if (Array.isArray(data)) {
             const locations: Location[] = data.map(item => ({
@@ -214,6 +228,9 @@ export function SingleScreenBooking({
           }
         })
         .catch(error => {
+          if (error.name === 'AbortError') {
+            return; // Request was cancelled, don't update state
+          }
           console.error('Autocomplete error:', error);
           // Fallback to savedLocations if API fails
           const filtered = savedLocations.filter(loc =>
@@ -223,6 +240,8 @@ export function SingleScreenBooking({
           setShowSuggestions(filtered.length > 0);
         })
         .finally(() => setIsLoadingSuggestions(false));
+      
+      return () => controller.abort();
     } else {
       setShowSuggestions(false);
       setSuggestedLocations([]);

@@ -104,7 +104,7 @@ export default function PassengerDashboard({
   lastIntentRef.current = lastIntent;
 
   const handleBookRide = (rideData: any) => {
-    if (!rideData.destination.trim()) {
+    if (!rideData || !rideData.destination || !rideData.destination.trim()) {
       Alert.alert('Destination Required', 'Please enter your destination');
       return;
     }
@@ -188,18 +188,18 @@ export default function PassengerDashboard({
           {tracking && (
             <DriverInfoCard
               driver={{
-                id: tracking.driverId,
-                name: tracking.driverName,
-                photo: tracking.driverPhoto,
-                rating: tracking.driverRating,
+                id: tracking.driverId || '',
+                name: tracking.driverName || 'Driver',
+                photo: tracking.driverPhoto || '',
+                rating: tracking.driverRating || 5,
                 rideCount: 45,
                 vehicle: {
                   make: 'Toyota',
                   model: 'Innova',
                   licensePlate: 'KA01AB1234',
-                  color: tracking.vehicleType,
+                  color: tracking.vehicleType || 'White',
                 },
-                eta: tracking.eta,
+                eta: tracking.eta || 5,
               }}
               onCall={() => Alert.alert('Calling driver...')}
               onMessage={() => Alert.alert('Opening message...')}
@@ -280,7 +280,10 @@ export default function PassengerDashboard({
                   {ride.destination}
                 </Text>
                 <Text style={styles.scheduledRideTime}>
-                  {new Date(ride.scheduledAt).toLocaleString()}
+                  {ride.scheduledAt && !isNaN(new Date(ride.scheduledAt).getTime())
+                    ? new Date(ride.scheduledAt).toLocaleString()
+                    : 'Time TBD'
+                  }
                 </Text>
                 {ride.discount > 0 && (
                   <Text style={styles.scheduledRideDiscount}>
@@ -353,7 +356,10 @@ export default function PassengerDashboard({
                 </Text>
               </View>
               <Text style={styles.historyDate}>
-                {new Date(item.date).toLocaleDateString()}
+                {item.date && !isNaN(new Date(item.date).getTime())
+                  ? new Date(item.date).toLocaleDateString()
+                  : 'Date unknown'
+                }
               </Text>
             </View>
           )}
