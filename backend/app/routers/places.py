@@ -119,24 +119,58 @@ def find_nearest_location(lat: float, lng: float, radius_km: float = 5) -> Optio
 
 @router.get("/reverse-geocode")
 async def reverse_geocode(
-    latitude: float = Query(..., description="Latitude"),
-    longitude: float = Query(..., description="Longitude"),
+    latitude: Optional[float] = Query(None, description="Latitude"),
+    longitude: Optional[float] = Query(None, description="Longitude"),
+    lat: Optional[float] = Query(None, description="Latitude (alternate)"),
+    lng: Optional[float] = Query(None, description="Longitude (alternate)"),
     language: str = Query("en", description="Language code"),
 ):
     """
     Reverse geocode a location (convert lat/lon to address).
     
+    Accepts latitude/longitude or lat/lng parameters.
     Returns address, city, state, country, and location type.
     """
     try:
-        # Validate inputs
-        if latitude < -90 or latitude > 90:
-            raise HTTPException(status_code=400, detail="Invalid latitude. Must be between -90 and 90.")
-        if longitude < -180 or longitude > 180:
-            raise HTTPException(status_code=400, detail="Invalid longitude. Must be between -180 and 180.")
+        # Handle both parameter naming conventions
+        final_lat = latitude if latitude is not None else lat
+        final_lng = longitude if longitude is not None else lng
+        
+        # Validate inputs exist
+        if final_lat is None or final_lng is None:
+            return {
+                "success": False,
+                "error": "Missing parameters. Provide latitude & longitude (or lat & lng)",
+                "detail": f"latitude={latitude}, longitude={longitude}, lat={lat}, lng={lng}",
+            }
+        
+        # Convert to float if string
+        try:
+            final_lat = float(final_lat)
+            final_lng = float(final_lng)
+        except (ValueError, TypeError):
+            return {
+                "success": False,
+                "error": "Invalid parameter format. Latitude and longitude must be numbers.",
+                "detail": f"Received: latitude={final_lat} (type: {type(final_lat).__name__}), longitude={final_lng} (type: {type(final_lng).__name__})",
+            }
+        
+        # Validate ranges
+        if final_lat < -90 or final_lat > 90:
+            return {
+                "success": False,
+                "error": "Invalid latitude. Must be between -90 and 90.",
+                "received": final_lat,
+            }
+        if final_lng < -180 or final_lng > 180:
+            return {
+                "success": False,
+                "error": "Invalid longitude. Must be between -180 and 180.",
+                "received": final_lng,
+            }
         
         # Find nearest location (mock implementation)
-        location = find_nearest_location(latitude, longitude, radius_km=10)
+        location = find_nearest_location(final_lat, final_lng, radius_km=10)
         
         if location:
             return {
@@ -146,24 +180,30 @@ async def reverse_geocode(
                 "state": location.get("state"),
                 "country": location.get("country"),
                 "type": location.get("type"),
-                "latitude": latitude,
-                "longitude": longitude,
+                "latitude": final_lat,
+                "longitude": final_lng,
             }
         else:
             # Return generic address if no match found
             return {
                 "success": True,
-                "address": f"{latitude:.4f}, {longitude:.4f}",
+                "address": f"Location at {final_lat:.4f}, {final_lng:.4f}",
                 "city": "Unknown",
                 "state": "Unknown",
                 "country": "India",
                 "type": "location",
-                "latitude": latitude,
-                "longitude": longitude,
+                "latitude": final_lat,
+                "longitude": final_lng,
             }
     
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Geocoding failed: {str(e)}")
+        import traceback
+        return {
+            "success": False,
+            "error": "Geocoding failed",
+            "detail": str(e),
+            "traceback": traceback.format_exc(),
+        }
 
 
 @router.get("/autocomplete")
