@@ -101,32 +101,94 @@ export function SingleScreenBooking({
   const [selectedVehicleModel, setSelectedVehicleModel] = useState('sedan');
   const [selectedRideCategory, setSelectedRideCategory] = useState('normal');
   const [selectedPassengers, setSelectedPassengers] = useState(1);
+  const [isEstimatingFare, setIsEstimatingFare] = useState(false);
+  const [selectedDestinationLocation, setSelectedDestinationLocation] = useState<Location | null>(null);
 
-  // Mock fare estimation
+  // Get pickup location from saved locations (first one is usually current)
+  const pickupLocation = savedLocations?.[0];
+
+  // Call real fare estimation endpoint
   useEffect(() => {
-    if (destination.length > 3) {
-      // Simulate fare calculation
-      const mockDistance = Math.random() * 15 + 2;
-      const rideType = RIDE_TYPES.find(rt => rt.id === selectedRideType);
-      if (rideType) {
-        const baseFare = rideType.basePrice;
-        const distanceFare = rideType.perKmPrice * mockDistance;
-        const minFare = baseFare + distanceFare;
-        const maxFare = minFare * 1.2;
-        const hasSurge = Math.random() > 0.7;
-
-        setFareEstimate({
-          minFare: Math.round(minFare),
-          maxFare: Math.round(maxFare),
-          estimatedTime: Math.round(mockDistance * 2.5),
-          distance: parseFloat(mockDistance.toFixed(1)),
-          surgeMultiplier: hasSurge ? 1.5 : undefined,
-        });
-      }
-    } else {
+    if (!selectedDestinationLocation || !pickupLocation) {
       setFareEstimate(null);
+      return;
     }
-  }, [destination, selectedRideType]);
+
+    const estimateFareFromApi = async () => {
+      try {
+        setIsEstimatingFare(true);
+        
+        const response = await fetch(
+          'https://autobuddy-z1vx.onrender.com/api/passengers/rides/estimate-fare',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              pickup_latitude: pickupLocation.latitude,
+              pickup_longitude: pickupLocation.longitude,
+              dropoff_latitude: selectedDestinationLocation.latitude,
+              dropoff_longitude: selectedDestinationLocation.longitude,
+              ride_type: selectedRideType,
+            }),
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error(`Fare estimation failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+        
+        setFareEstimate({
+          minFare: Math.round(data.estimated_fare * 0.95),
+          maxFare: Math.round(data.estimated_fare * 1.05),
+          estimatedTime: data.estimated_time_minutes || 15,
+          distance: data.distance || 0,
+          surgeMultiplier: data.surge_multiplier > 1 ? data.surge_multiplier : undefined,
+        });
+      } catch (error) {
+        console.error('Fare estimation error:', error);
+        // Show fallback estimate on error
+        const distance = selectedDestinationLocation.latitude && selectedDestinationLocation.longitude 
+          ? estimateDistanceKm(pickupLocation.latitude, pickupLocation.longitude, 
+                              selectedDestinationLocation.latitude, selectedDestinationLocation.longitude)
+          : 5;
+        
+        const rideType = RIDE_TYPES.find(rt => rt.id === selectedRideType);
+        if (rideType) {
+          const baseFare = rideType.basePrice;
+          const distanceFare = rideType.perKmPrice * distance;
+          const minFare = baseFare + distanceFare;
+          const maxFare = minFare * 1.2;
+
+          setFareEstimate({
+            minFare: Math.round(minFare),
+            maxFare: Math.round(maxFare),
+            estimatedTime: Math.round(distance * 2.5),
+            distance: parseFloat(distance.toFixed(1)),
+          });
+        }
+      } finally {
+        setIsEstimatingFare(false);
+      }
+    };
+
+    estimateFareFromApi();
+  }, [selectedDestinationLocation, selectedRideType, pickupLocation]);
+
+  // Helper function to estimate distance (fallback haversine)
+  function estimateDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  }
 
   // Fetch location suggestions from backend API
   useEffect(() => {
@@ -169,6 +231,7 @@ export function SingleScreenBooking({
 
   const handleSelectLocation = (location: Location) => {
     setDestination(location.address);
+    setSelectedDestinationLocation(location);
     setShowSuggestions(false);
   };
 
@@ -183,6 +246,7 @@ export function SingleScreenBooking({
     setDestination('');
     setFareEstimate(null);
     setShowSuggestions(false);
+    setSelectedDestinationLocation(null);
   };
 
   const handleRideDetailsClose = () => {
@@ -549,7 +613,6 @@ export function SingleScreenBooking({
           </View>
         </View>
       )}
-      </View>
     </ScrollView>
   );
 }
