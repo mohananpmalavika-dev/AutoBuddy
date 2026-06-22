@@ -96,6 +96,11 @@ export function SingleScreenBooking({
   const [isVoiceInput, setIsVoiceInput] = useState(false);
   const [suggestedLocations, setSuggestedLocations] = useState<Location[]>([]);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+  const [showRideDetailsModal, setShowRideDetailsModal] = useState(false);
+  const [selectedVehicleType, setSelectedVehicleType] = useState('economy');
+  const [selectedVehicleModel, setSelectedVehicleModel] = useState('sedan');
+  const [selectedRideCategory, setSelectedRideCategory] = useState('normal');
+  const [selectedPassengers, setSelectedPassengers] = useState(1);
 
   // Mock fare estimation
   useEffect(() => {
@@ -178,6 +183,16 @@ export function SingleScreenBooking({
     setDestination('');
     setFareEstimate(null);
     setShowSuggestions(false);
+  };
+
+  const handleRideDetailsClose = () => {
+    setShowRideDetailsModal(false);
+  };
+
+  const handleRideDetailsConfirm = () => {
+    setShowRideDetailsModal(false);
+    // Update the main ride type based on modal selections
+    setSelectedRideType(selectedVehicleType);
   };
 
   const handleBookRide = () => {
@@ -308,7 +323,10 @@ export function SingleScreenBooking({
                   styles.rideTypeCard,
                   selectedRideType === rideType.id && styles.rideTypeCardSelected,
                 ]}
-                onPress={() => setSelectedRideType(rideType.id)}
+                onPress={() => {
+                  setSelectedVehicleType(rideType.id);
+                  setShowRideDetailsModal(true);
+                }}
               >
                 <MaterialIcons
                   name={rideType.icon as any}
@@ -411,6 +429,126 @@ export function SingleScreenBooking({
           title="Save 10%"
           description="Schedule rides in advance to get discounts"
         />
+      </View>
+
+      {/* Ride Details Modal */}
+      {showRideDetailsModal && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Ride Details</Text>
+              <Pressable onPress={handleRideDetailsClose}>
+                <MaterialIcons name="close" size={24} color="#000" />
+              </Pressable>
+            </View>
+
+            <ScrollView style={styles.modalScrollView}>
+              {/* Vehicle Type */}
+              <View style={styles.modalSection}>
+                <Text style={styles.modalSectionTitle}>Vehicle type</Text>
+                <View style={styles.vehicleTypeGrid}>
+                  {['economy', 'premium', 'xl', 'traveller'].map(type => (
+                    <Pressable
+                      key={type}
+                      style={[
+                        styles.vehicleOption,
+                        selectedVehicleType === type && styles.vehicleOptionSelected,
+                      ]}
+                      onPress={() => setSelectedVehicleType(type)}
+                    >
+                      <Text
+                        style={[
+                          styles.vehicleOptionText,
+                          selectedVehicleType === type && styles.vehicleOptionTextSelected,
+                        ]}
+                      >
+                        {type.charAt(0).toUpperCase() + type.slice(1)}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+
+              {/* Vehicle Model */}
+              <View style={styles.modalSection}>
+                <Text style={styles.modalSectionTitle}>Vehicle model</Text>
+                <View style={styles.vehicleModelGrid}>
+                  {['sedan', 'suv', 'wagon'].map(model => (
+                    <Pressable
+                      key={model}
+                      style={[
+                        styles.modelOption,
+                        selectedVehicleModel === model && styles.modelOptionSelected,
+                      ]}
+                      onPress={() => setSelectedVehicleModel(model)}
+                    >
+                      <Text
+                        style={[
+                          styles.modelOptionText,
+                          selectedVehicleModel === model && styles.modelOptionTextSelected,
+                        ]}
+                      >
+                        {model.charAt(0).toUpperCase() + model.slice(1)}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+
+              {/* Ride Type */}
+              <View style={styles.modalSection}>
+                <Text style={styles.modalSectionTitle}>Ride type</Text>
+                <View style={styles.rideTypeGrid}>
+                  {['normal', 'pool', 'scheduled', 'corporate'].map(rideType => (
+                    <Pressable
+                      key={rideType}
+                      style={[
+                        styles.rideTypeOption,
+                        selectedRideCategory === rideType && styles.rideTypeOptionSelected,
+                      ]}
+                      onPress={() => setSelectedRideCategory(rideType)}
+                    >
+                      <Text
+                        style={[
+                          styles.rideTypeOptionText,
+                          selectedRideCategory === rideType && styles.rideTypeOptionTextSelected,
+                        ]}
+                      >
+                        {rideType.charAt(0).toUpperCase() + rideType.slice(1)}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+
+              {/* Passengers */}
+              <View style={styles.modalSection}>
+                <Text style={styles.modalSectionTitle}>Passengers optional</Text>
+                <View style={styles.passengersControl}>
+                  <Pressable
+                    style={styles.passengerButton}
+                    onPress={() => selectedPassengers > 1 && setSelectedPassengers(selectedPassengers - 1)}
+                  >
+                    <MaterialIcons name="remove" size={20} color="#2196F3" />
+                  </Pressable>
+                  <Text style={styles.passengerCount}>{selectedPassengers}</Text>
+                  <Pressable
+                    style={styles.passengerButton}
+                    onPress={() => selectedPassengers < 8 && setSelectedPassengers(selectedPassengers + 1)}
+                  >
+                    <MaterialIcons name="add" size={20} color="#2196F3" />
+                  </Pressable>
+                </View>
+              </View>
+            </ScrollView>
+
+            {/* Done Button */}
+            <Pressable style={styles.doneButton} onPress={handleRideDetailsConfirm}>
+              <Text style={styles.doneButtonText}>Done</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
       </View>
     </ScrollView>
   );
@@ -718,5 +856,173 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#0D47A1',
     marginTop: 4,
+  },
+  modalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    maxHeight: '80%',
+    width: '90%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+    elevation: 5,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#000',
+  },
+  modalScrollView: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  modalSection: {
+    marginBottom: 20,
+  },
+  modalSectionTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#000',
+    marginBottom: 12,
+  },
+  vehicleTypeGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  vehicleOption: {
+    flex: 1,
+    minWidth: '45%',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#e0e0e0',
+    alignItems: 'center',
+  },
+  vehicleOptionSelected: {
+    borderColor: '#2196F3',
+    backgroundColor: '#E3F2FD',
+  },
+  vehicleOptionText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#666',
+  },
+  vehicleOptionTextSelected: {
+    color: '#2196F3',
+    fontWeight: '600',
+  },
+  vehicleModelGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  modelOption: {
+    flex: 1,
+    minWidth: '45%',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#e0e0e0',
+    alignItems: 'center',
+  },
+  modelOptionSelected: {
+    borderColor: '#2196F3',
+    backgroundColor: '#E3F2FD',
+  },
+  modelOptionText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#666',
+  },
+  modelOptionTextSelected: {
+    color: '#2196F3',
+    fontWeight: '600',
+  },
+  rideTypeGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  rideTypeOption: {
+    flex: 1,
+    minWidth: '45%',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#e0e0e0',
+    alignItems: 'center',
+  },
+  rideTypeOptionSelected: {
+    borderColor: '#2196F3',
+    backgroundColor: '#E3F2FD',
+  },
+  rideTypeOptionText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#666',
+  },
+  rideTypeOptionTextSelected: {
+    color: '#2196F3',
+    fontWeight: '600',
+  },
+  passengersControl: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  passengerButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#2196F3',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  passengerCount: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#000',
+    minWidth: 40,
+    textAlign: 'center',
+  },
+  doneButton: {
+    backgroundColor: '#4CAF50',
+    paddingVertical: 14,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  doneButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#fff',
   },
 });
