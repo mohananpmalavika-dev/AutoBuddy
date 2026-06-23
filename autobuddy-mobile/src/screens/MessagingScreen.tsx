@@ -15,6 +15,16 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useConversations } from '../hooks/useMessaging';
 import { ChatWindow, ConversationPreview } from '../components/MessagingComponents';
 
+interface Conversation {
+  id?: string;
+  participantId?: string;
+  participantName?: string;
+  lastMessage?: string;
+  lastMessageTime?: string;
+  unreadCount?: number;
+  [key: string]: unknown;
+}
+
 interface MessagingScreenProps {
   token: string | null;
   userId: string;
@@ -34,7 +44,7 @@ export const MessagingScreen: React.FC<MessagingScreenProps> = ({
     getTotalUnreadCount,
   } = useConversations(token, userId);
 
-  const [selectedConversation, setSelectedConversation] = useState<any>(null);
+  const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [showNewConversationModal, setShowNewConversationModal] = useState(false);
@@ -47,7 +57,7 @@ export const MessagingScreen: React.FC<MessagingScreenProps> = ({
     setRefreshing(false);
   };
 
-  const handleSelectConversation = (conversation: any) => {
+  const handleSelectConversation = (conversation: Conversation) => {
     setSelectedConversation(conversation);
     markConversationAsRead(conversation.id);
   };

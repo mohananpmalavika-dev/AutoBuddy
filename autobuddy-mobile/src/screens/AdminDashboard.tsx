@@ -14,6 +14,7 @@ import { useAdminMetrics, useSystemHealth, useAdminAlerts } from '../hooks/useAd
 
 type TimeRange = '24h' | '7d' | '30d';
 type AlertSeverity = 'critical' | 'high' | 'medium' | 'low';
+type NavigationParams = Record<string, unknown>;
 
 interface AdminAlert {
   id: string;
@@ -44,7 +45,7 @@ interface AdminMetrics {
 interface AdminDashboardProps {
   token: string;
   onLogout: () => void;
-  onNavigate?: (screen: string, params?: any) => void;
+  onNavigate?: (screen: string, params?: NavigationParams) => void;
 }
 
 export default function AdminDashboard({

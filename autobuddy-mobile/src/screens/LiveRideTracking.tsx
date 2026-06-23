@@ -31,6 +31,13 @@ type DriverLocation = {
   heading?: number;
 };
 
+type DriverLocationUpdate = {
+  booking_id?: string;
+  latitude?: number;
+  longitude?: number;
+  heading?: number;
+};
+
 type RideStatus = {
   status?: string;
   driver?: {
@@ -89,7 +96,7 @@ export const LiveRideTracking = ({ route, navigation }: LiveRideTrackingProps) =
     // Listen to Socket.IO location updates
     const socket = getSocket();
     if (socket && bookingId) {
-      socket.on('driver_location_updated', (data: any) => {
+      socket.on('driver_location_updated', (data: DriverLocationUpdate) => {
         if (data.booking_id === bookingId) {
           setDriverLocation({
             latitude: data.latitude,
