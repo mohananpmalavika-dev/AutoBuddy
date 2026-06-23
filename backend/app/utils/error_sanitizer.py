@@ -274,7 +274,7 @@ class ProductionErrorFormatter:
                 "request_id": request_id,
                 "endpoint": endpoint,
                 "error_context": error_context.get_full_context(),
-                **extra_context or {}
+            **(extra_context or {})
             }
         }
 
