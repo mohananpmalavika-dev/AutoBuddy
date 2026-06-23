@@ -13,6 +13,33 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAdminMetrics, useSystemHealth, useAdminAlerts } from '../hooks/useAdminDashboard';
 
 type TimeRange = '24h' | '7d' | '30d';
+type AlertSeverity = 'critical' | 'high' | 'medium' | 'low';
+
+interface AdminAlert {
+  id: string;
+  title: string;
+  message: string;
+  severity: AlertSeverity;
+  createdAt: number;
+}
+
+interface SystemHealth {
+  apiServer?: string;
+  apiUptime?: string;
+  database?: string;
+  dbResponseTime?: string;
+  cache?: string;
+  cacheHitRate?: string;
+  paymentGateway?: string;
+  paymentTransactions?: string;
+}
+
+interface AdminMetrics {
+  activeUsers?: number;
+  dailyRevenue?: number;
+  totalRides?: number;
+  totalUsers?: number;
+}
 
 interface AdminDashboardProps {
   token: string;
@@ -45,7 +72,7 @@ export default function AdminDashboard({
     }
   };
 
-  const getSeverityColor = (severity: AdminAlert['severity']) => {
+  const getSeverityColor = (severity?: AlertSeverity): string => {
     switch (severity) {
       case 'critical':
         return '#D32F2F';
@@ -53,6 +80,7 @@ export default function AdminDashboard({
         return '#F57C00';
       case 'medium':
         return '#FFA726';
+      case 'low':
       default:
         return '#FDD835';
     }
@@ -103,13 +131,13 @@ export default function AdminDashboard({
               <View
                 style={[
                   styles.healthIndicator,
-                  { backgroundColor: getHealthColor(health.apiServer) },
+                  { backgroundColor: getHealthColor(health?.apiServer ?? 'unknown') },
                 ]}
               />
               <View style={styles.healthContent}>
                 <Text style={styles.healthLabel}>API Server</Text>
                 <Text style={styles.healthStatus}>
-                  {health.apiServer} • {health.apiUptime}
+                  {health?.apiServer ?? 'unknown'} • {health?.apiUptime ?? 'N/A'}
                 </Text>
               </View>
             </View>
@@ -118,13 +146,13 @@ export default function AdminDashboard({
               <View
                 style={[
                   styles.healthIndicator,
-                  { backgroundColor: getHealthColor(health.database) },
+                  { backgroundColor: getHealthColor(health?.database ?? 'unknown') },
                 ]}
               />
               <View style={styles.healthContent}>
                 <Text style={styles.healthLabel}>Database</Text>
                 <Text style={styles.healthStatus}>
-                  {health.database} • {health.dbResponseTime}
+                  {health?.database ?? 'unknown'} • {health?.dbResponseTime ?? 'N/A'}
                 </Text>
               </View>
             </View>
@@ -133,13 +161,13 @@ export default function AdminDashboard({
               <View
                 style={[
                   styles.healthIndicator,
-                  { backgroundColor: getHealthColor(health.cache) },
+                  { backgroundColor: getHealthColor(health?.cache ?? 'unknown') },
                 ]}
               />
               <View style={styles.healthContent}>
                 <Text style={styles.healthLabel}>Cache</Text>
                 <Text style={styles.healthStatus}>
-                  {health.cache} • {health.cacheHitRate}
+                  {health?.cache ?? 'unknown'} • {health?.cacheHitRate ?? 'N/A'}
                 </Text>
               </View>
             </View>
@@ -149,14 +177,14 @@ export default function AdminDashboard({
                 style={[
                   styles.healthIndicator,
                   {
-                    backgroundColor: getHealthColor(health.paymentGateway),
+                    backgroundColor: getHealthColor(health?.paymentGateway ?? 'unknown'),
                   },
                 ]}
               />
               <View style={styles.healthContent}>
                 <Text style={styles.healthLabel}>Payment Gateway</Text>
                 <Text style={styles.healthStatus}>
-                  {health.paymentGateway} • {health.paymentTransactions}
+                  {health?.paymentGateway ?? 'unknown'} • {health?.paymentTransactions ?? 'N/A'}
                 </Text>
               </View>
             </View>
@@ -168,7 +196,7 @@ export default function AdminDashboard({
           <View style={styles.metricCard}>
             <MaterialIcons name="people" size={24} color="#2196F3" />
             <Text style={styles.metricLabel}>Active Users</Text>
-            <Text style={styles.metricValue}>{metrics.activeUsers}</Text>
+            <Text style={styles.metricValue}>{metrics?.activeUsers ?? 0}</Text>
             <Text style={styles.metricTrend}>↑ 12%</Text>
           </View>
 
@@ -176,7 +204,7 @@ export default function AdminDashboard({
             <MaterialIcons name="attach-money" size={24} color="#4CAF50" />
             <Text style={styles.metricLabel}>Daily Revenue</Text>
             <Text style={styles.metricValue}>
-              ₹{(metrics.dailyRevenue / 1000).toFixed(0)}k
+              ₹{((metrics?.dailyRevenue ?? 0) / 1000).toFixed(0)}k
             </Text>
             <Text style={styles.metricTrend}>↑ 8%</Text>
           </View>
@@ -184,49 +212,49 @@ export default function AdminDashboard({
           <View style={styles.metricCard}>
             <MaterialIcons name="directions-car" size={24} color="#FF9800" />
             <Text style={styles.metricLabel}>Rides Today</Text>
-            <Text style={styles.metricValue}>{metrics.ridesToday}</Text>
+            <Text style={styles.metricValue}>{metrics?.totalRides ?? 0}</Text>
             <Text style={styles.metricTrend}>↑ 15%</Text>
           </View>
 
           <View style={styles.metricCard}>
             <MaterialIcons name="star" size={24} color="#FFB800" />
             <Text style={styles.metricLabel}>Avg Rating</Text>
-            <Text style={styles.metricValue}>{metrics.avgRating}</Text>
+            <Text style={styles.metricValue}>{(metrics?.avgRating ?? 0).toFixed(1)}</Text>
             <Text style={styles.metricTrend}>Stable</Text>
           </View>
         </View>
 
         {/* Critical Alerts */}
-        {alerts.filter(a => a.severity === 'critical' || a.severity === 'high')
+        {(alerts || []).filter(a => a?.severity === 'critical' || a?.severity === 'high')
           .length > 0 && (
           <View style={styles.card}>
             <View style={styles.cardHeader}>
               <Text style={styles.cardTitle}>
                 🚨 ALERTS (
-                {alerts.filter(a => a.severity === 'critical').length})
+                {(alerts || []).filter(a => a?.severity === 'critical').length})
               </Text>
               <Pressable>
                 <Text style={styles.viewAllLink}>View all</Text>
               </Pressable>
             </View>
-            {alerts.slice(0, 3).map(alert => (
+            {(alerts || []).slice(0, 3).map(alert => (
               <View
-                key={alert.id}
+                key={alert?.id || Math.random()}
                 style={[
                   styles.alertItem,
-                  { borderLeftColor: getSeverityColor(alert.severity) },
+                  { borderLeftColor: getSeverityColor(alert?.severity) },
                 ]}
               >
                 <View
                   style={[
                     styles.alertBadge,
-                    { backgroundColor: getSeverityColor(alert.severity) },
+                    { backgroundColor: getSeverityColor(alert?.severity) },
                   ]}
                 />
                 <View style={styles.alertContent}>
-                  <Text style={styles.alertTitle}>{alert.title}</Text>
+                  <Text style={styles.alertTitle}>{alert?.title || 'Alert'}</Text>
                   <Text style={styles.alertMessage} numberOfLines={2}>
-                    {alert.message}
+                    {alert?.message || 'No details'}
                   </Text>
                 </View>
                 <MaterialIcons name="chevron-right" size={20} color="#999" />

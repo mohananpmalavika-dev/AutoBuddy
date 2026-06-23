@@ -46,6 +46,16 @@ const ROLE_PERMISSIONS = {
 export const AdminUserManagementScreen: React.FC<AdminUserManagementScreenProps> = ({
   token,
 }) => {
+  // Guard against missing token
+  if (!token) {
+    return (
+      <View style={styles.centered}>
+        <MaterialIcons name="error-outline" size={48} color="#F44336" />
+        <Text style={styles.errorText}>Authentication required</Text>
+      </View>
+    );
+  }
+
   const {
     users,
     loading,
@@ -84,9 +94,10 @@ export const AdminUserManagementScreen: React.FC<AdminUserManagementScreenProps>
   };
 
   const filteredUsers = users.filter((user) => {
+    if (!user) return false;
     const matchesSearch =
-      user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchQuery.toLowerCase());
+      (user?.name?.toLowerCase?.() || '').includes(searchQuery.toLowerCase()) ||
+      (user?.email?.toLowerCase?.() || '').includes(searchQuery.toLowerCase());
     const matchesRole = !roleFilter || user.role === roleFilter;
     const matchesStatus = !statusFilter || user.status === statusFilter;
     return matchesSearch && matchesRole && matchesStatus;
@@ -98,18 +109,29 @@ export const AdminUserManagementScreen: React.FC<AdminUserManagementScreenProps>
       return;
     }
 
-    const result = await addUser({
-      ...newUserData,
-      status: 'active',
-      permissions: ROLE_PERMISSIONS[newUserData.role],
-    });
+    // Validate role has permissions
+    if (!ROLE_PERMISSIONS[newUserData.role]) {
+      Alert.alert('Error', 'Invalid role selected');
+      return;
+    }
 
-    if (result) {
-      Alert.alert('Success', 'User added successfully');
-      setNewUserData({ name: '', email: '', phone: '', role: 'support' });
-      setShowAddModal(false);
-    } else {
-      Alert.alert('Error', 'Failed to add user');
+    try {
+      const result = await addUser({
+        ...newUserData,
+        status: 'active',
+        permissions: ROLE_PERMISSIONS[newUserData.role],
+      });
+
+      if (result) {
+        Alert.alert('Success', 'User added successfully');
+        setNewUserData({ name: '', email: '', phone: '', role: 'support' });
+        setShowAddModal(false);
+      } else {
+        Alert.alert('Error', 'Failed to add user');
+      }
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to add user';
+      Alert.alert('Error', errorMsg);
     }
   };
 
@@ -291,7 +313,9 @@ export const AdminUserManagementScreen: React.FC<AdminUserManagementScreenProps>
       {error && (
         <View style={styles.errorBanner}>
           <MaterialIcons name="error-outline" size={18} color="#F44336" />
-          <Text style={styles.errorText}>{error.message}</Text>
+          <Text style={styles.errorText}>
+            {typeof error === 'string' ? error : error?.message || 'An error occurred'}
+          </Text>
         </View>
       )}
 
@@ -395,14 +419,14 @@ export const AdminUserManagementScreen: React.FC<AdminUserManagementScreenProps>
 
               <ScrollView style={styles.modalBody}>
                 <View style={styles.detailCard}>
-                  <DetailRow label="Email" value={selectedUser.email} />
-                  <DetailRow label="Phone" value={selectedUser.phone || 'N/A'} />
-                  <DetailRow label="Role" value={selectedUser.role.toUpperCase()} />
-                  <DetailRow label="Status" value={selectedUser.status.toUpperCase()} />
+                  <DetailRow label="Email" value={selectedUser?.email ?? 'N/A'} />
+                  <DetailRow label="Phone" value={selectedUser?.phone ?? 'N/A'} />
+                  <DetailRow label="Role" value={(selectedUser?.role ?? 'unknown').toUpperCase()} />
+                  <DetailRow label="Status" value={(selectedUser?.status ?? 'unknown').toUpperCase()} />
                   <DetailRow
                     label="Last Login"
                     value={
-                      selectedUser.lastLogin
+                      selectedUser?.lastLogin
                         ? new Date(selectedUser.lastLogin).toLocaleString()
                         : 'Never'
                     }
@@ -412,11 +436,11 @@ export const AdminUserManagementScreen: React.FC<AdminUserManagementScreenProps>
                 <View style={styles.detailCard}>
                   <Text style={styles.sectionTitle}>Permissions</Text>
                   <View style={styles.permissionsList}>
-                    {selectedUser.permissions.map((perm) => (
+                    {(selectedUser?.permissions ?? []).map((perm) => (
                       <View key={perm} style={styles.permissionItem}>
                         <MaterialIcons name="check-circle" size={16} color="#4CAF50" />
                         <Text style={styles.permissionText}>
-                          {perm.replace(/_/g, ' ')}
+                          {(perm || '').replace(/_/g, ' ')}
                         </Text>
                       </View>
                     ))}

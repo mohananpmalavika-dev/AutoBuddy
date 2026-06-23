@@ -7,7 +7,7 @@ import {
   Pressable,
   FlatList,
 } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export interface FleetStats {
@@ -36,6 +36,9 @@ interface OperatorDashboardProps {
 }
 
 type TimePeriod = 'today' | 'week' | 'month';
+type IconName = 'check-circle' | 'directions-car' | 'star' | 'trending-up';
+
+const TIME_PERIODS: TimePeriod[] = ['today', 'week', 'month'];
 
 export default function OperatorDashboard({
   token,
@@ -155,7 +158,7 @@ export default function OperatorDashboard({
           <View style={styles.statsGrid}>
             {mockStatBoxes.map(stat => (
               <View key={stat.id} style={styles.statBox}>
-                <MaterialIcons name={stat.icon as any} size={24} color={stat.color} />
+                <MaterialIcons name={stat.icon as IconName} size={24} color={stat.color} />
                 <Text style={styles.statValue}>{stat.value}</Text>
                 <Text style={styles.statLabel}>{stat.label}</Text>
               </View>
@@ -170,21 +173,21 @@ export default function OperatorDashboard({
             <View style={styles.revenueItem}>
               <Text style={styles.revenueLabel}>Earnings</Text>
               <Text style={styles.revenueAmount}>
-                ₹{fleetStats.revenue.toLocaleString()}
+                ₹{(fleetStats?.revenue ?? 0).toLocaleString()}
               </Text>
             </View>
             <View style={styles.divider} />
             <View style={styles.revenueItem}>
               <Text style={styles.revenueLabel}>Costs</Text>
               <Text style={styles.revenueAmount}>
-                ₹{fleetStats.costs.toLocaleString()}
+                ₹{(fleetStats?.costs ?? 0).toLocaleString()}
               </Text>
             </View>
             <View style={styles.divider} />
             <View style={[styles.revenueItem, styles.profitBox]}>
               <Text style={styles.revenueLabel}>Profit</Text>
               <Text style={styles.profitAmount}>
-                ₹{fleetStats.profit.toLocaleString()}
+                ₹{(fleetStats?.profit ?? 0).toLocaleString()}
               </Text>
             </View>
           </View>

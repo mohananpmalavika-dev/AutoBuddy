@@ -89,7 +89,8 @@ export const OperatorFleetManagementScreen: React.FC<OperatorFleetManagementScre
       });
       setShowAddVehicle(false);
     } catch (error) {
-      Alert.alert('Error', 'Failed to add vehicle');
+      const errorMsg = error instanceof Error ? error.message : 'Failed to add vehicle';
+      Alert.alert('Error', errorMsg);
     } finally {
       setIsLoading(false);
     }
@@ -105,7 +106,8 @@ export const OperatorFleetManagementScreen: React.FC<OperatorFleetManagementScre
             await removeVehicle(vehicleId);
             Alert.alert('Success', 'Vehicle removed');
           } catch (error) {
-            Alert.alert('Error', 'Failed to remove vehicle');
+            const errorMsg = error instanceof Error ? error.message : 'Failed to remove vehicle';
+            Alert.alert('Error', errorMsg);
           }
         },
       },
@@ -288,7 +290,7 @@ export const OperatorFleetManagementScreen: React.FC<OperatorFleetManagementScre
                   placeholder="2024"
                   value={vehicleForm.year.toString()}
                   onChangeText={(text) =>
-                    setVehicleForm({ ...vehicleForm, year: parseInt(text) || new Date().getFullYear() })
+                    setVehicleForm({ ...vehicleForm, year: parseInt(text, 10) || new Date().getFullYear() })
                   }
                   keyboardType="number-pad"
                 />
@@ -300,7 +302,7 @@ export const OperatorFleetManagementScreen: React.FC<OperatorFleetManagementScre
                   placeholder="4"
                   value={vehicleForm.seatingCapacity.toString()}
                   onChangeText={(text) =>
-                    setVehicleForm({ ...vehicleForm, seatingCapacity: parseInt(text) || 4 })
+                    setVehicleForm({ ...vehicleForm, seatingCapacity: parseInt(text, 10) || 4 })
                   }
                   keyboardType="number-pad"
                 />

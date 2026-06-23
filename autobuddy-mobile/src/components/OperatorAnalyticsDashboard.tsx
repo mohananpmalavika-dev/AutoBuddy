@@ -40,25 +40,34 @@ export const OperatorAnalyticsDashboard: React.FC<OperatorAnalyticsDashboardProp
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await refetchStats();
+    try {
+      await refetchStats?.();
+    } catch (err) {
+      console.error('Refresh failed:', err);
+    }
     setRefreshing(false);
   };
 
   const criticalAlerts = useMemo(() => {
-    return alerts.filter(a => a.severity === 'critical' || a.severity === 'high');
+    if (!alerts || !Array.isArray(alerts)) return [];
+    return alerts.filter(a => a?.severity === 'critical' || a?.severity === 'high');
   }, [alerts]);
 
   const topDrivers = useMemo(() => {
+    if (!drivers || !Array.isArray(drivers)) return [];
     return [...drivers]
-      .sort((a, b) => b.rating - a.rating)
+      .sort((a, b) => (b?.rating ?? 0) - (a?.rating ?? 0))
       .slice(0, 5);
   }, [drivers]);
 
   const driversByStatus = useMemo(() => {
+    if (!drivers || !Array.isArray(drivers)) {
+      return { online: 0, onRide: 0, offline: 0 };
+    }
     return {
-      online: drivers.filter(d => d.status === 'online').length,
-      onRide: drivers.filter(d => d.status === 'on_ride').length,
-      offline: drivers.filter(d => d.status === 'offline').length,
+      online: drivers.filter(d => d?.status === 'online').length,
+      onRide: drivers.filter(d => d?.status === 'on_ride').length,
+      offline: drivers.filter(d => d?.status === 'offline').length,
     };
   }, [drivers]);
 
@@ -102,25 +111,25 @@ export const OperatorAnalyticsDashboard: React.FC<OperatorAnalyticsDashboardProp
         <View style={styles.metricsGrid}>
           <MetricCard
             label="Active Rides"
-            value={stats.activeRides}
+            value={stats.activeRides ?? 0}
             icon="directions-car"
             color="#2196F3"
           />
           <MetricCard
             label="Online Drivers"
-            value={stats.driversOnline}
+            value={stats.driversOnline ?? 0}
             icon="person-add"
             color="#4CAF50"
           />
           <MetricCard
             label="Utilization"
-            value={`${Math.round(stats.utilizationRate)}%`}
+            value={`${Math.round(stats.utilizationRate ?? 0)}%`}
             icon="trending-up"
             color="#FF9800"
           />
           <MetricCard
             label="Avg Rating"
-            value={stats.avgRating.toFixed(1)}
+            value={(stats.avgRating ?? 0).toFixed(1)}
             icon="star"
             color="#FFB800"
           />
@@ -134,11 +143,11 @@ export const OperatorAnalyticsDashboard: React.FC<OperatorAnalyticsDashboardProp
           <View style={styles.revenueRow}>
             <RevenueItem
               label="Revenue"
-              amount={stats.revenue}
+              amount={stats.revenue ?? 0}
               color="#4CAF50"
             />
-            <RevenueItem label="Costs" amount={stats.costs} color="#F44336" />
-            <RevenueItem label="Profit" amount={stats.profit} color="#2196F3" />
+            <RevenueItem label="Costs" amount={stats.costs ?? 0} color="#F44336" />
+            <RevenueItem label="Profit" amount={stats.profit ?? 0} color="#2196F3" />
           </View>
 
           {/* Revenue Chart */}
@@ -148,13 +157,13 @@ export const OperatorAnalyticsDashboard: React.FC<OperatorAnalyticsDashboardProp
               datasets: [
                 {
                   data: [
-                    stats.profit * 0.8,
-                    stats.profit * 0.9,
-                    stats.profit,
-                    stats.profit * 0.95,
-                    stats.profit * 1.1,
-                    stats.profit * 1.15,
-                    stats.profit * 1.2,
+                    (stats.profit ?? 0) * 0.8,
+                    (stats.profit ?? 0) * 0.9,
+                    (stats.profit ?? 0),
+                    (stats.profit ?? 0) * 0.95,
+                    (stats.profit ?? 0) * 1.1,
+                    (stats.profit ?? 0) * 1.15,
+                    (stats.profit ?? 0) * 1.2,
                   ],
                   color: () => '#2196F3',
                   strokeWidth: 2,
@@ -235,7 +244,7 @@ export const OperatorAnalyticsDashboard: React.FC<OperatorAnalyticsDashboardProp
               labels: ['This Week', 'Last Week', 'Two Weeks'],
               datasets: [
                 {
-                  data: [stats.totalRidesCount, stats.totalRidesCount * 0.85, stats.totalRidesCount * 0.92],
+                  data: [(stats.totalRidesCount ?? 0), (stats.totalRidesCount ?? 0) * 0.85, (stats.totalRidesCount ?? 0) * 0.92],
                   color: () => '#2196F3',
                 },
               ],
@@ -254,10 +263,10 @@ export const OperatorAnalyticsDashboard: React.FC<OperatorAnalyticsDashboardProp
             style={styles.chart}
           />
           <View style={styles.statsRow}>
-            <StatItem label="Total Rides" value={stats.totalRidesCount} />
+            <StatItem label="Total Rides" value={stats.totalRidesCount ?? 0} />
             <StatItem
               label="Total Distance"
-              value={`${Math.round(stats.totalDistance)} km`}
+              value={`${Math.round(stats.totalDistance ?? 0)} km`}
             />
           </View>
         </View>
@@ -268,19 +277,19 @@ export const OperatorAnalyticsDashboard: React.FC<OperatorAnalyticsDashboardProp
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Top Drivers</Text>
           {topDrivers.map((driver, idx) => (
-            <View key={driver.driverId} style={styles.driverItem}>
+            <View key={driver?.driverId || idx} style={styles.driverItem}>
               <View style={styles.driverRank}>
                 <Text style={styles.driverRankText}>#{idx + 1}</Text>
               </View>
               <View style={styles.driverInfo}>
-                <Text style={styles.driverName}>{driver.name}</Text>
+                <Text style={styles.driverName}>{driver?.name || 'Unknown'}</Text>
                 <Text style={styles.driverStats}>
-                  {driver.rideCount} rides • {driver.rating} ⭐
+                  {driver?.rideCount ?? 0} rides • {(driver?.rating ?? 0).toFixed(1)} ⭐
                 </Text>
               </View>
               <View style={styles.driverEarnings}>
                 <Text style={styles.earningsLabel}>Today</Text>
-                <Text style={styles.earningsValue}>₹{driver.earningsToday}</Text>
+                <Text style={styles.earningsValue}>₹{driver?.earningsToday ?? 0}</Text>
               </View>
             </View>
           ))}
@@ -294,25 +303,25 @@ export const OperatorAnalyticsDashboard: React.FC<OperatorAnalyticsDashboardProp
             Critical Alerts ({criticalAlerts.length})
           </Text>
           {criticalAlerts.slice(0, 5).map((alert) => (
-            <View key={alert.id} style={styles.alertItem}>
+            <View key={alert?.id || Math.random()} style={styles.alertItem}>
               <View
                 style={[
                   styles.alertIcon,
                   {
                     backgroundColor:
-                      alert.severity === 'critical' ? '#F4433620' : '#FF980020',
+                      alert?.severity === 'critical' ? '#F4433620' : '#FF980020',
                   },
                 ]}
               >
                 <MaterialIcons
                   name="warning"
                   size={18}
-                  color={alert.severity === 'critical' ? '#F44336' : '#FF9800'}
+                  color={alert?.severity === 'critical' ? '#F44336' : '#FF9800'}
                 />
               </View>
               <View style={styles.alertContent}>
-                <Text style={styles.alertTitle}>{alert.title}</Text>
-                <Text style={styles.alertMessage}>{alert.message}</Text>
+                <Text style={styles.alertTitle}>{alert?.title || 'Alert'}</Text>
+                <Text style={styles.alertMessage}>{alert?.message || 'No details'}</Text>
               </View>
             </View>
           ))}
@@ -320,16 +329,16 @@ export const OperatorAnalyticsDashboard: React.FC<OperatorAnalyticsDashboardProp
       )}
 
       {/* Recent Reports */}
-      {reports.length > 0 && (
+      {reports && reports.length > 0 && (
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Recent Reports</Text>
           {reports.slice(0, 3).map((report) => (
-            <Pressable key={report.id} style={styles.reportItem}>
+            <Pressable key={report?.id || Math.random()} style={styles.reportItem}>
               <MaterialIcons name="assessment" size={20} color="#2196F3" />
               <View style={styles.reportInfo}>
-                <Text style={styles.reportTitle}>{report.period}</Text>
+                <Text style={styles.reportTitle}>{report?.period || 'N/A'}</Text>
                 <Text style={styles.reportStats}>
-                  {report.totalRides} rides • ₹{report.profit} profit
+                  {report?.totalRides ?? 0} rides • ₹{report?.profit ?? 0} profit
                 </Text>
               </View>
               <MaterialIcons name="download" size={18} color="#2196F3" />

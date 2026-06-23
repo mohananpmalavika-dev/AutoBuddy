@@ -22,6 +22,16 @@ export const ModerationDashboard: React.FC<ModerationDashboardProps> = ({
   token,
   adminId,
 }) => {
+  // Guard against missing credentials
+  if (!token || !adminId) {
+    return (
+      <View style={styles.centered}>
+        <MaterialIcons name="error-outline" size={48} color="#F44336" />
+        <Text style={styles.errorText}>Authentication required</Text>
+      </View>
+    );
+  }
+
   const {
     reports,
     stats,
@@ -56,19 +66,30 @@ export const ModerationDashboard: React.FC<ModerationDashboardProps> = ({
   };
 
   const handleTakeAction = async () => {
-    if (!selectedReport || !actionReason.trim()) {
+    if (!selectedReport || !actionReason?.trim?.()) {
       Alert.alert('Error', 'Please provide a reason for the action');
       return;
     }
 
-    const success = await takeAction(selectedReport.id, actionType, actionReason);
-    if (success) {
-      Alert.alert('Success', `User ${actionType}ed successfully`);
-      setActionReason('');
-      setShowReportDetail(false);
-      await loadData();
-    } else {
-      Alert.alert('Error', 'Failed to take action');
+    // Validate action type
+    if (!['warning', 'suspension', 'ban'].includes(actionType)) {
+      Alert.alert('Error', 'Invalid action type');
+      return;
+    }
+
+    try {
+      const success = await takeAction(selectedReport.id, actionType, actionReason);
+      if (success) {
+        Alert.alert('Success', `User ${actionType}ed successfully`);
+        setActionReason('');
+        setShowReportDetail(false);
+        await loadData();
+      } else {
+        Alert.alert('Error', 'Failed to take action');
+      }
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to take action';
+      Alert.alert('Error', errorMsg);
     }
   };
 
@@ -238,9 +259,9 @@ export const ModerationDashboard: React.FC<ModerationDashboardProps> = ({
                     <View style={styles.detailContent}>
                       <Text style={styles.detailLabel}>Type</Text>
                       <Text style={styles.detailValue}>
-                        {selectedReport.type
+                        {((selectedReport?.type ?? 'unknown')
                           .charAt(0)
-                          .toUpperCase() + selectedReport.type.slice(1)}
+                          .toUpperCase() + (selectedReport?.type ?? 'unknown').slice(1))}
                       </Text>
                     </View>
                   </View>
@@ -250,17 +271,17 @@ export const ModerationDashboard: React.FC<ModerationDashboardProps> = ({
                   <View style={styles.detailRow}>
                     <MaterialIcons
                       name={
-                        selectedReport.severity === 'critical'
+                        selectedReport?.severity === 'critical'
                           ? 'error'
-                          : selectedReport.severity === 'high'
+                          : selectedReport?.severity === 'high'
                           ? 'warning'
                           : 'info'
                       }
                       size={20}
                       color={
-                        selectedReport.severity === 'critical'
+                        selectedReport?.severity === 'critical'
                           ? '#F44336'
-                          : selectedReport.severity === 'high'
+                          : selectedReport?.severity === 'high'
                           ? '#FF9800'
                           : '#2196F3'
                       }
@@ -268,9 +289,9 @@ export const ModerationDashboard: React.FC<ModerationDashboardProps> = ({
                     <View style={styles.detailContent}>
                       <Text style={styles.detailLabel}>Severity</Text>
                       <Text style={styles.detailValue}>
-                        {selectedReport.severity
+                        {((selectedReport?.severity ?? 'unknown')
                           .charAt(0)
-                          .toUpperCase() + selectedReport.severity.slice(1)}
+                          .toUpperCase() + (selectedReport?.severity ?? 'unknown').slice(1))}
                       </Text>
                     </View>
                   </View>
@@ -282,7 +303,7 @@ export const ModerationDashboard: React.FC<ModerationDashboardProps> = ({
                     <View style={styles.detailContent}>
                       <Text style={styles.detailLabel}>Reason</Text>
                       <Text style={styles.detailValue}>
-                        {selectedReport.reason}
+                        {selectedReport?.reason ?? 'No reason provided'}
                       </Text>
                     </View>
                   </View>
@@ -294,13 +315,13 @@ export const ModerationDashboard: React.FC<ModerationDashboardProps> = ({
                     <View style={styles.detailContent}>
                       <Text style={styles.detailLabel}>Description</Text>
                       <Text style={styles.detailValue}>
-                        {selectedReport.description}
+                        {selectedReport?.description ?? 'No description'}
                       </Text>
                     </View>
                   </View>
                 </View>
 
-                {selectedReport.status !== 'resolved' && selectedReport.status !== 'dismissed' && (
+                {selectedReport?.status !== 'resolved' && selectedReport?.status !== 'dismissed' && (
                   <View style={styles.actionSection}>
                     <Text style={styles.actionTitle}>Take Action</Text>
 
@@ -452,49 +473,49 @@ const ReportCard: React.FC<{
       <View style={styles.reportHeader}>
         <View style={styles.reportInfo}>
           <Text style={styles.reportType}>
-            {report.type.replace(/_/g, ' ').toUpperCase()}
+            {((report?.type ?? 'unknown').replace(/_/g, ' ').toUpperCase())}
           </Text>
-          <Text style={styles.reportUser}>{report.reportedUser}</Text>
+          <Text style={styles.reportUser}>{report?.reportedUser ?? 'Unknown'}</Text>
         </View>
         <View
           style={[
             styles.severityBadge,
-            { backgroundColor: getSeverityColor(report.severity) + '20' },
+            { backgroundColor: getSeverityColor(report?.severity ?? 'medium') + '20' },
           ]}
         >
           <Text
             style={[
               styles.severityBadgeText,
-              { color: getSeverityColor(report.severity) },
+              { color: getSeverityColor(report?.severity ?? 'medium') },
             ]}
           >
-            {report.severity.toUpperCase()}
+            {((report?.severity ?? 'unknown').toUpperCase())}
           </Text>
         </View>
       </View>
 
       <Text style={styles.reportReason} numberOfLines={2}>
-        {report.reason}
+        {report?.reason ?? 'No reason provided'}
       </Text>
 
       <View style={styles.reportFooter}>
         <View
           style={[
             styles.statusBadge,
-            { backgroundColor: getStatusBadgeColor(report.status) + '20' },
+            { backgroundColor: getStatusBadgeColor(report?.status ?? 'pending') + '20' },
           ]}
         >
           <Text
             style={[
               styles.statusBadgeText,
-              { color: getStatusBadgeColor(report.status) },
+              { color: getStatusBadgeColor(report?.status ?? 'pending') },
             ]}
           >
-            {report.status.toUpperCase()}
+            {((report?.status ?? 'unknown').toUpperCase())}
           </Text>
         </View>
         <Text style={styles.reportDate}>
-          {new Date(report.createdAt).toLocaleDateString()}
+          {report?.createdAt ? new Date(report.createdAt).toLocaleDateString() : 'Unknown'}
         </Text>
       </View>
     </Pressable>

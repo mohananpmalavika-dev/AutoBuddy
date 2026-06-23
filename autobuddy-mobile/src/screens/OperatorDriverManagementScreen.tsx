@@ -14,12 +14,23 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useOperatorDriverManagement } from '../hooks/useOperatorDriverManagement';
 
+interface Driver {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  status: 'pending' | 'approved' | 'rejected' | 'suspended';
+  joinedAt?: string | Date;
+  backgroundCheckStatus?: string;
+  totalEarnings?: number;
+}
+
 interface OperatorDriverManagementScreenProps {
   token: string | null;
   operatorId: string;
 }
 
-const statusColors = {
+const statusColors: Record<string, string> = {
   pending: '#FFC107',
   approved: '#4CAF50',
   rejected: '#F44336',
@@ -30,6 +41,15 @@ export const OperatorDriverManagementScreen: React.FC<OperatorDriverManagementSc
   token,
   operatorId,
 }) => {
+  // Check for required data
+  if (!token) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.errorText}>Authentication token required</Text>
+      </View>
+    );
+  }
+
   const {
     drivers,
     loading,
@@ -51,13 +71,25 @@ export const OperatorDriverManagementScreen: React.FC<OperatorDriverManagementSc
   const [selectedDrivers, setSelectedDrivers] = useState<Set<string>>(new Set());
   const [showBulkActions, setShowBulkActions] = useState(false);
   const [showDriverDetail, setShowDriverDetail] = useState(false);
-  const [selectedDriver, setSelectedDriver] = useState<any>(null);
+  const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [showRejectionModal, setShowRejectionModal] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchDrivers();
+    loadData();
   }, []);
+
+  const loadData = async () => {
+    try {
+      setLoadError(null);
+      await fetchDrivers();
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to load drivers';
+      setLoadError(errorMsg);
+      console.error('Driver load error:', err);
+    }
+  };
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -66,10 +98,11 @@ export const OperatorDriverManagementScreen: React.FC<OperatorDriverManagementSc
   };
 
   const filteredDrivers = drivers.filter((driver) => {
+    if (!driver) return false;
     const matchesSearch =
-      driver.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      driver.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      driver.phone.includes(searchQuery);
+      (driver.name?.toLowerCase?.() || '').includes(searchQuery.toLowerCase()) ||
+      (driver.email?.toLowerCase?.() || '').includes(searchQuery.toLowerCase()) ||
+      (driver.phone || '').includes(searchQuery);
     const matchesStatus = !statusFilter || driver.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -93,17 +126,27 @@ export const OperatorDriverManagementScreen: React.FC<OperatorDriverManagementSc
   };
 
   const handleBulkApprove = async () => {
-    const count = await bulkApprove(Array.from(selectedDrivers));
-    Alert.alert('Success', `${count} driver(s) approved`);
-    setSelectedDrivers(new Set());
-    setShowBulkActions(false);
+    try {
+      const count = await bulkApprove(Array.from(selectedDrivers));
+      Alert.alert('Success', `${count} driver(s) approved`);
+      setSelectedDrivers(new Set());
+      setShowBulkActions(false);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to approve drivers';
+      Alert.alert('Error', errorMsg);
+    }
   };
 
   const handleBulkReject = async () => {
-    const count = await bulkReject(Array.from(selectedDrivers));
-    Alert.alert('Success', `${count} driver(s) rejected`);
-    setSelectedDrivers(new Set());
-    setShowBulkActions(false);
+    try {
+      const count = await bulkReject(Array.from(selectedDrivers));
+      Alert.alert('Success', `${count} driver(s) rejected`);
+      setSelectedDrivers(new Set());
+      setShowBulkActions(false);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to reject drivers';
+      Alert.alert('Error', errorMsg);
+    }
   };
 
   const handleApprove = async (driverId: string) => {
@@ -133,8 +176,19 @@ export const OperatorDriverManagementScreen: React.FC<OperatorDriverManagementSc
         {
           text: 'Suspend',
           onPress: async (reason) => {
-            const success = await suspendDriver(driverId, reason || '');
-            Alert.alert(success ? 'Success' : 'Error', success ? 'Driver suspended' : 'Failed');
+            try {
+              const finalReason = (reason?.trim() || 'No reason provided');
+              const success = await suspendDriver(driverId, finalReason);
+              Alert.alert(success ? 'Success' : 'Error', success ? 'Driver suspended' : 'Failed to suspend');
+            } catch (err) {
+              const errorMsg = err instanceof Error ? err.message : 'Failed to suspend driver';
+              Alert.alert('Error', errorMsg);
+            }
+          },
+        },
+      ]
+    );
+  };
             if (showDriverDetail) setShowDriverDetail(false);
           },
         },
@@ -283,10 +337,10 @@ export const OperatorDriverManagementScreen: React.FC<OperatorDriverManagementSc
       )}
 
       {/* Error Banner */}
-      {error && (
+      {loadError && (
         <View style={styles.errorBanner}>
           <MaterialIcons name="error-outline" size={18} color="#F44336" />
-          <Text style={styles.errorText}>{error.message}</Text>
+          <Text style={styles.errorText}>{loadError}</Text>
         </View>
       )}
 
@@ -306,27 +360,27 @@ export const OperatorDriverManagementScreen: React.FC<OperatorDriverManagementSc
               <View style={styles.modalBody}>
                 <View style={styles.detailCard}>
                   <Text style={styles.detailSectionTitle}>Personal Info</Text>
-                  <DetailRow label="Email" value={selectedDriver.email} />
-                  <DetailRow label="Phone" value={selectedDriver.phone} />
+                  <DetailRow label="Email" value={selectedDriver.email || 'N/A'} />
+                  <DetailRow label="Phone" value={selectedDriver.phone || 'N/A'} />
                   <DetailRow label="License" value={selectedDriver.licenseNumber || 'N/A'} />
                   <DetailRow label="Vehicle" value={selectedDriver.vehicleNumber || 'N/A'} />
                   <DetailRow
                     label="Joined"
-                    value={new Date(selectedDriver.joinedAt).toLocaleDateString()}
+                    value={new Date(selectedDriver.joinedAt || Date.now()).toLocaleDateString()}
                   />
                 </View>
 
                 <View style={styles.detailCard}>
                   <Text style={styles.detailSectionTitle}>Performance</Text>
-                  <DetailRow label="Total Rides" value={selectedDriver.totalRides.toString()} />
+                  <DetailRow label="Total Rides" value={(selectedDriver.totalRides ?? 0).toString()} />
                   <DetailRow
                     label="Earnings"
-                    value={`₹${selectedDriver.totalEarnings.toFixed(2)}`}
+                    value={`₹${(selectedDriver.totalEarnings ?? 0).toFixed(2)}`}
                   />
-                  <DetailRow label="Rating" value={selectedDriver.averageRating.toFixed(1)} />
+                  <DetailRow label="Rating" value={(selectedDriver.averageRating ?? 0).toFixed(1)} />
                   <DetailRow
                     label="Commission"
-                    value={`${selectedDriver.commissionRate}%`}
+                    value={`${selectedDriver.commissionRate ?? 0}%`}
                   />
                 </View>
 
@@ -338,7 +392,7 @@ export const OperatorDriverManagementScreen: React.FC<OperatorDriverManagementSc
                   />
                   <DetailRow
                     label="Background Check"
-                    value={selectedDriver.backgroundCheckStatus.toUpperCase()}
+                    value={(selectedDriver.backgroundCheckStatus || 'unknown').toUpperCase()}
                   />
                 </View>
 
