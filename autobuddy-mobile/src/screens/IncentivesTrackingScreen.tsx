@@ -14,6 +14,14 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useIncentivesTracking, Incentive } from '../hooks/useIncentivesTracking';
 
+type DateLike = string | number | Date | null | undefined;
+
+const formatDateSafely = (date: DateLike): string => {
+  if (!date) return 'Unknown';
+  const dateObj = new Date(date);
+  return !isNaN(dateObj.getTime()) ? dateObj.toLocaleDateString() : 'Unknown';
+};
+
 interface IncentivesTrackingScreenProps {
   token: string | null;
   driverId: string;
@@ -115,7 +123,7 @@ export const IncentivesTrackingScreen: React.FC<IncentivesTrackingScreenProps> =
                 <View style={styles.bonusInfo}>
                   <Text style={styles.bonusReason}>{bonus.reason}</Text>
                   <Text style={styles.bonusDate}>
-                    {new Date(bonus.earnedAt).toLocaleDateString()}
+                    {formatDateSafely(bonus.earnedAt)}
                   </Text>
                 </View>
                 <Text style={[styles.bonusAmount, { color: '#4CAF50' }]}>
@@ -255,7 +263,7 @@ export const IncentivesTrackingScreen: React.FC<IncentivesTrackingScreenProps> =
                 <View style={styles.historyContent}>
                   <Text style={styles.historyIncentiveId}>Incentive #{item.incentiveId.slice(0, 8)}</Text>
                   <Text style={styles.historyDate}>
-                    {new Date(item.claimedAt).toLocaleDateString()}
+                    {formatDateSafely(item.claimedAt)}
                   </Text>
                 </View>
                 <Text style={styles.historyAmount}>+₹{item.amount.toFixed(0)}</Text>
@@ -359,7 +367,7 @@ export const IncentivesTrackingScreen: React.FC<IncentivesTrackingScreenProps> =
                     <View style={styles.detailContent}>
                       <Text style={styles.detailLabel}>Valid Until</Text>
                       <Text style={styles.detailValue}>
-                        {new Date(selectedIncentive.endDate).toLocaleDateString()}
+                        {formatDateSafely(selectedIncentive.endDate)}
                       </Text>
                     </View>
                   </View>
@@ -467,7 +475,7 @@ const IncentiveCard: React.FC<{
       <View style={styles.incentiveFooter}>
         <Text style={styles.incentiveDescription}>{incentive.description}</Text>
         <Text style={styles.incentiveExpiry}>
-          Expires: {new Date(incentive.endDate).toLocaleDateString()}
+          Expires: {formatDateSafely(incentive.endDate)}
         </Text>
       </View>
     </Pressable>
@@ -501,7 +509,7 @@ const CompletedIncentiveCard: React.FC<{
       </View>
       {incentive.claimedAt && (
         <Text style={styles.claimedDate}>
-          Claimed: {new Date(incentive.claimedAt).toLocaleDateString()}
+          Claimed: {formatDateSafely(incentive.claimedAt)}
         </Text>
       )}
     </Pressable>

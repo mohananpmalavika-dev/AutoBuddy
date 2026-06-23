@@ -14,6 +14,14 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useSpinAndWin } from '../hooks/useSpinAndWin';
 
+type DateLike = string | number | Date | null | undefined;
+
+const formatDateSafely = (date: DateLike): string => {
+  if (!date) return 'Unknown';
+  const dateObj = new Date(date);
+  return !isNaN(dateObj.getTime()) ? dateObj.toLocaleDateString() : 'Unknown';
+};
+
 interface SpinWheelScreenProps {
   token: string | null;
   userId: string;
@@ -219,7 +227,7 @@ export const SpinWheelScreen: React.FC<SpinWheelScreenProps> = ({
                     <View style={{ marginLeft: 12, flex: 1 }}>
                       <Text style={styles.rewardName}>{item.prize.name}</Text>
                       <Text style={styles.rewardDate}>
-                        Expires: {new Date(item.expiresAt).toLocaleDateString()}
+                        Expires: {formatDateSafely(item.expiresAt)}
                       </Text>
                     </View>
                   </View>
@@ -277,7 +285,7 @@ export const SpinWheelScreen: React.FC<SpinWheelScreenProps> = ({
                     </Text>
                     <Text style={styles.rewardDate}>
                       {item.redeemed ? 'Redeemed' : 'Expires:'}{' '}
-                      {new Date(item.expiresAt).toLocaleDateString()}
+                      {formatDateSafely(item.expiresAt)}
                     </Text>
                   </View>
                 </View>

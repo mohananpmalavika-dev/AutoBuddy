@@ -14,13 +14,15 @@ import { Text } from 'react-native';
 import { useFamilyAssistant } from '../hooks/useFamilyAssistant';
 import { FamilyMemberCard } from '../components/FamilyMemberCard';
 
-const formatDateSafely = (date: any): string => {
+type DateLike = string | number | Date | null | undefined;
+
+const formatDateSafely = (date: DateLike): string => {
   if (!date) return 'Unknown';
   const dateObj = new Date(date);
   return !isNaN(dateObj.getTime()) ? dateObj.toLocaleDateString() : 'Unknown';
 };
 
-const formatDateTimeSafely = (date: any): string => {
+const formatDateTimeSafely = (date: DateLike): string => {
   if (!date) return 'Unknown';
   const dateObj = new Date(date);
   return !isNaN(dateObj.getTime()) ? dateObj.toLocaleString() : 'Unknown';

@@ -14,6 +14,14 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useReferralSystem } from '../hooks/useReferralSystem';
 
+type DateLike = string | number | Date | null | undefined;
+
+const formatDateSafely = (date: DateLike): string => {
+  if (!date) return 'Unknown';
+  const dateObj = new Date(date);
+  return !isNaN(dateObj.getTime()) ? dateObj.toLocaleDateString() : 'Unknown';
+};
+
 interface ReferralSystemScreenProps {
   token: string | null;
   userId: string;
@@ -430,7 +438,7 @@ export const ReferralSystemScreen: React.FC<ReferralSystemScreenProps> = ({
                           </Text>
                           <Text style={styles.rewardDetail}>
                             Credited{' '}
-                            {new Date(reward.creditedAt!).toLocaleDateString()}
+                            {formatDateSafely(reward.creditedAt)}
                           </Text>
                         </View>
                       </View>

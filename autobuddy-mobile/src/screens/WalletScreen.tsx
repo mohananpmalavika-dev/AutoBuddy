@@ -14,6 +14,20 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useWalletAndPayout, WalletTransaction, Payout } from '../hooks/useWalletAndPayout';
 
+type DateLike = string | number | Date | null | undefined;
+
+const formatDateSafely = (date: DateLike): string => {
+  if (!date) return 'Unknown';
+  const dateObj = new Date(date);
+  return !isNaN(dateObj.getTime()) ? dateObj.toLocaleDateString() : 'Unknown';
+};
+
+const formatTimeSafely = (date: DateLike): string => {
+  if (!date) return 'Unknown';
+  const dateObj = new Date(date);
+  return !isNaN(dateObj.getTime()) ? dateObj.toLocaleTimeString() : 'Unknown';
+};
+
 interface WalletScreenProps {
   token: string | null;
   userId: string;
@@ -160,7 +174,7 @@ export const WalletScreen: React.FC<WalletScreenProps> = ({
         </Text>
         {balance && (
           <Text style={styles.balanceSubtext}>
-            Last updated: {new Date(balance.lastUpdated).toLocaleTimeString()}
+            Last updated: {formatTimeSafely(balance.lastUpdated)}
           </Text>
         )}
 
@@ -474,7 +488,7 @@ const TransactionCard: React.FC<{ transaction: WalletTransaction }> = ({ transac
       <View style={styles.transactionInfo}>
         <Text style={styles.transactionDesc}>{transaction.description}</Text>
         <Text style={styles.transactionDate}>
-          {new Date(transaction.createdAt).toLocaleDateString()}
+          {formatDateSafely(transaction.createdAt)}
         </Text>
       </View>
 
@@ -527,7 +541,7 @@ const PayoutCard: React.FC<{ payout: Payout }> = ({ payout }) => {
         </View>
       </View>
       <Text style={styles.payoutDate}>
-        {new Date(payout.requestedAt).toLocaleDateString()}
+        {formatDateSafely(payout.requestedAt)}
       </Text>
       {payout.failureReason && (
         <Text style={styles.failureReason}>{payout.failureReason}</Text>

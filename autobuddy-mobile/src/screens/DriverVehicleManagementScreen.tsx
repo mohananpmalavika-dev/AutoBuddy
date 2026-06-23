@@ -15,6 +15,14 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useVehicleManagement, Vehicle } from '../hooks/useVehicleManagement';
 
+type DateLike = string | number | Date | null | undefined;
+
+const formatDateSafely = (date: DateLike): string => {
+  if (!date) return 'Unknown';
+  const dateObj = new Date(date);
+  return !isNaN(dateObj.getTime()) ? dateObj.toLocaleDateString() : 'Unknown';
+};
+
 interface DriverVehicleManagementScreenProps {
   token: string | null;
   driverId: string;
@@ -377,15 +385,15 @@ export const DriverVehicleManagementScreen: React.FC<DriverVehicleManagementScre
                   <Text style={styles.detailSectionTitle}>Document Expiry</Text>
                   <DetailRow
                     label="Registration"
-                    value={new Date(selectedVehicle.registrationExpiry).toLocaleDateString()}
+                    value={formatDateSafely(selectedVehicle.registrationExpiry)}
                   />
                   <DetailRow
                     label="Insurance"
-                    value={new Date(selectedVehicle.insuranceExpiry).toLocaleDateString()}
+                    value={formatDateSafely(selectedVehicle.insuranceExpiry)}
                   />
                   <DetailRow
                     label="Pollution"
-                    value={new Date(selectedVehicle.pollutionExpiry).toLocaleDateString()}
+                    value={formatDateSafely(selectedVehicle.pollutionExpiry)}
                   />
                 </View>
 

@@ -12,6 +12,14 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useDriverPerformanceInsights } from '../hooks/useDriverPerformanceInsights';
 
+type DateLike = string | number | Date | null | undefined;
+
+const formatDateSafely = (date: DateLike): string => {
+  if (!date) return 'Unknown';
+  const dateObj = new Date(date);
+  return !isNaN(dateObj.getTime()) ? dateObj.toLocaleDateString() : 'Unknown';
+};
+
 interface Insight {
   id: string;
   title: string;
@@ -265,7 +273,7 @@ export const DriverPerformanceInsightsScreen: React.FC<
           <View style={styles.topDayCard}>
             <View style={styles.topDayDate}>
               <Text style={styles.topDayDateText}>
-                {new Date(topDay.date).toLocaleDateString()}
+                {formatDateSafely(topDay.date)}
               </Text>
             </View>
             <View style={styles.topDayMetrics}>

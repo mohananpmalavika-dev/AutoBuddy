@@ -13,6 +13,14 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { usePassengerInsurance, InsurancePlan } from '../hooks/usePassengerInsurance';
 
+type DateLike = string | number | Date | null | undefined;
+
+const formatDateSafely = (date: DateLike): string => {
+  if (!date) return 'Unknown';
+  const dateObj = new Date(date);
+  return !isNaN(dateObj.getTime()) ? dateObj.toLocaleDateString() : 'Unknown';
+};
+
 interface PassengerInsuranceScreenProps {
   token: string | null;
   passengerId: string;
@@ -303,9 +311,7 @@ export const PassengerInsuranceScreen: React.FC<PassengerInsuranceScreenProps> =
                     <View style={styles.validityText}>
                       <Text style={styles.validityLabel}>Valid Until</Text>
                       <Text style={styles.validityValue}>
-                        {selectedPlan?.endDate && !isNaN(new Date(selectedPlan.endDate).getTime())
-                          ? new Date(selectedPlan.endDate).toLocaleDateString()
-                          : 'Unknown'}
+                        {formatDateSafely(selectedPlan?.endDate)}
                       </Text>
                     </View>
                   </View>
@@ -404,7 +410,7 @@ const PlanCard: React.FC<{
 
       {isActive && (
         <Text style={styles.planCardValidity}>
-          Valid until {new Date(plan.endDate).toLocaleDateString()}
+          Valid until {formatDateSafely(plan.endDate)}
         </Text>
       )}
     </Pressable>
@@ -461,7 +467,7 @@ const ClaimCard: React.FC<{ claim: any }> = ({ claim }) => {
         {claim.description}
       </Text>
       <Text style={styles.claimCardDate}>
-        Submitted: {new Date(claim.submittedDate).toLocaleDateString()}
+        Submitted: {formatDateSafely(claim.submittedDate)}
       </Text>
     </View>
   );

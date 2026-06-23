@@ -15,6 +15,14 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAdminUserManagement, AdminUser } from '../hooks/useAdminUserManagement';
 
+type DateLike = string | number | Date | null | undefined;
+
+const formatDateTimeSafely = (date: DateLike): string => {
+  if (!date) return 'Unknown';
+  const dateObj = new Date(date);
+  return !isNaN(dateObj.getTime()) ? dateObj.toLocaleString() : 'Unknown';
+};
+
 interface AdminUserManagementScreenProps {
   token: string | null;
 }
@@ -427,7 +435,7 @@ export const AdminUserManagementScreen: React.FC<AdminUserManagementScreenProps>
                     label="Last Login"
                     value={
                       selectedUser?.lastLogin
-                        ? new Date(selectedUser.lastLogin).toLocaleString()
+                        ? formatDateTimeSafely(selectedUser.lastLogin)
                         : 'Never'
                     }
                   />

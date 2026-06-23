@@ -36,6 +36,20 @@ import { usePredictiveBooking } from '../hooks/usePredictiveBooking';
 import CalendarBookingScreen from './scheduled/CalendarBookingScreen';
 import ModeSelectionScreen from './ModeSelectionScreen';
 
+type DateLike = string | number | Date | null | undefined;
+
+const formatDateSafely = (date: DateLike): string => {
+  if (!date) return 'Unknown';
+  const dateObj = new Date(date);
+  return !isNaN(dateObj.getTime()) ? dateObj.toLocaleDateString() : 'Unknown';
+};
+
+const formatDateTimeSafely = (date: DateLike): string => {
+  if (!date) return 'Unknown';
+  const dateObj = new Date(date);
+  return !isNaN(dateObj.getTime()) ? dateObj.toLocaleString() : 'Unknown';
+};
+
 interface PassengerDashboardProps {
   token: string;
   user: {
@@ -286,10 +300,7 @@ export default function PassengerDashboard({
                   {ride.destination}
                 </Text>
                 <Text style={styles.scheduledRideTime}>
-                  {ride.scheduledAt && !isNaN(new Date(ride.scheduledAt).getTime())
-                    ? new Date(ride.scheduledAt).toLocaleString()
-                    : 'Time TBD'
-                  }
+                  {formatDateTimeSafely(ride.scheduledAt) !== 'Unknown' ? formatDateTimeSafely(ride.scheduledAt) : 'Time TBD'}
                 </Text>
                 {ride.discount > 0 && (
                   <Text style={styles.scheduledRideDiscount}>

@@ -13,13 +13,15 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useComplianceTracking, ComplianceItem, ComplianceAlert } from '../hooks/useComplianceTracking';
 
-const formatDateSafely = (date: any): string => {
+type DateLike = string | number | Date | null | undefined;
+
+const formatDateSafely = (date: DateLike): string => {
   if (!date) return 'Unknown';
   const dateObj = new Date(date);
   return !isNaN(dateObj.getTime()) ? dateObj.toLocaleDateString() : 'Unknown';
 };
 
-const formatDateTimeSafely = (date: any): string => {
+const formatDateTimeSafely = (date: DateLike): string => {
   if (!date) return 'Unknown';
   const dateObj = new Date(date);
   return !isNaN(dateObj.getTime()) ? dateObj.toLocaleString() : 'Unknown';
@@ -75,7 +77,8 @@ export const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({
       await fetchAlerts?.();
       await generateComplianceReport?.();
     } catch (err) {
-      console.error('Failed to load compliance data:', err);
+      const errorMsg = err instanceof Error ? err.message : 'Failed to load compliance data';
+      console.error(errorMsg, err);
     }
   };
 

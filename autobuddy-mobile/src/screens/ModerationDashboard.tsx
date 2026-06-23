@@ -13,6 +13,14 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useModerationDashboard, ReportedContent } from '../hooks/useModerationDashboard';
 
+type DateLike = string | number | Date | null | undefined;
+
+const formatDateSafely = (date: DateLike): string => {
+  if (!date) return 'Unknown';
+  const dateObj = new Date(date);
+  return !isNaN(dateObj.getTime()) ? dateObj.toLocaleDateString() : 'Unknown';
+};
+
 interface ModerationDashboardProps {
   token: string | null;
   adminId: string;
@@ -515,7 +523,7 @@ const ReportCard: React.FC<{
           </Text>
         </View>
         <Text style={styles.reportDate}>
-          {report?.createdAt ? new Date(report.createdAt).toLocaleDateString() : 'Unknown'}
+          {formatDateSafely(report?.createdAt)}
         </Text>
       </View>
     </Pressable>

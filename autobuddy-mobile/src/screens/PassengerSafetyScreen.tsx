@@ -13,6 +13,14 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useSafetyFeatures, EmergencyContact } from '../hooks/useSafetyFeatures';
 
+type DateLike = string | number | Date | null | undefined;
+
+const formatDateSafely = (date: DateLike): string => {
+  if (!date) return 'Unknown';
+  const dateObj = new Date(date);
+  return !isNaN(dateObj.getTime()) ? dateObj.toLocaleDateString() : 'Unknown';
+};
+
 interface PassengerSafetyScreenProps {
   token: string | null;
   userId: string;
@@ -298,9 +306,7 @@ export const PassengerSafetyScreen: React.FC<PassengerSafetyScreenProps> = ({
                 </Text>
                 <Text style={styles.incidentDescription}>{incident?.description ?? 'No description'}</Text>
                 <Text style={styles.incidentDate}>
-                  {incident?.createdAt && !isNaN(new Date(incident.createdAt).getTime()) 
-                    ? new Date(incident.createdAt).toLocaleDateString() 
-                    : 'Date unknown'}
+                  {formatDateSafely(incident?.createdAt)}
                 </Text>
               </View>
               <Text
