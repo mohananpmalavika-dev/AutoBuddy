@@ -2718,7 +2718,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           }).catch(() => []),
           apiRequest('/passengers/blocked-drivers', { token }).catch(() => ({ driver_ids: [] })),
         ]);
-        setFare(estimate || null);
+        const normalizedEstimate = Array.isArray(estimate) ? (estimate[0] || null) : estimate || null;
+        setFare(normalizedEstimate);
         const merged = applyNearbyDrivers(drivers, favorites, blocked);
         driverDiscoveryCooldownUntilRef.current = 0;
         driverDiscoveryRequestRef.current = { signature, request: null, completedAt: Date.now() };
@@ -3052,7 +3053,10 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           pickup_location: locations.pickup,
           drop_location: {
             ...locations.dropoff,
-            distance_km: Number(fareDistanceKm || 0) > 0 ? Number(fareDistanceKm) : locations.dropoff?.distance_km,
+          // compute drop distance robustly here (accept meters or km), fall back to existing location value
+          distance_km: Number(
+            fare?.distance_km ?? fare?.estimated_distance_km ?? (fare?.distance_m ? fare.distance_m / 1000 : undefined) ?? locations.dropoff?.distance_km ?? 0
+          ),
           },
           payment_method: selectedPaymentMethod,
           payment_method_id: selectedPaymentMethodId || undefined,
