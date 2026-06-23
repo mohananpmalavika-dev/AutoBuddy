@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTravelIntent } from '../hooks/useTravelIntent';
+import { SingleScreenBooking } from '../components/PassengerSingleScreenBooking';
 
 interface RideBookingScreenProps {
   navigation?: any;
@@ -24,7 +25,7 @@ interface RideBookingScreenProps {
 const RideBookingScreen: React.FC<RideBookingScreenProps> = ({ navigation }) => {
   const travelIntent = useTravelIntent();
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState<'ai' | 'manual'>('ai');
+  const [activeTab, setActiveTab] = useState<'single-screen' | 'ai' | 'manual'>('single-screen');
 
   useEffect(() => {
     loadInitialData();
@@ -47,6 +48,18 @@ const RideBookingScreen: React.FC<RideBookingScreenProps> = ({ navigation }) => 
     }
   };
 
+  const handleBookRide = async (rideData: any) => {
+    try {
+      // Handle booking
+      console.log('Booking ride:', rideData);
+      if (navigation) {
+        navigation.navigate('BookingConfirmation', { rideData });
+      }
+    } catch (error) {
+      console.error('Booking error:', error);
+    }
+  };
+
   const handleQuickBook = async (suggestion: any) => {
     try {
       await travelIntent.quickBook(
@@ -54,7 +67,6 @@ const RideBookingScreen: React.FC<RideBookingScreenProps> = ({ navigation }) => 
         travelIntent.selectedVehicleType,
         travelIntent.numPassengers
       );
-      // Navigate to booking confirmation
       if (navigation) {
         navigation.navigate('BookingConfirmation');
       }
@@ -76,6 +88,14 @@ const RideBookingScreen: React.FC<RideBookingScreenProps> = ({ navigation }) => 
         {/* Tab Selector */}
         <View style={styles.tabContainer}>
           <TouchableOpacity
+            style={[styles.tab, activeTab === 'single-screen' && styles.activeTab]}
+            onPress={() => setActiveTab('single-screen')}
+          >
+            <MaterialIcons name="flash-on" size={20} color={activeTab === 'single-screen' ? '#2196F3' : '#999'} />
+            <Text style={[styles.tabText, activeTab === 'single-screen' && styles.activeTabText]}>Quick Book</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
             style={[styles.tab, activeTab === 'ai' && styles.activeTab]}
             onPress={() => setActiveTab('ai')}
           >
@@ -88,9 +108,19 @@ const RideBookingScreen: React.FC<RideBookingScreenProps> = ({ navigation }) => 
             onPress={() => setActiveTab('manual')}
           >
             <MaterialIcons name="directions-car" size={20} color={activeTab === 'manual' ? '#2196F3' : '#999'} />
-            <Text style={[styles.tabText, activeTab === 'manual' && styles.activeTabText]}>Manual Booking</Text>
+            <Text style={[styles.tabText, activeTab === 'manual' && styles.activeTabText]}>Manual</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Single Screen Booking Tab - FASTEST BOOKING */}
+        {activeTab === 'single-screen' && (
+          <View style={styles.content}>
+            <SingleScreenBooking
+              onBookRide={handleBookRide}
+              loading={travelIntent.loading}
+            />
+          </View>
+        )}
 
         {/* AI Booking Tab */}
         {activeTab === 'ai' && (
@@ -204,7 +234,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#2196F3',
   },
   tabText: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#999',
   },
   activeTabText: {

@@ -119,7 +119,7 @@ def register_modular_routers(app: "FastAPI") -> None:
     from app.routers.vehicles import router as vehicles_router
     from app.routers.vehicles_canonical import router as vehicles_canonical_router
     from app.routers.women_only_rides import router as women_only_rides_router
-    # from app.routers.calendar_booking import router as calendar_booking_router  # HIDDEN: In development
+    from app.routers.calendar_booking import router as calendar_booking_router
     from app.routers.family_assistant import router as family_assistant_router
     from app.routers.ai_travel_intent import router as ai_travel_intent_router
     from app.routers.analytics_events import router as analytics_events_router
@@ -148,7 +148,7 @@ def register_modular_routers(app: "FastAPI") -> None:
         vehicle_types_router,
         vehicle_types_extended_router,
         ride_types_router,
-        # bookings_extended_router,  # HIDDEN: In development
+        bookings_extended_router,
         coverage_admin_router,
         operator_portal_router,
         operator_admin_router,
@@ -198,7 +198,7 @@ def register_modular_routers(app: "FastAPI") -> None:
         promo_codes_backend_router,
         accessibility_backend_router,
         ticket_detection_router,
-        # calendar_booking_router,  # HIDDEN: In development
+        calendar_booking_router,
         family_assistant_router,
         analytics_events_router,
         ai_travel_intent_router,
