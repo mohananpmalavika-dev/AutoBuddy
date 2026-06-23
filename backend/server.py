@@ -9584,38 +9584,6 @@ async def get_driver_profile(current_user: dict = Depends(get_current_user)):
 
     return response_profile
 
-@app.get("/driver/ride/requests")
-async def legacy_driver_ride_requests(current_user: dict = Depends(get_current_user)):
-    require_driver(current_user)
-    driver_doc = await db.drivers.find_one({"user_id": current_user["id"]})
-    if not driver_doc or not driver_doc.get("is_available"):
-        return {"data": []}
-
-    nearby_rides = await db.ride_offers.find({
-        "driver_id": driver_doc["_id"],
-        "status": "pending",
-        "expires_at": {"$gt": get_ist_now()},
-    }).to_list(None)
-
-    requests = []
-    for ride_offer in nearby_rides:
-        booking = await db.bookings.find_one({"_id": ride_offer.get("booking_id")})
-        if not booking:
-            continue
-
-        requests.append({
-            "id": str(booking.get("_id")),
-            "booking_id": str(booking.get("_id")),
-            "passenger_name": booking.get("passenger_name"),
-            "pickup_location": booking.get("pickup_location"),
-            "dropoff_location": booking.get("dropoff_location"),
-            "estimated_fare": booking.get("estimated_fare"),
-            "ride_type": booking.get("ride_type"),
-            "expires_in_seconds": int((ride_offer.get("expires_at") - get_ist_now()).total_seconds()),
-        })
-
-    return {"data": requests}
-
 @app.post("/driver/ride/{booking_id}/accept")
 async def legacy_driver_accept_ride(booking_id: str, current_user: dict = Depends(get_current_user)):
     require_driver(current_user)
@@ -9764,14 +9732,6 @@ async def legacy_driver_trip_history(limit: int = 10, current_user: dict = Depen
 async def legacy_driver_profile(current_user: dict = Depends(get_current_user)):
     require_driver(current_user)
     return await get_driver_profile(current_user)
-
-@app.get("/driver/documents/status")
-async def legacy_driver_documents_status(
-    current_user: dict = Depends(get_current_user),
-    db: AsyncIOMotorDatabase = Depends(get_db),
-):
-    require_driver(current_user)
-    return await get_driver_document_status(db, current_user)
 
 @api_router.put("/drivers/profile")
 async def update_driver_profile(payload: DriverProfileUpdate, current_user: dict = Depends(get_current_user)):

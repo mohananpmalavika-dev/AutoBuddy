@@ -1719,29 +1719,31 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
 
   const handleMenuSelection = useCallback(
     (menuKey, label) => {
-      // Handle booking mode switching
-      const bookingModes = {
-        ride: 'single',
+      // Handle booking mode switching - map menu keys to active menu items
+      const modeMapping = {
+        ride: 'ride',
         family: 'family',
         pooling: 'pooling',
         corporate: 'corporate',
         travel: 'travel',
-        scheduled_rides: 'scheduled',
+        scheduled_rides: 'scheduled',  // Map scheduled_rides menu option to 'scheduled' menu
       };
 
-      if (bookingModes[menuKey]) {
-        setBookingMode(bookingModes[menuKey]);
-        setShowPassengerMenus(false);
-        triggerA11yFeedback(`${label} mode activated`);
+      const targetMenu = modeMapping[menuKey] || menuKey;
+
+      // Special handling for pooling - use the flow method
+      if (menuKey === 'pooling') {
+        openPoolRideFlow('SYSTEM_CREATED');
         return;
       }
 
-      setActivePassengerMenu(menuKey);
+      // For all other menu items, just set the active menu
+      setActivePassengerMenu(targetMenu);
       setShowPassengerMenus(false);
       setShowNotificationCenter(menuKey === 'notifications');
       triggerA11yFeedback(`${label || 'Menu'} selected`);
     },
-    [triggerA11yFeedback],
+    [triggerA11yFeedback, openPoolRideFlow],
   );
 
   const openPoolRideFlow = useCallback(
@@ -5403,6 +5405,54 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                   await refreshPassengerBookings({ silent: true });
                 }}
               />
+            )}
+            {activePassengerMenu === 'family' && (
+              <View style={[styles.infoBlock, isMobileWeb && styles.infoBlockMobile]}>
+                <Text style={[styles.infoTitle, isMobileWeb && styles.infoTitleMobile]}>Family Booking</Text>
+                <Text style={[styles.infoText, isMobileWeb && styles.infoTextMobile]}>
+                  Book rides for your family members. Add family members and manage their ride preferences.
+                </Text>
+                <TouchableOpacity
+                  style={[styles.button, isMobileWeb && styles.buttonMobile]}
+                  onPress={() => {
+                    setMessage('Family booking feature coming soon');
+                    triggerA11yFeedback('Family booking feature coming soon');
+                  }}>
+                  <Text style={[styles.buttonText, isMobileWeb && styles.buttonTextMobile]}>Add Family Member</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            {activePassengerMenu === 'corporate' && (
+              <View style={[styles.infoBlock, isMobileWeb && styles.infoBlockMobile]}>
+                <Text style={[styles.infoTitle, isMobileWeb && styles.infoTitleMobile]}>Corporate Booking</Text>
+                <Text style={[styles.infoText, isMobileWeb && styles.infoTextMobile]}>
+                  Book rides for your company. Manage employee bookings and corporate accounts.
+                </Text>
+                <TouchableOpacity
+                  style={[styles.button, isMobileWeb && styles.buttonMobile]}
+                  onPress={() => {
+                    setMessage('Corporate booking feature coming soon');
+                    triggerA11yFeedback('Corporate booking feature coming soon');
+                  }}>
+                  <Text style={[styles.buttonText, isMobileWeb && styles.buttonTextMobile]}>Select Employee</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            {activePassengerMenu === 'travel' && (
+              <View style={[styles.infoBlock, isMobileWeb && styles.infoBlockMobile]}>
+                <Text style={[styles.infoTitle, isMobileWeb && styles.infoTitleMobile]}>Travel Packages</Text>
+                <Text style={[styles.infoText, isMobileWeb && styles.infoTextMobile]}>
+                  Plan multi-stop journeys and book travel packages for your entire trip.
+                </Text>
+                <TouchableOpacity
+                  style={[styles.button, isMobileWeb && styles.buttonMobile]}
+                  onPress={() => {
+                    setMessage('Travel package booking coming soon');
+                    triggerA11yFeedback('Travel package booking coming soon');
+                  }}>
+                  <Text style={[styles.buttonText, isMobileWeb && styles.buttonTextMobile]}>Plan Journey</Text>
+                </TouchableOpacity>
+              </View>
             )}
             {activePassengerMenu === 'profile' && <PassengerProfilePanel token={token} />}
             {activePassengerMenu === 'kyc' && <PassengerKYCPanel token={token} />}
