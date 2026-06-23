@@ -67,7 +67,7 @@ export default function AdminVehicleManagementScreen({
       const data = await apiRequest('/api/vehicles/public/all', { token });
       setVehicles(Array.isArray(data) ? data : []);
     } catch (err) {
-      setError(err.message || 'Failed to load vehicles');
+      setError(err instanceof Error ? err.message : 'Failed to load vehicles');
       console.error('Error fetching vehicles:', err);
     } finally {
       setLoading(false);
@@ -93,10 +93,10 @@ export default function AdminVehicleManagementScreen({
   const openDetailsModal = (vehicle) => {
     setSelectedVehicle(vehicle);
     setEditForm({
-      name: vehicle.name || '',
-      multiplier: vehicle.base_multiplier || 1.0,
-      capacity: vehicle.capacity || 4,
-      capacity_unit: vehicle.capacity_unit || 'passengers',
+      name: vehicle?.name ?? '',
+      multiplier: vehicle?.base_multiplier ?? 1.0,
+      capacity: vehicle?.capacity ?? 4,
+      capacity_unit: vehicle?.capacity_unit ?? 'passengers',
     });
     setShowDetailsModal(true);
   };
@@ -109,14 +109,20 @@ export default function AdminVehicleManagementScreen({
       return Number.isFinite(parsed) ? parsed : fallback;
     };
 
+    const base_fare = toNumber(baseConfig?.base_fare, 40);
+    const per_km_rate = toNumber(baseConfig?.per_km_rate, 12);
+    const per_minute_rate = toNumber(baseConfig?.per_minute_rate, 2);
+    const minimum_fare = toNumber(baseConfig?.minimum_fare, 50);
+    const ride_multiplier = toNumber(rideConfig?.multiplier, 1);
+
     setFareForm((current) => ({
       ...current,
-      ride_type: rideType,
-      base_fare: toNumber(baseConfig.base_fare, current.base_fare),
-      per_km_rate: toNumber(baseConfig.per_km_rate, current.per_km_rate),
-      per_minute_rate: toNumber(baseConfig.per_minute_rate, current.per_minute_rate),
-      minimum_fare: toNumber(baseConfig.minimum_fare, current.minimum_fare),
-      ride_multiplier: toNumber(rideConfig?.multiplier, current.ride_multiplier || 1),
+      ride_type: rideType ?? 'instant',
+      base_fare: base_fare,
+      per_km_rate: per_km_rate,
+      per_minute_rate: per_minute_rate,
+      minimum_fare: minimum_fare,
+      ride_multiplier: ride_multiplier,
     }));
   };
 
@@ -134,7 +140,7 @@ export default function AdminVehicleManagementScreen({
       setSelectedVehicle({ ...vehicle, fare_config: fareConfig });
       syncFareForm(fareConfig, fareForm.ride_type);
     } catch (err) {
-      setError(err.message || 'Failed to load fare configuration');
+      setError(err instanceof Error ? err.message : 'Failed to load fare configuration');
     }
   };
 
@@ -148,11 +154,23 @@ export default function AdminVehicleManagementScreen({
 
     try {
       setLoading(true);
+      const multiplier = parseFloat(editForm.multiplier) || 1.0;
+      const capacity = parseInt(editForm.capacity, 10) || 1;
+      
+      if (!Number.isFinite(multiplier) || multiplier <= 0) {
+        setError('Multiplier must be a positive number');
+        return;
+      }
+      if (!Number.isInteger(capacity) || capacity <= 0) {
+        setError('Capacity must be a positive integer');
+        return;
+      }
+      
       const payload = {
-        name: editForm.name,
-        base_multiplier: parseFloat(editForm.multiplier),
-        capacity: parseInt(editForm.capacity),
-        capacity_unit: editForm.capacity_unit,
+        name: editForm.name ?? 'Unknown',
+        base_multiplier: multiplier,
+        capacity: capacity,
+        capacity_unit: editForm.capacity_unit ?? 'passengers',
       };
 
       await apiRequest(`/api/vehicles/admin/${selectedVehicle.vehicle_type_id}`, {
@@ -165,7 +183,7 @@ export default function AdminVehicleManagementScreen({
       setShowDetailsModal(false);
       await fetchVehicles();
     } catch (err) {
-      setError(err.message || 'Failed to update vehicle');
+      setError(err instanceof Error ? err.message : 'Failed to update vehicle');
     } finally {
       setLoading(false);
     }
@@ -174,27 +192,35 @@ export default function AdminVehicleManagementScreen({
   const handleSaveFareConfig = async () => {
     if (!selectedVehicle) return;
 
-    const existingFareConfig = selectedVehicle.fare_config || {};
-    const rideTypeConfig = existingFareConfig[fareForm.ride_type] || {};
-    const payload = {
-      fare_config: {
-        ...existingFareConfig,
-        base: {
-          ...(existingFareConfig.base || {}),
-          base_fare: Number(fareForm.base_fare) || 0,
-          per_km_rate: Number(fareForm.per_km_rate) || 0,
-          per_minute_rate: Number(fareForm.per_minute_rate) || 0,
-          minimum_fare: Number(fareForm.minimum_fare) || 0,
-        },
-        [fareForm.ride_type]: {
-          ...(typeof rideTypeConfig === 'object' && rideTypeConfig ? rideTypeConfig : {}),
-          multiplier: Number(fareForm.ride_multiplier) || 1,
-        },
-      },
-    };
-
     try {
       setLoading(true);
+      
+      if (fareForm.base_fare <= 0 || fareForm.minimum_fare <= 0 || fareForm.per_km_rate < 0 || fareForm.per_minute_rate < 0) {
+        setError('All fare values must be positive numbers');
+        return;
+      }
+
+      const existingFareConfig = selectedVehicle.fare_config || {};
+      const rideTypeConfig = existingFareConfig[fareForm.ride_type ?? 'instant'] || {};
+      const rideType = fareForm.ride_type ?? 'instant';
+      
+      const payload = {
+        fare_config: {
+          ...existingFareConfig,
+          base: {
+            ...(existingFareConfig.base || {}),
+            base_fare: Math.max(0, Number(fareForm.base_fare) || 40),
+            per_km_rate: Math.max(0, Number(fareForm.per_km_rate) || 12),
+            per_minute_rate: Math.max(0, Number(fareForm.per_minute_rate) || 2),
+            minimum_fare: Math.max(0, Number(fareForm.minimum_fare) || 50),
+          },
+          [rideType]: {
+            ...(typeof rideTypeConfig === 'object' && rideTypeConfig ? rideTypeConfig : {}),
+            multiplier: Math.max(0, Number(fareForm.ride_multiplier) || 1),
+          },
+        },
+      };
+
       await apiRequest(`/api/vehicles/admin/${selectedVehicle.vehicle_type_id}/fare-config`, {
         method: 'PUT',
         token,
@@ -205,7 +231,7 @@ export default function AdminVehicleManagementScreen({
       setShowFareModal(false);
       await fetchVehicles();
     } catch (err) {
-      setError(err.message || 'Failed to save fare configuration');
+      setError(err instanceof Error ? err.message : 'Failed to save fare configuration');
     } finally {
       setLoading(false);
     }
@@ -228,7 +254,7 @@ export default function AdminVehicleManagementScreen({
       setShowCompatibilityModal(false);
       await fetchVehicles();
     } catch (err) {
-      setError(err.message || 'Failed to save compatibility settings');
+      setError(err instanceof Error ? err.message : 'Failed to save compatibility settings');
     } finally {
       setLoading(false);
     }
@@ -252,7 +278,7 @@ export default function AdminVehicleManagementScreen({
               setMessage('Vehicle disabled successfully');
               await fetchVehicles();
             } catch (err) {
-              setError(err.message || 'Failed to disable vehicle');
+              setError(err instanceof Error ? err.message : 'Failed to disable vehicle');
             } finally {
               setLoading(false);
             }
@@ -274,8 +300,8 @@ export default function AdminVehicleManagementScreen({
     );
   }
 
-  const vehiclesList = vehicles.map((vehicle) => ({
-    title: vehicle.name || vehicle.vehicle_type_id,
+  const vehiclesList = (vehicles || []).map((vehicle) => ({
+    title: vehicle?.name ?? vehicle?.vehicle_type_id ?? 'Unknown',
     data: [vehicle],
   }));
 
@@ -309,25 +335,25 @@ export default function AdminVehicleManagementScreen({
           <View style={styles.vehicleCard}>
             <View style={styles.vehicleHeader}>
               <View>
-                <Text style={styles.vehicleTitle}>{vehicle.name}</Text>
+                <Text style={styles.vehicleTitle}>{vehicle?.name ?? 'Unknown'}</Text>
                 <Text style={styles.vehicleSubtitle}>
-                  {vehicle.vehicle_type_id.toUpperCase()}
+                  {(vehicle?.vehicle_type_id ?? 'unknown').toUpperCase()}
                 </Text>
               </View>
               <View style={styles.vehicleBadges}>
                 <View style={styles.badge}>
-                  <Text style={styles.badgeText}>{vehicle.base_multiplier}x</Text>
+                  <Text style={styles.badgeText}>{vehicle?.base_multiplier ?? 1}x</Text>
                 </View>
                 <View style={styles.badge}>
                   <Text style={styles.badgeText}>
-                    {vehicle.capacity} {vehicle.capacity_unit?.charAt(0)}
+                    {vehicle?.capacity ?? 4} {(vehicle?.capacity_unit ?? 'passengers').charAt(0)}
                   </Text>
                 </View>
               </View>
             </View>
 
             <Text style={styles.vehicleDetails}>
-              {vehicle.allowed_ride_types?.join(', ') || 'No ride types configured'}
+              {(vehicle?.allowed_ride_types ?? []).join(', ') || 'No ride types configured'}
             </Text>
 
             <View style={styles.actions}>
@@ -391,10 +417,11 @@ export default function AdminVehicleManagementScreen({
                 <Text style={styles.fieldLabel}>Fare Multiplier</Text>
                 <TextInput
                   style={styles.input}
-                  value={editForm.multiplier.toString()}
-                  onChangeText={(text) =>
-                    setEditForm({ ...editForm, multiplier: parseFloat(text) || 1.0 })
-                  }
+                  value={editForm.multiplier?.toString() ?? '1.0'}
+                  onChangeText={(text) => {
+                    const val = parseFloat(text);
+                    setEditForm({ ...editForm, multiplier: Number.isFinite(val) ? val : 1.0 })
+                  }}
                   placeholder="1.0"
                   keyboardType="decimal-pad"
                   editable={!loading}
@@ -406,10 +433,11 @@ export default function AdminVehicleManagementScreen({
                 <Text style={styles.fieldLabel}>Capacity</Text>
                 <TextInput
                   style={styles.input}
-                  value={editForm.capacity.toString()}
-                  onChangeText={(text) =>
-                    setEditForm({ ...editForm, capacity: parseInt(text) || 1 })
-                  }
+                  value={editForm.capacity?.toString() ?? '4'}
+                  onChangeText={(text) => {
+                    const val = parseInt(text, 10);
+                    setEditForm({ ...editForm, capacity: Number.isInteger(val) && val > 0 ? val : 1 })
+                  }}
                   placeholder="4"
                   keyboardType="number-pad"
                   editable={!loading}
@@ -473,7 +501,7 @@ export default function AdminVehicleManagementScreen({
             {selectedVehicle && (
               <>
                 <Text style={styles.infoText}>
-                  Configure fares for {selectedVehicle.name} across different ride types.
+                  Configure fares for {selectedVehicle?.name ?? 'this vehicle'} across different ride types.
                 </Text>
 
                 <Text style={styles.fieldLabel}>Ride Type</Text>
@@ -503,10 +531,11 @@ export default function AdminVehicleManagementScreen({
                 <Text style={styles.fieldLabel}>Base Fare (₹)</Text>
                 <TextInput
                   style={styles.input}
-                  value={fareForm.base_fare.toString()}
-                  onChangeText={(text) =>
-                    setFareForm({ ...fareForm, base_fare: parseInt(text) || 40 })
-                  }
+                  value={fareForm.base_fare?.toString() ?? '40'}
+                  onChangeText={(text) => {
+                    const val = parseInt(text, 10);
+                    setFareForm({ ...fareForm, base_fare: Number.isInteger(val) && val > 0 ? val : 40 })
+                  }}
                   keyboardType="number-pad"
                   editable={!loading}
                 />
@@ -514,10 +543,11 @@ export default function AdminVehicleManagementScreen({
                 <Text style={styles.fieldLabel}>Per KM Rate (₹)</Text>
                 <TextInput
                   style={styles.input}
-                  value={fareForm.per_km_rate.toString()}
-                  onChangeText={(text) =>
-                    setFareForm({ ...fareForm, per_km_rate: parseFloat(text) || 12 })
-                  }
+                  value={fareForm.per_km_rate?.toString() ?? '12'}
+                  onChangeText={(text) => {
+                    const val = parseFloat(text);
+                    setFareForm({ ...fareForm, per_km_rate: Number.isFinite(val) ? val : 12 })
+                  }}
                   keyboardType="decimal-pad"
                   editable={!loading}
                 />
@@ -525,10 +555,11 @@ export default function AdminVehicleManagementScreen({
                 <Text style={styles.fieldLabel}>Per Minute Rate (₹)</Text>
                 <TextInput
                   style={styles.input}
-                  value={fareForm.per_minute_rate.toString()}
-                  onChangeText={(text) =>
-                    setFareForm({ ...fareForm, per_minute_rate: parseFloat(text) || 2 })
-                  }
+                  value={fareForm.per_minute_rate?.toString() ?? '2'}
+                  onChangeText={(text) => {
+                    const val = parseFloat(text);
+                    setFareForm({ ...fareForm, per_minute_rate: Number.isFinite(val) ? val : 2 })
+                  }}
                   keyboardType="decimal-pad"
                   editable={!loading}
                 />
@@ -536,10 +567,11 @@ export default function AdminVehicleManagementScreen({
                 <Text style={styles.fieldLabel}>Minimum Fare (₹)</Text>
                 <TextInput
                   style={styles.input}
-                  value={fareForm.minimum_fare.toString()}
-                  onChangeText={(text) =>
-                    setFareForm({ ...fareForm, minimum_fare: parseInt(text) || 50 })
-                  }
+                  value={fareForm.minimum_fare?.toString() ?? '50'}
+                  onChangeText={(text) => {
+                    const val = parseInt(text, 10);
+                    setFareForm({ ...fareForm, minimum_fare: Number.isInteger(val) && val > 0 ? val : 50 })
+                  }}
                   keyboardType="number-pad"
                   editable={!loading}
                 />
@@ -547,10 +579,11 @@ export default function AdminVehicleManagementScreen({
                 <Text style={styles.fieldLabel}>Ride Multiplier</Text>
                 <TextInput
                   style={styles.input}
-                  value={fareForm.ride_multiplier.toString()}
-                  onChangeText={(text) =>
-                    setFareForm({ ...fareForm, ride_multiplier: parseFloat(text) || 1 })
-                  }
+                  value={fareForm.ride_multiplier?.toString() ?? '1'}
+                  onChangeText={(text) => {
+                    const val = parseFloat(text);
+                    setFareForm({ ...fareForm, ride_multiplier: Number.isFinite(val) ? val : 1 })
+                  }}
                   keyboardType="decimal-pad"
                   editable={!loading}
                 />
