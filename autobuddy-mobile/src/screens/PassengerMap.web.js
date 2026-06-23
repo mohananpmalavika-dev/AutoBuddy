@@ -1755,7 +1755,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       setShowNotificationCenter(menuKey === 'notifications');
       triggerA11yFeedback(`${label || 'Menu'} selected`);
     },
-    [triggerA11yFeedback, openPoolRideFlow],
+    [triggerA11yFeedback, openPoolRideFlow, setActivePassengerMenu, setShowPassengerMenus, setShowNotificationCenter],
   );
 
   const getMenuLabel = useCallback(
@@ -1944,7 +1944,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     }
   };
 
-  const handleSelectSuggestion = async (point, suggestion) => {
+  const handleSelectSuggestion = useCallback(async (point, suggestion) => {
     try {
       setError('');
       if (!placesConfigured) {
@@ -1969,7 +1969,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         setSearchingDropoff(false);
       }
     }
-  };
+  }, [getPlaceLocation, placesConfigured, t]);
 
   // Interactive map handlers - match native implementation for feature parity
   const handleMapPress = useCallback((coordinate) => {
@@ -3406,7 +3406,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     setMessage('Destination selected. Review fare and confirm.');
   };
 
-  const renderQuickSuggestion = (item, point) => (
+  const renderQuickSuggestion = useCallback((item, point) => (
     <TouchableOpacity
       key={`quick-${point}-${item.placeId}`}
       style={styles.quickSuggestionRow}
@@ -3414,7 +3414,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       <View style={styles.quickSuggestionPin} />
       <Text style={styles.quickSuggestionText} numberOfLines={2}>{item.description}</Text>
     </TouchableOpacity>
-  );
+  ), [handleSelectSuggestion, styles]);
 
   const renderAssistedRideFields = () => (
     <View style={styles.rideDetailsSection}>
@@ -4089,7 +4089,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           (!quickBookingReady || loading) && styles.quickConfirmButtonDisabled,
         ]}
         onPress={handleQuickConfirmRide}
-        disabled={loading}>
+        disabled={loading || !quickBookingReady}>
         <Text style={styles.quickConfirmText}>
           {loading ? 'Requesting ride...' : quickBookingReady ? 'Confirm Ride' : 'Select destination'}
         </Text>
