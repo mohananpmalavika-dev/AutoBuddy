@@ -42,6 +42,7 @@ interface SingleScreenBookingProps {
   onBookRide: (rideData: {
     destination: string;
     rideType: string;
+    fare?: number;
     scheduledFor?: Date;
   }) => void;
   onScheduleClick?: () => void;
@@ -287,6 +288,7 @@ export function SingleScreenBooking({
     onBookRide({
       destination,
       rideType: selectedRideType,
+      fare: fareEstimate?.minFare || 0,
     });
   };
 

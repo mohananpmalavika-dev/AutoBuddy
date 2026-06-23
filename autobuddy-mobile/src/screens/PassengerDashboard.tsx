@@ -110,7 +110,7 @@ export default function PassengerDashboard({
     }
     setBookingDestination(rideData.destination);
     setBookingRideType(rideData.rideType);
-    bookRide('Current Location', rideData.destination, rideData.rideType, 150);
+    bookRide('Current Location', rideData.destination, rideData.rideType, rideData.fare || 150);
   };
 
   const handleScheduleClick = () => {
@@ -140,7 +140,7 @@ export default function PassengerDashboard({
   // Predictive morning booking — one-tap commute suggestion
   const predictiveBooking = usePredictiveBooking(
     token,
-    profile?.name?.split(' ')[0] || user?.name || 'there'
+    (profile?.name?.split(' ') || [])[0] || user?.name || 'there'
   );
 
   // -------------------------------------------------------------------------
