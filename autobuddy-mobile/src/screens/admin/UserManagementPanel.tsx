@@ -126,23 +126,23 @@ const UserManagementPanel = ({ adminToken }: UserManagementPanelProps) => {
       }}
     >
       <View style={styles.userInfo}>
-        <Text style={styles.userName}>{item.name}</Text>
-        <Text style={styles.userEmail}>{item.email}</Text>
-        <Text style={styles.userType}>{item.user_type.toUpperCase()}</Text>
-        {item.blocked && <Text style={styles.blockedBadge}>BLOCKED</Text>}
+        <Text style={styles.userName}>{item?.name ?? 'Unknown'}</Text>
+        <Text style={styles.userEmail}>{item?.email ?? 'No email'}</Text>
+        <Text style={styles.userType}>{((item?.user_type ?? 'unknown').toUpperCase())}</Text>
+        {item?.blocked && <Text style={styles.blockedBadge}>BLOCKED</Text>}
       </View>
       <View style={styles.userActions}>
-        {item.blocked ? (
+        {item?.blocked ? (
           <TouchableOpacity
             style={[styles.actionButton, styles.unblockButton]}
-            onPress={() => handleUnblockUser(item.id)}
+            onPress={() => handleUnblockUser(item?.id ?? '')}
           >
             <Text style={styles.actionButtonText}>Unblock</Text>
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
             style={[styles.actionButton, styles.blockButton]}
-            onPress={() => handleBlockUser(item.id)}
+            onPress={() => handleBlockUser(item?.id ?? '')}
           >
             <Text style={styles.actionButtonText}>Block</Text>
           </TouchableOpacity>
@@ -214,73 +214,73 @@ const UserManagementPanel = ({ adminToken }: UserManagementPanelProps) => {
 
                 <View style={styles.detailField}>
                   <Text style={styles.detailLabel}>Name:</Text>
-                  <Text style={styles.detailValue}>{selectedUser.name}</Text>
+                  <Text style={styles.detailValue}>{selectedUser?.name ?? 'Unknown'}</Text>
                 </View>
 
                 <View style={styles.detailField}>
                   <Text style={styles.detailLabel}>Email:</Text>
-                  <Text style={styles.detailValue}>{selectedUser.email}</Text>
+                  <Text style={styles.detailValue}>{selectedUser?.email ?? 'No email'}</Text>
                 </View>
 
                 <View style={styles.detailField}>
                   <Text style={styles.detailLabel}>Phone:</Text>
-                  <Text style={styles.detailValue}>{selectedUser.phone}</Text>
+                  <Text style={styles.detailValue}>{selectedUser?.phone ?? 'Not provided'}</Text>
                 </View>
 
                 <View style={styles.detailField}>
                   <Text style={styles.detailLabel}>Type:</Text>
-                  <Text style={styles.detailValue}>{selectedUser.user_type}</Text>
+                  <Text style={styles.detailValue}>{selectedUser?.user_type ?? 'Unknown'}</Text>
                 </View>
 
                 <View style={styles.detailField}>
                   <Text style={styles.detailLabel}>Joined:</Text>
                   <Text style={styles.detailValue}>
-                    {formatToIST(selectedUser.created_at, { dateStyle: 'medium' })}
+                    {selectedUser?.created_at ? formatToIST(selectedUser.created_at, { dateStyle: 'medium' }) : 'Unknown'}
                   </Text>
                 </View>
 
-                {selectedUser.user_type === 'driver' && (
+                {(selectedUser?.user_type ?? 'unknown') === 'driver' && (
                   <>
                     <View style={styles.detailField}>
                       <Text style={styles.detailLabel}>Rating:</Text>
-                      <Text style={styles.detailValue}>{selectedUser.rating || 'N/A'}</Text>
+                      <Text style={styles.detailValue}>{selectedUser?.rating ?? 'N/A'}</Text>
                     </View>
 
                     <View style={styles.detailField}>
                       <Text style={styles.detailLabel}>Total Rides:</Text>
-                      <Text style={styles.detailValue}>{selectedUser.total_rides || 0}</Text>
+                      <Text style={styles.detailValue}>{selectedUser?.total_rides ?? 0}</Text>
                     </View>
                   </>
                 )}
 
-                {selectedUser.user_type === 'passenger' && (
+                {(selectedUser?.user_type ?? 'unknown') === 'passenger' && (
                   <>
                     <View style={styles.detailField}>
                       <Text style={styles.detailLabel}>Total Rides:</Text>
-                      <Text style={styles.detailValue}>{selectedUser.total_rides || 0}</Text>
+                      <Text style={styles.detailValue}>{selectedUser?.total_rides ?? 0}</Text>
                     </View>
 
                     <View style={styles.detailField}>
                       <Text style={styles.detailLabel}>Wallet Balance:</Text>
-                      <Text style={styles.detailValue}>₹{selectedUser.wallet_balance || 0}</Text>
+                      <Text style={styles.detailValue}>₹{selectedUser?.wallet_balance ?? 0}</Text>
                     </View>
                   </>
                 )}
 
                 <View style={styles.detailField}>
                   <Text style={styles.detailLabel}>Status:</Text>
-                  <Text style={[styles.detailValue, selectedUser.blocked && styles.blockedText]}>
-                    {selectedUser.blocked ? 'BLOCKED' : 'ACTIVE'}
+                  <Text style={[styles.detailValue, (selectedUser?.blocked ?? false) && styles.blockedText]}>
+                    {(selectedUser?.blocked ?? false) ? 'BLOCKED' : 'ACTIVE'}
                   </Text>
                 </View>
 
                 {/* Action Buttons */}
                 <View style={styles.modalActions}>
-                  {selectedUser.blocked ? (
+                  {(selectedUser?.blocked ?? false) ? (
                     <TouchableOpacity
                       style={[styles.actionButton, styles.unblockButton]}
                       onPress={() => {
-                        handleUnblockUser(selectedUser.id);
+                        handleUnblockUser(selectedUser?.id ?? '');
                         setDetailsModalVisible(false);
                       }}
                     >
@@ -290,7 +290,7 @@ const UserManagementPanel = ({ adminToken }: UserManagementPanelProps) => {
                     <TouchableOpacity
                       style={[styles.actionButton, styles.blockButton]}
                       onPress={() => {
-                        handleBlockUser(selectedUser.id);
+                        handleBlockUser(selectedUser?.id ?? '');
                         setDetailsModalVisible(false);
                       }}
                     >
