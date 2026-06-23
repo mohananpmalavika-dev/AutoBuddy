@@ -59,6 +59,17 @@ export default function AdminDashboard({
   const { metrics, loading: metricsLoading, error: metricsError, refetch: refetchMetrics } = useAdminMetrics(token, timeRange);
   const { health, loading: healthLoading, error: healthError, refetch: refetchHealth } = useSystemHealth(token);
   const { alerts, loading: alertsLoading, error: alertsError, refetch: refetchAlerts } = useAdminAlerts(token);
+  const safeMetrics = {
+    newDriversToday: 0,
+    openTickets: 0,
+    complianceScore: 0,
+    totalUsers: 0,
+    activeUsers: 0,
+    dailyRevenue: 0,
+    ridesToday: 0,
+    avgRating: 0,
+    ...(metrics || {}),
+  };
 
   const getHealthColor = (status: string) => {
     switch (status) {
@@ -274,7 +285,7 @@ export default function AdminDashboard({
               </View>
               <View style={styles.statContent}>
                 <Text style={styles.statLabel}>New Driver Signups</Text>
-                <Text style={styles.statValue}>{metrics.newDriversToday}</Text>
+                <Text style={styles.statValue}>{safeMetrics.newDriversToday}</Text>
               </View>
             </View>
 
@@ -284,7 +295,7 @@ export default function AdminDashboard({
               </View>
               <View style={styles.statContent}>
                 <Text style={styles.statLabel}>Open Support Tickets</Text>
-                <Text style={styles.statValue}>{metrics.openTickets}</Text>
+                <Text style={styles.statValue}>{safeMetrics.openTickets}</Text>
               </View>
             </View>
 
@@ -294,7 +305,7 @@ export default function AdminDashboard({
               </View>
               <View style={styles.statContent}>
                 <Text style={styles.statLabel}>Compliance Score</Text>
-                <Text style={styles.statValue}>{metrics.complianceScore}%</Text>
+                <Text style={styles.statValue}>{safeMetrics.complianceScore}%</Text>
               </View>
             </View>
 
@@ -305,7 +316,7 @@ export default function AdminDashboard({
               <View style={styles.statContent}>
                 <Text style={styles.statLabel}>Total Users</Text>
                 <Text style={styles.statValue}>
-                  {(metrics.totalUsers / 1000).toFixed(0)}k
+                  {(safeMetrics.totalUsers / 1000).toFixed(0)}k
                 </Text>
               </View>
             </View>
