@@ -98,29 +98,29 @@ const AnalyticsDashboardPanel = ({ adminToken }: AnalyticsDashboardPanelProps) =
         <>
           <KPICard
             title="Total Revenue"
-            value={`₹${stats.total_revenue || 0}`}
-            subtitle={`Avg: ₹${stats.avg_revenue_per_ride || 0}/ride`}
+            value={`₹${stats?.total_revenue ?? 0}`}
+            subtitle={`Avg: ₹${stats?.avg_revenue_per_ride ?? 0}/ride`}
             color="#34c759"
           />
 
           <KPICard
             title="Total Rides"
-            value={stats.total_rides || 0}
-            subtitle={`${stats.completed_rides || 0} completed`}
+            value={stats?.total_rides ?? 0}
+            subtitle={`${stats?.completed_rides ?? 0} completed`}
             color="#007AFF"
           />
 
           <KPICard
             title="Active Users"
-            value={stats.active_users || 0}
-            subtitle={`${stats.active_drivers || 0} drivers, ${stats.active_passengers || 0} passengers`}
+            value={stats?.active_users ?? 0}
+            subtitle={`${stats?.active_drivers ?? 0} drivers, ${stats?.active_passengers ?? 0} passengers`}
             color="#FF9500"
           />
 
           <KPICard
             title="Avg Rating"
-            value={(stats.average_rating || 0).toFixed(1)}
-            subtitle={`${stats.total_ratings || 0} ratings`}
+            value={((stats?.average_rating ?? 0) as number).toFixed(1)}
+            subtitle={`${stats?.total_ratings ?? 0} ratings`}
             color="#5856d6"
           />
 
@@ -128,19 +128,19 @@ const AnalyticsDashboardPanel = ({ adminToken }: AnalyticsDashboardPanelProps) =
           <Text style={styles.sectionTitle}>Ride Status</Text>
           <View style={styles.statusGrid}>
             <View style={styles.statusItem}>
-              <Text style={styles.statusCount}>{stats.rides_pending || 0}</Text>
+              <Text style={styles.statusCount}>{stats?.rides_pending ?? 0}</Text>
               <Text style={styles.statusLabel}>Pending</Text>
             </View>
             <View style={styles.statusItem}>
-              <Text style={[styles.statusCount, { color: '#FF9500' }]}>{stats.rides_in_progress || 0}</Text>
+              <Text style={[styles.statusCount, { color: '#FF9500' }]}>{stats?.rides_in_progress ?? 0}</Text>
               <Text style={styles.statusLabel}>In Progress</Text>
             </View>
             <View style={styles.statusItem}>
-              <Text style={[styles.statusCount, { color: '#34c759' }]}>{stats.rides_completed || 0}</Text>
+              <Text style={[styles.statusCount, { color: '#34c759' }]}>{stats?.rides_completed ?? 0}</Text>
               <Text style={styles.statusLabel}>Completed</Text>
             </View>
             <View style={styles.statusItem}>
-              <Text style={[styles.statusCount, { color: '#ff3b30' }]}>{stats.rides_cancelled || 0}</Text>
+              <Text style={[styles.statusCount, { color: '#ff3b30' }]}>{stats?.rides_cancelled ?? 0}</Text>
               <Text style={styles.statusLabel}>Cancelled</Text>
             </View>
           </View>
@@ -150,15 +150,15 @@ const AnalyticsDashboardPanel = ({ adminToken }: AnalyticsDashboardPanelProps) =
           <View style={styles.performanceCard}>
             <View style={styles.performanceRow}>
               <Text style={styles.performanceLabel}>Top Drivers by Rating</Text>
-              <Text style={styles.performanceValue}>{stats.top_drivers_count || 0}</Text>
+              <Text style={styles.performanceValue}>{stats?.top_drivers_count ?? 0}</Text>
             </View>
             <View style={styles.performanceRow}>
               <Text style={styles.performanceLabel}>Avg Acceptance Rate</Text>
-              <Text style={styles.performanceValue}>{((stats.avg_acceptance_rate || 0) * 100).toFixed(1)}%</Text>
+              <Text style={styles.performanceValue}>{(Math.min(Math.max((stats?.avg_acceptance_rate ?? 0) as number, 0), 1) * 100).toFixed(1)}%</Text>
             </View>
             <View style={styles.performanceRow}>
               <Text style={styles.performanceLabel}>Avg Rides per Driver</Text>
-              <Text style={styles.performanceValue}>{(stats.avg_rides_per_driver || 0).toFixed(1)}</Text>
+              <Text style={styles.performanceValue}>{Math.max((stats?.avg_rides_per_driver ?? 0) as number, 0).toFixed(1)}</Text>
             </View>
           </View>
 
@@ -166,19 +166,19 @@ const AnalyticsDashboardPanel = ({ adminToken }: AnalyticsDashboardPanelProps) =
           <Text style={styles.sectionTitle}>Payment Methods</Text>
           <View style={styles.paymentGrid}>
             <View style={styles.paymentItem}>
-              <Text style={styles.paymentValue}>{stats.wallet_payments || 0}</Text>
+              <Text style={styles.paymentValue}>{stats?.wallet_payments ?? 0}</Text>
               <Text style={styles.paymentLabel}>Wallet</Text>
             </View>
             <View style={styles.paymentItem}>
-              <Text style={styles.paymentValue}>{stats.card_payments || 0}</Text>
+              <Text style={styles.paymentValue}>{stats?.card_payments ?? 0}</Text>
               <Text style={styles.paymentLabel}>Card</Text>
             </View>
             <View style={styles.paymentItem}>
-              <Text style={styles.paymentValue}>{stats.cash_payments || 0}</Text>
+              <Text style={styles.paymentValue}>{stats?.cash_payments ?? 0}</Text>
               <Text style={styles.paymentLabel}>Cash</Text>
             </View>
             <View style={styles.paymentItem}>
-              <Text style={styles.paymentValue}>{stats.upi_payments || 0}</Text>
+              <Text style={styles.paymentValue}>{stats?.upi_payments ?? 0}</Text>
               <Text style={styles.paymentLabel}>UPI</Text>
             </View>
           </View>
@@ -188,16 +188,16 @@ const AnalyticsDashboardPanel = ({ adminToken }: AnalyticsDashboardPanelProps) =
           <View style={styles.supportCard}>
             <View style={styles.supportRow}>
               <Text style={styles.supportLabel}>Open Tickets</Text>
-              <Text style={[styles.supportValue, { color: '#ff3b30' }]}>{stats.open_tickets || 0}</Text>
+              <Text style={[styles.supportValue, { color: '#ff3b30' }]}>{stats?.open_tickets ?? 0}</Text>
             </View>
             <View style={styles.supportRow}>
               <Text style={styles.supportLabel}>Avg Resolution Time</Text>
-              <Text style={styles.supportValue}>{stats.avg_resolution_time || 'N/A'}</Text>
+              <Text style={styles.supportValue}>{stats?.avg_resolution_time ?? 'N/A'}</Text>
             </View>
             <View style={styles.supportRow}>
               <Text style={styles.supportLabel}>Customer Satisfaction</Text>
               <Text style={[styles.supportValue, { color: '#34c759' }]}>
-                {((stats.customer_satisfaction || 0) * 100).toFixed(1)}%
+                {(Math.min(Math.max((stats?.customer_satisfaction ?? 0) as number, 0), 1) * 100).toFixed(1)}%
               </Text>
             </View>
           </View>
