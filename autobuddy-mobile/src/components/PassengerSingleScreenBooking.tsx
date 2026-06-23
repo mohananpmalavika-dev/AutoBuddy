@@ -104,6 +104,8 @@ export function SingleScreenBooking({
   const [selectedPassengers, setSelectedPassengers] = useState(1);
   const [isEstimatingFare, setIsEstimatingFare] = useState(false);
   const [selectedDestinationLocation, setSelectedDestinationLocation] = useState<Location | null>(null);
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [aiPreview, setAiPreview] = useState<any | null>(null);
 
   // Get pickup location from saved locations (first one is usually current)
   const pickupLocation = savedLocations?.[0];
@@ -262,6 +264,66 @@ export function SingleScreenBooking({
     setIsVoiceInput(true);
   };
 
+  const handleAIBook = async () => {
+    if (!destination || destination.trim().length < 2) {
+      Alert.alert('AI Booking', 'Please enter your request like "Take me to Kollam Railway Station"');
+      return;
+    }
+    try {
+      setIsAiLoading(true);
+      const body = {
+        query: destination,
+        current_location: pickupLocation ? { lat: pickupLocation.latitude, lng: pickupLocation.longitude } : null,
+        num_passengers: selectedPassengers,
+        preferences: { vehicle_type: selectedRideType },
+      };
+
+      const res = await fetch('/api/intent/single-screen', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) throw new Error('AI intent API failed');
+      const data = await res.json();
+      const preview = data.preview || {};
+      setAiPreview(preview);
+
+      // Populate UI from preview
+      const dest = preview.destination;
+      if (dest && dest.latitude && dest.longitude) {
+        setSelectedDestinationLocation({ latitude: dest.latitude, longitude: dest.longitude, address: dest.address || dest.name || '' });
+        setDestination(dest.address || dest.name || '');
+      }
+
+      if (preview.vehicle_type) setSelectedRideType(preview.vehicle_type);
+
+      if (preview.estimated_fare) {
+        setFareEstimate({
+          minFare: Math.round(preview.estimated_fare),
+          maxFare: Math.round(preview.estimated_fare),
+          estimatedTime: preview.estimated_arrival_minutes || 15,
+          distance: preview.pricing_breakdown?.estimated_distance_km || 0,
+        });
+      }
+
+      // Show confirm dialog
+      Alert.alert(
+        'AI Preview',
+        `Vehicle: ${preview.vehicle_type || 'auto'}\nFare: ₹${preview.estimated_fare || '-'}\nETA: ${preview.estimated_arrival_minutes || '-'} min`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Confirm', onPress: () => onBookRide({ destination: preview.destination?.address || destination, rideType: preview.vehicle_type || selectedRideType, fare: preview.estimated_fare || fareEstimate?.minFare || 0 }) },
+        ]
+      );
+    } catch (err) {
+      console.error('AI booking error', err);
+      Alert.alert('AI Booking failed', 'Could not process the AI booking.');
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+
   const handleClearInput = () => {
     setDestination('');
     setFareEstimate(null);
@@ -314,9 +376,17 @@ export function SingleScreenBooking({
             />
           </Pressable>
 
+          <Pressable onPress={handleAIBook} style={styles.aiButton} disabled={isAiLoading}>
+            {isAiLoading ? (
+              <ActivityIndicator size="small" color="#2196F3" />
+            ) : (
+              <MaterialIcons name="auto-awesome" size={22} color="#2196F3" />
+            )}
+          </Pressable>
+
           <TextInput
             style={styles.searchInput}
-            placeholder="Where to?"
+            placeholder="Where to? (or say: Take me to Kollam Railway Station)"
             placeholderTextColor="#ccc"
             value={destination}
             onChangeText={setDestination}
@@ -714,6 +784,12 @@ const styles = StyleSheet.create({
   },
   voiceButton: {
     padding: 8,
+  },
+  aiButton: {
+    padding: 8,
+    marginHorizontal: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   searchInput: {
     flex: 1,
