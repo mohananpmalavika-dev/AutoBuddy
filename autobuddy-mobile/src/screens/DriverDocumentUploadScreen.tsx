@@ -90,7 +90,7 @@ export const DriverDocumentUploadScreen: React.FC<DriverDocumentUploadScreenProp
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        const asset = result.assets[0];
+        const asset = result.assets?.[0];
         if (!asset.uri) {
           throw new Error('Invalid document');
         }

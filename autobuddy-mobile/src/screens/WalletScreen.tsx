@@ -107,7 +107,7 @@ export const WalletScreen: React.FC<WalletScreenProps> = ({
       return;
     }
 
-    const payout = await requestPayout(amount, payoutAccounts[0].id);
+    const payout = await requestPayout(amount, payoutAccounts?.[0]?.id);
     if (payout) {
       Alert.alert('Success', 'Payout request submitted');
       setPayoutAmount('');

@@ -127,7 +127,7 @@ export const AIInsightsScreen: React.FC<AIInsightsScreenProps> = ({
                 <View style={styles.patternContent}>
                   <Text style={styles.patternLabel}>{pattern.label}</Text>
                   <Text style={styles.patternMeta}>
-                    {pattern.frequency} visits • Popular at {pattern.common_hours[0]}:00
+                    {pattern.frequency} visits • Popular at {pattern.common_hours?.[0]}:00
                   </Text>
                 </View>
                 <Ionicons name="chevron-forward" size={24} color="#999" />

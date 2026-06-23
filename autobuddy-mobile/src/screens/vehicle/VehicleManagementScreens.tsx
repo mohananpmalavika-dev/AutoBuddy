@@ -48,7 +48,7 @@ export const VehicleManagementScreen: React.FC<{
       return;
     }
 
-    const success = await addVehicle(vehicleType, regNumber, make, model, parseInt(year), color, licensePlate);
+    const success = await addVehicle(vehicleType, regNumber, make, model, parseInt(year, 10), color, licensePlate);
     if (success) {
       Alert.alert('Success', 'Vehicle added successfully');
       setMake('');

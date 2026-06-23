@@ -322,7 +322,7 @@ export const DriverVehicleManagementScreen: React.FC<DriverVehicleManagementScre
                 onChangeText={(text) =>
                   setNewVehicleData({
                     ...newVehicleData,
-                    year: parseInt(text) || new Date().getFullYear(),
+                    year: parseInt(text, 10) || new Date().getFullYear(),
                   })
                 }
                 keyboardType="number-pad"

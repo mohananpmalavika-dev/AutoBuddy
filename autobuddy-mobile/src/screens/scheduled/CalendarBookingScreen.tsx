@@ -499,7 +499,7 @@ export default function CalendarBookingScreen({
                 onChangeText={(text) =>
                   setEditingPreferences({
                     ...editingPreferences,
-                    bufferMinutes: parseInt(text) || 0,
+                    bufferMinutes: parseInt(text, 10) || 0,
                   })
                 }
                 keyboardType="numeric"
@@ -518,7 +518,7 @@ export default function CalendarBookingScreen({
                 onChangeText={(text) =>
                   setEditingPreferences({
                     ...editingPreferences,
-                    maxDistance: parseInt(text) || 0,
+                    maxDistance: parseInt(text, 10) || 0,
                   })
                 }
                 keyboardType="numeric"

@@ -197,7 +197,7 @@ export const PromotionsScreen: React.FC<PromoScreenProps> = ({
 
                               {!eligibility.eligible && (
                                 <Text style={styles.couponError}>
-                                  {eligibility.eligibilityRules[0] || 'Not eligible'}
+                                  {eligibility.eligibilityRules?.[0] || 'Not eligible'}
                                 </Text>
                               )}
                             </View>

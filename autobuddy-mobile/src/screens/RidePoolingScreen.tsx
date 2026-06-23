@@ -74,7 +74,7 @@ export const RidePoolingScreen: React.FC<RidePoolingScreenProps> = ({
 
     const pool = await createPool(
       { pickupLat, pickupLng, dropoffLat, dropoffLng },
-      parseInt(baseCapacity) || 4
+      parseInt(baseCapacity, 10) || 4
     );
 
     if (pool) {

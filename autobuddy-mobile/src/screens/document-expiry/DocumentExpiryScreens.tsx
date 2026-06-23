@@ -289,8 +289,8 @@ const DocumentRenewalModal: React.FC<DocumentRenewalModalProps> = ({
         copyToCacheDirectory: true,
       });
 
-      if (!result.canceled && result.assets[0]) {
-        setSelectedFile(result.assets[0]);
+      if (!result.canceled && result.assets?.[0]) {
+        setSelectedFile(result.assets?.[0]);
       }
     } catch (err) {
       Alert.alert('Error', 'Failed to pick document');
