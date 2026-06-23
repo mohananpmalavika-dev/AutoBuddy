@@ -113,11 +113,19 @@ const PASSENGER_MENU_SYMBOLS = {
   notes: { ios: 'note.text', android: 'note', web: 'note' },
   sharing: { ios: 'location.fill', android: 'location_on', web: 'location_on' },
   stats: { ios: 'chart.bar.fill', android: 'bar_chart', web: 'bar_chart' },
+  family: { ios: 'person.2.fill', android: 'family_restroom', web: 'family_restroom' },
+  travel: { ios: 'globe', android: 'language', web: 'language' },
+  corporate: { ios: 'building.2.fill', android: 'apartment', web: 'apartment' },
+  scheduled_rides: { ios: 'calendar.badge.clock', android: 'schedule', web: 'schedule' },
 };
 const PASSENGER_MENU_OPTIONS = [
   { key: 'ride', label: 'Ride Booking', symbol: PASSENGER_MENU_SYMBOLS.ride },
   { key: 'pooling', label: 'Pool Ride', symbol: PASSENGER_MENU_SYMBOLS.pooling },
   { key: 'live', label: 'Live Ride', symbol: PASSENGER_MENU_SYMBOLS.live },
+  { key: 'family', label: 'Family Booking', symbol: PASSENGER_MENU_SYMBOLS.family },
+  { key: 'corporate', label: 'Corporate Booking', symbol: PASSENGER_MENU_SYMBOLS.corporate },
+  { key: 'travel', label: 'Travel Packages', symbol: PASSENGER_MENU_SYMBOLS.travel },
+  { key: 'scheduled_rides', label: 'Scheduled Rides', symbol: PASSENGER_MENU_SYMBOLS.scheduled_rides },
   { key: 'drivers', label: 'Drivers', symbol: PASSENGER_MENU_SYMBOLS.drivers },
   { key: 'favorites', label: 'Favorite Drivers', symbol: PASSENGER_MENU_SYMBOLS.favorites },
   { key: 'safety', label: 'Safety', symbol: PASSENGER_MENU_SYMBOLS.safety },
@@ -148,6 +156,7 @@ const buildPassengerMenuOptions = (keys) =>
   keys.map((key) => PASSENGER_MENU_OPTIONS.find((menu) => menu.key === key)).filter(Boolean);
 const PINNED_PASSENGER_MENU_OPTIONS = buildPassengerMenuOptions(['drivers', 'favorites']);
 const SECONDARY_PASSENGER_MENU_GROUPS = [
+  { key: 'booking', title: 'Booking Modes', keys: ['family', 'pooling', 'corporate', 'travel', 'scheduled_rides'] },
   { key: 'trip', title: 'Trip', keys: ['pooling', 'scheduled', 'history', 'stats', 'notes', 'ratings', 'receipts'] },
   { key: 'deals', title: 'Deals & Payment', keys: ['wallet', 'spin', 'promo', 'payment', 'subscription'] },
   { key: 'account', title: 'Account', keys: ['profile', 'kyc', 'documents', 'preferences', 'places', 'accessibility', 'sharing'] },
@@ -756,7 +765,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [poolCreateRequest, setPoolCreateRequest] = useState({ key: 0, model: null });
   const [driverLiveAddress, setDriverLiveAddress] = useState('');
   const [activePassengerMenu, setActivePassengerMenu] = useState(PRIMARY_PASSENGER_MENU_KEY);
-  const [bookingMode, setBookingMode] = useState('singlescreen'); // 'singlescreen' or 'quickcards'
+  const [bookingMode, setBookingMode] = useState('single'); // 'single', 'family', 'pooling', 'corporate', 'travel', 'scheduled'
   const [bookingJustCreated, setBookingJustCreated] = useState(false);
   const [rideProductAvailability, setRideProductAvailability] = useState({
     enabled_products: ['normal'],
@@ -1710,6 +1719,23 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
 
   const handleMenuSelection = useCallback(
     (menuKey, label) => {
+      // Handle booking mode switching
+      const bookingModes = {
+        ride: 'single',
+        family: 'family',
+        pooling: 'pooling',
+        corporate: 'corporate',
+        travel: 'travel',
+        scheduled_rides: 'scheduled',
+      };
+
+      if (bookingModes[menuKey]) {
+        setBookingMode(bookingModes[menuKey]);
+        setShowPassengerMenus(false);
+        triggerA11yFeedback(`${label} mode activated`);
+        return;
+      }
+
       setActivePassengerMenu(menuKey);
       setShowPassengerMenus(false);
       setShowNotificationCenter(menuKey === 'notifications');
@@ -3886,10 +3912,10 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         <View style={styles.quickBookingTitleBlock}>
           <Text style={styles.quickGreeting}>Hi {user?.name || 'there'}</Text>
           <Text style={[styles.quickTitle, isMobileWeb && styles.quickTitleMobile]}>
-            {bookingMode === 'quickcards' ? 'I need to go to...' : 'Where to?'}
+            {bookingMode === 'single' ? 'Where to?' : bookingMode === 'family' ? 'Book for your family' : bookingMode === 'pooling' ? 'Find a ride partner' : bookingMode === 'corporate' ? 'Book for your company' : bookingMode === 'travel' ? 'Plan your journey' : bookingMode === 'scheduled' ? 'Schedule your ride' : 'Where to?'}
           </Text>
           <Text style={[styles.quickSubtitle, isMobileWeb && styles.quickSubtitleMobile]}>
-            {bookingMode === 'quickcards' ? 'One tap booking. No typing.' : 'Enter your destination'}
+            {bookingMode === 'single' ? 'Enter your destination' : bookingMode === 'family' ? 'Add family members to your ride' : bookingMode === 'pooling' ? 'Share your ride with others' : bookingMode === 'corporate' ? 'Book for employees' : bookingMode === 'travel' ? 'Plan multiple stops' : bookingMode === 'scheduled' ? 'Schedule for later' : 'Enter your destination'}
           </Text>
         </View>
         <View style={styles.quickHeaderActions}>
@@ -3909,7 +3935,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         </View>
       </View>
 
-      {bookingMode === 'quickcards' && (
+      {bookingMode === 'single' && (
         <View style={styles.semanticCardsRow}>
           {SEMANTIC_CARDS.map((card) => (
             <TouchableOpacity
@@ -3927,7 +3953,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         </View>
       )}
 
-      {bookingMode === 'quickcards' && (
+      {bookingMode === 'single' && (
         <View style={styles.quickStepRow}>
           {['Destination', 'Ride', 'Confirm'].map((label, index) => {
             const stepNumber = index + 1;
@@ -4068,9 +4094,12 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       <View style={styles.quickSecondaryActions}>
         <TouchableOpacity
           style={styles.quickSecondaryButton}
-          onPress={() => setBookingMode(bookingMode === 'singlescreen' ? 'quickcards' : 'singlescreen')}>
+          onPress={() => {
+            setShowPassengerMenus((prev) => !prev);
+            setActivePassengerMenu('booking');
+          }}>
           <Text style={styles.quickSecondaryText}>
-            {bookingMode === 'singlescreen' ? 'Quick Cards' : 'Search'}
+            {bookingMode === 'single' ? 'Single' : bookingMode === 'family' ? 'Family' : bookingMode === 'pooling' ? 'Pool' : bookingMode === 'corporate' ? 'Corporate' : bookingMode === 'travel' ? 'Travel' : bookingMode === 'scheduled' ? 'Scheduled' : 'Booking Mode'}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
