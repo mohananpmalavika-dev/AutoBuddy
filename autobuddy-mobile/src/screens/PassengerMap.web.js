@@ -756,6 +756,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [poolCreateRequest, setPoolCreateRequest] = useState({ key: 0, model: null });
   const [driverLiveAddress, setDriverLiveAddress] = useState('');
   const [activePassengerMenu, setActivePassengerMenu] = useState(PRIMARY_PASSENGER_MENU_KEY);
+  const [bookingMode, setBookingMode] = useState('singlescreen'); // 'singlescreen' or 'quickcards'
   const [bookingJustCreated, setBookingJustCreated] = useState(false);
   const [rideProductAvailability, setRideProductAvailability] = useState({
     enabled_products: ['normal'],
@@ -3884,8 +3885,12 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       <View style={styles.quickBookingHeader}>
         <View style={styles.quickBookingTitleBlock}>
           <Text style={styles.quickGreeting}>Hi {user?.name || 'there'}</Text>
-          <Text style={[styles.quickTitle, isMobileWeb && styles.quickTitleMobile]}>I need to go to...</Text>
-          <Text style={[styles.quickSubtitle, isMobileWeb && styles.quickSubtitleMobile]}>One tap booking. No typing.</Text>
+          <Text style={[styles.quickTitle, isMobileWeb && styles.quickTitleMobile]}>
+            {bookingMode === 'quickcards' ? 'I need to go to...' : 'Where to?'}
+          </Text>
+          <Text style={[styles.quickSubtitle, isMobileWeb && styles.quickSubtitleMobile]}>
+            {bookingMode === 'quickcards' ? 'One tap booking. No typing.' : 'Enter your destination'}
+          </Text>
         </View>
         <View style={styles.quickHeaderActions}>
           <NotificationBell
@@ -3904,36 +3909,40 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         </View>
       </View>
 
-      <View style={styles.semanticCardsRow}>
-        {SEMANTIC_CARDS.map((card) => (
-          <TouchableOpacity
-            key={card.key}
-            style={styles.semanticCard}
-            onPress={() => {
-              void handleSemanticCardPress(card.key);
-            }}>
-            <Text style={styles.semanticCardEmoji}>{card.emoji}</Text>
-            <Text style={styles.semanticCardLabel} numberOfLines={1}>
-              {card.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+      {bookingMode === 'quickcards' && (
+        <View style={styles.semanticCardsRow}>
+          {SEMANTIC_CARDS.map((card) => (
+            <TouchableOpacity
+              key={card.key}
+              style={styles.semanticCard}
+              onPress={() => {
+                void handleSemanticCardPress(card.key);
+              }}>
+              <Text style={styles.semanticCardEmoji}>{card.emoji}</Text>
+              <Text style={styles.semanticCardLabel} numberOfLines={1}>
+                {card.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
 
-      <View style={styles.quickStepRow}>
-        {['Destination', 'Ride', 'Confirm'].map((label, index) => {
-          const stepNumber = index + 1;
-          const active = quickBookingStep >= stepNumber;
-          return (
-            <View key={label} style={styles.quickStepItem}>
-              <View style={[styles.quickStepDot, active && styles.quickStepDotActive]}>
-                <Text style={[styles.quickStepNumber, active && styles.quickStepNumberActive]}>{stepNumber}</Text>
+      {bookingMode === 'quickcards' && (
+        <View style={styles.quickStepRow}>
+          {['Destination', 'Ride', 'Confirm'].map((label, index) => {
+            const stepNumber = index + 1;
+            const active = quickBookingStep >= stepNumber;
+            return (
+              <View key={label} style={styles.quickStepItem}>
+                <View style={[styles.quickStepDot, active && styles.quickStepDotActive]}>
+                  <Text style={[styles.quickStepNumber, active && styles.quickStepNumberActive]}>{stepNumber}</Text>
+                </View>
+                <Text style={[styles.quickStepLabel, active && styles.quickStepLabelActive]}>{label}</Text>
               </View>
-              <Text style={[styles.quickStepLabel, active && styles.quickStepLabelActive]}>{label}</Text>
-            </View>
-          );
-        })}
-      </View>
+            );
+          })}
+        </View>
+      )}
 
       {shouldShowWebLocationPrompt && (
         <TouchableOpacity
@@ -4057,6 +4066,13 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       </TouchableOpacity>
 
       <View style={styles.quickSecondaryActions}>
+        <TouchableOpacity
+          style={styles.quickSecondaryButton}
+          onPress={() => setBookingMode(bookingMode === 'singlescreen' ? 'quickcards' : 'singlescreen')}>
+          <Text style={styles.quickSecondaryText}>
+            {bookingMode === 'singlescreen' ? 'Quick Cards' : 'Search'}
+          </Text>
+        </TouchableOpacity>
         <TouchableOpacity
           style={styles.quickSecondaryButton}
           onPress={() => setShowInteractiveMap((prev) => !prev)}>
