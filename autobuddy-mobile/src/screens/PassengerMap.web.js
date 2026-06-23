@@ -3323,16 +3323,51 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       : '';
   const quickFareLabel =
     quickDriverFareRange || (quickFareValue > 0 ? `Rs. ${quickFareValue.toFixed(0)}` : 'Fare ready soon');
-  // Normalize distance from fare object - accept different field names and units
-  const fareDistanceKm = Number(
-    fare?.distance_km ?? fare?.estimated_distance_km ?? (fare?.distance_m ? fare.distance_m / 1000 : undefined) ?? 0
+
+  const effectivePickupLocation = pickupLocation || selectedPickupLocation;
+  const effectiveDropoffLocation = dropoffLocation || selectedDropoffLocation;
+
+  const estimateDistanceKm = Number(
+    fare?.distance_km ??
+      fare?.estimated_distance_km ??
+      fare?.distance ??
+      fare?.estimated_distance ??
+      (fare?.distance_m ? fare.distance_m / 1000 : undefined) ??
+      (fare?.distanceMeters ? fare.distanceMeters / 1000 : undefined) ??
+      0,
   );
+
+  const coordinateDistanceKm = (() => {
+    if (
+      effectivePickupLocation?.latitude &&
+      effectivePickupLocation?.longitude &&
+      effectiveDropoffLocation?.latitude &&
+      effectiveDropoffLocation?.longitude
+    ) {
+      const R = 6371;
+      const dLat = ((effectiveDropoffLocation.latitude - effectivePickupLocation.latitude) * Math.PI) / 180;
+      const dLon = ((effectiveDropoffLocation.longitude - effectivePickupLocation.longitude) * Math.PI) / 180;
+      const lat1Rad = (effectivePickupLocation.latitude * Math.PI) / 180;
+      const lat2Rad = (effectiveDropoffLocation.latitude * Math.PI) / 180;
+      const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1Rad) *
+          Math.cos(lat2Rad) *
+          Math.sin(dLon / 2) *
+          Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c;
+    }
+    return 0;
+  })();
+
+  const fareDistanceKm = estimateDistanceKm > 0 ? estimateDistanceKm : coordinateDistanceKm;
   const quickDistanceLabel = fareDistanceKm > 0 ? `${fareDistanceKm.toFixed(1)} km` : 'Distance calculating';
   const quickEtaLabel = visibleDrivers.length > 0 ? `${Math.min(visibleDrivers.length, 5)} within 2 km` : autoFetchingTripData ? 'Finding drivers' : 'Driver search live';
-  const quickBookingReady = Boolean(pickupLocation && dropoffLocation);
-  const quickBookingStep = !dropoffLocation ? 1 : quickBookingReady && !fare && autoFetchingTripData ? 2 : 3;
-  const quickDestinationText = dropoffLocation?.address || dropoffQuery || '';
-  const quickPickupText = pickupLocation?.address || pickupQuery || 'Use current location';
+  const quickBookingReady = Boolean(effectivePickupLocation && effectiveDropoffLocation);
+  const quickBookingStep = !effectiveDropoffLocation ? 1 : quickBookingReady && !fare && autoFetchingTripData ? 2 : 3;
+  const quickDestinationText = effectiveDropoffLocation?.address || dropoffQuery || '';
+  const quickPickupText = effectivePickupLocation?.address || pickupQuery || 'Use current location';
 
   const handleQuickConfirmRide = async () => {
     if (!pickupLocation) {
