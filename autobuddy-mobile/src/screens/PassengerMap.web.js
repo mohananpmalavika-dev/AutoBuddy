@@ -3052,10 +3052,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           pickup_location: locations.pickup,
           drop_location: {
             ...locations.dropoff,
-            distance_km:
-              Number(fare?.distance_km || 0) > 0
-                ? Number(fare.distance_km)
-                : locations.dropoff?.distance_km,
+            distance_km: Number(fareDistanceKm || 0) > 0 ? Number(fareDistanceKm) : locations.dropoff?.distance_km,
           },
           payment_method: selectedPaymentMethod,
           payment_method_id: selectedPaymentMethodId || undefined,
@@ -3322,7 +3319,11 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       : '';
   const quickFareLabel =
     quickDriverFareRange || (quickFareValue > 0 ? `Rs. ${quickFareValue.toFixed(0)}` : 'Fare ready soon');
-  const quickDistanceLabel = Number(fare?.distance_km || 0) > 0 ? `${Number(fare.distance_km).toFixed(1)} km` : 'Distance calculating';
+  // Normalize distance from fare object - accept different field names and units
+  const fareDistanceKm = Number(
+    fare?.distance_km ?? fare?.estimated_distance_km ?? (fare?.distance_m ? fare.distance_m / 1000 : undefined) ?? 0
+  );
+  const quickDistanceLabel = fareDistanceKm > 0 ? `${fareDistanceKm.toFixed(1)} km` : 'Distance calculating';
   const quickEtaLabel = visibleDrivers.length > 0 ? `${Math.min(visibleDrivers.length, 5)} within 2 km` : autoFetchingTripData ? 'Finding drivers' : 'Driver search live';
   const quickBookingReady = Boolean(pickupLocation && dropoffLocation);
   const quickBookingStep = !dropoffLocation ? 1 : quickBookingReady && !fare && autoFetchingTripData ? 2 : 3;
