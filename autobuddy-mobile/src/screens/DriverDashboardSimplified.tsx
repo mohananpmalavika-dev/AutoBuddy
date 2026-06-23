@@ -21,9 +21,16 @@ import { ReferralProgramScreen } from '../screens/referral/ReferralScreens';
 import { SuspensionAppealScreens } from '../screens/suspension/SuspensionAppealScreens';
 import InsuranceScreens from '../screens/insurance/InsuranceScreens';
 
+interface DriverUser {
+  id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+}
+
 interface DriverDashboardSimplifiedProps {
   token: string;
-  user: any;
+  user: DriverUser | null;
   onLogout: () => void;
 }
 
@@ -34,6 +41,15 @@ export function DriverDashboardSimplified({
   user,
   onLogout,
 }: DriverDashboardSimplifiedProps) {
+  // Check for required user data
+  if (!user || !user.id) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text style={styles.errorText}>User data not available. Please log in again.</Text>
+      </View>
+    );
+  }
+
   const { width } = useWindowDimensions();
   const [activeTab, setActiveTab] = useState<TabType>('map');
   const [isOnline, setIsOnline] = useState(false);
@@ -41,25 +57,29 @@ export function DriverDashboardSimplified({
   const [documents, setDocuments] = useState<DocumentStatus[]>([]);
   const [rideRequest, setRideRequest] = useState<RideRequest | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [alerts, setAlerts] = useState<number>(0);
   const [todayEarnings, setTodayEarnings] = useState(0);
-  const { criticalAlertCount } = useDocumentExpiry(user?.id, token);
+  const { criticalAlertCount } = useDocumentExpiry(user.id, token);
 
   useEffect(() => {
     loadDashboardData();
-  }, [token]);
+  }, [token, user.id]);
 
   const loadDashboardData = async () => {
     try {
       setLoading(true);
+      setError(null);
       // In a real app, these would be API calls
       await Promise.all([
         loadEarnings(),
         loadDocuments(),
         loadAlerts(),
       ]);
-    } catch (error) {
-      console.error('Error loading dashboard:', error);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to load dashboard data';
+      console.error('Error loading dashboard:', err);
+      setError(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -156,6 +176,17 @@ export function DriverDashboardSimplified({
 
   return (
     <View style={styles.container}>
+      {/* Error banner if data load failed */}
+      {error && (
+        <View style={styles.errorBanner}>
+          <MaterialIcons name="error" size={20} color="#D32F2F" />
+          <Text style={styles.errorBannerText}>{error}</Text>
+          <Pressable onPress={() => setError(null)}>
+            <MaterialIcons name="close" size={20} color="#D32F2F" />
+          </Pressable>
+        </View>
+      )}
+      
       {/* Top Bar with online status and quick info */}
       <View style={styles.topBar}>
         <View style={styles.topBarLeft}>

@@ -12,6 +12,14 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useDriverPerformanceInsights } from '../hooks/useDriverPerformanceInsights';
 
+interface Insight {
+  id: string;
+  title: string;
+  description?: string;
+  rating?: number;
+  [key: string]: any;
+}
+
 interface DriverPerformanceInsightsScreenProps {
   token: string | null;
   driverId: string;
@@ -20,11 +28,21 @@ interface DriverPerformanceInsightsScreenProps {
 export const DriverPerformanceInsightsScreen: React.FC<
   DriverPerformanceInsightsScreenProps
 > = ({ token, driverId }) => {
+  // Check for required data
+  if (!token || !driverId) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.errorText}>Invalid or missing required data</Text>
+      </View>
+    );
+  }
+
   const {
     metrics,
     insights,
     currentStats,
     loading,
+    error,
     fetchMetrics,
     fetchInsights,
     getPerformanceTrend,
@@ -34,17 +52,25 @@ export const DriverPerformanceInsightsScreen: React.FC<
   } = useDriverPerformanceInsights(token, driverId);
 
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedInsight, setSelectedInsight] = useState<any>(null);
+  const [selectedInsight, setSelectedInsight] = useState<Insight | null>(null);
   const [showInsightDetail, setShowInsightDetail] = useState(false);
   const [timeRange, setTimeRange] = useState(7);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
   }, [timeRange]);
 
   const loadData = async () => {
-    await fetchMetrics(timeRange);
-    await fetchInsights();
+    try {
+      setLoadError(null);
+      await fetchMetrics(timeRange);
+      await fetchInsights();
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to load performance data';
+      setLoadError(errorMsg);
+      console.error('Performance data load error:', err);
+    }
   };
 
   const onRefresh = async () => {
@@ -77,6 +103,17 @@ export const DriverPerformanceInsightsScreen: React.FC<
       style={styles.container}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
+      {/* Error banner if load failed */}
+      {(loadError || error) && (
+        <View style={styles.errorBanner}>
+          <MaterialIcons name="error" size={20} color="#D32F2F" />
+          <Text style={styles.errorBannerText}>{loadError || error || 'An error occurred'}</Text>
+          <Pressable onPress={() => setLoadError(null)}>
+            <MaterialIcons name="close" size={20} color="#D32F2F" />
+          </Pressable>
+        </View>
+      )}
+
       {/* Time Range Selector */}
       <View style={styles.timeRangeContainer}>
         {[7, 14, 30].map((days) => (
@@ -177,9 +214,13 @@ export const DriverPerformanceInsightsScreen: React.FC<
           <GoalCard
             icon="star"
             label="Rating Target"
-            current={parseFloat(goalProgress.rating.current)}
-            goal={goalProgress.rating.goal}
-            progress={Math.min(goalProgress.rating.progress, 100)}
+            current={
+              goalProgress?.rating?.current && !isNaN(parseFloat(String(goalProgress.rating.current)))
+                ? parseFloat(String(goalProgress.rating.current))
+                : 0
+            }
+            goal={goalProgress?.rating?.goal ?? 5}
+            progress={Math.min(goalProgress?.rating?.progress ?? 0, 100)}
           />
         </View>
       )}

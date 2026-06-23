@@ -24,6 +24,15 @@ export const DriverVehicleManagementScreen: React.FC<DriverVehicleManagementScre
   token,
   driverId,
 }) => {
+  // Check for required data
+  if (!token) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.errorText}>Authentication token is required</Text>
+      </View>
+    );
+  }
+
   const {
     vehicles,
     loading,
@@ -43,6 +52,7 @@ export const DriverVehicleManagementScreen: React.FC<DriverVehicleManagementScre
   const [showVehicleDetail, setShowVehicleDetail] = useState(false);
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
   const [stats, setStats] = useState<any>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [newVehicleData, setNewVehicleData] = useState({
     type: 'sedan' as const,
@@ -62,8 +72,15 @@ export const DriverVehicleManagementScreen: React.FC<DriverVehicleManagementScre
   }, []);
 
   const loadData = async () => {
-    await fetchVehicles();
-    setStats(getVehicleStats());
+    try {
+      setLoadError(null);
+      await fetchVehicles();
+      setStats(getVehicleStats());
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to load vehicle data';
+      setLoadError(errorMsg);
+      console.error('Vehicle load error:', err);
+    }
   };
 
   const onRefresh = async () => {
@@ -78,28 +95,35 @@ export const DriverVehicleManagementScreen: React.FC<DriverVehicleManagementScre
       return;
     }
 
-    const vehicle = await addVehicle({
-      ...newVehicleData,
-      driverId,
-      status: 'active',
-    });
-
-    if (vehicle) {
-      Alert.alert('Success', 'Vehicle added successfully');
-      setNewVehicleData({
-        type: 'sedan',
-        registrationNumber: '',
-        make: '',
-        model: '',
-        year: new Date().getFullYear(),
-        color: '',
-        fuelType: 'petrol',
-        registrationExpiry: new Date(),
-        insuranceExpiry: new Date(),
-        pollutionExpiry: new Date(),
+    try {
+      const vehicle = await addVehicle({
+        ...newVehicleData,
+        driverId,
+        status: 'active',
       });
-      setShowAddVehicle(false);
-      setStats(getVehicleStats());
+
+      if (vehicle) {
+        Alert.alert('Success', 'Vehicle added successfully');
+        setNewVehicleData({
+          type: 'sedan',
+          registrationNumber: '',
+          make: '',
+          model: '',
+          year: new Date().getFullYear(),
+          color: '',
+          fuelType: 'petrol',
+          registrationExpiry: new Date(),
+          insuranceExpiry: new Date(),
+          pollutionExpiry: new Date(),
+        });
+        setShowAddVehicle(false);
+        setStats(getVehicleStats());
+      } else {
+        Alert.alert('Error', 'Failed to add vehicle');
+      }
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to add vehicle';
+      Alert.alert('Error', errorMsg);
     }
   };
 
@@ -109,11 +133,18 @@ export const DriverVehicleManagementScreen: React.FC<DriverVehicleManagementScre
       {
         text: 'Delete',
         onPress: async () => {
-          const success = await deleteVehicle(vehicleId);
-          if (success) {
-            Alert.alert('Success', 'Vehicle deleted');
-            setShowVehicleDetail(false);
-            setStats(getVehicleStats());
+          try {
+            const success = await deleteVehicle(vehicleId);
+            if (success) {
+              Alert.alert('Success', 'Vehicle deleted');
+              setShowVehicleDetail(false);
+              setStats(getVehicleStats());
+            } else {
+              Alert.alert('Error', 'Failed to delete vehicle');
+            }
+          } catch (err) {
+            const errorMsg = err instanceof Error ? err.message : 'Failed to delete vehicle';
+            Alert.alert('Error', errorMsg);
           }
         },
         style: 'destructive',
@@ -121,7 +152,7 @@ export const DriverVehicleManagementScreen: React.FC<DriverVehicleManagementScre
     ]);
   };
 
-  const expiringDocs = getExpiringDocuments();
+  const expiringDocs = getExpiringDocuments() || [];
   const hasWarnings = expiringDocs.length > 0;
 
   return (
@@ -129,21 +160,32 @@ export const DriverVehicleManagementScreen: React.FC<DriverVehicleManagementScre
       style={styles.container}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
+      {/* Error banner if load failed */}
+      {(loadError || error) && (
+        <View style={styles.errorBanner}>
+          <MaterialIcons name="error" size={20} color="#D32F2F" />
+          <Text style={styles.errorBannerText}>{loadError || error || 'An error occurred'}</Text>
+          <Pressable onPress={() => setLoadError(null)}>
+            <MaterialIcons name="close" size={20} color="#D32F2F" />
+          </Pressable>
+        </View>
+      )}
+
       {/* Stats Card */}
       {stats && (
         <View style={styles.statsCard}>
           <View style={styles.statItem}>
-            <Text style={styles.statValue}>{stats.total}</Text>
+            <Text style={styles.statValue}>{stats.total ?? 0}</Text>
             <Text style={styles.statLabel}>Total</Text>
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
-            <Text style={[styles.statValue, { color: '#4CAF50' }]}>{stats.active}</Text>
+            <Text style={[styles.statValue, { color: '#4CAF50' }]}>{stats.active ?? 0}</Text>
             <Text style={styles.statLabel}>Active</Text>
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
-            <Text style={[styles.statValue, { color: '#FF9800' }]}>{stats.expiring}</Text>
+            <Text style={[styles.statValue, { color: '#FF9800' }]}>{stats.expiring ?? 0}</Text>
             <Text style={styles.statLabel}>Expiring</Text>
           </View>
         </View>

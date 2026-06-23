@@ -41,6 +41,15 @@ export const DriverDocumentUploadScreen: React.FC<DriverDocumentUploadScreenProp
   token,
   userId,
 }) => {
+  // Check for required data
+  if (!token) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.errorText}>Authentication token is required</Text>
+      </View>
+    );
+  }
+
   const {
     documents,
     uploadProgress,
@@ -57,6 +66,8 @@ export const DriverDocumentUploadScreen: React.FC<DriverDocumentUploadScreenProp
 
   const [refreshing, setRefreshing] = useState(false);
   const [selectedType, setSelectedType] = useState<Document['type'] | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [documentUploading, setDocumentUploading] = useState(false);
 
   useEffect(() => {
     fetchDocuments();
@@ -70,45 +81,75 @@ export const DriverDocumentUploadScreen: React.FC<DriverDocumentUploadScreenProp
 
   const handleUploadDocument = async (type: Document['type']) => {
     try {
+      setDocumentUploading(true);
+      setUploadError(null);
+      
       const result = await DocumentPicker.getDocumentAsync({
         type: 'application/pdf',
         copyToCacheDirectory: true,
       });
 
-      if (!result.canceled && result.assets[0]) {
-        await uploadDocument(type, result.assets[0].uri);
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        if (!asset.uri) {
+          throw new Error('Invalid document');
+        }
+        await uploadDocument(type, asset.uri);
       }
     } catch (err) {
-      Alert.alert('Error', 'Failed to pick document');
+      const errorMsg = err instanceof Error ? err.message : 'Failed to pick document';
+      setUploadError(errorMsg);
+      Alert.alert('Error', errorMsg);
+    } finally {
+      setDocumentUploading(false);
     }
   };
 
   const handleDeleteDocument = async (documentId: string) => {
-    const success = await deleteDocument(documentId);
-    if (success) {
-      Alert.alert('Success', 'Document deleted');
-    } else {
-      Alert.alert('Error', 'Failed to delete document');
+    try {
+      const success = await deleteDocument(documentId);
+      if (success) {
+        Alert.alert('Success', 'Document deleted');
+      } else {
+        Alert.alert('Error', 'Failed to delete document');
+      }
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to delete document';
+      Alert.alert('Error', errorMsg);
     }
   };
 
-  const approvedDocs = getApprovedDocuments();
-  const pendingDocs = getPendingDocuments();
-  const expiredDocs = getExpiredDocuments();
+  const approvedDocs = getApprovedDocuments() || [];
+  const pendingDocs = getPendingDocuments() || [];
+  const expiredDocs = getExpiredDocuments() || [];
 
   const requiredDocsStatus = REQUIRED_DOCUMENTS.map((type) => ({
     type,
-    approved: approvedDocs.some((d) => d.type === type),
+    approved: approvedDocs.some((d) => d && d.type === type),
   }));
 
-  const completionPercent = Math.round((approvedDocs.length / REQUIRED_DOCUMENTS.length) * 100);
-  const isVerified = REQUIRED_DOCUMENTS.every((type) => approvedDocs.some((d) => d.type === type));
+  const completionPercent = 
+    REQUIRED_DOCUMENTS.length > 0 
+      ? Math.round((approvedDocs.length / REQUIRED_DOCUMENTS.length) * 100)
+      : 0;
+  const isVerified = REQUIRED_DOCUMENTS.every((type) => approvedDocs.some((d) => d && d.type === type));
 
   return (
     <ScrollView
       style={styles.container}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
+      {/* Error banner if load failed */}
+      {(uploadError || error) && (
+        <View style={styles.errorBanner}>
+          <MaterialIcons name="error" size={20} color="#D32F2F" />
+          <Text style={styles.errorBannerText}>{uploadError || error || 'An error occurred'}</Text>
+          <Pressable onPress={() => setUploadError(null)}>
+            <MaterialIcons name="close" size={20} color="#D32F2F" />
+          </Pressable>
+        </View>
+      )}
+
       {/* Status Card */}
       <View style={[styles.statusCard, isVerified && styles.statusCardVerified]}>
         <View style={styles.statusHeader}>
@@ -198,17 +239,20 @@ export const DriverDocumentUploadScreen: React.FC<DriverDocumentUploadScreenProp
             {approvedDocs.length > 0 && (
               <View style={styles.subsection}>
                 <Text style={styles.subsectionTitle}>Approved</Text>
-                {approvedDocs.map((doc) => (
-                  <DocumentUploadCard
-                    key={doc.id}
-                    document={doc}
-                    type={doc.type}
-                    progress={uploadProgress[`${doc.type}_${doc.id}`]}
-                    onUpload={() => handleUploadDocument(doc.type)}
-                    onDelete={() => handleDeleteDocument(doc.id)}
-                    onRetry={() => {}}
-                  />
-                ))}
+                {approvedDocs.map((doc) => {
+                  if (!doc || !doc.id) return null;
+                  return (
+                    <DocumentUploadCard
+                      key={doc.id}
+                      document={doc}
+                      type={doc.type}
+                      progress={uploadProgress[`${doc.type}_${doc.id}`] ?? 0}
+                      onUpload={() => handleUploadDocument(doc.type)}
+                      onDelete={() => handleDeleteDocument(doc.id)}
+                      onRetry={() => {}}
+                    />
+                  );
+                })}
               </View>
             )}
 
@@ -216,17 +260,20 @@ export const DriverDocumentUploadScreen: React.FC<DriverDocumentUploadScreenProp
             {pendingDocs.length > 0 && (
               <View style={styles.subsection}>
                 <Text style={[styles.subsectionTitle, { color: '#FFC107' }]}>Pending Review</Text>
-                {pendingDocs.map((doc) => (
-                  <DocumentUploadCard
-                    key={doc.id}
-                    document={doc}
-                    type={doc.type}
-                    progress={uploadProgress[`${doc.type}_${doc.id}`]}
-                    onUpload={() => handleUploadDocument(doc.type)}
-                    onDelete={() => handleDeleteDocument(doc.id)}
-                    onRetry={() => {}}
-                  />
-                ))}
+                {pendingDocs.map((doc) => {
+                  if (!doc || !doc.id) return null;
+                  return (
+                    <DocumentUploadCard
+                      key={doc.id}
+                      document={doc}
+                      type={doc.type}
+                      progress={uploadProgress[`${doc.type}_${doc.id}`] ?? 0}
+                      onUpload={() => handleUploadDocument(doc.type)}
+                      onDelete={() => handleDeleteDocument(doc.id)}
+                      onRetry={() => {}}
+                    />
+                  );
+                })}
               </View>
             )}
 
@@ -234,17 +281,20 @@ export const DriverDocumentUploadScreen: React.FC<DriverDocumentUploadScreenProp
             {expiredDocs.length > 0 && (
               <View style={styles.subsection}>
                 <Text style={[styles.subsectionTitle, { color: '#F44336' }]}>Expired</Text>
-                {expiredDocs.map((doc) => (
-                  <DocumentUploadCard
-                    key={doc.id}
-                    document={doc}
-                    type={doc.type}
-                    progress={uploadProgress[`${doc.type}_${doc.id}`]}
-                    onUpload={() => handleUploadDocument(doc.type)}
-                    onDelete={() => handleDeleteDocument(doc.id)}
-                    onRetry={() => {}}
-                  />
-                ))}
+                {expiredDocs.map((doc) => {
+                 if (!doc || !doc.id) return null;
+                 return (
+                   <DocumentUploadCard
+                     key={doc.id}
+                     document={doc}
+                     type={doc.type}
+                     progress={uploadProgress[`${doc.type}_${doc.id}`] ?? 0}
+                     onUpload={() => handleUploadDocument(doc.type)}
+                     onDelete={() => handleDeleteDocument(doc.id)}
+                     onRetry={() => {}}
+                   />
+                 );
+                })}
               </View>
             )}
 
