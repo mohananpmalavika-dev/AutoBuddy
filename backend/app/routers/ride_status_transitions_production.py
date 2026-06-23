@@ -14,6 +14,8 @@ import logging
 import uuid
 from pydantic import BaseModel
 
+from app.services.fare_calculation_service import estimate_time_minutes, calculate_waiting_charge
+
 from app.database import get_db
 
 logger = logging.getLogger(__name__)
@@ -463,8 +465,16 @@ async def complete_ride(
         time_rate = 2  # per minute
         min_fare = 30  # absolute minimum
 
+        route_time_minutes = estimate_time_minutes(request.actual_distance_km)
+        travel_time_charge = max(0.0, route_time_minutes - 5.0) * time_rate
+        waiting_minutes, waiting_charge = calculate_waiting_charge(
+            request.duration_seconds / 60,
+            route_time_minutes,
+            time_rate,
+        )
+        time_charge = round(travel_time_charge + waiting_charge, 2)
+
         distance_charge = request.actual_distance_km * distance_rate
-        time_charge = (request.duration_seconds / 60) * time_rate
 
         subtotal = base_fare + distance_charge + time_charge
 
@@ -500,6 +510,8 @@ async def complete_ride(
             metadata=json.dumps({
                 "distance_km": request.actual_distance_km,
                 "duration_seconds": request.duration_seconds,
+                "route_time_minutes": route_time_minutes,
+                "waiting_minutes": waiting_minutes,
                 "final_fare": ride.final_fare
             })
         )
@@ -517,6 +529,8 @@ async def complete_ride(
             "completed_at": ride.completed_at.isoformat(),
             "distance_km": ride.distance_km,
             "duration_seconds": ride.duration_seconds,
+            "route_time_minutes": round(route_time_minutes, 2),
+            "waiting_minutes": waiting_minutes,
             "final_fare": ride.final_fare
         }
 

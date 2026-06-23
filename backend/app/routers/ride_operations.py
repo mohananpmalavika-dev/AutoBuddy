@@ -11,6 +11,7 @@ from typing import Optional
 import logging
 import math
 
+from app.services.fare_calculation_service import estimate_time_minutes, calculate_waiting_charge
 from app.utils.rbac import get_current_user_from_request
 
 logger = logging.getLogger(__name__)
@@ -216,26 +217,45 @@ async def complete_ride(booking_id: str, request: Request):
                 r = 6371  # Earth radius in km
                 actual_distance_km += c * r
         
-        # Recalculate fare based on actual distance and time
+        # Recalculate fare based on actual distance and route travel time
         base_fare = booking.get('base_fare', 50)
         distance_rate = booking.get('distance_rate', 10)  # per km
         time_rate = booking.get('time_rate', 2)  # per minute
-        
+
+        route_time_minutes = 0.0
+        if booking.get('estimated_time_minutes') is not None:
+            try:
+                route_time_minutes = float(booking.get('estimated_time_minutes') or 0)
+            except (TypeError, ValueError):
+                route_time_minutes = 0.0
+
+        if route_time_minutes <= 0.0 and actual_distance_km > 0:
+            route_time_minutes = estimate_time_minutes(
+                actual_distance_km,
+                str(booking.get('ride_type') or 'instant')
+            )
+
+        travel_time_charge = max(0.0, route_time_minutes - 5.0) * time_rate
+        waiting_minutes, waiting_charge = calculate_waiting_charge(
+            ride_duration_minutes,
+            route_time_minutes,
+            time_rate,
+        )
+        time_charge = round(travel_time_charge + waiting_charge, 2)
         distance_charge = actual_distance_km * distance_rate
-        time_charge = (ride_duration_minutes / 60) * time_rate  # Convert to hourly rate
-        
+
         # Apply vehicle multiplier
         vehicle_multiplier = booking.get('vehicle_multiplier', 1.0)
         subtotal = (base_fare + distance_charge + time_charge) * vehicle_multiplier
-        
+
         # Apply surge pricing if applicable
         surge_multiplier = booking.get('surge_multiplier', 1.0)
         subtotal_with_surge = subtotal * surge_multiplier
-        
+
         # Calculate taxes (assuming 5%)
         tax_rate = 0.05
         taxes = subtotal_with_surge * tax_rate
-        
+
         final_fare = subtotal_with_surge + taxes
         
         # Update booking with completion details
@@ -248,6 +268,8 @@ async def complete_ride(booking_id: str, request: Request):
                     'ride_duration_seconds': int(ride_duration_seconds),
                     'ride_duration_minutes': round(ride_duration_minutes, 2),
                     'actual_distance_km': round(actual_distance_km, 2),
+                    'route_time_minutes': round(route_time_minutes, 2),
+                    'waiting_minutes': waiting_minutes,
                     'final_fare': round(final_fare, 2),
                     'completion_location': {
                         'latitude': latitude,
@@ -256,6 +278,8 @@ async def complete_ride(booking_id: str, request: Request):
                     'fare_breakdown': {
                         'base_fare': base_fare,
                         'distance_charge': round(distance_charge, 2),
+                        'route_time_minutes': round(route_time_minutes, 2),
+                        'waiting_minutes': waiting_minutes,
                         'time_charge': round(time_charge, 2),
                         'subtotal': round(subtotal, 2),
                         'vehicle_multiplier': vehicle_multiplier,
@@ -317,6 +341,8 @@ async def complete_ride(booking_id: str, request: Request):
             'final_fare': round(final_fare, 2),
             'distance_km': round(actual_distance_km, 2),
             'duration_minutes': round(ride_duration_minutes, 2),
+            'route_time_minutes': round(route_time_minutes, 2),
+            'waiting_minutes': waiting_minutes,
             'receipt_id': str(receipt_result.inserted_id)
         }
         

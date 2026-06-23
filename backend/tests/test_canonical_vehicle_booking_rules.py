@@ -7,7 +7,7 @@ from fastapi import HTTPException
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.routers.bookings_extended import _validate_vehicle_constraints
-from app.services.fare_calculation_service import calculate_complete_fare
+from app.services.fare_calculation_service import calculate_complete_fare, calculate_waiting_charge
 
 
 def test_fare_calculation_uses_db_fare_config_override():
@@ -56,6 +56,18 @@ def test_goods_weight_cannot_exceed_selected_subtype_capacity():
 
     assert exc.value.status_code == 400
     assert "capacity" in exc.value.detail
+
+
+def test_calculate_waiting_charge_only_applies_excess_time():
+    waiting_minutes, waiting_charge = calculate_waiting_charge(22, 20, 2)
+    assert waiting_minutes == 2
+    assert waiting_charge == 4
+
+
+def test_calculate_waiting_charge_no_charge_if_route_time_longer():
+    waiting_minutes, waiting_charge = calculate_waiting_charge(18, 20, 2)
+    assert waiting_minutes == 0
+    assert waiting_charge == 0
 
 
 def test_passenger_count_uses_subtype_capacity():

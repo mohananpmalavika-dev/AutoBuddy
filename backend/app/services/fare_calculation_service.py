@@ -58,6 +58,21 @@ def _as_int(value, default: int) -> int:
         return default
 
 
+def calculate_waiting_charge(
+    ride_duration_minutes: float,
+    route_time_minutes: float,
+    per_minute_rate: float
+) -> Tuple[float, float]:
+    """
+    Calculate waiting charge only for time spent beyond route travel time.
+    """
+    ride_duration = max(0.0, _as_float(ride_duration_minutes, 0.0))
+    route_time = max(0.0, _as_float(route_time_minutes, 0.0))
+    waiting_minutes = max(0.0, ride_duration - route_time)
+    waiting_charge = waiting_minutes * _as_float(per_minute_rate, 0.0)
+    return round(waiting_minutes, 2), round(waiting_charge, 2)
+
+
 def _merged_fare_config(vehicle_type_id: str, fare_config_override: Optional[Dict] = None) -> Dict:
     default_config = _to_plain_config(
         FARE_CONFIGURATIONS.get(vehicle_type_id)
