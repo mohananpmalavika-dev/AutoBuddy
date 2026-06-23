@@ -26,6 +26,27 @@ const PLAN_LABELS = {
   per_trip: 'Per Trip',
 };
 
+/**
+ * @typedef {{
+ *   id: string;
+ *   name?: string;
+ *   email?: string;
+ *   phone?: string;
+ *   created_at?: string;
+ * }} User
+ * 
+ * @typedef {{
+ *   token: string;
+ *   user: User | null;
+ *   onLogout: () => void;
+ *   onBack: () => void;
+ * }} PassengerProfileProps
+ */
+
+/**
+ * PassengerProfile Component
+ * @param {PassengerProfileProps} props
+ */
 export default function PassengerProfile({ token, user, onLogout, onBack }) {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
@@ -72,7 +93,7 @@ export default function PassengerProfile({ token, user, onLogout, onBack }) {
       }
       return result;
     } catch (err) {
-      setError(err.message || 'Request failed.');
+      setError((err instanceof Error ? err.message : String(err)) || 'Request failed.');
       return null;
     } finally {
       setLoading(false);
@@ -267,7 +288,7 @@ export default function PassengerProfile({ token, user, onLogout, onBack }) {
       setPendingPhoneVerification(normalizedPhone);
       setNewPhone('');
     } catch (err) {
-      setError(err.message || 'Could not request admin verification.');
+      setError((err instanceof Error ? err.message : String(err)) || 'Could not request admin verification.');
     } finally {
       setAdminRequesting(false);
     }
@@ -412,7 +433,7 @@ export default function PassengerProfile({ token, user, onLogout, onBack }) {
                 <View style={styles.infoRow}>
                   <Text style={styles.infoLabel}>Outstanding Due:</Text>
                   <Text style={styles.infoValue}>
-                    INR {Number(subscriptionInfo.outstanding_amount || 0).toFixed(2)}
+                    INR {Number(subscriptionInfo?.outstanding_amount ?? 0).toFixed(2)}
                   </Text>
                 </View>
                 {subscriptionConfig?.plans && (

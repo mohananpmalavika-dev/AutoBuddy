@@ -113,7 +113,7 @@ export const PassengerInsuranceScreen: React.FC<PassengerInsuranceScreenProps> =
         <View style={styles.summaryItem}>
           <MaterialIcons name="security" size={24} color="#4CAF50" />
           <Text style={styles.summaryLabel}>Total Coverage</Text>
-          <Text style={styles.summaryValue}>₹{activeCoverageAmount.toFixed(0)}</Text>
+          <Text style={styles.summaryValue}>₹{((activeCoverageAmount ?? 0) as number).toFixed(0)}</Text>
         </View>
         <View style={styles.summaryItem}>
           <MaterialIcons name="assignment" size={24} color="#FF9800" />
@@ -244,7 +244,7 @@ export const PassengerInsuranceScreen: React.FC<PassengerInsuranceScreenProps> =
                 <View style={styles.planDetailCard}>
                   <View style={styles.planBadge}>
                     <Text style={styles.planBadgeText}>
-                      {selectedPlan.type.toUpperCase()}
+                      {(selectedPlan?.type ?? 'unknown').toUpperCase()}
                     </Text>
                   </View>
 
@@ -303,7 +303,9 @@ export const PassengerInsuranceScreen: React.FC<PassengerInsuranceScreenProps> =
                     <View style={styles.validityText}>
                       <Text style={styles.validityLabel}>Valid Until</Text>
                       <Text style={styles.validityValue}>
-                        {new Date(selectedPlan.endDate).toLocaleDateString()}
+                        {selectedPlan?.endDate && !isNaN(new Date(selectedPlan.endDate).getTime())
+                          ? new Date(selectedPlan.endDate).toLocaleDateString()
+                          : 'Unknown'}
                       </Text>
                     </View>
                   </View>
@@ -377,7 +379,7 @@ const PlanCard: React.FC<{
         <View>
           <Text style={styles.planCardName}>{plan.name}</Text>
           <Text style={[styles.planCardType, { color: getTypeColor(plan.type) }]}>
-            {plan.type.toUpperCase()}
+            {(plan?.type ?? 'unknown').toUpperCase()}
           </Text>
         </View>
         {isActive && (

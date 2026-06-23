@@ -38,7 +38,13 @@ import ModeSelectionScreen from './ModeSelectionScreen';
 
 interface PassengerDashboardProps {
   token: string;
-  user: any;
+  user: {
+    id?: string;
+    name?: string;
+    email?: string;
+    phone?: string;
+    [key: string]: unknown;
+  };
   onLogout: () => void;
 }
 
@@ -140,7 +146,7 @@ export default function PassengerDashboard({
   // Predictive morning booking — one-tap commute suggestion
   const predictiveBooking = usePredictiveBooking(
     token,
-    (profile?.name?.split(' ') || [])[0] || user?.name || 'there'
+    ((profile?.name ?? user?.name ?? '')?.split(' ') || []).filter(Boolean)?.[0] || 'there'
   );
 
   // -------------------------------------------------------------------------
@@ -475,7 +481,7 @@ export default function PassengerDashboard({
       <View style={styles.header}>
         <View>
           <Text style={styles.greeting}>
-            Hello, {profile?.name?.split(' ')[0] || user?.name || 'there'}
+            Hello, {((profile?.name ?? user?.name ?? '')?.split(' ') || []).filter(Boolean)?.[0] || 'there'}
           </Text>
           <Text style={styles.headerSubtitle}>Where are you headed?</Text>
         </View>

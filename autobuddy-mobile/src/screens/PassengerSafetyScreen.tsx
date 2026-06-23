@@ -164,10 +164,10 @@ export const PassengerSafetyScreen: React.FC<PassengerSafetyScreenProps> = ({
       return;
     }
 
-    const phoneNumbers = sharePhones
+    const phoneNumbers = (sharePhones ?? '')
       .split(',')
-      .map((p) => p.trim())
-      .filter((p) => p.length > 0);
+      .map((p) => (p ?? '').trim())
+      .filter((p) => (p ?? '').length > 0);
 
     const share = await shareTrip(currentRideId, phoneNumbers);
     if (share) {
@@ -294,11 +294,13 @@ export const PassengerSafetyScreen: React.FC<PassengerSafetyScreenProps> = ({
               />
               <View style={styles.incidentContent}>
                 <Text style={styles.incidentType}>
-                  {incident.type.replace(/_/g, ' ').toUpperCase()}
+                  {(incident?.type ?? 'unknown').replace(/_/g, ' ').toUpperCase()}
                 </Text>
-                <Text style={styles.incidentDescription}>{incident.description}</Text>
+                <Text style={styles.incidentDescription}>{incident?.description ?? 'No description'}</Text>
                 <Text style={styles.incidentDate}>
-                  {new Date(incident.createdAt).toLocaleDateString()}
+                  {incident?.createdAt && !isNaN(new Date(incident.createdAt).getTime()) 
+                    ? new Date(incident.createdAt).toLocaleDateString() 
+                    : 'Date unknown'}
                 </Text>
               </View>
               <Text
@@ -306,15 +308,15 @@ export const PassengerSafetyScreen: React.FC<PassengerSafetyScreenProps> = ({
                   styles.incidentStatusText,
                   {
                     color:
-                      incident.status === 'resolved'
+                      (incident?.status ?? 'unknown') === 'resolved'
                         ? '#4CAF50'
-                        : incident.status === 'investigating'
+                        : (incident?.status ?? 'unknown') === 'investigating'
                         ? '#FFC107'
                         : '#2196F3',
                   },
                 ]}
               >
-                {incident.status.toUpperCase()}
+                {((incident?.status ?? 'unknown').toUpperCase())}
               </Text>
             </View>
           ))}
@@ -338,7 +340,9 @@ export const PassengerSafetyScreen: React.FC<PassengerSafetyScreenProps> = ({
       {error && (
         <View style={styles.errorBanner}>
           <MaterialIcons name="error-outline" size={18} color="#F44336" />
-          <Text style={styles.errorText}>{error.message}</Text>
+          <Text style={styles.errorText}>
+            {error instanceof Error ? error.message : typeof error === 'string' ? error : 'An error occurred'}
+          </Text>
         </View>
       )}
 
