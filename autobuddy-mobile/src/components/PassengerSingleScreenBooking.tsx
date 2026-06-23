@@ -10,8 +10,10 @@ import {
   Alert,
   FlatList,
   Image,
+  Modal,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import apiClient from '../services/apiClient';
 
 export interface Location {
   latitude: number;
@@ -106,6 +108,7 @@ export function SingleScreenBooking({
   const [selectedDestinationLocation, setSelectedDestinationLocation] = useState<Location | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [aiPreview, setAiPreview] = useState<any | null>(null);
+  const [showAIPreviewModal, setShowAIPreviewModal] = useState(false);
 
   // Get pickup location from saved locations (first one is usually current)
   const pickupLocation = savedLocations?.[0];
@@ -307,15 +310,9 @@ export function SingleScreenBooking({
         });
       }
 
-      // Show confirm dialog
-      Alert.alert(
-        'AI Preview',
-        `Vehicle: ${preview.vehicle_type || 'auto'}\nFare: ₹${preview.estimated_fare || '-'}\nETA: ${preview.estimated_arrival_minutes || '-'} min`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Confirm', onPress: () => onBookRide({ destination: preview.destination?.address || destination, rideType: preview.vehicle_type || selectedRideType, fare: preview.estimated_fare || fareEstimate?.minFare || 0 }) },
-        ]
-      );
+      // Show preview modal
+      setAiPreview(preview);
+      setShowAIPreviewModal(true);
     } catch (err) {
       console.error('AI booking error', err);
       Alert.alert('AI Booking failed', 'Could not process the AI booking.');
@@ -329,6 +326,36 @@ export function SingleScreenBooking({
     setFareEstimate(null);
     setShowSuggestions(false);
     setSelectedDestinationLocation(null);
+  };
+
+  const handleAIPreviewConfirm = async () => {
+    if (!aiPreview) return;
+    try {
+      // Send lightweight analytics event (non-blocking)
+      try {
+        await apiClient.post('/api/analytics/events', {
+          event: 'ai_booking_confirm',
+          data: {
+            query: destination,
+            suggested_destination: aiPreview.destination?.name || aiPreview.destination?.address || null,
+            vehicle_type: aiPreview.vehicle_type || null,
+            estimated_fare: aiPreview.estimated_fare || null,
+          },
+        });
+      } catch (e) {
+        // swallow analytics errors
+        console.warn('Analytics event failed', e);
+      }
+
+      onBookRide({
+        destination: aiPreview.destination?.address || destination,
+        rideType: aiPreview.vehicle_type || selectedRideType,
+        fare: aiPreview.estimated_fare || fareEstimate?.minFare || 0,
+      });
+    } finally {
+      setShowAIPreviewModal(false);
+      setIsAiLoading(false);
+    }
   };
 
   const handleRideDetailsClose = () => {
@@ -585,6 +612,39 @@ export function SingleScreenBooking({
           description="Schedule rides in advance to get discounts"
         />
       </View>
+
+      {/* AI Preview Modal */}
+      <Modal visible={showAIPreviewModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: 320 }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>AI Booking Preview</Text>
+              <Pressable onPress={() => setShowAIPreviewModal(false)}>
+                <MaterialIcons name="close" size={24} color="#000" />
+              </Pressable>
+            </View>
+
+            <View style={{ padding: 12 }}>
+              <Text style={{ fontWeight: '600', marginBottom: 8 }}>
+                {aiPreview?.destination?.name || aiPreview?.destination?.address || destination}
+              </Text>
+
+              <Text>Vehicle: {String(aiPreview?.vehicle_type || 'auto')}</Text>
+              <Text>Fare: ₹{aiPreview?.estimated_fare ?? '-'}</Text>
+              <Text>ETA: {aiPreview?.estimated_arrival_minutes ?? '-'} min</Text>
+
+              <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 16 }}>
+                <Pressable style={[styles.button, styles.scheduleButton]} onPress={() => setShowAIPreviewModal(false)}>
+                  <Text style={styles.scheduleButtonText}>Cancel</Text>
+                </Pressable>
+                <Pressable style={[styles.button, styles.bookButton]} onPress={handleAIPreviewConfirm}>
+                  <Text style={styles.bookButtonText}>Confirm</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Ride Details Modal */}
       {showRideDetailsModal && (
