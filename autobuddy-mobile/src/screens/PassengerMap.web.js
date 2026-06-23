@@ -1717,6 +1717,15 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     [closeNotificationCenter],
   );
 
+  const openPoolRideFlow = useCallback(
+    (model = 'SYSTEM_CREATED') => {
+      setRideProduct('pool');
+      setShowRideDetailsModal(false);
+      setPoolCreateRequest((prev) => ({ key: prev.key + 1, model }));
+    },
+    [],
+  );
+
   const handleMenuSelection = useCallback(
     (menuKey, label) => {
       // Handle booking mode switching - map menu keys to active menu items
@@ -1734,6 +1743,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       // Special handling for pooling - use the flow method
       if (menuKey === 'pooling') {
         openPoolRideFlow('SYSTEM_CREATED');
+        setActivePassengerMenu('pooling');
+        setShowPassengerMenus(false);
+        triggerA11yFeedback('Pool ride mode activated');
         return;
       }
 
@@ -1744,16 +1756,6 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       triggerA11yFeedback(`${label || 'Menu'} selected`);
     },
     [triggerA11yFeedback, openPoolRideFlow],
-  );
-
-  const openPoolRideFlow = useCallback(
-    (model = 'SYSTEM_CREATED') => {
-      setRideProduct('pool');
-      setShowRideDetailsModal(false);
-      setPoolCreateRequest((prev) => ({ key: prev.key + 1, model }));
-      handleMenuSelection('pooling', 'Pool Ride');
-    },
-    [handleMenuSelection],
   );
 
   const getMenuLabel = useCallback(
