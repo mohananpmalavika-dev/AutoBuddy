@@ -55,11 +55,17 @@ import { ReceiptDetailScreen } from './screens/ReceiptDetailScreen';
 // Family Management Screen
 import { FamilyManagementScreen } from './screens/FamilyManagementScreen';
 
+// Family Assistant Dashboard
+import { FamilyAssistantDashboard } from './screens/FamilyAssistantDashboard';
+
 // Corporate Account Screen
 import { CorporateAccountScreen } from './screens/CorporateAccountScreen';
 
 // Operator Fleet Management Screen
 import { OperatorFleetManagementScreen } from './screens/OperatorFleetManagementScreen';
+
+// Travel Intent Dashboard
+import TravelIntentDashboard from './screens/TravelIntentDashboard';
 
 // Settings Screens
 import SettingsScreen from './screens/SettingsScreen';
@@ -237,6 +243,7 @@ const PassengerTabs = () => (
       tabBarIcon: ({ focused, color, size }) => {
         const icons: Record<string, string> = {
           PassengerDashboard: 'dashboard',
+          TravelIntent: 'auto-awesome',
           RideBooking: 'directions-car',
           Insurance: 'shield',
           Receipts: 'receipt',
@@ -256,6 +263,11 @@ const PassengerTabs = () => (
       name="PassengerDashboard"
       component={PassengerDashboardScreen}
       options={{ title: 'Dashboard' }}
+    />
+    <Tab.Screen
+      name="TravelIntent"
+      component={TravelIntentDashboard}
+      options={{ title: 'AI Booking' }}
     />
     <Tab.Screen
       name="RideBooking"
