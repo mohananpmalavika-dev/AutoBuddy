@@ -173,7 +173,7 @@ export function RideRequestCard({
           <FareInfo
             icon="directions-car"
             label="Distance"
-            value={`${ride.estimatedDistance} km`}
+            value={`${Number(ride.estimatedDistance || 0).toFixed(1)} km`}
             color="#2196F3"
           />
           <FareInfo

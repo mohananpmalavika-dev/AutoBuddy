@@ -116,7 +116,8 @@ export const useDriverDispatch = (
                   dropoffLocation: data.dropoffLocation,
                   estimatedFare: data.estimatedFare,
                   estimatedDuration: data.estimatedDuration,
-                  estimatedDistance: data.estimatedDistance,
+                  // Accept multiple possible field names from server (camelCase, snake_case, or distance_km)
+                  estimatedDistance: Number(data.estimatedDistance ?? data.estimated_distance_km ?? data.distance_km ?? 0),
                   passengerName: data.passengerName,
                   passengerRating: data.passengerRating,
                   offerExpiresAt: new Date(data.offerExpiresAt),
@@ -202,7 +203,8 @@ export const useDriverDispatch = (
         dropoffLocation: o.dropoffLocation,
         estimatedFare: o.estimatedFare,
         estimatedDuration: o.estimatedDuration,
-        estimatedDistance: o.estimatedDistance,
+        // Accept multiple server field variants for distance
+        estimatedDistance: Number(o.estimatedDistance ?? o.estimated_distance_km ?? o.distance_km ?? 0),
         passengerName: o.passengerName,
         passengerRating: o.passengerRating,
         offerExpiresAt: new Date(o.offerExpiresAt),
