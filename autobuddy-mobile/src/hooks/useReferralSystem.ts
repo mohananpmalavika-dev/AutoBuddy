@@ -69,7 +69,7 @@ export const useReferralSystem = (token: string | null, userId: string): UseRefe
 
   const fetchReferralCodes = useCallback(
     async (userId: string) => {
-      if (!token) return;
+      if (!token) {return;}
       setLoading(true);
       try {
         const response = await axios.get(
@@ -93,7 +93,7 @@ export const useReferralSystem = (token: string | null, userId: string): UseRefe
       discountPercentage: number,
       maxUses: number
     ): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/referrals/codes/create`,
@@ -112,7 +112,7 @@ export const useReferralSystem = (token: string | null, userId: string): UseRefe
 
   const deactivateCode = useCallback(
     async (codeId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/referrals/codes/${codeId}/deactivate`,
@@ -133,7 +133,7 @@ export const useReferralSystem = (token: string | null, userId: string): UseRefe
 
   const reactivateCode = useCallback(
     async (codeId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/referrals/codes/${codeId}/reactivate`,
@@ -154,7 +154,7 @@ export const useReferralSystem = (token: string | null, userId: string): UseRefe
 
   const fetchRewards = useCallback(
     async (userId: string) => {
-      if (!token) return;
+      if (!token) {return;}
       try {
         const response = await axios.get(
           `${API_BASE_URL}/referrals/${userId}/rewards`,
@@ -171,7 +171,7 @@ export const useReferralSystem = (token: string | null, userId: string): UseRefe
 
   const getReferralStats = useCallback(
     async (userId: string) => {
-      if (!token) return;
+      if (!token) {return;}
       try {
         const response = await axios.get(
           `${API_BASE_URL}/referrals/${userId}/stats`,
@@ -188,7 +188,7 @@ export const useReferralSystem = (token: string | null, userId: string): UseRefe
 
   const shareReferralCode = useCallback(
     async (code: string, platform: 'whatsapp' | 'sms' | 'email' | 'link'): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/referrals/share`,
@@ -206,7 +206,7 @@ export const useReferralSystem = (token: string | null, userId: string): UseRefe
 
   const claimReward = useCallback(
     async (rewardId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/referrals/rewards/${rewardId}/claim`,
@@ -227,7 +227,7 @@ export const useReferralSystem = (token: string | null, userId: string): UseRefe
 
   const applyReferralCode = useCallback(
     async (code: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/referrals/apply`,

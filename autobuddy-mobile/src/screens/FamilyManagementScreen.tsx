@@ -1,6 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { View, ScrollView, FlatList, StyleSheet, TextInput, TouchableOpacity, Alert, Modal } from 'react-native';
-import { Text } from 'react-native';
+import { View, ScrollView, FlatList, StyleSheet, TextInput, TouchableOpacity, Alert, Modal , Text } from 'react-native';
 import { useFamilyAccounts } from '../hooks/useFamilyAccounts';
 import { FamilyMemberCard } from '../components/FamilyMemberCard';
 
@@ -45,7 +44,7 @@ export const FamilyManagementScreen: React.FC<FamilyManagementScreenProps> = ({
   });
   const [isLoading, setIsLoading] = useState(false);
 
-  const relations: Array<'parent' | 'child' | 'spouse' | 'sibling' | 'friend'> = [
+  const relations: ('parent' | 'child' | 'spouse' | 'sibling' | 'friend')[] = [
     'parent',
     'child',
     'spouse',

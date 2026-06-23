@@ -102,7 +102,7 @@ export function useDriverInsurance(userId: string | undefined, authToken: string
   });
 
   const fetchActivePlan = useCallback(async () => {
-    if (!userId || !authToken) return;
+    if (!userId || !authToken) {return;}
 
     setState(prev => ({ ...prev, isLoading: true, error: null }));
     try {
@@ -134,14 +134,14 @@ export function useDriverInsurance(userId: string | undefined, authToken: string
   }, [userId, authToken]);
 
   const fetchPolicyTerms = useCallback(async (planType: string) => {
-    if (!authToken) return;
+    if (!authToken) {return;}
 
     try {
       const response = await fetch(`${API_BASE}/plans/${planType}/terms`, {
         headers: { Authorization: `Bearer ${authToken}` },
       });
 
-      if (!response.ok) throw new Error('Failed to fetch policy terms');
+      if (!response.ok) {throw new Error('Failed to fetch policy terms');}
 
       const data = await response.json();
       setState(prev => ({
@@ -157,7 +157,7 @@ export function useDriverInsurance(userId: string | undefined, authToken: string
   }, [authToken]);
 
   const fetchTripsInsured = useCallback(async (days?: number) => {
-    if (!userId || !authToken) return;
+    if (!userId || !authToken) {return;}
 
     try {
       let url = `${API_BASE}/driver/${userId}/trips-insured`;
@@ -171,7 +171,7 @@ export function useDriverInsurance(userId: string | undefined, authToken: string
         headers: { Authorization: `Bearer ${authToken}` },
       });
 
-      if (!response.ok) throw new Error('Failed to fetch trips');
+      if (!response.ok) {throw new Error('Failed to fetch trips');}
 
       const data = await response.json();
       setState(prev => ({
@@ -188,7 +188,7 @@ export function useDriverInsurance(userId: string | undefined, authToken: string
 
   const fetchClaims = useCallback(
     async (status?: string) => {
-      if (!userId || !authToken) return;
+      if (!userId || !authToken) {return;}
 
       setState(prev => ({ ...prev, isLoading: true }));
       try {
@@ -201,7 +201,7 @@ export function useDriverInsurance(userId: string | undefined, authToken: string
           headers: { Authorization: `Bearer ${authToken}` },
         });
 
-        if (!response.ok) throw new Error('Failed to fetch claims');
+        if (!response.ok) {throw new Error('Failed to fetch claims');}
 
         const data = await response.json();
         const claims = data.claims || [];
@@ -236,7 +236,7 @@ export function useDriverInsurance(userId: string | undefined, authToken: string
       claimAmount: number,
       documents?: File[]
     ) => {
-      if (!authToken) return null;
+      if (!authToken) {return null;}
 
       try {
         const formData = new FormData();
@@ -259,7 +259,7 @@ export function useDriverInsurance(userId: string | undefined, authToken: string
           body: formData,
         });
 
-        if (!response.ok) throw new Error('Failed to file claim');
+        if (!response.ok) {throw new Error('Failed to file claim');}
 
         const data = await response.json();
 
@@ -280,14 +280,14 @@ export function useDriverInsurance(userId: string | undefined, authToken: string
 
   const getClaimStatus = useCallback(
     async (claimId: string) => {
-      if (!authToken) return null;
+      if (!authToken) {return null;}
 
       try {
         const response = await fetch(`${API_BASE}/claims/${claimId}/status`, {
           headers: { Authorization: `Bearer ${authToken}` },
         });
 
-        if (!response.ok) throw new Error('Failed to fetch claim status');
+        if (!response.ok) {throw new Error('Failed to fetch claim status');}
 
         const data = await response.json();
         return data.claim || null;

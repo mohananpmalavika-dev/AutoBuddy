@@ -100,7 +100,7 @@ export const useExpenseCategories = (token: string | null, userId: string) => {
 
   const assignCategory = useCallback(
     async (expenseId: string, category: ExpenseCategory): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
 
       try {
         const response = await fetch(
@@ -115,7 +115,7 @@ export const useExpenseCategories = (token: string | null, userId: string) => {
           }
         );
 
-        if (!response.ok) throw new Error('Failed to assign');
+        if (!response.ok) {throw new Error('Failed to assign');}
 
         const updated = expenses.map(e =>
           e.id === expenseId ? { ...e, category } : e
@@ -163,7 +163,7 @@ export const useExpenseCategories = (token: string | null, userId: string) => {
   const getTotalByPeriod = useCallback(
     (period: 'week' | 'month' | 'year'): number => {
       const now = new Date();
-      let startDate = new Date();
+      const startDate = new Date();
 
       if (period === 'week') {
         startDate.setDate(now.getDate() - 7);

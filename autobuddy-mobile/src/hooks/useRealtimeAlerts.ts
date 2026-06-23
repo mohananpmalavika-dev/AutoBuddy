@@ -154,7 +154,7 @@ export function useFleetStats(operatorId?: string) {
 
   // Calculate utilization percentage
   const getUtilization = useCallback(() => {
-    if (stats.total_drivers === 0) return 0;
+    if (stats.total_drivers === 0) {return 0;}
     return (stats.active_rides / stats.total_drivers) * 100;
   }, [stats.active_rides, stats.total_drivers]);
 
@@ -285,10 +285,10 @@ export function useSystemHealth() {
   // Get unhealthy systems
   const getUnhealthySystems = useCallback(() => {
     const unhealthy = [];
-    if (health.api_status !== 'healthy') unhealthy.push('API');
-    if (health.database_status !== 'healthy') unhealthy.push('Database');
-    if (health.cache_status !== 'healthy') unhealthy.push('Cache');
-    if (health.payment_gateway_status !== 'healthy') unhealthy.push('Payment Gateway');
+    if (health.api_status !== 'healthy') {unhealthy.push('API');}
+    if (health.database_status !== 'healthy') {unhealthy.push('Database');}
+    if (health.cache_status !== 'healthy') {unhealthy.push('Cache');}
+    if (health.payment_gateway_status !== 'healthy') {unhealthy.push('Payment Gateway');}
     return unhealthy;
   }, [health]);
 

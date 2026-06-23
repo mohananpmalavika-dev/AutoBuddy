@@ -82,7 +82,7 @@ export const useSafety = (userId: string | null, authToken: string | null) => {
 
   // Fetch emergency contacts
   const fetchEmergencyContacts = useCallback(async () => {
-    if (!userId || !authToken) return;
+    if (!userId || !authToken) {return;}
 
     try {
       setIsLoading(true);
@@ -109,7 +109,7 @@ export const useSafety = (userId: string | null, authToken: string | null) => {
       email?: string,
       isPrimary?: boolean
     ) => {
-      if (!userId || !authToken) return false;
+      if (!userId || !authToken) {return false;}
 
       try {
         setIsLoading(true);
@@ -145,7 +145,7 @@ export const useSafety = (userId: string | null, authToken: string | null) => {
   // Delete emergency contact
   const deleteEmergencyContact = useCallback(
     async (contactId: string) => {
-      if (!authToken) return false;
+      if (!authToken) {return false;}
 
       try {
         setIsLoading(true);
@@ -175,7 +175,7 @@ export const useSafety = (userId: string | null, authToken: string | null) => {
       address: string,
       isDriver: boolean = false
     ) => {
-      if (!userId || !authToken) return null;
+      if (!userId || !authToken) {return null;}
 
       try {
         setIsLoading(true);
@@ -209,7 +209,7 @@ export const useSafety = (userId: string | null, authToken: string | null) => {
   // Cancel SOS
   const cancelSOS = useCallback(
     async (sosId: string) => {
-      if (!authToken) return false;
+      if (!authToken) {return false;}
 
       try {
         setIsLoading(true);
@@ -234,7 +234,7 @@ export const useSafety = (userId: string | null, authToken: string | null) => {
   // Get SOS status
   const getSOSStatus = useCallback(
     async (sosId: string) => {
-      if (!authToken) return null;
+      if (!authToken) {return null;}
 
       try {
         const response = await axios.get(
@@ -264,7 +264,7 @@ export const useSafety = (userId: string | null, authToken: string | null) => {
       videoUrl?: string,
       rideId?: string
     ) => {
-      if (!userId || !authToken) return null;
+      if (!userId || !authToken) {return null;}
 
       try {
         setIsLoading(true);
@@ -303,7 +303,7 @@ export const useSafety = (userId: string | null, authToken: string | null) => {
 
   // Fetch incident history
   const fetchIncidentHistory = useCallback(async () => {
-    if (!userId || !authToken) return;
+    if (!userId || !authToken) {return;}
 
     try {
       const response = await axios.get(
@@ -320,7 +320,7 @@ export const useSafety = (userId: string | null, authToken: string | null) => {
   // Add safety rating
   const addSafetyRating = useCallback(
     async (rideId: string, score: number, reason?: string) => {
-      if (!userId || !authToken) return false;
+      if (!userId || !authToken) {return false;}
 
       try {
         setIsLoading(true);
@@ -352,7 +352,7 @@ export const useSafety = (userId: string | null, authToken: string | null) => {
 
   // Fetch safety ratings
   const fetchSafetyRatings = useCallback(async () => {
-    if (!userId || !authToken) return;
+    if (!userId || !authToken) {return;}
 
     try {
       const response = await axios.get(
@@ -368,7 +368,7 @@ export const useSafety = (userId: string | null, authToken: string | null) => {
 
   // Fetch safety profile
   const fetchSafetyProfile = useCallback(async () => {
-    if (!userId || !authToken) return;
+    if (!userId || !authToken) {return;}
 
     try {
       setIsLoading(true);
@@ -390,7 +390,7 @@ export const useSafety = (userId: string | null, authToken: string | null) => {
   // Start location sharing
   const startLocationSharing = useCallback(
     async (emergencyContactIds: string[], rideId?: string, durationMinutes: number = 60) => {
-      if (!userId || !authToken) return false;
+      if (!userId || !authToken) {return false;}
 
       try {
         setIsLoading(true);
@@ -422,7 +422,7 @@ export const useSafety = (userId: string | null, authToken: string | null) => {
 
   // Fetch trust circles
   const fetchTrustCircles = useCallback(async () => {
-    if (!userId || !authToken) return;
+    if (!userId || !authToken) {return;}
 
     try {
       const response = await axios.get(
@@ -439,7 +439,7 @@ export const useSafety = (userId: string | null, authToken: string | null) => {
   // Create trust circle
   const createTrustCircle = useCallback(
     async (circleName: string, contactIds: string[], autoShare: boolean = true) => {
-      if (!userId || !authToken) return false;
+      if (!userId || !authToken) {return false;}
 
       try {
         setIsLoading(true);

@@ -37,12 +37,12 @@ export const useAdminUserManagement = (token: string | null): UseAdminUserManage
 
   const fetchUsers = useCallback(
     async (filters?: { role?: string; status?: string }) => {
-      if (!token) return;
+      if (!token) {return;}
       setLoading(true);
       try {
         const params = new URLSearchParams();
-        if (filters?.role) params.append('role', filters.role);
-        if (filters?.status) params.append('status', filters.status);
+        if (filters?.role) {params.append('role', filters.role);}
+        if (filters?.status) {params.append('status', filters.status);}
 
         const response = await axios.get(`${API_BASE_URL}/admin/users?${params}`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -60,7 +60,7 @@ export const useAdminUserManagement = (token: string | null): UseAdminUserManage
 
   const addUser = useCallback(
     async (userData: Omit<AdminUser, 'id' | 'createdAt'>): Promise<AdminUser | null> => {
-      if (!token) return null;
+      if (!token) {return null;}
       try {
         const response = await axios.post(`${API_BASE_URL}/admin/users`, userData, {
           headers: { Authorization: `Bearer ${token}` },
@@ -78,7 +78,7 @@ export const useAdminUserManagement = (token: string | null): UseAdminUserManage
 
   const updateUser = useCallback(
     async (userId: string, updates: Partial<AdminUser>): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.put(`${API_BASE_URL}/admin/users/${userId}`, updates, {
           headers: { Authorization: `Bearer ${token}` },
@@ -97,7 +97,7 @@ export const useAdminUserManagement = (token: string | null): UseAdminUserManage
 
   const removeUser = useCallback(
     async (userId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.delete(`${API_BASE_URL}/admin/users/${userId}`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -114,7 +114,7 @@ export const useAdminUserManagement = (token: string | null): UseAdminUserManage
 
   const updatePermissions = useCallback(
     async (userId: string, permissions: string[]): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.put(
           `${API_BASE_URL}/admin/users/${userId}/permissions`,
@@ -135,7 +135,7 @@ export const useAdminUserManagement = (token: string | null): UseAdminUserManage
 
   const suspendUser = useCallback(
     async (userId: string, reason: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/admin/users/${userId}/suspend`,
@@ -156,7 +156,7 @@ export const useAdminUserManagement = (token: string | null): UseAdminUserManage
 
   const reactivateUser = useCallback(
     async (userId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/admin/users/${userId}/reactivate`,
@@ -177,7 +177,7 @@ export const useAdminUserManagement = (token: string | null): UseAdminUserManage
 
   const resetPassword = useCallback(
     async (userId: string): Promise<string | null> => {
-      if (!token) return null;
+      if (!token) {return null;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/admin/users/${userId}/reset-password`,
@@ -195,7 +195,7 @@ export const useAdminUserManagement = (token: string | null): UseAdminUserManage
 
   const getActivityLog = useCallback(
     async (userId: string): Promise<any[]> => {
-      if (!token) return [];
+      if (!token) {return [];}
       try {
         const response = await axios.get(`${API_BASE_URL}/admin/users/${userId}/activity`, {
           headers: { Authorization: `Bearer ${token}` },

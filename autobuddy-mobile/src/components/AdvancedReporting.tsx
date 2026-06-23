@@ -76,7 +76,7 @@ export const AdvancedReporting: React.FC<AdvancedReportingProps> = ({
   }, [reports, filters]);
 
   const reportStats = useMemo(() => {
-    if (filteredReports.length === 0) return null;
+    if (filteredReports.length === 0) {return null;}
     return {
       totalReports: filteredReports.length,
       avgProfit: filteredReports.reduce((sum, r) => sum + r.profit, 0) / filteredReports.length,

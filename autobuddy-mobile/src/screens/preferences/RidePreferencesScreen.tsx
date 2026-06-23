@@ -164,4 +164,5 @@ const styles = StyleSheet.create({
   vehicleBtnText: { fontSize: 12, fontWeight: '600', color: '#333' },
   buttonContainer: { marginHorizontal: 16, marginTop: 20, gap: 12 },
   saveButton: { backgroundColor: '#4CAF50', borderRadius: 8, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
-  saveButtonText: { fontSize: 14, fontWeight: '600', color: '#fff'
+  saveButtonText: { fontSize: 14, fontWeight: '600', color: '#fff' },
+});

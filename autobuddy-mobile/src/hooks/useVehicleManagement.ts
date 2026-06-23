@@ -56,7 +56,7 @@ export const useVehicleManagement = (driverId: string | null, authToken: string 
   const [error, setError] = useState<string | null>(null);
 
   const fetchVehicles = useCallback(async () => {
-    if (!driverId || !authToken) return;
+    if (!driverId || !authToken) {return;}
     try {
       setIsLoading(true);
       const response = await axios.get(
@@ -75,7 +75,7 @@ export const useVehicleManagement = (driverId: string | null, authToken: string 
 
   const addVehicle = useCallback(
     async (vehicleType: string, registrationNumber: string, make: string, model: string, year: number, color: string, licensePlate: string) => {
-      if (!driverId || !authToken) return false;
+      if (!driverId || !authToken) {return false;}
       try {
         setIsLoading(true);
         await axios.post(
@@ -108,7 +108,7 @@ export const useVehicleManagement = (driverId: string | null, authToken: string 
 
   const getVehicleDetails = useCallback(
     async (vehicleId: string) => {
-      if (!authToken) return null;
+      if (!authToken) {return null;}
       try {
         setIsLoading(true);
         const response = await axios.get(
@@ -130,7 +130,7 @@ export const useVehicleManagement = (driverId: string | null, authToken: string 
 
   const updateVehicle = useCallback(
     async (vehicleId: string, updates: any) => {
-      if (!authToken) return false;
+      if (!authToken) {return false;}
       try {
         setIsLoading(true);
         await axios.put(
@@ -152,7 +152,7 @@ export const useVehicleManagement = (driverId: string | null, authToken: string 
 
   const deleteVehicle = useCallback(
     async (vehicleId: string) => {
-      if (!authToken) return false;
+      if (!authToken) {return false;}
       try {
         setIsLoading(true);
         await axios.delete(
@@ -172,7 +172,7 @@ export const useVehicleManagement = (driverId: string | null, authToken: string 
   );
 
   const getExpiringDocuments = useCallback(async () => {
-    if (!driverId || !authToken) return;
+    if (!driverId || !authToken) {return;}
     try {
       const response = await axios.get(
         `${API_BASE_URL}/api/v3/vehicle-management/drivers/${driverId}/documents/expiring-soon`,
@@ -185,7 +185,7 @@ export const useVehicleManagement = (driverId: string | null, authToken: string 
   }, [driverId, authToken]);
 
   const getExpiringInsurance = useCallback(async () => {
-    if (!driverId || !authToken) return;
+    if (!driverId || !authToken) {return;}
     try {
       const response = await axios.get(
         `${API_BASE_URL}/api/v3/vehicle-management/drivers/${driverId}/insurance/expiring-soon`,
@@ -199,7 +199,7 @@ export const useVehicleManagement = (driverId: string | null, authToken: string 
 
   const recordMaintenance = useCallback(
     async (vehicleId: string, serviceType: string, description: string, maintenanceDate: string, cost: number | null, serviceCenter: string) => {
-      if (!driverId || !authToken) return false;
+      if (!driverId || !authToken) {return false;}
       try {
         setIsLoading(true);
         await axios.post(

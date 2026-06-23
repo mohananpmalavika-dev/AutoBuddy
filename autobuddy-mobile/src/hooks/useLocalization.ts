@@ -227,7 +227,7 @@ interface UseLocalizationReturn {
   formatCurrency: (amount: number, currencyCode?: string) => string;
   formatNumber: (number: number, decimals?: number) => string;
   getDirection: () => 'ltr' | 'rtl';
-  getAvailableLanguages: () => Array<{ code: SupportedLanguage; name: string }>;
+  getAvailableLanguages: () => { code: SupportedLanguage; name: string }[];
 }
 
 export const useLocalization = (defaultLanguage: SupportedLanguage = 'en'): UseLocalizationReturn => {
@@ -242,7 +242,7 @@ export const useLocalization = (defaultLanguage: SupportedLanguage = 'en'): UseL
 
       for (const k of keys) {
         value = value?.[k];
-        if (!value) return defaultValue || key;
+        if (!value) {return defaultValue || key;}
       }
 
       return typeof value === 'string' ? value : defaultValue || key;
@@ -298,7 +298,7 @@ export const useLocalization = (defaultLanguage: SupportedLanguage = 'en'): UseL
   );
 
   const getAvailableLanguages = useCallback(
-    (): Array<{ code: SupportedLanguage; name: string }> => {
+    (): { code: SupportedLanguage; name: string }[] => {
       return (Object.keys(languageConfigs) as SupportedLanguage[]).map((code) => ({
         code,
         name: languageConfigs[code].name,

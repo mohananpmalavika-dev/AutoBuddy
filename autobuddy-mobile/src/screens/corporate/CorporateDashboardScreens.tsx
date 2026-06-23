@@ -458,7 +458,7 @@ const InvoicePaymentModal: React.FC<{
     }
   };
 
-  if (!invoice) return null;
+  if (!invoice) {return null;}
 
   return (
     <Modal visible={visible} transparent animationType="slide">

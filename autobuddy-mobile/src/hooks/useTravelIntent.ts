@@ -272,7 +272,7 @@ export const useTravelIntent = () => {
    */
   const getPricingEstimate = useCallback(
     async (toLat: number, toLng: number, vehicleType?: string) => {
-      if (!state.userLocation) return null;
+      if (!state.userLocation) {return null;}
 
       try {
         const pricing = await travelIntentService.estimatePricing(

@@ -28,7 +28,7 @@ export const ComplianceAlertBanner: React.FC<ComplianceAlertBannerProps> = ({
     setCriticalCount(criticals.length);
   }, [getCriticalNotifications]);
 
-  if (criticalCount === 0) return null;
+  if (criticalCount === 0) {return null;}
 
   return (
     <Pressable
@@ -71,7 +71,7 @@ export const ComplianceInfoCard: React.FC<ComplianceInfoCardProps> = ({
   const criticalNotifs = getCriticalNotifications();
   const totalNotifs = notifications.length;
 
-  if (totalNotifs === 0) return null;
+  if (totalNotifs === 0) {return null;}
 
   return (
     <Pressable

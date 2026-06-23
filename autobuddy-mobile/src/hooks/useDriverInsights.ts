@@ -112,7 +112,7 @@ export const useDriverInsights = (driverId: string | null, authToken: string | n
 
   const fetchScorecard = useCallback(
     async (period: number = 30) => {
-      if (!driverId || !authToken) return;
+      if (!driverId || !authToken) {return;}
       try {
         setIsLoading(true);
         const response = await axios.get(
@@ -136,7 +136,7 @@ export const useDriverInsights = (driverId: string | null, authToken: string | n
 
   const fetchTripAnalytics = useCallback(
     async (days: number = 30) => {
-      if (!driverId || !authToken) return;
+      if (!driverId || !authToken) {return;}
       try {
         setIsLoading(true);
         const response = await axios.get(
@@ -160,7 +160,7 @@ export const useDriverInsights = (driverId: string | null, authToken: string | n
 
   const fetchBehaviorPatterns = useCallback(
     async (days: number = 30) => {
-      if (!driverId || !authToken) return;
+      if (!driverId || !authToken) {return;}
       try {
         const response = await axios.get(
           `${API_BASE_URL}/api/v3/driver-insights/behavior-patterns/${driverId}`,
@@ -181,7 +181,7 @@ export const useDriverInsights = (driverId: string | null, authToken: string | n
 
   const fetchBenchmarks = useCallback(
     async () => {
-      if (!driverId || !authToken) return;
+      if (!driverId || !authToken) {return;}
       try {
         const response = await axios.get(
           `${API_BASE_URL}/api/v3/driver-insights/benchmarks/${driverId}`,
@@ -199,7 +199,7 @@ export const useDriverInsights = (driverId: string | null, authToken: string | n
 
   const fetchSuggestions = useCallback(
     async () => {
-      if (!driverId || !authToken) return;
+      if (!driverId || !authToken) {return;}
       try {
         const response = await axios.get(
           `${API_BASE_URL}/api/v3/driver-insights/suggestions/${driverId}`,
@@ -217,7 +217,7 @@ export const useDriverInsights = (driverId: string | null, authToken: string | n
 
   const fetchFullDashboard = useCallback(
     async (days: number = 30) => {
-      if (!driverId || !authToken) return;
+      if (!driverId || !authToken) {return;}
       try {
         setIsLoading(true);
         const response = await axios.get(
@@ -244,7 +244,7 @@ export const useDriverInsights = (driverId: string | null, authToken: string | n
 
   const regenerateInsights = useCallback(
     async () => {
-      if (!driverId || !authToken) return;
+      if (!driverId || !authToken) {return;}
       try {
         setIsLoading(true);
         await axios.post(
@@ -265,7 +265,7 @@ export const useDriverInsights = (driverId: string | null, authToken: string | n
 
   const getTripDetails = useCallback(
     async (tripId: string) => {
-      if (!authToken) return;
+      if (!authToken) {return;}
       try {
         const response = await axios.get(
           `${API_BASE_URL}/api/v3/driver-insights/trip-details/${tripId}`,
@@ -282,7 +282,7 @@ export const useDriverInsights = (driverId: string | null, authToken: string | n
 
   const getScorecardTrend = useCallback(
     async (days: number = 7) => {
-      if (!driverId || !authToken) return;
+      if (!driverId || !authToken) {return;}
       try {
         const response = await axios.get(
           `${API_BASE_URL}/api/v3/driver-insights/history/${driverId}`,
@@ -302,7 +302,7 @@ export const useDriverInsights = (driverId: string | null, authToken: string | n
 
   const getAverageTripMetrics = useCallback(
     (days: number = 30) => {
-      if (!tripAnalytics) return null;
+      if (!tripAnalytics) {return null;}
       return tripAnalytics.aggregated_stats;
     },
     [tripAnalytics]
@@ -310,7 +310,7 @@ export const useDriverInsights = (driverId: string | null, authToken: string | n
 
   const compareWithBenchmark = useCallback(
     (metric: string) => {
-      if (!scorecard || !benchmarks) return null;
+      if (!scorecard || !benchmarks) {return null;}
 
       const scoreValue = scorecard[metric as keyof Scorecard] as number;
       const peerValue = benchmarks.peer_percentiles[`50th_percentile`] || 0;

@@ -56,13 +56,13 @@ export interface PassengerProfile {
   rating?: number;
   totalRides: number;
   joinedDate: Date;
-  savedLocations: Array<{
+  savedLocations: {
     id: string;
     label: string;
     address: string;
     latitude: number;
     longitude: number;
-  }>;
+  }[];
 }
 
 export interface RideHistory {
@@ -102,7 +102,7 @@ export function usePassengerBooking(token: string | null) {
 
   const bookRide = useCallback(
     async (origin: string, destination: string, rideType: string, fare: number) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         setLoading(true);
@@ -129,7 +129,7 @@ export function usePassengerBooking(token: string | null) {
 
   const cancelBooking = useCallback(
     async (bookingId: string) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         setLoading(true);
@@ -164,7 +164,7 @@ export function usePassengerRideTracking(token: string | null, bookingId?: strin
   const [error, setError] = useState<PassengerError | null>(null);
 
   useEffect(() => {
-    if (!token || !bookingId) return;
+    if (!token || !bookingId) {return;}
 
     const fetchTracking = async () => {
       try {
@@ -205,7 +205,7 @@ export function usePassengerPayment(token: string | null) {
   const [error, setError] = useState<PassengerError | null>(null);
 
   const fetchPaymentMethods = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
 
     try {
       setLoading(true);
@@ -233,7 +233,7 @@ export function usePassengerPayment(token: string | null) {
 
   const setDefaultMethod = useCallback(
     async (methodId: string) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         await apiRequest(`/passengers/me/payment-methods/${methodId}/set-default`, {
@@ -270,7 +270,7 @@ export function usePassengerProfile(token: string | null) {
   const [error, setError] = useState<PassengerError | null>(null);
 
   const fetchProfile = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
 
     try {
       setLoading(true);
@@ -298,7 +298,7 @@ export function usePassengerProfile(token: string | null) {
 
   const updateProfile = useCallback(
     async (updates: Partial<PassengerProfile>) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         setLoading(true);
@@ -340,7 +340,7 @@ export function usePassengerHistory(token: string | null, limit = 10) {
 
   const fetchHistory = useCallback(
     async (loadMore = false) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         setLoading(true);
@@ -396,7 +396,7 @@ export function usePassengerSchedule(token: string | null) {
   const [error, setError] = useState<PassengerError | null>(null);
 
   const fetchScheduled = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
 
     try {
       setLoading(true);
@@ -428,7 +428,7 @@ export function usePassengerSchedule(token: string | null) {
 
   const scheduleRide = useCallback(
     async (destination: string, scheduledAt: Date, rideType: string) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         setLoading(true);
@@ -457,7 +457,7 @@ export function usePassengerSchedule(token: string | null) {
 
   const cancelScheduled = useCallback(
     async (rideId: string) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         await apiRequest(`/passengers/scheduled-rides/${rideId}/cancel`, {
@@ -490,7 +490,7 @@ export function usePassengerFareEstimate(token: string | null) {
 
   const estimateFare = useCallback(
     async (origin: string, destination: string, rideType: string) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         setLoading(true);

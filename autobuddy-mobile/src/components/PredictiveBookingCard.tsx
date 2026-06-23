@@ -59,7 +59,7 @@ export default function PredictiveBookingCard({
   }, []);
 
   // Don't render if not in morning window (or dismissed)
-  if (!state.isMorningWindow) return null;
+  if (!state.isMorningWindow) {return null;}
 
   const translateY = slideAnim.interpolate({
     inputRange: [0, 1],

@@ -68,7 +68,7 @@ export const useWalletManagement = (userId: string | null, authToken: string | n
 
   // Fetch wallet balance
   const fetchBalance = useCallback(async () => {
-    if (!userId || !authToken) return;
+    if (!userId || !authToken) {return;}
 
     try {
       setIsLoading(true);
@@ -88,7 +88,7 @@ export const useWalletManagement = (userId: string | null, authToken: string | n
 
   // Fetch transaction history with pagination
   const fetchTransactionHistory = useCallback(async (page: number = 1, type?: string) => {
-    if (!userId || !authToken) return;
+    if (!userId || !authToken) {return;}
 
     try {
       setIsLoading(true);
@@ -111,7 +111,7 @@ export const useWalletManagement = (userId: string | null, authToken: string | n
 
   // Fetch wallet summary for dashboard
   const fetchSummary = useCallback(async () => {
-    if (!userId || !authToken) return;
+    if (!userId || !authToken) {return;}
 
     try {
       const response = await axios.get(
@@ -126,7 +126,7 @@ export const useWalletManagement = (userId: string | null, authToken: string | n
 
   // Fetch auto-recharge config
   const fetchAutoRecharge = useCallback(async () => {
-    if (!userId || !authToken) return;
+    if (!userId || !authToken) {return;}
 
     try {
       const response = await axios.get(
@@ -141,7 +141,7 @@ export const useWalletManagement = (userId: string | null, authToken: string | n
 
   // Initiate wallet topup
   const initiateTopup = useCallback(async (amount: number, paymentMethod: string = 'card', promoCode?: string) => {
-    if (!userId || !authToken) return null;
+    if (!userId || !authToken) {return null;}
 
     try {
       setIsLoading(true);
@@ -172,7 +172,7 @@ export const useWalletManagement = (userId: string | null, authToken: string | n
 
   // Confirm topup after Stripe payment
   const confirmTopup = useCallback(async (topupId: string, stripePaymentId: string) => {
-    if (!authToken) return false;
+    if (!authToken) {return false;}
 
     try {
       setIsLoading(true);
@@ -197,7 +197,7 @@ export const useWalletManagement = (userId: string | null, authToken: string | n
 
   // Setup auto-recharge
   const setupAutoRecharge = useCallback(async (threshold: number, amount: number, paymentMethodId: string) => {
-    if (!userId || !authToken) return false;
+    if (!userId || !authToken) {return false;}
 
     try {
       setIsLoading(true);
@@ -225,7 +225,7 @@ export const useWalletManagement = (userId: string | null, authToken: string | n
 
   // Disable auto-recharge
   const disableAutoRecharge = useCallback(async () => {
-    if (!userId || !authToken) return false;
+    if (!userId || !authToken) {return false;}
 
     try {
       await axios.post(
@@ -244,7 +244,7 @@ export const useWalletManagement = (userId: string | null, authToken: string | n
 
   // Calculate cashback for amount
   const calculateCashback = useCallback(async (amount: number) => {
-    if (!userId || !authToken) return null;
+    if (!userId || !authToken) {return null;}
 
     try {
       const response = await axios.get(

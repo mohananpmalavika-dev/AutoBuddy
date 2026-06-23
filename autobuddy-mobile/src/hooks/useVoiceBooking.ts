@@ -88,7 +88,7 @@ export function useVoiceBooking(callbacks: VoiceBookingCallbacks = {}) {
 
     const webCtor = getSpeechRecognitionCtor();
     if (Platform.OS === 'web' && webCtor) {
-      if (!unmounted) setVoiceEngine('web');
+      if (!unmounted) {setVoiceEngine('web');}
       return;
     }
 
@@ -145,7 +145,7 @@ export function useVoiceBooking(callbacks: VoiceBookingCallbacks = {}) {
   // Request audio permission (Android)
   // -----------------------------------------------------------------------
   const requestAudioPermission = useCallback(async (): Promise<boolean> => {
-    if (Platform.OS !== 'android') return true;
+    if (Platform.OS !== 'android') {return true;}
     try {
       const result = await PermissionsAndroid.request(
         PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
@@ -161,7 +161,7 @@ export function useVoiceBooking(callbacks: VoiceBookingCallbacks = {}) {
   // -----------------------------------------------------------------------
   const processTranscript = useCallback((text: string) => {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed) {return;}
 
     setTranscript(trimmed);
 
@@ -325,7 +325,7 @@ export function useVoiceBooking(callbacks: VoiceBookingCallbacks = {}) {
   // Start listening
   // -----------------------------------------------------------------------
   const startListening = useCallback(() => {
-    if (listeningRef.current) return;
+    if (listeningRef.current) {return;}
 
     if (Platform.OS === 'web') {
       startWebListening();
@@ -354,7 +354,7 @@ export function useVoiceBooking(callbacks: VoiceBookingCallbacks = {}) {
   // Confirm booking — calls the backend booking API with parsed intent
   // -----------------------------------------------------------------------
   const confirmAndBook = useCallback(async (token?: string) => {
-    if (!lastIntent) return;
+    if (!lastIntent) {return;}
 
     updateState('booking');
 

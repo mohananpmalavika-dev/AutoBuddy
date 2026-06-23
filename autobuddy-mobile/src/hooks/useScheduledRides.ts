@@ -52,7 +52,7 @@ export const useScheduledRides = (userId: string | null, authToken: string | nul
 
   // Fetch all scheduled rides for user
   const fetchScheduledRides = useCallback(async (status?: string) => {
-    if (!userId || !authToken) return;
+    if (!userId || !authToken) {return;}
 
     try {
       setIsLoading(true);
@@ -73,7 +73,7 @@ export const useScheduledRides = (userId: string | null, authToken: string | nul
 
   // Fetch upcoming rides (next 7 days)
   const fetchUpcomingRides = useCallback(async () => {
-    if (!userId || !authToken) return;
+    if (!userId || !authToken) {return;}
 
     try {
       const response = await axios.get(
@@ -88,7 +88,7 @@ export const useScheduledRides = (userId: string | null, authToken: string | nul
 
   // Get details of a specific scheduled ride
   const getRideDetails = useCallback(async (rideId: string) => {
-    if (!authToken) return null;
+    if (!authToken) {return null;}
 
     try {
       const response = await axios.get(
@@ -105,7 +105,7 @@ export const useScheduledRides = (userId: string | null, authToken: string | nul
 
   // Schedule a new ride
   const scheduleRide = useCallback(async (params: ScheduleRideParams) => {
-    if (!userId || !authToken) return null;
+    if (!userId || !authToken) {return null;}
 
     try {
       setIsLoading(true);
@@ -143,7 +143,7 @@ export const useScheduledRides = (userId: string | null, authToken: string | nul
 
   // Cancel a scheduled ride
   const cancelRide = useCallback(async (rideId: string, reason?: string) => {
-    if (!authToken) return false;
+    if (!authToken) {return false;}
 
     try {
       setIsLoading(true);
@@ -168,7 +168,7 @@ export const useScheduledRides = (userId: string | null, authToken: string | nul
 
   // Reschedule a ride
   const rescheduleRide = useCallback(async (rideId: string, newScheduledAt: Date, reason?: string) => {
-    if (!authToken) return false;
+    if (!authToken) {return false;}
 
     try {
       setIsLoading(true);

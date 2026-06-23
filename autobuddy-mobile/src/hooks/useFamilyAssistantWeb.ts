@@ -161,7 +161,7 @@ export const useFamilyAssistantWeb = (userId: string, token?: string): UseFamily
   // Appointments Operations
   const fetchAppointments = useCallback(async () => {
     try {
-      if (familyMembers.length === 0) return;
+      if (familyMembers.length === 0) {return;}
       const allAppointments: FamilyAppointment[] = [];
       for (const member of familyMembers) {
         const data = await fetchAPI(`/appointments/${member.id}`);

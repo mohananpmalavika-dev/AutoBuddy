@@ -55,7 +55,7 @@ export const useDriverPerformanceInsights = (token: string | null, driverId: str
 
   const fetchMetrics = useCallback(
     async (days = 30) => {
-      if (!token) return;
+      if (!token) {return;}
       setLoading(true);
       try {
         const response = await axios.get(
@@ -78,7 +78,7 @@ export const useDriverPerformanceInsights = (token: string | null, driverId: str
   );
 
   const fetchInsights = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
     try {
       const response = await axios.get(
         `${API_BASE_URL}/drivers/${driverId}/performance/insights`,
@@ -93,13 +93,13 @@ export const useDriverPerformanceInsights = (token: string | null, driverId: str
 
   const getPerformanceTrend = useCallback(
     (metric: string, days = 7): number => {
-      if (metrics.length < 2) return 0;
+      if (metrics.length < 2) {return 0;}
       const recentMetrics = metrics.slice(-days);
-      if (recentMetrics.length < 2) return 0;
+      if (recentMetrics.length < 2) {return 0;}
 
       const first = (recentMetrics[0] as any)[metric] || 0;
       const last = (recentMetrics[recentMetrics.length - 1] as any)[metric] || 0;
-      if (first === 0) return 0;
+      if (first === 0) {return 0;}
 
       return ((last - first) / first) * 100;
     },
@@ -107,14 +107,14 @@ export const useDriverPerformanceInsights = (token: string | null, driverId: str
   );
 
   const getTopPerformanceDay = useCallback((): PerformanceMetric | null => {
-    if (metrics.length === 0) return null;
+    if (metrics.length === 0) {return null;}
     return metrics.reduce((best, current) =>
       current.totalEarnings > (best?.totalEarnings || 0) ? current : best
     );
   }, [metrics]);
 
   const getAverageMetrics = useCallback(() => {
-    if (metrics.length === 0) return null;
+    if (metrics.length === 0) {return null;}
 
     const avgRating = metrics.reduce((sum, m) => sum + m.rating, 0) / metrics.length;
     const avgAcceptance = metrics.reduce((sum, m) => sum + m.acceptanceRate, 0) / metrics.length;
@@ -138,7 +138,7 @@ export const useDriverPerformanceInsights = (token: string | null, driverId: str
         (m) => new Date(m.date) >= startDate && new Date(m.date) <= endDate
       );
 
-      if (periodMetrics.length === 0) return null;
+      if (periodMetrics.length === 0) {return null;}
 
       const periodAvgRating = periodMetrics.reduce((sum, m) => sum + m.rating, 0) / periodMetrics.length;
       const periodTotalEarnings = periodMetrics.reduce((sum, m) => sum + m.totalEarnings, 0);
@@ -156,7 +156,7 @@ export const useDriverPerformanceInsights = (token: string | null, driverId: str
 
   const getGoalProgress = useCallback(() => {
     const last7Days = metrics.slice(-7);
-    if (last7Days.length === 0) return null;
+    if (last7Days.length === 0) {return null;}
 
     const totalRides = last7Days.reduce((sum, m) => sum + m.ridesCompleted, 0);
     const avgRating = last7Days.reduce((sum, m) => sum + m.rating, 0) / last7Days.length;

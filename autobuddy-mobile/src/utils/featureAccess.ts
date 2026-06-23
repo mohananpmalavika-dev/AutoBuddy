@@ -95,9 +95,9 @@ export const FEATURES = {
  * Check if a feature is accessible in a given mode
  */
 export const canAccessFeature = (featureLevel: string, userMode: UserMode): boolean => {
-  if (featureLevel === FEATURE_LEVELS.ALL) return true;
+  if (featureLevel === FEATURE_LEVELS.ALL) {return true;}
   
-  if (featureLevel === FEATURE_LEVELS.SIMPLE) return true;
+  if (featureLevel === FEATURE_LEVELS.SIMPLE) {return true;}
   
   if (featureLevel === FEATURE_LEVELS.SMART) {
     return userMode === 'smart' || userMode === 'pro';

@@ -38,7 +38,7 @@ export function ReferralProgramScreen({ userId, authToken, onShare }: ReferralPr
   const [claimingBonus, setClaimingBonus] = useState(false);
 
   const handleClaimBonus = async () => {
-    if (pendingBonuses <= 0) return;
+    if (pendingBonuses <= 0) {return;}
     setClaimingBonus(true);
     await claimBonus(pendingBonuses);
     setClaimingBonus(false);

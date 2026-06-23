@@ -28,7 +28,7 @@ export function useFavorites(token: string | null) {
 
   // Fetch all favorites on mount
   const fetchFavorites = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
 
     try {
       setLoading(true);
@@ -59,7 +59,7 @@ export function useFavorites(token: string | null) {
   // Add favorite
   const addFavorite = useCallback(
     async (favoriteId: string, type: 'driver' | 'passenger', name: string, photo?: string, rating?: number) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         setError(null);
@@ -104,7 +104,7 @@ export function useFavorites(token: string | null) {
   // Remove favorite
   const removeFavorite = useCallback(
     async (favoriteId: string) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         setError(null);
@@ -179,7 +179,7 @@ export function useRatingsHistory(token: string | null, userId?: string) {
 
   const fetchRatingsHistory = useCallback(
     async (limit = 20, offset = 0) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         setLoading(true);
@@ -274,7 +274,7 @@ export function useDriverProfile(token: string | null, driverId: string) {
   const [error, setError] = useState<FavoritesError | null>(null);
 
   const fetchProfile = useCallback(async () => {
-    if (!token || !driverId) return;
+    if (!token || !driverId) {return;}
 
     try {
       setLoading(true);
@@ -319,7 +319,7 @@ export function usePassengerProfile(token: string | null, passengerId: string) {
   const [error, setError] = useState<FavoritesError | null>(null);
 
   const fetchProfile = useCallback(async () => {
-    if (!token || !passengerId) return;
+    if (!token || !passengerId) {return;}
 
     try {
       setLoading(true);

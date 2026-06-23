@@ -51,7 +51,7 @@ interface UseRideLifecycleManagerReturn {
   cancelRide: (rideId: string, reason: string) => Promise<boolean>;
   markNoShow: (rideId: string) => Promise<boolean>;
   retryFailedTransition: (rideId: string, toStatus: RideStatus) => Promise<boolean>;
-  getTransitionHistory: (rideId: string) => Promise<Array<{timestamp: Date; from: RideStatus; to: RideStatus}>>;
+  getTransitionHistory: (rideId: string) => Promise<{timestamp: Date; from: RideStatus; to: RideStatus}[]>;
   validateTransition: (from: RideStatus, to: RideStatus) => boolean;
   clearError: () => void;
 }
@@ -84,11 +84,11 @@ export const useRideLifecycleManager = (
   const [error, setError] = useState<Error | null>(null);
 
   const transitionQueueRef = useRef<
-    Array<{
+    {
       rideId: string;
       toStatus: RideStatus;
       metadata?: Record<string, any>;
-    }>
+    }[]
   >([]);
 
   const validateTransition = useCallback(
@@ -117,7 +117,7 @@ export const useRideLifecycleManager = (
 
   const getRideState = useCallback(
     async (rideId: string): Promise<RideState | null> => {
-      if (!token) return null;
+      if (!token) {return null;}
 
       try {
         const response = await apiRequest(`/rides/${rideId}/state`, {
@@ -162,7 +162,7 @@ export const useRideLifecycleManager = (
       toStatus: RideStatus,
       metadata?: Record<string, any>
     ): Promise<boolean> => {
-      if (!token || !rideState) return false;
+      if (!token || !rideState) {return false;}
 
       if (!validateTransition(rideState.status, toStatus)) {
         const error = new Error(
@@ -228,7 +228,7 @@ export const useRideLifecycleManager = (
 
   const confirmRide = useCallback(
     async (rideId: string, driverId: string): Promise<boolean> => {
-      if (!rideState || rideState.status !== 'requested') return false;
+      if (!rideState || rideState.status !== 'requested') {return false;}
 
       return transitionRide(rideId, 'confirmed', { driverId });
     },
@@ -237,7 +237,7 @@ export const useRideLifecycleManager = (
 
   const acceptRide = useCallback(
     async (rideId: string): Promise<boolean> => {
-      if (!rideState || rideState.status !== 'confirmed') return false;
+      if (!rideState || rideState.status !== 'confirmed') {return false;}
 
       return transitionRide(rideId, 'accepted', {
         acceptedAt: new Date().toISOString(),
@@ -248,7 +248,7 @@ export const useRideLifecycleManager = (
 
   const markArrived = useCallback(
     async (rideId: string): Promise<boolean> => {
-      if (!rideState || rideState.status !== 'accepted') return false;
+      if (!rideState || rideState.status !== 'accepted') {return false;}
 
       return transitionRide(rideId, 'arrived', {
         arrivedAt: new Date().toISOString(),
@@ -259,7 +259,7 @@ export const useRideLifecycleManager = (
 
   const startRide = useCallback(
     async (rideId: string, otpCode?: string): Promise<boolean> => {
-      if (!rideState || rideState.status !== 'arrived') return false;
+      if (!rideState || rideState.status !== 'arrived') {return false;}
 
       return transitionRide(rideId, 'in_progress', {
         otpVerified: !!otpCode,
@@ -271,7 +271,7 @@ export const useRideLifecycleManager = (
 
   const completeRide = useCallback(
     async (rideId: string, otpCode?: string): Promise<boolean> => {
-      if (!rideState || rideState.status !== 'in_progress') return false;
+      if (!rideState || rideState.status !== 'in_progress') {return false;}
 
       return transitionRide(rideId, 'completed', {
         otpVerified: !!otpCode,
@@ -283,7 +283,7 @@ export const useRideLifecycleManager = (
 
   const cancelRide = useCallback(
     async (rideId: string, reason: string): Promise<boolean> => {
-      if (!rideState) return false;
+      if (!rideState) {return false;}
 
       const validForCancellation: RideStatus[] = [
         'requested',
@@ -310,7 +310,7 @@ export const useRideLifecycleManager = (
 
   const markNoShow = useCallback(
     async (rideId: string): Promise<boolean> => {
-      if (!rideState || rideState.status !== 'confirmed') return false;
+      if (!rideState || rideState.status !== 'confirmed') {return false;}
 
       return transitionRide(rideId, 'no_show', {
         noShowAt: new Date().toISOString(),
@@ -321,7 +321,7 @@ export const useRideLifecycleManager = (
 
   const retryFailedTransition = useCallback(
     async (rideId: string, toStatus: RideStatus): Promise<boolean> => {
-      if (!rideState) return false;
+      if (!rideState) {return false;}
 
       const maxRetries = 3;
       if (rideState.retryCount >= maxRetries) {
@@ -339,8 +339,8 @@ export const useRideLifecycleManager = (
   const getTransitionHistory = useCallback(
     async (
       rideId: string
-    ): Promise<Array<{ timestamp: Date; from: RideStatus; to: RideStatus }>> => {
-      if (!token) return [];
+    ): Promise<{ timestamp: Date; from: RideStatus; to: RideStatus }[]> => {
+      if (!token) {return [];}
 
       try {
         const response = await apiRequest(

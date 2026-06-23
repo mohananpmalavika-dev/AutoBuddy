@@ -64,7 +64,7 @@ export const RouteOptimizationScreen: React.FC<RouteOptimizationScreenProps> = (
   };
 
   const handleMarkStopComplete = async (stopId: string) => {
-    if (!currentRoute) return;
+    if (!currentRoute) {return;}
     const success = await updateStopStatus(currentRoute.id, stopId, 'completed');
     if (success) {
       Alert.alert('Success', 'Stop marked as completed');
@@ -294,7 +294,7 @@ export const RouteOptimizationScreen: React.FC<RouteOptimizationScreenProps> = (
                     />
                     <View style={styles.detailContent}>
                       <Text style={styles.detailLabel}>Status</Text>
-                      <Text style={styles.detailValue}}>
+                      <Text style={styles.detailValue}>
                         {selectedStop.status.charAt(0).toUpperCase() +
                           selectedStop.status.slice(1)}
                       </Text>

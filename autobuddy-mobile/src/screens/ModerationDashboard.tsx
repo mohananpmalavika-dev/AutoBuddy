@@ -16,7 +16,7 @@ import { useModerationDashboard, ReportedContent } from '../hooks/useModerationD
 type DateLike = string | number | Date | null | undefined;
 
 const formatDateSafely = (date: DateLike): string => {
-  if (!date) return 'Unknown';
+  if (!date) {return 'Unknown';}
   const dateObj = new Date(date);
   return !isNaN(dateObj.getTime()) ? dateObj.toLocaleDateString() : 'Unknown';
 };
@@ -102,7 +102,7 @@ export const ModerationDashboard: React.FC<ModerationDashboardProps> = ({
   };
 
   const handleDismissReport = async () => {
-    if (!selectedReport) return;
+    if (!selectedReport) {return;}
 
     Alert.alert('Dismiss Report', 'Are you sure you want to dismiss this report?', [
       { text: 'Cancel', style: 'cancel' },
@@ -122,7 +122,7 @@ export const ModerationDashboard: React.FC<ModerationDashboardProps> = ({
   };
 
   const filteredReports = reports.filter((r) => {
-    if (filterStatus === 'all') return true;
+    if (filterStatus === 'all') {return true;}
     return r.status === filterStatus;
   });
 

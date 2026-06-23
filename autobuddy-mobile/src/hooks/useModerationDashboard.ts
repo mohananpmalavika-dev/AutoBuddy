@@ -70,7 +70,7 @@ export const useModerationDashboard = (token: string | null, adminId: string): U
 
   const fetchReports = useCallback(
     async (status?: string) => {
-      if (!token) return;
+      if (!token) {return;}
       setLoading(true);
       try {
         const params = status ? { status } : {};
@@ -91,7 +91,7 @@ export const useModerationDashboard = (token: string | null, adminId: string): U
 
   const fetchReport = useCallback(
     async (reportId: string): Promise<ReportedContent | null> => {
-      if (!token) return null;
+      if (!token) {return null;}
       try {
         const response = await axios.get(`${API_BASE_URL}/moderation/reports/${reportId}`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -107,7 +107,7 @@ export const useModerationDashboard = (token: string | null, adminId: string): U
 
   const updateReportStatus = useCallback(
     async (reportId: string, status: string, severity?: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await axios.patch(
           `${API_BASE_URL}/moderation/reports/${reportId}`,
@@ -133,7 +133,7 @@ export const useModerationDashboard = (token: string | null, adminId: string): U
       reason: string,
       duration?: number
     ): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/moderation/reports/${reportId}/action`,
@@ -155,7 +155,7 @@ export const useModerationDashboard = (token: string | null, adminId: string): U
 
   const dismissReport = useCallback(
     async (reportId: string, reason: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/moderation/reports/${reportId}/dismiss`,
@@ -176,7 +176,7 @@ export const useModerationDashboard = (token: string | null, adminId: string): U
 
   const warnUser = useCallback(
     async (userId: string, reason: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/moderation/users/${userId}/warn`,
@@ -194,7 +194,7 @@ export const useModerationDashboard = (token: string | null, adminId: string): U
 
   const suspendUser = useCallback(
     async (userId: string, duration: number, reason: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/moderation/users/${userId}/suspend`,
@@ -212,7 +212,7 @@ export const useModerationDashboard = (token: string | null, adminId: string): U
 
   const banUser = useCallback(
     async (userId: string, reason: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/moderation/users/${userId}/ban`,
@@ -239,7 +239,7 @@ export const useModerationDashboard = (token: string | null, adminId: string): U
   );
 
   const fetchStats = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
     try {
       const response = await axios.get(`${API_BASE_URL}/moderation/stats`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -253,7 +253,7 @@ export const useModerationDashboard = (token: string | null, adminId: string): U
 
   const exportReport = useCallback(
     async (reportId: string): Promise<any> => {
-      if (!token) return null;
+      if (!token) {return null;}
       try {
         const response = await axios.get(
           `${API_BASE_URL}/moderation/reports/${reportId}/export`,

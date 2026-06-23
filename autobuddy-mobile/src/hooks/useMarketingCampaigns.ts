@@ -70,7 +70,7 @@ export const useMarketingCampaigns = (token: string | null, adminId: string): Us
 
   const fetchCampaigns = useCallback(
     async (status?: string) => {
-      if (!token) return;
+      if (!token) {return;}
       setLoading(true);
       try {
         const params = status ? { status } : {};
@@ -91,7 +91,7 @@ export const useMarketingCampaigns = (token: string | null, adminId: string): Us
 
   const createCampaign = useCallback(
     async (campaign: Partial<Campaign>): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/campaigns`,
@@ -110,7 +110,7 @@ export const useMarketingCampaigns = (token: string | null, adminId: string): Us
 
   const updateCampaign = useCallback(
     async (campaignId: string, updates: Partial<Campaign>): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await axios.put(
           `${API_BASE_URL}/campaigns/${campaignId}`,
@@ -131,7 +131,7 @@ export const useMarketingCampaigns = (token: string | null, adminId: string): Us
 
   const startCampaign = useCallback(
     async (campaignId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/campaigns/${campaignId}/start`,
@@ -152,7 +152,7 @@ export const useMarketingCampaigns = (token: string | null, adminId: string): Us
 
   const endCampaign = useCallback(
     async (campaignId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/campaigns/${campaignId}/end`,
@@ -173,7 +173,7 @@ export const useMarketingCampaigns = (token: string | null, adminId: string): Us
 
   const pauseCampaign = useCallback(
     async (campaignId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/campaigns/${campaignId}/pause`,
@@ -195,7 +195,7 @@ export const useMarketingCampaigns = (token: string | null, adminId: string): Us
   const getCampaignMetrics = useCallback(
     (campaignId: string) => {
       const campaign = campaigns.find((c) => c.id === campaignId);
-      if (!campaign) return null;
+      if (!campaign) {return null;}
 
       const ctr = campaign.metrics.impressions > 0
         ? ((campaign.metrics.clicks / campaign.metrics.impressions) * 100).toFixed(2)
@@ -227,7 +227,7 @@ export const useMarketingCampaigns = (token: string | null, adminId: string): Us
 
   const redeemReward = useCallback(
     async (rewardId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/rewards/${rewardId}/redeem`,
@@ -256,7 +256,7 @@ export const useMarketingCampaigns = (token: string | null, adminId: string): Us
   const estimateROI = useCallback(
     (campaignId: string): number => {
       const campaign = campaigns.find((c) => c.id === campaignId);
-      if (!campaign || campaign.spentAmount === 0) return 0;
+      if (!campaign || campaign.spentAmount === 0) {return 0;}
 
       const roi = ((campaign.metrics.revenue - campaign.spentAmount) / campaign.spentAmount) * 100;
       return Math.round(roi);

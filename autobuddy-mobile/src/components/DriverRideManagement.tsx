@@ -59,7 +59,7 @@ export function DriverRideManagement({
 
   // Initialize: fetch offers when driver goes online
   useEffect(() => {
-    if (!isOnline || !token) return;
+    if (!isOnline || !token) {return;}
 
     const initializeOffers = async () => {
       await dispatch.fetchRideOffers();
@@ -72,12 +72,12 @@ export function DriverRideManagement({
 
   // Listen for new ride offers from WebSocket
   useEffect(() => {
-    if (!isOnline || !token) return;
+    if (!isOnline || !token) {return;}
 
     // Simulate WebSocket incoming ride offers
     // In production, this would be handled by useDriverDispatch's socket
     const handleNewOffer = (offer: RideOffer) => {
-      if (expiredOffersRef.current.has(offer.offerId)) return;
+      if (expiredOffersRef.current.has(offer.offerId)) {return;}
 
       if (!currentOffer) {
         setCurrentOffer(offer);
@@ -98,7 +98,7 @@ export function DriverRideManagement({
     // Subscribe to ride offers from dispatch
     if (dispatch.rideOffers.length > 0) {
       dispatch.rideOffers.forEach((offer) => {
-        if (!currentOffer && expiredOffersRef.current.has(offer.offerId)) return;
+        if (!currentOffer && expiredOffersRef.current.has(offer.offerId)) {return;}
         if (!currentOffer) {
           setCurrentOffer(offer);
         } else {
@@ -113,7 +113,7 @@ export function DriverRideManagement({
    */
   const handleAcceptRide = useCallback(
     async (offerId: string) => {
-      if (!currentOffer || !token) return;
+      if (!currentOffer || !token) {return;}
 
       setIsProcessing(true);
 
@@ -212,7 +212,7 @@ export function DriverRideManagement({
    */
   const handleDeclineRide = useCallback(
     async (offerId: string) => {
-      if (!currentOffer || !token) return;
+      if (!currentOffer || !token) {return;}
 
       setIsProcessing(true);
 
@@ -263,7 +263,7 @@ export function DriverRideManagement({
    */
   const handleOfferExpired = useCallback(
     async (offerId: string) => {
-      if (!currentOffer || currentOffer.offerId !== offerId) return;
+      if (!currentOffer || currentOffer.offerId !== offerId) {return;}
 
       await dispatch.declineRideOffer(offerId, 'auto_decline_timeout');
 
@@ -292,7 +292,7 @@ export function DriverRideManagement({
    */
   const handleRideCompleted = useCallback(
     async (rideId: string) => {
-      if (!activeRideRef.current || !token) return;
+      if (!activeRideRef.current || !token) {return;}
 
       try {
         // Complete ride in lifecycle

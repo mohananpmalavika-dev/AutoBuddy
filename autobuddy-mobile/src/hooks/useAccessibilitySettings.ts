@@ -56,13 +56,13 @@ export const useAccessibilitySettings = (token: string | null, userId: string) =
         setLoading(false);
       }
     };
-    if (token && userId) initialize();
+    if (token && userId) {initialize();}
   }, [token, userId]);
 
   const updateSetting = useCallback(
     async (key: keyof AccessibilitySettings, value: any) => {
       try {
-        if (!settings) return;
+        if (!settings) {return;}
         const updated = { ...settings, [key]: value };
         setSettings(updated);
         await AsyncStorage.setItem(ACCESSIBILITY_STORAGE, JSON.stringify(updated));

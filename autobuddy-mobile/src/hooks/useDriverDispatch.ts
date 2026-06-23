@@ -82,7 +82,7 @@ export const useDriverDispatch = (
   const offerTimeoutRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
 
   useEffect(() => {
-    if (!token) return;
+    if (!token) {return;}
 
     const initSocket = async () => {
       try {
@@ -186,7 +186,7 @@ export const useDriverDispatch = (
   }, [token, driverId]);
 
   const fetchRideOffers = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
 
     setIsLoadingOffers(true);
     setError(null);
@@ -225,7 +225,7 @@ export const useDriverDispatch = (
 
   const acceptRideOffer = useCallback(
     async (offerId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
 
       setIsAccepting(true);
       setError(null);
@@ -287,7 +287,7 @@ export const useDriverDispatch = (
 
   const declineRideOffer = useCallback(
     async (offerId: string, reason?: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
 
       try {
         await apiRequest('/drivers/decline-offer', {
@@ -335,7 +335,7 @@ export const useDriverDispatch = (
 
   const markDriverArrived = useCallback(
     async (rideId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
 
       try {
         const response = await apiRequest(`/rides/${rideId}/arrived`, {
@@ -369,7 +369,7 @@ export const useDriverDispatch = (
 
   const startRide = useCallback(
     async (rideId: string, otp?: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
 
       try {
         const response = await apiRequest(`/rides/${rideId}/start`, {
@@ -401,7 +401,7 @@ export const useDriverDispatch = (
 
   const completeRide = useCallback(
     async (rideId: string, otp?: string, rating?: number): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
 
       try {
         const response = await apiRequest(`/rides/${rideId}/complete`, {
@@ -427,7 +427,7 @@ export const useDriverDispatch = (
 
   const cancelRide = useCallback(
     async (rideId: string, reason: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
 
       try {
         const response = await apiRequest(`/rides/${rideId}/cancel`, {
@@ -450,7 +450,7 @@ export const useDriverDispatch = (
   );
 
   const getActiveRide = useCallback(async (): Promise<DriverRide | null> => {
-    if (!token) return null;
+    if (!token) {return null;}
 
     try {
       const response = await apiRequest('/drivers/active-ride', {
@@ -501,7 +501,7 @@ export const useDriverDispatch = (
 
   const getRideOfferExpiry = useCallback((offerId: string): number => {
     const offer = rideOffers.find((o) => o.offerId === offerId);
-    if (!offer) return 0;
+    if (!offer) {return 0;}
 
     const msUntilExpiry = offer.offerExpiresAt.getTime() - Date.now();
     return Math.max(0, Math.ceil(msUntilExpiry / 1000));

@@ -126,7 +126,7 @@ export const UserModeProvider: React.FC<UserModeProviderProps> = ({ children, us
 
   const canAccessMode = useCallback(
     (mode: UserMode): boolean => {
-      if (mode === 'simple') return true; // Everyone can access simple mode
+      if (mode === 'simple') {return true;} // Everyone can access simple mode
       
       if (mode === 'smart') {
         return currentMode === 'smart' || currentMode === 'pro';
@@ -150,7 +150,7 @@ export const UserModeProvider: React.FC<UserModeProviderProps> = ({ children, us
 
   const setUserMode = useCallback(
     async (mode: UserMode) => {
-      if (!userId) throw new Error('User ID not available');
+      if (!userId) {throw new Error('User ID not available');}
 
       try {
         setLoading(true);
@@ -181,7 +181,7 @@ export const UserModeProvider: React.FC<UserModeProviderProps> = ({ children, us
 
   const startProTrial = useCallback(
     async (trialDays: number = 7) => {
-      if (!userId) throw new Error('User ID not available');
+      if (!userId) {throw new Error('User ID not available');}
 
       try {
         setLoading(true);
@@ -212,7 +212,7 @@ export const UserModeProvider: React.FC<UserModeProviderProps> = ({ children, us
 
   const upgradeToProSubscription = useCallback(
     async (subscriptionDays: number = 30) => {
-      if (!userId) throw new Error('User ID not available');
+      if (!userId) {throw new Error('User ID not available');}
 
       try {
         setLoading(true);
@@ -243,7 +243,7 @@ export const UserModeProvider: React.FC<UserModeProviderProps> = ({ children, us
 
   const toggleFeature = useCallback(
     async (featureName: string, enabled: boolean) => {
-      if (!userId) throw new Error('User ID not available');
+      if (!userId) {throw new Error('User ID not available');}
 
       try {
         const response = await fetch(`/api/v1/user-mode/${userId}/feature/${featureName}`, {

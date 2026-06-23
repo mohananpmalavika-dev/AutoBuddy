@@ -58,7 +58,7 @@ export const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({
 
   // Smooth location update animation
   useEffect(() => {
-    if (!driverLocation) return;
+    if (!driverLocation) {return;}
 
     // Smooth transition between locations
     if (previousLocationRef.current) {
@@ -88,7 +88,7 @@ export const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({
 
   // Auto-follow driver
   useEffect(() => {
-    if (!isAutoFollowEnabled || !displayedLocation || !mapRef.current) return;
+    if (!isAutoFollowEnabled || !displayedLocation || !mapRef.current) {return;}
 
     // Validate coordinates before animating
     const lat = Number(displayedLocation.latitude);
@@ -134,11 +134,11 @@ export const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({
 
   // Calculate ETA (placeholder - in real app, use routing service)
   const calculateETA = () => {
-    if (!rideInfo?.eta) return null;
+    if (!rideInfo?.eta) {return null;}
 
     const minutes = Math.ceil(rideInfo.eta / 60);
-    if (minutes < 1) return '< 1 min';
-    if (minutes === 1) return '1 min';
+    if (minutes < 1) {return '< 1 min';}
+    if (minutes === 1) {return '1 min';}
     return `${minutes} mins`;
   };
 

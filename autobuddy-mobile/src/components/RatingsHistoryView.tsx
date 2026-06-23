@@ -54,7 +54,7 @@ export const RatingsHistoryView: React.FC<RatingsHistoryViewProps> = ({
   }, [ratings, filterType, ratingFilter]);
 
   const ratingPercentages = useMemo(() => {
-    if (stats.totalRatings === 0) return {};
+    if (stats.totalRatings === 0) {return {};}
     return {
       5: Math.round((stats.ratingDistribution[5] / stats.totalRatings) * 100),
       4: Math.round((stats.ratingDistribution[4] / stats.totalRatings) * 100),

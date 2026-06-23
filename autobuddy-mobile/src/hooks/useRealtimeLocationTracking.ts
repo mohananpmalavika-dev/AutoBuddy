@@ -125,7 +125,7 @@ export const useRealtimeLocationTracking = (
 
   const updateLocation = useCallback(
     async (location: DriverLocation): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
 
       try {
         const response = await apiRequest('/location/update', {
@@ -173,10 +173,10 @@ export const useRealtimeLocationTracking = (
   );
 
   const startTracking = useCallback(async (): Promise<boolean> => {
-    if (!enabled || isTracking) return false;
+    if (!enabled || isTracking) {return false;}
 
     const hasPermission = await getLocationPermission();
-    if (!hasPermission) return false;
+    if (!hasPermission) {return false;}
 
     try {
       setError(null);
@@ -246,7 +246,7 @@ export const useRealtimeLocationTracking = (
 
   const getDriverLocation = useCallback(
     async (targetDriverId: string): Promise<DriverLocation | null> => {
-      if (!token) return null;
+      if (!token) {return null;}
 
       try {
         const response = await apiRequest(`/location/driver/${targetDriverId}`, {
@@ -276,7 +276,7 @@ export const useRealtimeLocationTracking = (
 
   const getMultipleDriverLocations = useCallback(
     async (driverIds: string[]): Promise<Record<string, DriverLocation>> => {
-      if (!token) return {};
+      if (!token) {return {};}
 
       try {
         const response = await apiRequest('/location/drivers', {

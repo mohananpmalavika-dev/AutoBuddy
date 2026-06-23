@@ -16,13 +16,13 @@ import { useComplianceTracking, ComplianceItem, ComplianceAlert } from '../hooks
 type DateLike = string | number | Date | null | undefined;
 
 const formatDateSafely = (date: DateLike): string => {
-  if (!date) return 'Unknown';
+  if (!date) {return 'Unknown';}
   const dateObj = new Date(date);
   return !isNaN(dateObj.getTime()) ? dateObj.toLocaleDateString() : 'Unknown';
 };
 
 const formatDateTimeSafely = (date: DateLike): string => {
-  if (!date) return 'Unknown';
+  if (!date) {return 'Unknown';}
   const dateObj = new Date(date);
   return !isNaN(dateObj.getTime()) ? dateObj.toLocaleString() : 'Unknown';
 };
@@ -107,14 +107,14 @@ export const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({
   const timeline = getComplianceTimeline?.() ?? [];
 
   const getScoreColor = (scoreValue: number): string => {
-    if (scoreValue >= 80) return '#4CAF50';
-    if (scoreValue >= 60) return '#FF9800';
+    if (scoreValue >= 80) {return '#4CAF50';}
+    if (scoreValue >= 60) {return '#FF9800';}
     return '#F44336';
   };
 
   const getScoreStatus = (score: number) => {
-    if (score >= 80) return 'Compliant';
-    if (score >= 60) return 'Warning';
+    if (score >= 80) {return 'Compliant';}
+    if (score >= 60) {return 'Warning';}
     return 'Non-Compliant';
   };
 

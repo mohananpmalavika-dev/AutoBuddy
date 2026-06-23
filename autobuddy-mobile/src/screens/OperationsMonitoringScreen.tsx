@@ -53,7 +53,7 @@ export const OperationsMonitoringScreen: React.FC<OperationsMonitoringScreenProp
       return;
     }
 
-    if (!selectedDriver) return;
+    if (!selectedDriver) {return;}
 
     const success = await sendMessage(selectedDriver.id, messageText);
     if (success) {
@@ -66,10 +66,10 @@ export const OperationsMonitoringScreen: React.FC<OperationsMonitoringScreenProp
   };
 
   const filteredDrivers = drivers.filter((driver) => {
-    if (filterStatus === 'all') return true;
-    if (filterStatus === 'online') return driver.status === 'online';
-    if (filterStatus === 'offline') return driver.status === 'offline';
-    if (filterStatus === 'active') return driver.activeRides && driver.activeRides.length > 0;
+    if (filterStatus === 'all') {return true;}
+    if (filterStatus === 'online') {return driver.status === 'online';}
+    if (filterStatus === 'offline') {return driver.status === 'offline';}
+    if (filterStatus === 'active') {return driver.activeRides && driver.activeRides.length > 0;}
     return true;
   });
 

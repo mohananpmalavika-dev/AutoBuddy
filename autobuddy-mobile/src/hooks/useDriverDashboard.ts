@@ -19,7 +19,7 @@ export function useDriverEarnings(token: string | null) {
   const [error, setError] = useState<DriverError | null>(null);
 
   const fetchEarnings = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
 
     try {
       setLoading(true);
@@ -61,7 +61,7 @@ export function useDriverDocuments(token: string | null) {
   const [error, setError] = useState<DriverError | null>(null);
 
   const fetchDocuments = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
 
     try {
       setLoading(true);
@@ -104,7 +104,7 @@ export function useRideRequest(token: string | null) {
 
   const acceptRide = useCallback(
     async (rideId: string) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         setLoading(true);
@@ -129,7 +129,7 @@ export function useRideRequest(token: string | null) {
 
   const declineRide = useCallback(
     async (rideId: string, reason?: string) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         setLoading(true);
@@ -173,7 +173,7 @@ export function useDriverOnlineStatus(token: string | null) {
 
   const toggleOnlineStatus = useCallback(
     async (online: boolean) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         setLoading(true);
@@ -201,7 +201,7 @@ export function useDriverOnlineStatus(token: string | null) {
   useEffect(() => {
     // Fetch current online status
     const fetchStatus = async () => {
-      if (!token) return;
+      if (!token) {return;}
       try {
         const response = await apiRequest<{ online: boolean }>(
           '/drivers/me/online-status',
@@ -227,7 +227,7 @@ export function useDriverAlerts(token: string | null) {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!token) return;
+    if (!token) {return;}
 
     const fetchAlerts = async () => {
       try {
@@ -263,7 +263,7 @@ export function useDriverDocumentUpload(token: string | null) {
 
   const uploadDocument = useCallback(
     async (documentType: string, fileUri: string) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         setUploading(true);
@@ -313,7 +313,7 @@ export function useDriverRideHistory(token: string | null, limit = 10) {
 
   const fetchRides = useCallback(
     async (loadMore = false) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         setLoading(true);

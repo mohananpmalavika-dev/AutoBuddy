@@ -9,21 +9,21 @@ import {
   TextInput,
   Modal,
   FlatList,
-} from 'react-native';
-import { Text } from 'react-native';
+ Text } from 'react-native';
+
 import { useFamilyAssistant } from '../hooks/useFamilyAssistant';
 import { FamilyMemberCard } from '../components/FamilyMemberCard';
 
 type DateLike = string | number | Date | null | undefined;
 
 const formatDateSafely = (date: DateLike): string => {
-  if (!date) return 'Unknown';
+  if (!date) {return 'Unknown';}
   const dateObj = new Date(date);
   return !isNaN(dateObj.getTime()) ? dateObj.toLocaleDateString() : 'Unknown';
 };
 
 const formatDateTimeSafely = (date: DateLike): string => {
-  if (!date) return 'Unknown';
+  if (!date) {return 'Unknown';}
   const dateObj = new Date(date);
   return !isNaN(dateObj.getTime()) ? dateObj.toLocaleString() : 'Unknown';
 };
@@ -62,7 +62,7 @@ export const FamilyAssistantDashboard: React.FC<FamilyAssistantDashboardProps> =
     relation: 'parent' as const,
   });
 
-  const relations: Array<'parent' | 'child' | 'spouse' | 'sibling' | 'friend'> = [
+  const relations: ('parent' | 'child' | 'spouse' | 'sibling' | 'friend')[] = [
     'parent',
     'child',
     'spouse',

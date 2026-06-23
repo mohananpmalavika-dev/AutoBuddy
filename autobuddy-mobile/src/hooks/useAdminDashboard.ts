@@ -47,11 +47,11 @@ export interface ComplianceData {
   passedChecks: number;
   failedChecks: number;
   warningChecks: number;
-  details: Array<{
+  details: {
     category: string;
     status: 'pass' | 'fail' | 'warning';
     message: string;
-  }>;
+  }[];
 }
 
 /**
@@ -63,7 +63,7 @@ export function useAdminMetrics(token: string | null, timeRange: string = '24h')
   const [error, setError] = useState<AdminError | null>(null);
 
   const fetchMetrics = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
 
     try {
       setLoading(true);
@@ -105,7 +105,7 @@ export function useSystemHealth(token: string | null) {
   const [error, setError] = useState<AdminError | null>(null);
 
   const fetchHealth = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
 
     try {
       setLoading(true);
@@ -147,7 +147,7 @@ export function useAdminAlerts(token: string | null) {
   const [error, setError] = useState<AdminError | null>(null);
 
   const fetchAlerts = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
 
     try {
       setLoading(true);
@@ -179,7 +179,7 @@ export function useAdminAlerts(token: string | null) {
 
   const resolveAlert = useCallback(
     async (alertId: string, resolution: string) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         await apiRequest(`/admin/alerts/${alertId}/resolve`, {
@@ -212,7 +212,7 @@ export function useComplianceData(token: string | null) {
   const [error, setError] = useState<AdminError | null>(null);
 
   const fetchCompliance = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
 
     try {
       setLoading(true);
@@ -254,7 +254,7 @@ export function useSystemConfig(token: string | null) {
   const [error, setError] = useState<AdminError | null>(null);
 
   const fetchConfig = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
 
     try {
       setLoading(true);
@@ -282,7 +282,7 @@ export function useSystemConfig(token: string | null) {
 
   const updateConfig = useCallback(
     async (updates: any) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         setLoading(true);
@@ -321,7 +321,7 @@ export function useAdminUserManagement(token: string | null) {
 
   const suspendUser = useCallback(
     async (userId: string, reason: string, duration: number) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         setLoading(true);
@@ -347,7 +347,7 @@ export function useAdminUserManagement(token: string | null) {
 
   const banUser = useCallback(
     async (userId: string, reason: string) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         setLoading(true);
@@ -373,7 +373,7 @@ export function useAdminUserManagement(token: string | null) {
 
   const issueRefund = useCallback(
     async (rideId: string, amount: number, reason: string) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         setLoading(true);
@@ -415,7 +415,7 @@ export function useAdminReports(token: string | null) {
 
   const generateReport = useCallback(
     async (reportType: string, timeRange: string) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         setLoading(true);
@@ -445,7 +445,7 @@ export function useAdminReports(token: string | null) {
 
   const downloadReport = useCallback(
     async (reportId: string) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         await apiRequest(`/admin/reports/${reportId}/download`, {

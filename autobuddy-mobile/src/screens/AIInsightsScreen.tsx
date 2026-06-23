@@ -1,10 +1,4 @@
-"""
-AI Insights Screen Component
-
-Displays all AI-powered suggestions and insights to the user.
-Shows travel patterns, predictive offers, weather alerts, and destination recognition.
-Integrates into the booking flow and dashboard.
-"""
+/* AI Insights Screen Component - Displays AI-powered suggestions and insights to the user. */
 
 import React, { useState, useEffect } from "react";
 import {

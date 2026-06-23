@@ -292,7 +292,7 @@ export const useComplianceNotifications = (token: string | null, userId: string)
 
   // Simulate initial compliance alerts on mount
   useEffect(() => {
-    if (!token || !userId) return;
+    if (!token || !userId) {return;}
 
     // Simulate some initial alerts based on user type
     const initializeAlerts = () => {

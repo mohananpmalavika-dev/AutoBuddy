@@ -61,7 +61,7 @@ export const useVideoCall = (token: string | null, userId: string): UseVideoCall
 
   const initiateCall = useCallback(
     async (recipientId: string, callType: 'audio' | 'video'): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       setLoading(true);
       try {
         const response = await axios.post(
@@ -84,7 +84,7 @@ export const useVideoCall = (token: string | null, userId: string): UseVideoCall
 
   const answerCall = useCallback(
     async (callSessionId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/calls/${callSessionId}/answer`,
@@ -104,7 +104,7 @@ export const useVideoCall = (token: string | null, userId: string): UseVideoCall
 
   const rejectCall = useCallback(
     async (callSessionId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/calls/${callSessionId}/reject`,
@@ -123,7 +123,7 @@ export const useVideoCall = (token: string | null, userId: string): UseVideoCall
 
   const endCall = useCallback(
     async (callSessionId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/calls/${callSessionId}/end`,
@@ -154,7 +154,7 @@ export const useVideoCall = (token: string | null, userId: string): UseVideoCall
   }, []);
 
   const startRecording = useCallback(async (): Promise<boolean> => {
-    if (!token || !currentCall) return false;
+    if (!token || !currentCall) {return false;}
     try {
       await axios.post(
         `${API_BASE_URL}/calls/${currentCall.id}/recording/start`,
@@ -173,7 +173,7 @@ export const useVideoCall = (token: string | null, userId: string): UseVideoCall
   }, [token, userId, currentCall, API_BASE_URL]);
 
   const stopRecording = useCallback(async (): Promise<boolean> => {
-    if (!token || !currentCall) return false;
+    if (!token || !currentCall) {return false;}
     try {
       await axios.post(
         `${API_BASE_URL}/calls/${currentCall.id}/recording/stop`,
@@ -193,7 +193,7 @@ export const useVideoCall = (token: string | null, userId: string): UseVideoCall
 
   const getCallHistory = useCallback(
     async (historyUserId: string, limit: number = 50) => {
-      if (!token) return;
+      if (!token) {return;}
       try {
         const response = await axios.get(
           `${API_BASE_URL}/calls/history/${historyUserId}`,
@@ -216,7 +216,7 @@ export const useVideoCall = (token: string | null, userId: string): UseVideoCall
   }, [callQuality]);
 
   const switchCamera = useCallback(async (): Promise<boolean> => {
-    if (!token || !currentCall) return false;
+    if (!token || !currentCall) {return false;}
     try {
       await axios.post(
         `${API_BASE_URL}/calls/${currentCall.id}/camera/switch`,
@@ -231,7 +231,7 @@ export const useVideoCall = (token: string | null, userId: string): UseVideoCall
   }, [token, userId, currentCall, API_BASE_URL]);
 
   const enableScreenShare = useCallback(async (): Promise<boolean> => {
-    if (!token || !currentCall) return false;
+    if (!token || !currentCall) {return false;}
     try {
       await axios.post(
         `${API_BASE_URL}/calls/${currentCall.id}/screen-share/enable`,
@@ -246,7 +246,7 @@ export const useVideoCall = (token: string | null, userId: string): UseVideoCall
   }, [token, userId, currentCall, API_BASE_URL]);
 
   const disableScreenShare = useCallback(async (): Promise<boolean> => {
-    if (!token || !currentCall) return false;
+    if (!token || !currentCall) {return false;}
     try {
       await axios.post(
         `${API_BASE_URL}/calls/${currentCall.id}/screen-share/disable`,

@@ -19,7 +19,7 @@ interface DriverDocumentUploadScreenProps {
   userId: string;
 }
 
-const REQUIRED_DOCUMENTS: Array<Document['type']> = [
+const REQUIRED_DOCUMENTS: Document['type'][] = [
   'license',
   'registration',
   'insurance',
@@ -240,7 +240,7 @@ export const DriverDocumentUploadScreen: React.FC<DriverDocumentUploadScreenProp
               <View style={styles.subsection}>
                 <Text style={styles.subsectionTitle}>Approved</Text>
                 {approvedDocs.map((doc) => {
-                  if (!doc || !doc.id) return null;
+                  if (!doc || !doc.id) {return null;}
                   return (
                     <DocumentUploadCard
                       key={doc.id}
@@ -261,7 +261,7 @@ export const DriverDocumentUploadScreen: React.FC<DriverDocumentUploadScreenProp
               <View style={styles.subsection}>
                 <Text style={[styles.subsectionTitle, { color: '#FFC107' }]}>Pending Review</Text>
                 {pendingDocs.map((doc) => {
-                  if (!doc || !doc.id) return null;
+                  if (!doc || !doc.id) {return null;}
                   return (
                     <DocumentUploadCard
                       key={doc.id}
@@ -282,7 +282,7 @@ export const DriverDocumentUploadScreen: React.FC<DriverDocumentUploadScreenProp
               <View style={styles.subsection}>
                 <Text style={[styles.subsectionTitle, { color: '#F44336' }]}>Expired</Text>
                 {expiredDocs.map((doc) => {
-                 if (!doc || !doc.id) return null;
+                 if (!doc || !doc.id) {return null;}
                  return (
                    <DocumentUploadCard
                      key={doc.id}

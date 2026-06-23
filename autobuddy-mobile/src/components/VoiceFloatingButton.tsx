@@ -87,7 +87,7 @@ export default function VoiceFloatingButton({
     outputRange: ['0deg', '360deg'],
   });
 
-  if (!isAvailable) return null;
+  if (!isAvailable) {return null;}
 
   return (
     <View style={styles.wrapper}>

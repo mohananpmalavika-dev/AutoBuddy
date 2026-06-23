@@ -17,13 +17,13 @@ import { useWalletAndPayout, WalletTransaction, Payout } from '../hooks/useWalle
 type DateLike = string | number | Date | null | undefined;
 
 const formatDateSafely = (date: DateLike): string => {
-  if (!date) return 'Unknown';
+  if (!date) {return 'Unknown';}
   const dateObj = new Date(date);
   return !isNaN(dateObj.getTime()) ? dateObj.toLocaleDateString() : 'Unknown';
 };
 
 const formatTimeSafely = (date: DateLike): string => {
-  if (!date) return 'Unknown';
+  if (!date) {return 'Unknown';}
   const dateObj = new Date(date);
   return !isNaN(dateObj.getTime()) ? dateObj.toLocaleTimeString() : 'Unknown';
 };
@@ -402,7 +402,7 @@ export const WalletScreen: React.FC<WalletScreenProps> = ({
                 </View>
               )}
 
-              <View style={styles.payout Actions}>
+              <View style={styles.payoutActions}>
                 <Pressable
                   style={styles.submitButton}
                   onPress={handleRequestPayout}

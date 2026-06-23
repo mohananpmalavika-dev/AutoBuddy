@@ -45,7 +45,7 @@ export const useDocumentUpload = (token: string | null, userId: string): UseDocu
   const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 
   const fetchDocuments = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
     setLoading(true);
     try {
       const response = await axios.get(`${API_BASE_URL}/documents/${userId}`, {
@@ -62,7 +62,7 @@ export const useDocumentUpload = (token: string | null, userId: string): UseDocu
 
   const uploadDocument = useCallback(
     async (type: Document['type'], filePath: string): Promise<Document | null> => {
-      if (!token) return null;
+      if (!token) {return null;}
 
       const fileName = filePath.split('/').pop() || 'document';
       const key = `${type}_${Date.now()}`;
@@ -74,7 +74,7 @@ export const useDocumentUpload = (token: string | null, userId: string): UseDocu
 
       try {
         const fileInfo = await FileSystem.getInfoAsync(filePath);
-        if (!fileInfo.exists) throw new Error('File not found');
+        if (!fileInfo.exists) {throw new Error('File not found');}
 
         const formData = new FormData();
         formData.append('file', {
@@ -132,7 +132,7 @@ export const useDocumentUpload = (token: string | null, userId: string): UseDocu
 
   const deleteDocument = useCallback(
     async (documentId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.delete(`${API_BASE_URL}/documents/${documentId}`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -151,7 +151,7 @@ export const useDocumentUpload = (token: string | null, userId: string): UseDocu
   const retryUpload = useCallback(
     async (documentId: string): Promise<boolean> => {
       const doc = documents.find((d) => d.id === documentId);
-      if (!doc) return false;
+      if (!doc) {return false;}
 
       try {
         const response = await axios.post(

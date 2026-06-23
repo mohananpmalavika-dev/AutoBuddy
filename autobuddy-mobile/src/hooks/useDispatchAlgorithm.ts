@@ -127,7 +127,7 @@ export const useDispatchAlgorithm = (token: string | null): UseDispatchAlgorithm
       pickupLocation: { latitude: number; longitude: number },
       dropoffLocation: { latitude: number; longitude: number }
     ): Promise<{ distance: number; duration: number }> => {
-      if (!token) return { distance: 0, duration: 0 };
+      if (!token) {return { distance: 0, duration: 0 };}
 
       try {
         const response = await apiRequest('/routing/optimize-route', {
@@ -153,7 +153,7 @@ export const useDispatchAlgorithm = (token: string | null): UseDispatchAlgorithm
 
   const findBestDriver = useCallback(
     async (request: DispatchRequest): Promise<DriverCandidate | null> => {
-      if (!token) return null;
+      if (!token) {return null;}
 
       setIsDispatching(true);
       setError(null);
@@ -205,7 +205,7 @@ export const useDispatchAlgorithm = (token: string | null): UseDispatchAlgorithm
       request: DispatchRequest,
       limit: number = 5
     ): Promise<DriverCandidate[]> => {
-      if (!token) return [];
+      if (!token) {return [];}
 
       setIsDispatching(true);
       setError(null);
@@ -262,7 +262,7 @@ export const useDispatchAlgorithm = (token: string | null): UseDispatchAlgorithm
 
   const autoAssignDriver = useCallback(
     async (request: DispatchRequest): Promise<DispatchResult | null> => {
-      if (!token) return null;
+      if (!token) {return null;}
 
       setIsDispatching(true);
       setError(null);

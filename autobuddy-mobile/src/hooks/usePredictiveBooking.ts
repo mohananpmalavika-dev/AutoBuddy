@@ -49,8 +49,8 @@ function isInMorningWindow(): boolean {
 
 function getGreeting(userName: string): string {
   const hour = getISTHour();
-  if (hour < 12) return `Good Morning ${userName}`;
-  if (hour < 17) return `Good Afternoon ${userName}`;
+  if (hour < 12) {return `Good Morning ${userName}`;}
+  if (hour < 17) {return `Good Afternoon ${userName}`;}
   return `Good Evening ${userName}`;
 }
 
@@ -116,7 +116,7 @@ export function usePredictiveBooking(token: string | null, userName: string) {
 
   // Refresh predictive data from backend when in morning window
   useEffect(() => {
-    if (!token || !state.isMorningWindow) return;
+    if (!token || !state.isMorningWindow) {return;}
 
     let cancelled = false;
 
@@ -132,7 +132,7 @@ export function usePredictiveBooking(token: string | null, userName: string) {
           timeoutMs: 8000,
         }).catch(() => null);
 
-        if (cancelled || !data) return;
+        if (cancelled || !data) {return;}
 
         setState((prev) => ({
           ...prev,
@@ -201,7 +201,7 @@ export function usePredictiveBooking(token: string | null, userName: string) {
       }));
 
       // Auto-reset after 5 seconds – also dismiss so card doesn't reappear
-      if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
+      if (dismissTimerRef.current) {clearTimeout(dismissTimerRef.current);}
       dismissTimerRef.current = setTimeout(() => {
         setState((prev) => ({
           ...prev,
@@ -253,7 +253,7 @@ export function usePredictiveBooking(token: string | null, userName: string) {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
+      if (dismissTimerRef.current) {clearTimeout(dismissTimerRef.current);}
     };
   }, []);
 

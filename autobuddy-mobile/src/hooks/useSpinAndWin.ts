@@ -74,13 +74,13 @@ export const useSpinAndWin = (token: string | null, userId: string) => {
       }
     };
 
-    if (token && userId) initialize();
+    if (token && userId) {initialize();}
   }, [token, userId]);
 
   // Spin the wheel
   const spinWheel = useCallback(async () => {
     try {
-      if (!dailyStatus) throw new Error('Daily status not loaded');
+      if (!dailyStatus) {throw new Error('Daily status not loaded');}
       if (dailyStatus.spinsUsedToday >= dailyStatus.spinsAvailable) {
         throw new Error('No spins available today. Come back tomorrow!');
       }
@@ -140,7 +140,7 @@ export const useSpinAndWin = (token: string | null, userId: string) => {
   // Check daily reset
   const checkDailyReset = useCallback(async () => {
     try {
-      if (!dailyStatus) return;
+      if (!dailyStatus) {return;}
 
       const now = new Date();
       const lastSpin = new Date(dailyStatus.lastSpinDate);
@@ -186,7 +186,7 @@ export const useSpinAndWin = (token: string | null, userId: string) => {
 
   // Get available spins
   const getAvailableSpins = useCallback((): number => {
-    if (!dailyStatus) return 0;
+    if (!dailyStatus) {return 0;}
     return dailyStatus.spinsAvailable - dailyStatus.spinsUsedToday;
   }, [dailyStatus]);
 

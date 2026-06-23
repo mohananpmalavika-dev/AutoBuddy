@@ -39,13 +39,13 @@ import ModeSelectionScreen from './ModeSelectionScreen';
 type DateLike = string | number | Date | null | undefined;
 
 const formatDateSafely = (date: DateLike): string => {
-  if (!date) return 'Unknown';
+  if (!date) {return 'Unknown';}
   const dateObj = new Date(date);
   return !isNaN(dateObj.getTime()) ? dateObj.toLocaleDateString() : 'Unknown';
 };
 
 const formatDateTimeSafely = (date: DateLike): string => {
-  if (!date) return 'Unknown';
+  if (!date) {return 'Unknown';}
   const dateObj = new Date(date);
   return !isNaN(dateObj.getTime()) ? dateObj.toLocaleString() : 'Unknown';
 };
@@ -228,7 +228,7 @@ export default function PassengerDashboard({
           )}
           <Pressable
             style={styles.cancelButton}
-            onPress={() => { if (booking.id) cancelBooking(booking.id); }}
+            onPress={() => { if (booking.id) {cancelBooking(booking.id);} }}
           >
             <MaterialIcons name="close" size={18} color="#D32F2F" />
             <Text style={styles.cancelButtonText}>Cancel Ride</Text>
@@ -458,8 +458,8 @@ export default function PassengerDashboard({
 
   // Voice state indicator that appears during active voice session
   const renderVoiceIndicator = () => {
-    if (voiceState === 'idle' || voiceState === 'done') return null;
-    if (voiceOverlayVisible) return null;
+    if (voiceState === 'idle' || voiceState === 'done') {return null;}
+    if (voiceOverlayVisible) {return null;}
 
     return (
       <Pressable

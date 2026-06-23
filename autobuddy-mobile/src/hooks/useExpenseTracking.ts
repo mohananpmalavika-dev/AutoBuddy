@@ -63,7 +63,7 @@ export const useExpenseTracking = (token: string | null, userId: string): UseExp
 
   const fetchExpenses = useCallback(
     async (userId: string, startDate?: Date, endDate?: Date) => {
-      if (!token) return;
+      if (!token) {return;}
       setLoading(true);
       try {
         const params = startDate && endDate ? { startDate, endDate } : {};
@@ -87,7 +87,7 @@ export const useExpenseTracking = (token: string | null, userId: string): UseExp
 
   const addExpense = useCallback(
     async (expense: Partial<Expense>): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/expenses`,
@@ -106,7 +106,7 @@ export const useExpenseTracking = (token: string | null, userId: string): UseExp
 
   const updateExpense = useCallback(
     async (expenseId: string, updates: Partial<Expense>): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await axios.put(
           `${API_BASE_URL}/expenses/${expenseId}`,
@@ -127,7 +127,7 @@ export const useExpenseTracking = (token: string | null, userId: string): UseExp
 
   const deleteExpense = useCallback(
     async (expenseId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.delete(`${API_BASE_URL}/expenses/${expenseId}`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -144,7 +144,7 @@ export const useExpenseTracking = (token: string | null, userId: string): UseExp
 
   const categorizeExpense = useCallback(
     async (expenseId: string, category: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await axios.patch(
           `${API_BASE_URL}/expenses/${expenseId}/categorize`,
@@ -165,7 +165,7 @@ export const useExpenseTracking = (token: string | null, userId: string): UseExp
 
   const uploadReceipt = useCallback(
     async (expenseId: string, filePath: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const formData = new FormData();
         formData.append('receipt', {
@@ -195,7 +195,7 @@ export const useExpenseTracking = (token: string | null, userId: string): UseExp
 
   const getSummary = useCallback(
     async (startDate: Date, endDate: Date) => {
-      if (!token) return;
+      if (!token) {return;}
       try {
         const response = await axios.get(
           `${API_BASE_URL}/expenses/${userId}/summary`,
@@ -222,7 +222,7 @@ export const useExpenseTracking = (token: string | null, userId: string): UseExp
 
   const setExpenseLimit = useCallback(
     async (category: string, limit: number): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/expenses/categories/${category}/limit`,

@@ -1,9 +1,4 @@
-"""
-AI Insight Card Component
-
-Displays AI-powered suggestions to users in an attractive, tappable card format.
-Shows travel patterns, predictive offers, weather alerts, and destination recognition.
-"""
+/* AI Insight Card Component - Displays AI-powered suggestions in a tappable card. */
 
 import React, { useEffect } from "react";
 import {

@@ -45,8 +45,8 @@ export const DriverPerformanceOverviewScreen: React.FC<{
   }
 
   const getScoreColor = (score: number) => {
-    if (score >= 80) return '#10B981';
-    if (score >= 65) return '#F59E0B';
+    if (score >= 80) {return '#10B981';}
+    if (score >= 65) {return '#F59E0B';}
     return '#EF4444';
   };
 
@@ -399,8 +399,8 @@ export const ImprovementAndBenchmarkScreen: React.FC<{
   }
 
   const getBenchmarkColor = (yourScore: number, peerScore: number) => {
-    if (yourScore >= peerScore * 0.95) return '#10B981';
-    if (yourScore >= peerScore * 0.85) return '#F59E0B';
+    if (yourScore >= peerScore * 0.95) {return '#10B981';}
+    if (yourScore >= peerScore * 0.85) {return '#F59E0B';}
     return '#EF4444';
   };
 

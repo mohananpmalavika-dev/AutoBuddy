@@ -71,7 +71,7 @@ export const useIncentivesTracking = (token: string | null, driverId: string): U
   const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 
   const fetchActiveIncentives = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
     setLoading(true);
     try {
       const response = await axios.get(`${API_BASE_URL}/incentives/${driverId}/active`, {
@@ -88,7 +88,7 @@ export const useIncentivesTracking = (token: string | null, driverId: string): U
   }, [token, driverId, API_BASE_URL]);
 
   const fetchIncentiveHistory = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
     try {
       const response = await axios.get(
         `${API_BASE_URL}/incentives/${driverId}/history`,
@@ -102,7 +102,7 @@ export const useIncentivesTracking = (token: string | null, driverId: string): U
   }, [token, driverId, API_BASE_URL]);
 
   const fetchBonuses = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
     try {
       const response = await axios.get(`${API_BASE_URL}/bonuses/${driverId}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -116,7 +116,7 @@ export const useIncentivesTracking = (token: string | null, driverId: string): U
 
   const claimIncentive = useCallback(
     async (incentiveId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/incentives/${incentiveId}/claim`,
@@ -155,7 +155,7 @@ export const useIncentivesTracking = (token: string | null, driverId: string): U
   const getIncentiveProgress = useCallback(
     (incentiveId: string): number => {
       const incentive = activeIncentives.find((i) => i.id === incentiveId);
-      if (!incentive) return 0;
+      if (!incentive) {return 0;}
       return incentive.progress;
     },
     [activeIncentives]
@@ -173,7 +173,7 @@ export const useIncentivesTracking = (token: string | null, driverId: string): U
 
   const updateIncentiveProgress = useCallback(
     async (incentiveId: string) => {
-      if (!token) return;
+      if (!token) {return;}
       try {
         const response = await axios.put(
           `${API_BASE_URL}/incentives/${incentiveId}/progress`,

@@ -62,7 +62,7 @@ export const useCustomerSupport = (token: string | null, userId: string): UseCus
 
   const fetchTickets = useCallback(
     async (status?: string) => {
-      if (!token) return;
+      if (!token) {return;}
       setLoading(true);
       try {
         const params = status ? { status } : {};
@@ -91,7 +91,7 @@ export const useCustomerSupport = (token: string | null, userId: string): UseCus
       description: string,
       attachments?: string[]
     ): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/support/tickets`,
@@ -110,7 +110,7 @@ export const useCustomerSupport = (token: string | null, userId: string): UseCus
 
   const updateTicketStatus = useCallback(
     async (ticketId: string, status: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await axios.patch(
           `${API_BASE_URL}/support/tickets/${ticketId}`,
@@ -135,7 +135,7 @@ export const useCustomerSupport = (token: string | null, userId: string): UseCus
       message: string,
       attachments?: string[]
     ): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/support/tickets/${ticketId}/messages`,
@@ -153,7 +153,7 @@ export const useCustomerSupport = (token: string | null, userId: string): UseCus
 
   const getTicketMessages = useCallback(
     async (ticketId: string): Promise<SupportMessage[]> => {
-      if (!token) return [];
+      if (!token) {return [];}
       try {
         const response = await axios.get(
           `${API_BASE_URL}/support/tickets/${ticketId}/messages`,
@@ -170,7 +170,7 @@ export const useCustomerSupport = (token: string | null, userId: string): UseCus
 
   const closeTicket = useCallback(
     async (ticketId: string, resolution: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/support/tickets/${ticketId}/close`,
@@ -191,7 +191,7 @@ export const useCustomerSupport = (token: string | null, userId: string): UseCus
 
   const fetchFAQ = useCallback(
     async (category?: string) => {
-      if (!token) return;
+      if (!token) {return;}
       try {
         const params = category ? { category } : {};
         const response = await axios.get(`${API_BASE_URL}/faq`, {
@@ -221,7 +221,7 @@ export const useCustomerSupport = (token: string | null, userId: string): UseCus
 
   const markFAQHelpful = useCallback(
     async (faqId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/faq/${faqId}/helpful`,
@@ -244,7 +244,7 @@ export const useCustomerSupport = (token: string | null, userId: string): UseCus
 
   const uploadAttachment = useCallback(
     async (filePath: string): Promise<string> => {
-      if (!token) return '';
+      if (!token) {return '';}
       try {
         const formData = new FormData();
         formData.append('file', {

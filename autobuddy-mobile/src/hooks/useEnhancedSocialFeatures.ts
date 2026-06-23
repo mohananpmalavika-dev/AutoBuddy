@@ -68,7 +68,7 @@ export const useEnhancedSocialFeatures = (token: string | null, userId: string) 
       }
     };
 
-    if (token && userId) initialize();
+    if (token && userId) {initialize();}
   }, [token, userId]);
 
   // Add to favorites
@@ -244,7 +244,7 @@ export const useEnhancedSocialFeatures = (token: string | null, userId: string) 
   const getAverageRating = useCallback(
     (toUserId: string, category?: RatingData['category']): number => {
       const userRatings = getRatingsForUser(toUserId, category);
-      if (userRatings.length === 0) return 0;
+      if (userRatings.length === 0) {return 0;}
       return userRatings.reduce((sum, r) => sum + r.rating, 0) / userRatings.length;
     },
     [getRatingsForUser]
@@ -317,7 +317,7 @@ export const useEnhancedSocialFeatures = (token: string | null, userId: string) 
   const getTopFavorites = useCallback(
     (count: number = 3, type?: 'driver' | 'passenger'): EnhancedFavorite[] => {
       let list = Array.from(favorites.values());
-      if (type) list = list.filter(f => f.type === type);
+      if (type) {list = list.filter(f => f.type === type);}
       return list
         .sort((a, b) => b.usageCount - a.usageCount)
         .slice(0, count);
@@ -329,7 +329,7 @@ export const useEnhancedSocialFeatures = (token: string | null, userId: string) 
   const loadFavorites = useCallback(async (): Promise<Map<string, EnhancedFavorite>> => {
     try {
       const data = await AsyncStorage.getItem(ENHANCED_FAVORITES_STORAGE);
-      if (!data) return new Map();
+      if (!data) {return new Map();}
       const fav: EnhancedFavorite[] = JSON.parse(data);
       const map = new Map();
       fav.forEach(f => map.set(f.favoriteId, f));

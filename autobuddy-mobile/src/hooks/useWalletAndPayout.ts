@@ -60,7 +60,7 @@ export const useWalletAndPayout = (token: string | null, userId: string): UseWal
   const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 
   const fetchBalance = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
     setLoading(true);
     try {
       const response = await axios.get(`${API_BASE_URL}/wallet/${userId}/balance`, {
@@ -77,7 +77,7 @@ export const useWalletAndPayout = (token: string | null, userId: string): UseWal
 
   const fetchTransactions = useCallback(
     async (limit = 50) => {
-      if (!token) return;
+      if (!token) {return;}
       try {
         const response = await axios.get(`${API_BASE_URL}/wallet/${userId}/transactions`, {
           params: { limit },
@@ -93,7 +93,7 @@ export const useWalletAndPayout = (token: string | null, userId: string): UseWal
   );
 
   const fetchPayouts = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
     try {
       const response = await axios.get(`${API_BASE_URL}/payouts/${userId}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -107,7 +107,7 @@ export const useWalletAndPayout = (token: string | null, userId: string): UseWal
 
   const addMoneyToWallet = useCallback(
     async (amount: number, paymentMethod: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/wallet/${userId}/topup`,
@@ -144,7 +144,7 @@ export const useWalletAndPayout = (token: string | null, userId: string): UseWal
 
   const requestPayout = useCallback(
     async (amount: number, bankAccountId: string): Promise<Payout | null> => {
-      if (!token) return null;
+      if (!token) {return null;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/payouts/request`,
@@ -175,7 +175,7 @@ export const useWalletAndPayout = (token: string | null, userId: string): UseWal
 
   const instantPayout = useCallback(
     async (amount: number): Promise<Payout | null> => {
-      if (!token) return null;
+      if (!token) {return null;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/payouts/instant`,
@@ -205,7 +205,7 @@ export const useWalletAndPayout = (token: string | null, userId: string): UseWal
 
   const setAutoRecharge = useCallback(
     async (enabled: boolean, amount = 1000, threshold = 500): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/wallet/${userId}/auto-recharge`,
@@ -222,7 +222,7 @@ export const useWalletAndPayout = (token: string | null, userId: string): UseWal
   );
 
   const getAutoRechargeSettings = useCallback(async () => {
-    if (!token) return null;
+    if (!token) {return null;}
     try {
       const response = await axios.get(`${API_BASE_URL}/wallet/${userId}/auto-recharge`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -235,7 +235,7 @@ export const useWalletAndPayout = (token: string | null, userId: string): UseWal
   }, [token, userId, API_BASE_URL]);
 
   const getPayoutAccounts = useCallback(async () => {
-    if (!token) return [];
+    if (!token) {return [];}
     try {
       const response = await axios.get(`${API_BASE_URL}/payout-accounts/${userId}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -249,7 +249,7 @@ export const useWalletAndPayout = (token: string | null, userId: string): UseWal
 
   const addPayoutAccount = useCallback(
     async (accountDetails: any): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/payout-accounts`,
@@ -267,7 +267,7 @@ export const useWalletAndPayout = (token: string | null, userId: string): UseWal
 
   const removePayoutAccount = useCallback(
     async (accountId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.delete(`${API_BASE_URL}/payout-accounts/${accountId}`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -297,7 +297,7 @@ export const useWalletAndPayout = (token: string | null, userId: string): UseWal
 
   const getPayoutHistory = useCallback(
     async (limit = 20): Promise<Payout[]> => {
-      if (!token) return [];
+      if (!token) {return [];}
       try {
         const response = await axios.get(`${API_BASE_URL}/payouts/${userId}/history`, {
           params: { limit },

@@ -56,7 +56,7 @@ export const EnhancedMessagingUI: React.FC<EnhancedMessagingUIProps> = ({
   }, [getBlockedUsers, getArchivedConversations]);
 
   const handleSearch = async () => {
-    if (!searchQuery.trim()) return;
+    if (!searchQuery.trim()) {return;}
     try {
       const results = await searchMessages(searchQuery, conversationId);
       setSearchResults(results);
@@ -77,7 +77,7 @@ export const EnhancedMessagingUI: React.FC<EnhancedMessagingUIProps> = ({
       setShowBlockModal(false);
       setBlockingUserId('');
       setBlockReason('');
-      if (onBlockUser) onBlockUser(blockingUserId);
+      if (onBlockUser) {onBlockUser(blockingUserId);}
     } catch (error) {
       Alert.alert('Error', 'Failed to block user');
     }

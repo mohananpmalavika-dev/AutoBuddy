@@ -231,7 +231,7 @@ export const useCorporateAdmin = (): UseCorpAdminReturn => {
     setError(null);
     try {
       const params = { group_by: groupBy };
-      if (month) params.month = month;
+      if (month) {params.month = month;}
       const response = await api.get(`/api/v3/corporate/${accountId}/dashboard/expenses`, { params });
       setExpenses(response.data);
     } catch (err: any) {

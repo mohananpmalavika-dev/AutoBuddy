@@ -1,9 +1,4 @@
-"""
-useAIInsights Hook
-
-Fetches and manages AI-powered suggestions for the user.
-Includes pattern analysis, predictive offers, weather alerts, and destination recognition.
-"""
+/* useAIInsights Hook - Fetches and manages AI-powered suggestions for the user. */
 
 import { useState, useEffect, useCallback } from "react";
 import axios from "axios";
@@ -39,7 +34,7 @@ export const useAIInsights = (userId: string): UseAIInsightsReturn => {
   const [travelPatterns, setTravelPatterns] = useState([]);
 
   const fetchInsights = useCallback(async () => {
-    if (!userId) return;
+    if (!userId) {return;}
 
     setLoading(true);
     setError(null);
@@ -114,7 +109,7 @@ export const useRidePredictions = (userId: string) => {
   const [loading, setLoading] = useState(false);
 
   const fetchPredictions = useCallback(async () => {
-    if (!userId) return;
+    if (!userId) {return;}
 
     setLoading(true);
     try {
@@ -144,7 +139,7 @@ export const useTravelPatterns = (userId: string, days: number = 30) => {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!userId) return;
+    if (!userId) {return;}
 
     setLoading(true);
     axios

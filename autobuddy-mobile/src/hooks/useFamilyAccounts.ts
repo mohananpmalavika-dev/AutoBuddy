@@ -43,15 +43,15 @@ export const useFamilyAccounts = (token: string | null, userId: string) => {
         setLoading(true);
         const saved = await AsyncStorage.getItem(FAMILY_ACCOUNTS_STORAGE);
         const payments = await AsyncStorage.getItem(SHARED_PAYMENTS_STORAGE);
-        if (saved) setFamilyMembers(JSON.parse(saved));
-        if (payments) setSharedPayments(JSON.parse(payments));
+        if (saved) {setFamilyMembers(JSON.parse(saved));}
+        if (payments) {setSharedPayments(JSON.parse(payments));}
       } catch (err) {
         setError(`Init: ${err}`);
       } finally {
         setLoading(false);
       }
     };
-    if (token && userId) init();
+    if (token && userId) {init();}
   }, [token, userId]);
 
   const linkMember = useCallback(

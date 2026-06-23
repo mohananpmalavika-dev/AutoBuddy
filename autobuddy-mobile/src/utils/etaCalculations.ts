@@ -84,22 +84,22 @@ export class ETACalculator {
 
   static formatETADisplay(etaSeconds: number): string {
     const minutes = Math.round(etaSeconds / 60);
-    if (minutes < 1) return '<1 min';
-    if (minutes === 1) return '1 min';
+    if (minutes < 1) {return '<1 min';}
+    if (minutes === 1) {return '1 min';}
     return `${minutes} min`;
   }
 
   static formatETAWithConfidence(etaSeconds: number, confidence: string): string {
     const formatted = this.formatETADisplay(etaSeconds);
-    if (confidence === 'high') return `~${formatted}`;
-    if (confidence === 'medium') return `~${formatted} (±5 min)`;
+    if (confidence === 'high') {return `~${formatted}`;}
+    if (confidence === 'medium') {return `~${formatted} (±5 min)`;}
     return `~${formatted} (±10 min)`;
   }
 
   static getTrafficImpactText(trafficAdjustment: number): string {
     const minutes = Math.round(trafficAdjustment / 60);
-    if (minutes === 0) return 'No traffic delay';
-    if (minutes < 0) return `${Math.abs(minutes)} min faster`;
+    if (minutes === 0) {return 'No traffic delay';}
+    if (minutes < 0) {return `${Math.abs(minutes)} min faster`;}
     return `${minutes} min slower`;
   }
 
@@ -107,9 +107,9 @@ export class ETACalculator {
     trafficLevel: string,
     stopCount: number
   ): 'high' | 'medium' | 'low' {
-    if (trafficLevel === 'low' && stopCount <= 3) return 'high';
-    if (trafficLevel === 'moderate' && stopCount <= 5) return 'medium';
-    if (trafficLevel === 'severe' || stopCount > 8) return 'low';
+    if (trafficLevel === 'low' && stopCount <= 3) {return 'high';}
+    if (trafficLevel === 'moderate' && stopCount <= 5) {return 'medium';}
+    if (trafficLevel === 'severe' || stopCount > 8) {return 'low';}
     return 'medium';
   }
 
@@ -140,7 +140,7 @@ export class ETACalculator {
 
   static compareRouteETAs(
     routes: OptimizedRoute[]
-  ): Array<{ route: OptimizedRoute; eta: number; fastestDelta: number }> {
+  ): { route: OptimizedRoute; eta: number; fastestDelta: number }[] {
     const calculations = routes.map((route) => ({
       route,
       eta: this.calculateFromRoute(route).totalETA,

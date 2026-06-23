@@ -63,7 +63,7 @@ export const useTravelIntentWeb = () => {
   const handleSearchInput = (query: string) => {
     setState((prev) => ({ ...prev, searchQuery: query }));
 
-    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    if (debounceTimer.current) {clearTimeout(debounceTimer.current);}
 
     if (query.length > 2) {
       debounceTimer.current = setTimeout(() => {

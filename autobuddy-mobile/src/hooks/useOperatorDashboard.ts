@@ -71,7 +71,7 @@ export function useFleetStats(token: string | null) {
   const [error, setError] = useState<OperatorError | null>(null);
 
   const fetchStats = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
 
     try {
       setLoading(true);
@@ -113,7 +113,7 @@ export function useDriverMetrics(token: string | null) {
   const [error, setError] = useState<OperatorError | null>(null);
 
   const fetchDrivers = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
 
     try {
       setLoading(true);
@@ -145,7 +145,7 @@ export function useDriverMetrics(token: string | null) {
 
   const updateDriverIncentive = useCallback(
     async (driverId: string, incentiveAmount: number) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         await apiRequest(`/operators/me/drivers/${driverId}/incentive`, {
@@ -185,7 +185,7 @@ export function useOperatorAlerts(token: string | null) {
   const [error, setError] = useState<OperatorError | null>(null);
 
   const fetchAlerts = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
 
     try {
       setLoading(true);
@@ -217,7 +217,7 @@ export function useOperatorAlerts(token: string | null) {
 
   const dismissAlert = useCallback(
     async (alertId: string) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         await apiRequest(`/operators/me/alerts/${alertId}/dismiss`, {
@@ -249,7 +249,7 @@ export function useDriverLocations(token: string | null) {
   const [error, setError] = useState<OperatorError | null>(null);
 
   useEffect(() => {
-    if (!token) return;
+    if (!token) {return;}
 
     const fetchLocations = async () => {
       try {
@@ -290,7 +290,7 @@ export function useOperatorReports(token: string | null) {
   const [error, setError] = useState<OperatorError | null>(null);
 
   const fetchReports = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
 
     try {
       setLoading(true);
@@ -318,7 +318,7 @@ export function useOperatorReports(token: string | null) {
 
   const generateReport = useCallback(
     async (period: string) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         setLoading(true);
@@ -349,7 +349,7 @@ export function useOperatorReports(token: string | null) {
 
   const downloadReport = useCallback(
     async (reportId: string) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         // In real app, this would download the report file
@@ -387,7 +387,7 @@ export function useOperatorSettings(token: string | null) {
   const [error, setError] = useState<OperatorError | null>(null);
 
   const fetchSettings = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
 
     try {
       setLoading(true);
@@ -415,7 +415,7 @@ export function useOperatorSettings(token: string | null) {
 
   const updateSettings = useCallback(
     async (updates: any) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         setLoading(true);

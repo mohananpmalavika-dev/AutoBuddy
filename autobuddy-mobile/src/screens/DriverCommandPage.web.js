@@ -45,8 +45,6 @@ import { TaxReportWidget } from '../components/TaxReportWidget';
 import TrafficAlerts from '../components/TrafficAlerts';
 import VehicleManagementPanel from '../components/VehicleManagementPanel';
 import WebLeafletMap from '../components/WebLeafletMap';
-// Lazy load NotificationCenter to break circular dependency
-const NotificationCenter = lazy(() => import('../components/NotificationCenter'));
 import { DRIVER_QUICK_ACTIONS } from '../constants/driverQuickActions';
 import { useDriverRideQueueSocket } from '../hooks/useDriverRideQueueSocket';
 import { useKeralaSafety } from '../hooks/useKeralaSafety';
@@ -80,6 +78,8 @@ import {
   requestWebCurrentPosition,
 } from '../lib/webGeolocation';
 import { COLORS, SHADOWS } from '../theme';
+// Lazy load NotificationCenter to break circular dependency
+const NotificationCenter = lazy(() => import('../components/NotificationCenter'));
 
 const DEFAULT_CENTER = { latitude: 8.8932, longitude: 76.6141 };
 const EMPTY_UPCOMING = {

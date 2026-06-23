@@ -45,7 +45,7 @@ export function useSuspensionAppeal(userId: string | undefined, authToken: strin
   });
 
   const fetchActiveSuspension = useCallback(async () => {
-    if (!userId || !authToken) return;
+    if (!userId || !authToken) {return;}
 
     setState(prev => ({ ...prev, isLoading: true, error: null }));
     try {
@@ -82,14 +82,14 @@ export function useSuspensionAppeal(userId: string | undefined, authToken: strin
   }, [userId, authToken]);
 
   const fetchAppealHistory = useCallback(async () => {
-    if (!userId || !authToken) return;
+    if (!userId || !authToken) {return;}
 
     try {
       const response = await fetch(`${API_BASE}/v3/kyc/appeals/${userId}`, {
         headers: { Authorization: `Bearer ${authToken}` },
       });
 
-      if (!response.ok) throw new Error('Failed to fetch appeal history');
+      if (!response.ok) {throw new Error('Failed to fetch appeal history');}
 
       const data = await response.json();
       const appeals = data.appeals || [];
@@ -110,7 +110,7 @@ export function useSuspensionAppeal(userId: string | undefined, authToken: strin
 
   const submitAppeal = useCallback(
     async (reason: string, documents?: File[]): Promise<Appeal | null> => {
-      if (!userId || !authToken || !state.activeSuspension) return null;
+      if (!userId || !authToken || !state.activeSuspension) {return null;}
 
       setState(prev => ({ ...prev, isAppealingNow: true, error: null }));
       try {
@@ -130,7 +130,7 @@ export function useSuspensionAppeal(userId: string | undefined, authToken: strin
           body: formData,
         });
 
-        if (!response.ok) throw new Error('Failed to submit appeal');
+        if (!response.ok) {throw new Error('Failed to submit appeal');}
 
         const data = await response.json();
         const newAppeal = data.appeal;

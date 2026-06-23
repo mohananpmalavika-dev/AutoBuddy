@@ -85,7 +85,7 @@ export const RidePoolingScreen: React.FC<RidePoolingScreenProps> = ({
   };
 
   const handleJoinPool = async (poolId: string) => {
-    if (userType !== 'passenger') return;
+    if (userType !== 'passenger') {return;}
 
     const success = await joinPool(poolId, {
       name: 'Current Passenger',

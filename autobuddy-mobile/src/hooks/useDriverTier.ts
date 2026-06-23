@@ -89,7 +89,7 @@ export const useDriverTier = (driverId: string | null, authToken: string | null)
 
   const fetchCurrentTier = useCallback(
     async () => {
-      if (!driverId || !authToken) return;
+      if (!driverId || !authToken) {return;}
       try {
         setIsLoading(true);
         const response = await axios.get(
@@ -110,7 +110,7 @@ export const useDriverTier = (driverId: string | null, authToken: string | null)
 
   const fetchTierProgress = useCallback(
     async () => {
-      if (!driverId || !authToken) return;
+      if (!driverId || !authToken) {return;}
       try {
         const response = await axios.get(
           `${API_BASE_URL}/api/v3/driver-tier/progress/${driverId}`,
@@ -128,7 +128,7 @@ export const useDriverTier = (driverId: string | null, authToken: string | null)
 
   const fetchTierBenefits = useCallback(
     async (tierLevel: string) => {
-      if (!authToken) return;
+      if (!authToken) {return;}
       try {
         const response = await axios.get(
           `${API_BASE_URL}/api/v3/driver-tier/benefits/${tierLevel}`,
@@ -146,7 +146,7 @@ export const useDriverTier = (driverId: string | null, authToken: string | null)
 
   const fetchTierHistory = useCallback(
     async () => {
-      if (!driverId || !authToken) return;
+      if (!driverId || !authToken) {return;}
       try {
         const response = await axios.get(
           `${API_BASE_URL}/api/v3/driver-tier/history/${driverId}`,
@@ -164,7 +164,7 @@ export const useDriverTier = (driverId: string | null, authToken: string | null)
 
   const fetchEarningsMultiplier = useCallback(
     async () => {
-      if (!driverId || !authToken) return;
+      if (!driverId || !authToken) {return;}
       try {
         const response = await axios.get(
           `${API_BASE_URL}/api/v3/driver-tier/earnings-multiplier/${driverId}`,
@@ -182,7 +182,7 @@ export const useDriverTier = (driverId: string | null, authToken: string | null)
 
   const fetchTierDashboard = useCallback(
     async () => {
-      if (!driverId || !authToken) return;
+      if (!driverId || !authToken) {return;}
       try {
         setIsLoading(true);
         const response = await axios.get(
@@ -215,7 +215,7 @@ export const useDriverTier = (driverId: string | null, authToken: string | null)
 
   const checkUpgrade = useCallback(
     async () => {
-      if (!driverId || !authToken) return;
+      if (!driverId || !authToken) {return;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/api/v3/driver-tier/check-upgrade/${driverId}`,
@@ -237,7 +237,7 @@ export const useDriverTier = (driverId: string | null, authToken: string | null)
 
   const applyMultiplierToRide = useCallback(
     async (rideId: string, baseFare: number) => {
-      if (!driverId || !authToken) return null;
+      if (!driverId || !authToken) {return null;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/api/v3/driver-tier/apply-multiplier/${rideId}`,

@@ -59,7 +59,7 @@ export const useSafetyFeatures = (token: string | null, userId: string): UseSafe
   const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 
   const fetchEmergencyContacts = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
     setLoading(true);
     try {
       const response = await axios.get(`${API_BASE_URL}/users/${userId}/emergency-contacts`, {
@@ -76,7 +76,7 @@ export const useSafetyFeatures = (token: string | null, userId: string): UseSafe
 
   const addEmergencyContact = useCallback(
     async (contact: Omit<EmergencyContact, 'id'>): Promise<EmergencyContact | null> => {
-      if (!token) return null;
+      if (!token) {return null;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/users/${userId}/emergency-contacts`,
@@ -96,7 +96,7 @@ export const useSafetyFeatures = (token: string | null, userId: string): UseSafe
 
   const removeEmergencyContact = useCallback(
     async (contactId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.delete(`${API_BASE_URL}/users/${userId}/emergency-contacts/${contactId}`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -113,7 +113,7 @@ export const useSafetyFeatures = (token: string | null, userId: string): UseSafe
 
   const triggerSOS = useCallback(
     async (rideId: string, location: { lat: number; lng: number }): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/rides/${rideId}/sos`,
@@ -135,7 +135,7 @@ export const useSafetyFeatures = (token: string | null, userId: string): UseSafe
 
   const reportIncident = useCallback(
     async (incident: Omit<SafetyIncident, 'id' | 'createdAt' | 'status'>): Promise<SafetyIncident | null> => {
-      if (!token) return null;
+      if (!token) {return null;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/safety/incidents`,
@@ -155,7 +155,7 @@ export const useSafetyFeatures = (token: string | null, userId: string): UseSafe
 
   const fetchIncidents = useCallback(
     async (queryUserId: string) => {
-      if (!token) return;
+      if (!token) {return;}
       try {
         const response = await axios.get(`${API_BASE_URL}/safety/incidents`, {
           params: { userId: queryUserId },
@@ -171,7 +171,7 @@ export const useSafetyFeatures = (token: string | null, userId: string): UseSafe
 
   const shareTrip = useCallback(
     async (rideId: string, phoneNumbers: string[]): Promise<TripShare | null> => {
-      if (!token) return null;
+      if (!token) {return null;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/rides/${rideId}/share`,
@@ -191,7 +191,7 @@ export const useSafetyFeatures = (token: string | null, userId: string): UseSafe
 
   const stopSharingTrip = useCallback(
     async (shareId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.delete(`${API_BASE_URL}/trip-shares/${shareId}`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -208,7 +208,7 @@ export const useSafetyFeatures = (token: string | null, userId: string): UseSafe
 
   const callEmergency = useCallback(
     async (contactId: string, rideId?: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/emergency-contacts/${contactId}/call`,
@@ -226,7 +226,7 @@ export const useSafetyFeatures = (token: string | null, userId: string): UseSafe
 
   const callDriver = useCallback(
     async (driverId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/drivers/${driverId}/call`,
@@ -254,7 +254,7 @@ export const useSafetyFeatures = (token: string | null, userId: string): UseSafe
 
   const enableLocationTracking = useCallback(
     async (rideId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/rides/${rideId}/location-tracking/enable`,
@@ -272,7 +272,7 @@ export const useSafetyFeatures = (token: string | null, userId: string): UseSafe
 
   const disableLocationTracking = useCallback(
     async (rideId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/rides/${rideId}/location-tracking/disable`,

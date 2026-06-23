@@ -18,7 +18,7 @@ import { useAdminUserManagement, AdminUser } from '../hooks/useAdminUserManageme
 type DateLike = string | number | Date | null | undefined;
 
 const formatDateTimeSafely = (date: DateLike): string => {
-  if (!date) return 'Unknown';
+  if (!date) {return 'Unknown';}
   const dateObj = new Date(date);
   return !isNaN(dateObj.getTime()) ? dateObj.toLocaleString() : 'Unknown';
 };
@@ -102,7 +102,7 @@ export const AdminUserManagementScreen: React.FC<AdminUserManagementScreenProps>
   };
 
   const filteredUsers = users.filter((user) => {
-    if (!user) return false;
+    if (!user) {return false;}
     const matchesSearch =
       (user?.name?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
       (user?.email?.toLowerCase() || '').includes(searchQuery.toLowerCase());
@@ -144,7 +144,7 @@ export const AdminUserManagementScreen: React.FC<AdminUserManagementScreenProps>
   };
 
   const handleSuspend = async () => {
-    if (!selectedUser) return;
+    if (!selectedUser) {return;}
     Alert.prompt(
       'Suspend User',
       'Enter reason for suspension:',
@@ -166,7 +166,7 @@ export const AdminUserManagementScreen: React.FC<AdminUserManagementScreenProps>
   };
 
   const handleReactivate = async () => {
-    if (!selectedUser) return;
+    if (!selectedUser) {return;}
     const success = await reactivateUser(selectedUser.id);
     if (success) {
       Alert.alert('Success', 'User reactivated');
@@ -176,7 +176,7 @@ export const AdminUserManagementScreen: React.FC<AdminUserManagementScreenProps>
   };
 
   const handleResetPassword = async () => {
-    if (!selectedUser) return;
+    if (!selectedUser) {return;}
     Alert.alert(
       'Reset Password',
       'Send password reset email to ' + selectedUser.email + '?',
@@ -196,7 +196,7 @@ export const AdminUserManagementScreen: React.FC<AdminUserManagementScreenProps>
   };
 
   const handleRemove = async () => {
-    if (!selectedUser) return;
+    if (!selectedUser) {return;}
     Alert.alert('Remove User', 'This action cannot be undone. Continue?', [
       { text: 'Cancel' },
       {

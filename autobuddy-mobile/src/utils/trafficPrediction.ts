@@ -71,7 +71,7 @@ export class TrafficPredictor {
   }
 
   calculateTrendDerivative(): number {
-    if (this.readings.length < 2) return 0;
+    if (this.readings.length < 2) {return 0;}
 
     const recent = this.readings.slice(-5);
     let weightedSum = 0;
@@ -156,7 +156,7 @@ export class TrafficPredictor {
   }
 
   private suggestHistoricalPattern(route: OptimizedRoute): string | undefined {
-    if (this.readings.length < 5) return undefined;
+    if (this.readings.length < 5) {return undefined;}
 
     const currentHour = new Date().getHours();
     const isRushHour = (currentHour >= 7 && currentHour <= 9) || (currentHour >= 17 && currentHour <= 19);
@@ -188,7 +188,7 @@ export class TrafficPredictor {
   }
 
   getAverageDelay(): number {
-    if (this.readings.length === 0) return 0;
+    if (this.readings.length === 0) {return 0;}
     return this.readings.reduce((sum, r) => sum + r.delay, 0) / this.readings.length;
   }
 

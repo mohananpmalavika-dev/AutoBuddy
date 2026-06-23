@@ -98,7 +98,7 @@ export const OperatorDriverManagementScreen: React.FC<OperatorDriverManagementSc
   };
 
   const filteredDrivers = drivers.filter((driver) => {
-    if (!driver) return false;
+    if (!driver) {return false;}
     const matchesSearch =
       (driver.name?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
       (driver.email?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
@@ -152,7 +152,7 @@ export const OperatorDriverManagementScreen: React.FC<OperatorDriverManagementSc
   const handleApprove = async (driverId: string) => {
     const success = await approveDriver(driverId);
     Alert.alert(success ? 'Success' : 'Error', success ? 'Driver approved' : 'Failed to approve');
-    if (showDriverDetail) setShowDriverDetail(false);
+    if (showDriverDetail) {setShowDriverDetail(false);}
   };
 
   const handleReject = async () => {
@@ -189,17 +189,11 @@ export const OperatorDriverManagementScreen: React.FC<OperatorDriverManagementSc
       ]
     );
   };
-            if (showDriverDetail) setShowDriverDetail(false);
-          },
-        },
-      ]
-    );
-  };
 
   const handleUnsuspend = async (driverId: string) => {
     const success = await unsuspendDriver(driverId);
     Alert.alert(success ? 'Success' : 'Error', success ? 'Driver unsuspended' : 'Failed');
-    if (showDriverDetail) setShowDriverDetail(false);
+    if (showDriverDetail) {setShowDriverDetail(false);}
   };
 
   const handleDelete = (driverId: string) => {
@@ -210,7 +204,7 @@ export const OperatorDriverManagementScreen: React.FC<OperatorDriverManagementSc
         onPress: async () => {
           const success = await removeDriver(driverId);
           Alert.alert(success ? 'Success' : 'Error', success ? 'Driver removed' : 'Failed');
-          if (showDriverDetail) setShowDriverDetail(false);
+          if (showDriverDetail) {setShowDriverDetail(false);}
         },
         style: 'destructive',
       },

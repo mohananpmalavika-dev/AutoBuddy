@@ -49,7 +49,7 @@ export const useAccessibilityFeatures = (token: string | null, userId: string): 
   const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 
   const fetchSettings = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
     setLoading(true);
     try {
       const response = await axios.get(
@@ -67,7 +67,7 @@ export const useAccessibilityFeatures = (token: string | null, userId: string): 
 
   const updateVisualSettings = useCallback(
     async (visual: Partial<AccessibilitySettings['visualSettings']>): Promise<boolean> => {
-      if (!token || !settings) return false;
+      if (!token || !settings) {return false;}
       try {
         const response = await axios.patch(
           `${API_BASE_URL}/accessibility/${userId}/visual`,
@@ -87,7 +87,7 @@ export const useAccessibilityFeatures = (token: string | null, userId: string): 
 
   const updateAudioSettings = useCallback(
     async (audio: Partial<AccessibilitySettings['audioSettings']>): Promise<boolean> => {
-      if (!token || !settings) return false;
+      if (!token || !settings) {return false;}
       try {
         const response = await axios.patch(
           `${API_BASE_URL}/accessibility/${userId}/audio`,
@@ -107,7 +107,7 @@ export const useAccessibilityFeatures = (token: string | null, userId: string): 
 
   const updateMotorSettings = useCallback(
     async (motor: Partial<AccessibilitySettings['motorSettings']>): Promise<boolean> => {
-      if (!token || !settings) return false;
+      if (!token || !settings) {return false;}
       try {
         const response = await axios.patch(
           `${API_BASE_URL}/accessibility/${userId}/motor`,
@@ -127,7 +127,7 @@ export const useAccessibilityFeatures = (token: string | null, userId: string): 
 
   const updateCognitiveSettings = useCallback(
     async (cognitive: Partial<AccessibilitySettings['cognitiveSettings']>): Promise<boolean> => {
-      if (!token || !settings) return false;
+      if (!token || !settings) {return false;}
       try {
         const response = await axios.patch(
           `${API_BASE_URL}/accessibility/${userId}/cognitive`,
@@ -146,7 +146,7 @@ export const useAccessibilityFeatures = (token: string | null, userId: string): 
   );
 
   const resetToDefaults = useCallback(async (): Promise<boolean> => {
-    if (!token) return false;
+    if (!token) {return false;}
     try {
       const response = await axios.post(
         `${API_BASE_URL}/accessibility/${userId}/reset`,
@@ -163,7 +163,7 @@ export const useAccessibilityFeatures = (token: string | null, userId: string): 
 
   const getAccessibilityPreset = useCallback(
     (preset: string): AccessibilitySettings | null => {
-      if (!settings) return null;
+      if (!settings) {return null;}
 
       const presets: { [key: string]: Partial<AccessibilitySettings> } = {
         blind: {

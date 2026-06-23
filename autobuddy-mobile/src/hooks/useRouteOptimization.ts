@@ -88,9 +88,9 @@ export const useRouteOptimization = (userId: string): UseRouteOptimizationReturn
   const initializeRouteData = async () => {
     try {
       const storedConfig = await AsyncStorage.getItem(`route_config_${userId}`);
-      if (storedConfig) setConfig(JSON.parse(storedConfig));
+      if (storedConfig) {setConfig(JSON.parse(storedConfig));}
       const storedHistory = await AsyncStorage.getItem(`route_history_${userId}`);
-      if (storedHistory) setHistory(JSON.parse(storedHistory));
+      if (storedHistory) {setHistory(JSON.parse(storedHistory));}
     } catch (error) {
       console.error('Failed to initialize route data:', error);
     }
@@ -147,7 +147,7 @@ export const useRouteOptimization = (userId: string): UseRouteOptimizationReturn
 
   const endNavigation = useCallback(
     async (distance: number, time: number, fare: number, feedback?: string) => {
-      if (!currentRoute) throw new Error('No active route');
+      if (!currentRoute) {throw new Error('No active route');}
       const item: RouteHistory = { id: `h_${Date.now()}`, route: currentRoute, usedAt: Date.now(), actualDistance: distance, actualTime: time, actualFare: fare, feedback };
       const updated = [...history, item];
       setHistory(updated);
@@ -168,9 +168,9 @@ export const useRouteOptimization = (userId: string): UseRouteOptimizationReturn
 
   const compareRoutes = useCallback(
     async (routesToCompare: OptimizedRoute[]): Promise<OptimizedRoute> => {
-      if (!routesToCompare.length) throw new Error('No routes');
-      if (config.preferredRouteType === 'eco') return routesToCompare.reduce((a, b) => (getEcoScore(b) > getEcoScore(a) ? b : a));
-      if (config.preferredRouteType === 'shortest') return routesToCompare.reduce((a, b) => (b.totalDistance < a.totalDistance ? b : a));
+      if (!routesToCompare.length) {throw new Error('No routes');}
+      if (config.preferredRouteType === 'eco') {return routesToCompare.reduce((a, b) => (getEcoScore(b) > getEcoScore(a) ? b : a));}
+      if (config.preferredRouteType === 'shortest') {return routesToCompare.reduce((a, b) => (b.totalDistance < a.totalDistance ? b : a));}
       return routesToCompare.reduce((a, b) => (b.totalTime < a.totalTime ? b : a));
     },
     [config, getEcoScore],

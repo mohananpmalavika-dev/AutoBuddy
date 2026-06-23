@@ -73,8 +73,8 @@ export function ScheduleRideModal({
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    if (dateStr === today.toISOString().split('T')[0]) return 'Today';
-    if (dateStr === tomorrow.toISOString().split('T')[0]) return 'Tomorrow';
+    if (dateStr === today.toISOString().split('T')[0]) {return 'Today';}
+    if (dateStr === tomorrow.toISOString().split('T')[0]) {return 'Tomorrow';}
 
     return date.toLocaleDateString('en-US', {
       month: 'short',

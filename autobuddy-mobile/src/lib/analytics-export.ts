@@ -226,7 +226,7 @@ export const saveAndShareExport = async (
  */
 export const exportToMultipleFormats = async (
   data: ExportData,
-  formats: Array<'csv' | 'json' | 'html'> = ['csv', 'json', 'html']
+  formats: ('csv' | 'json' | 'html')[] = ['csv', 'json', 'html']
 ): Promise<Record<string, string>> => {
   const exports: Record<string, string> = {};
 
@@ -265,7 +265,7 @@ export const fetchAnalyticsForExport = async (
   reportId: string,
   format: 'csv' | 'json' | 'html'
 ): Promise<ExportData | null> => {
-  if (!token) return null;
+  if (!token) {return null;}
 
   try {
     const response = await apiRequest(`/reports/${reportId}/export`, {
@@ -276,7 +276,7 @@ export const fetchAnalyticsForExport = async (
       },
     });
 
-    if (!response) return null;
+    if (!response) {return null;}
 
     return {
       title: response.title || 'Analytics Report',
@@ -297,7 +297,7 @@ export const fetchAnalyticsForExport = async (
 export const generateBatchExports = async (
   token: string | null,
   reportIds: string[],
-  formats: Array<'csv' | 'json' | 'html'>,
+  formats: ('csv' | 'json' | 'html')[],
   onProgress?: (current: number, total: number) => void
 ): Promise<string[]> => {
   const exportedFiles: string[] = [];

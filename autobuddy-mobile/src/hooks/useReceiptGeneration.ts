@@ -60,13 +60,13 @@ export const useReceiptGeneration = (token: string | null, userId: string) => {
   }, [userId]);
 
   const generateReceipt = useCallback(async (rideId: string): Promise<Receipt | null> => {
-    if (!token) return null;
+    if (!token) {return null;}
     try {
       const response = await fetch(
         `https://api.autobuddy.com/v1/rides/${rideId}/receipt`,
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
-      if (!response.ok) throw new Error('Failed to generate');
+      if (!response.ok) {throw new Error('Failed to generate');}
       const data = await response.json();
       const receipt: Receipt = { ...data } as Receipt;
       setReceipts([...receipts, receipt]);
@@ -78,13 +78,13 @@ export const useReceiptGeneration = (token: string | null, userId: string) => {
   }, [token, receipts]);
 
   const getReceiptHistory = useCallback(async (limit: number = 50): Promise<Receipt[]> => {
-    if (!token) return [];
+    if (!token) {return [];}
     try {
       const response = await fetch(
         `https://api.autobuddy.com/v1/user/${userId}/receipts?limit=${limit}`,
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
-      if (!response.ok) throw new Error('Failed');
+      if (!response.ok) {throw new Error('Failed');}
       const data = await response.json();
       const history = data.data || [];
       setReceipts(history);
@@ -105,7 +105,7 @@ export const useReceiptGeneration = (token: string | null, userId: string) => {
   }, []);
 
   const emailReceipt = useCallback(async (receipt: Receipt, email: string): Promise<boolean> => {
-    if (!token) return false;
+    if (!token) {return false;}
     try {
       const response = await fetch(`https://api.autobuddy.com/v1/receipts/${receipt.id}/email`, {
         method: 'POST',

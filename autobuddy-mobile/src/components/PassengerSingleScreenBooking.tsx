@@ -287,7 +287,7 @@ export function SingleScreenBooking({
         body: JSON.stringify(body),
       });
 
-      if (!res.ok) throw new Error('AI intent API failed');
+      if (!res.ok) {throw new Error('AI intent API failed');}
       const data = await res.json();
       const preview = data.preview || {};
       setAiPreview(preview);
@@ -299,7 +299,7 @@ export function SingleScreenBooking({
         setDestination(dest.address || dest.name || '');
       }
 
-      if (preview.vehicle_type) setSelectedRideType(preview.vehicle_type);
+      if (preview.vehicle_type) {setSelectedRideType(preview.vehicle_type);}
 
       if (preview.estimated_fare) {
         setFareEstimate({
@@ -329,7 +329,7 @@ export function SingleScreenBooking({
   };
 
   const handleAIPreviewConfirm = async () => {
-    if (!aiPreview) return;
+    if (!aiPreview) {return;}
     try {
       // Send lightweight analytics event (non-blocking)
       try {
@@ -435,7 +435,7 @@ export function SingleScreenBooking({
             onPress={() => {
               if (savedLocations.length > 0) {
                 const home = savedLocations.find(l => l.name === 'Home');
-                if (home) handleSelectLocation(home);
+                if (home) {handleSelectLocation(home);}
               }
             }}
           />
@@ -445,7 +445,7 @@ export function SingleScreenBooking({
             onPress={() => {
               if (savedLocations.length > 1) {
                 const work = savedLocations.find(l => l.name === 'Work');
-                if (work) handleSelectLocation(work);
+                if (work) {handleSelectLocation(work);}
               }
             }}
           />

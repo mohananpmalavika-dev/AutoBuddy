@@ -60,13 +60,13 @@ export const useRidePreferences = (token: string | null, userId: string) => {
         setLoading(false);
       }
     };
-    if (token && userId) initialize();
+    if (token && userId) {initialize();}
   }, [token, userId]);
 
   const updatePreferences = useCallback(
     async (updates: Partial<RidePreferences>) => {
       try {
-        if (!preferences) return;
+        if (!preferences) {return;}
         const updated = { ...preferences, ...updates };
         setPreferences(updated);
         await AsyncStorage.setItem(RIDE_PREFERENCES_STORAGE, JSON.stringify(updated));
@@ -81,7 +81,7 @@ export const useRidePreferences = (token: string | null, userId: string) => {
   const updateSingle = useCallback(
     async (key: keyof RidePreferences, value: any) => {
       try {
-        if (!preferences) return;
+        if (!preferences) {return;}
         const updated = { ...preferences, [key]: value };
         setPreferences(updated);
         await AsyncStorage.setItem(RIDE_PREFERENCES_STORAGE, JSON.stringify(updated));

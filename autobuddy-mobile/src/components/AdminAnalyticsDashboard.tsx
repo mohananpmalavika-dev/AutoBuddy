@@ -42,7 +42,7 @@ export const AdminAnalyticsDashboard: React.FC<AdminAnalyticsDashboardProps> = (
   };
 
   const systemStatus = useMemo(() => {
-    if (!systemHealth) return 'unknown';
+    if (!systemHealth) {return 'unknown';}
     const allHealthy = Object.values(systemHealth).every(
       (health: any) => health.status === 'healthy'
     );

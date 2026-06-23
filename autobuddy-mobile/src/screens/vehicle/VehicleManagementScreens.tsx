@@ -270,9 +270,9 @@ export const DocumentTrackingScreen: React.FC<{
   }, [driverId, authToken]);
 
   const getStatusColor = (daysToExpiry: number) => {
-    if (daysToExpiry < 0) return '#E53E3E';
-    if (daysToExpiry < 7) return '#F59E0B';
-    if (daysToExpiry < 30) return '#10B981';
+    if (daysToExpiry < 0) {return '#E53E3E';}
+    if (daysToExpiry < 7) {return '#F59E0B';}
+    if (daysToExpiry < 30) {return '#10B981';}
     return '#3B82F6';
   };
 

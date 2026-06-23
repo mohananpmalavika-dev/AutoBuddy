@@ -86,7 +86,7 @@ export const usePromotionsAndCoupons = (token: string | null, userId: string) =>
       }
     };
 
-    if (token && userId) initialize();
+    if (token && userId) {initialize();}
   }, [token, userId]);
 
   // Validate coupon code
@@ -170,7 +170,7 @@ export const usePromotionsAndCoupons = (token: string | null, userId: string) =>
     ): Promise<CouponUsage> => {
       try {
         const coupon = availableCoupons.find(c => c.id === couponId);
-        if (!coupon) throw new Error('Coupon not found');
+        if (!coupon) {throw new Error('Coupon not found');}
 
         const usage: CouponUsage = {
           id: `usage_${Date.now()}`,

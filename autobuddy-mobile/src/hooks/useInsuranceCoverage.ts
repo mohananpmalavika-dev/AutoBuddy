@@ -65,13 +65,13 @@ export const useInsuranceCoverage = (token: string | null, userId: string) => {
   }, [userId]);
 
   const getCoverageDetails = useCallback(async (): Promise<InsuranceCoverage | null> => {
-    if (!token) return null;
+    if (!token) {return null;}
     try {
       const response = await fetch(
         `https://api.autobuddy.com/v1/user/${userId}/insurance/coverage`,
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
-      if (!response.ok) throw new Error('Failed to fetch coverage');
+      if (!response.ok) {throw new Error('Failed to fetch coverage');}
       const data = await response.json();
       const coverageData: InsuranceCoverage = data.data;
       setCoverage(coverageData);
@@ -87,13 +87,13 @@ export const useInsuranceCoverage = (token: string | null, userId: string) => {
   }, [token, userId, claims]);
 
   const getActiveClaims = useCallback(async (): Promise<InsuranceClaim[]> => {
-    if (!token) return [];
+    if (!token) {return [];}
     try {
       const response = await fetch(
         `https://api.autobuddy.com/v1/user/${userId}/insurance/claims`,
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
-      if (!response.ok) throw new Error('Failed to fetch claims');
+      if (!response.ok) {throw new Error('Failed to fetch claims');}
       const data = await response.json();
       const claimsList: InsuranceClaim[] = data.data || [];
       setClaims(claimsList);
@@ -106,7 +106,7 @@ export const useInsuranceCoverage = (token: string | null, userId: string) => {
 
   const fileInsuranceClaim = useCallback(
     async (rideId: string, claimType: string, description: string, amount: number): Promise<InsuranceClaim | null> => {
-      if (!token) return null;
+      if (!token) {return null;}
       try {
         const response = await fetch(
           `https://api.autobuddy.com/v1/user/${userId}/insurance/claims`,
@@ -119,7 +119,7 @@ export const useInsuranceCoverage = (token: string | null, userId: string) => {
             body: JSON.stringify({ ride_id: rideId, claim_type: claimType, description, amount }),
           }
         );
-        if (!response.ok) throw new Error('Failed to file claim');
+        if (!response.ok) {throw new Error('Failed to file claim');}
         const data = await response.json();
         const newClaim: InsuranceClaim = data.data;
         setClaims([newClaim, ...claims]);
@@ -134,7 +134,7 @@ export const useInsuranceCoverage = (token: string | null, userId: string) => {
 
   const updateClaimStatus = useCallback(
     async (claimId: string, status: string, notes?: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await fetch(
           `https://api.autobuddy.com/v1/insurance/claims/${claimId}`,
@@ -147,7 +147,7 @@ export const useInsuranceCoverage = (token: string | null, userId: string) => {
             body: JSON.stringify({ status, notes }),
           }
         );
-        if (!response.ok) throw new Error('Failed to update');
+        if (!response.ok) {throw new Error('Failed to update');}
         return true;
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed');
@@ -168,9 +168,9 @@ export const useInsuranceCoverage = (token: string | null, userId: string) => {
   );
 
   const getCoverageStatus = useCallback((): string => {
-    if (!coverage) return 'unknown';
-    if (coverage.status === 'active') return 'active';
-    if (coverage.status === 'expired') return 'expired';
+    if (!coverage) {return 'unknown';}
+    if (coverage.status === 'active') {return 'active';}
+    if (coverage.status === 'expired') {return 'expired';}
     return 'unknown';
   }, [coverage]);
 

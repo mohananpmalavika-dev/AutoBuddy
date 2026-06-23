@@ -1,6 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { View, ScrollView, FlatList, StyleSheet, TextInput, TouchableOpacity, Alert, Modal } from 'react-native';
-import { Text } from 'react-native';
+import { View, ScrollView, FlatList, StyleSheet, TextInput, TouchableOpacity, Alert, Modal , Text } from 'react-native';
 import { useCorporateAccounts } from '../hooks/useCorporateAccounts';
 
 interface CorporateAccountScreenProps {

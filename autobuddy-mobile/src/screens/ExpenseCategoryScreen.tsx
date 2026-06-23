@@ -36,7 +36,7 @@ export const ExpenseCategoryScreen: React.FC<Props> = ({ token, userId }) => {
   const categoryExpenses = selectedCategory ? getExpensesByCategory(selectedCategory) : [];
 
   const handleAssign = async () => {
-    if (!selectedExpense || !newCategory) return;
+    if (!selectedExpense || !newCategory) {return;}
     const ok = await assignCategory(selectedExpense.id, newCategory);
     if (ok) {
       Alert.alert('Success', 'Category assigned');

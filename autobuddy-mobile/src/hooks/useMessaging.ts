@@ -52,7 +52,7 @@ export function useMessaging(token: string | null, userId: string) {
 
   // Initialize messaging on mount
   useEffect(() => {
-    if (!token || !userId) return;
+    if (!token || !userId) {return;}
 
     const initMessaging = async () => {
       try {
@@ -103,7 +103,7 @@ export function useMessaging(token: string | null, userId: string) {
 
         // Clear existing timeout for this user
         const existingTimeout = typingTimeoutRef.current.get(typingUserId);
-        if (existingTimeout) clearTimeout(existingTimeout);
+        if (existingTimeout) {clearTimeout(existingTimeout);}
 
         // Auto-clear typing indicator after 3 seconds
         const timeout = setTimeout(() => {
@@ -118,7 +118,7 @@ export function useMessaging(token: string | null, userId: string) {
       } else {
         updated.delete(typingUserId);
         const timeout = typingTimeoutRef.current.get(typingUserId);
-        if (timeout) clearTimeout(timeout);
+        if (timeout) {clearTimeout(timeout);}
         typingTimeoutRef.current.delete(typingUserId);
       }
 
@@ -252,7 +252,7 @@ export function useConversations(token: string | null, userId: string) {
   // Fetch conversations
   const fetchConversations = useCallback(
     async (limit = 50) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         setLoading(true);
@@ -283,7 +283,7 @@ export function useConversations(token: string | null, userId: string) {
 
   // Setup WebSocket listeners
   useEffect(() => {
-    if (!token) return;
+    if (!token) {return;}
 
     fetchConversations();
 
@@ -311,7 +311,7 @@ export function useConversations(token: string | null, userId: string) {
   // Create new conversation
   const createConversation = useCallback(
     async (otherUserId: string) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         setError(null);
@@ -327,7 +327,7 @@ export function useConversations(token: string | null, userId: string) {
         // Add to conversations list if not exists
         setConversations((prev) => {
           const exists = prev.find((c) => c.id === newConversation.id);
-          if (exists) return prev;
+          if (exists) {return prev;}
           return [newConversation, ...prev];
         });
 
@@ -347,7 +347,7 @@ export function useConversations(token: string | null, userId: string) {
   // Archive conversation
   const archiveConversation = useCallback(
     async (conversationId: string) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         await apiRequest(`/conversations/${conversationId}/archive`, {
@@ -370,7 +370,7 @@ export function useConversations(token: string | null, userId: string) {
   // Mark conversation as read
   const markConversationAsRead = useCallback(
     async (conversationId: string) => {
-      if (!token) return;
+      if (!token) {return;}
 
       try {
         await apiRequest(`/conversations/${conversationId}/read`, {
@@ -425,7 +425,7 @@ export function useMessageHistory(token: string | null, conversationId: string) 
   // Fetch messages with pagination
   const fetchMessages = useCallback(
     async (reset = false) => {
-      if (!token || !conversationId) return;
+      if (!token || !conversationId) {return;}
 
       try {
         setLoading(true);

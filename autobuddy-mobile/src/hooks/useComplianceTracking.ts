@@ -65,7 +65,7 @@ export const useComplianceTracking = (token: string | null, userId: string): Use
   const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 
   const fetchComplianceStatus = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
     setLoading(true);
     try {
       const response = await axios.get(`${API_BASE_URL}/compliance/${userId}/status`, {
@@ -82,7 +82,7 @@ export const useComplianceTracking = (token: string | null, userId: string): Use
   }, [token, userId, API_BASE_URL]);
 
   const fetchAlerts = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
     try {
       const response = await axios.get(`${API_BASE_URL}/compliance/${userId}/alerts`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -95,7 +95,7 @@ export const useComplianceTracking = (token: string | null, userId: string): Use
   }, [token, userId, API_BASE_URL]);
 
   const generateComplianceReport = useCallback(async () => {
-    if (!token) return null;
+    if (!token) {return null;}
     try {
       const response = await axios.post(
         `${API_BASE_URL}/compliance/${userId}/generate-report`,
@@ -113,7 +113,7 @@ export const useComplianceTracking = (token: string | null, userId: string): Use
 
   const acknowledgeAlert = useCallback(
     async (alertId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/compliance/alerts/${alertId}/acknowledge`,
@@ -134,7 +134,7 @@ export const useComplianceTracking = (token: string | null, userId: string): Use
 
   const updateComplianceItem = useCallback(
     async (itemId: string, updates: Partial<ComplianceItem>): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.put(
           `${API_BASE_URL}/compliance/items/${itemId}`,
@@ -154,7 +154,7 @@ export const useComplianceTracking = (token: string | null, userId: string): Use
   );
 
   const getComplianceScore = useCallback(() => {
-    if (complianceItems.length === 0) return 0;
+    if (complianceItems.length === 0) {return 0;}
 
     const compliantCount = complianceItems.filter((i) => i.status === 'compliant').length;
     return Math.round((compliantCount / complianceItems.length) * 100);
@@ -191,7 +191,7 @@ export const useComplianceTracking = (token: string | null, userId: string): Use
 
   const uploadComplianceDocument = useCallback(
     async (itemId: string, filePath: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const formData = new FormData();
         formData.append('file', {
@@ -226,7 +226,7 @@ export const useComplianceTracking = (token: string | null, userId: string): Use
 
   const requestManualVerification = useCallback(
     async (itemId: string, reason: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/compliance/items/${itemId}/verify`,

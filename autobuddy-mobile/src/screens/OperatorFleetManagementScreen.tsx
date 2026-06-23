@@ -1,6 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { View, ScrollView, FlatList, StyleSheet, TextInput, TouchableOpacity, Alert, Modal } from 'react-native';
-import { Text } from 'react-native';
+import { View, ScrollView, FlatList, StyleSheet, TextInput, TouchableOpacity, Alert, Modal , Text } from 'react-native';
 import { useOperatorFleetManagement } from '../hooks/useOperatorFleetManagement';
 
 interface OperatorFleetManagementScreenProps {
@@ -39,8 +38,8 @@ export const OperatorFleetManagementScreen: React.FC<OperatorFleetManagementScre
     fuelType: 'petrol' as const,
   });
 
-  const vehicleTypes: Array<'sedan' | 'suv' | 'hatchback' | 'van'> = ['sedan', 'suv', 'hatchback', 'van'];
-  const fuelTypes: Array<'petrol' | 'diesel' | 'electric' | 'hybrid'> = ['petrol', 'diesel', 'electric', 'hybrid'];
+  const vehicleTypes: ('sedan' | 'suv' | 'hatchback' | 'van')[] = ['sedan', 'suv', 'hatchback', 'van'];
+  const fuelTypes: ('petrol' | 'diesel' | 'electric' | 'hybrid')[] = ['petrol', 'diesel', 'electric', 'hybrid'];
 
   useEffect(() => {
     loadAnalytics();

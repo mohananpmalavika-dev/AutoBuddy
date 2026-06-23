@@ -174,7 +174,7 @@ export default function VoiceBookingOverlay({
     }
   };
 
-  if (!visible) return null;
+  if (!visible) {return null;}
 
   return (
     <Animated.View

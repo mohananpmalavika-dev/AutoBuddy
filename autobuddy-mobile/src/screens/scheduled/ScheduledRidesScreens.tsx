@@ -39,12 +39,12 @@ export const ScheduleRideScreen: React.FC<{
   const [showTimePicker, setShowTimePicker] = useState(false);
 
   const handleDateChange = (event: any, date?: Date) => {
-    if (date) setSelectedDate(date);
+    if (date) {setSelectedDate(date);}
     setShowDatePicker(false);
   };
 
   const handleTimeChange = (event: any, date?: Date) => {
-    if (date) setSelectedTime(date);
+    if (date) {setSelectedTime(date);}
     setShowTimePicker(false);
   };
 

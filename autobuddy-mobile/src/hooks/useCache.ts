@@ -120,7 +120,7 @@ export const useCache = <T = any>(namespace: string = 'default'): UseCacheReturn
         const cacheKey = `${prefixKey}_${key}`;
         const cached = await AsyncStorage.getItem(cacheKey);
 
-        if (!cached) return true;
+        if (!cached) {return true;}
 
         const entry: CacheEntry<T> = JSON.parse(cached);
         const now = Date.now();

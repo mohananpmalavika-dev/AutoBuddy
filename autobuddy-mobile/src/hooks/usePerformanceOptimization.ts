@@ -194,7 +194,7 @@ export function usePerformanceOptimization() {
 
   // Get performance summary
   const getPerformanceSummary = useCallback(() => {
-    if (metricsHistoryRef.current.length === 0) return null;
+    if (metricsHistoryRef.current.length === 0) {return null;}
 
     const history = metricsHistoryRef.current;
     const battery = history.map((m) => m.batteryLevel);

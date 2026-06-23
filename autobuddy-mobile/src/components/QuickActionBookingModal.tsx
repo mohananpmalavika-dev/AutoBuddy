@@ -7,8 +7,8 @@ import {
   Modal,
   ScrollView,
   ActivityIndicator,
-} from 'react-native';
-import { Text } from 'react-native';
+ Text } from 'react-native';
+
 import { useFamilyAssistant } from '../hooks/useFamilyAssistant';
 import { FamilyAppointment } from '../services/familyAssistantService';
 
@@ -51,7 +51,7 @@ export const QuickActionBookingModal: React.FC<QuickActionBookingModalProps> = (
   }, [selectedVehicle]);
 
   const handleBookRide = async () => {
-    if (!appointment) return;
+    if (!appointment) {return;}
 
     try {
       const response = await quickBookRide({
@@ -82,7 +82,7 @@ export const QuickActionBookingModal: React.FC<QuickActionBookingModalProps> = (
     }
   };
 
-  if (!appointment) return null;
+  if (!appointment) {return null;}
 
   const appointmentTime = new Date(appointment.start_time);
   const travelTime = appointment.estimated_travel_time_minutes || 15;

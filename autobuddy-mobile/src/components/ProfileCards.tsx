@@ -33,7 +33,7 @@ export const DriverProfileCard: React.FC<DriverProfileCardProps> = ({
   const [adding, setAdding] = useState(false);
 
   const handleToggleFavorite = async () => {
-    if (!profile) return;
+    if (!profile) {return;}
 
     setAdding(true);
     try {
@@ -273,7 +273,7 @@ export const PassengerProfileCard: React.FC<PassengerProfileCardProps> = ({
   const [adding, setAdding] = useState(false);
 
   const handleToggleFavorite = async () => {
-    if (!profile) return;
+    if (!profile) {return;}
 
     setAdding(true);
     try {

@@ -9,7 +9,7 @@ import { handleApiError, logError } from './errorHandler';
  */
 
 // Performance monitoring instance
-let performanceMonitoring: any = null;
+const performanceMonitoring: any = null;
 
 /**
  * Initialize Performance Monitoring

@@ -26,7 +26,7 @@ const deduplicateAlerts = (alerts: TrafficAlert[], threshold = 500): TrafficAler
   const seen = new Set<string>();
   return alerts.filter((alert) => {
     const key = `${alert.location}-${alert.type}`;
-    if (seen.has(key)) return false;
+    if (seen.has(key)) {return false;}
     seen.add(key);
     return true;
   });
@@ -103,7 +103,7 @@ export default function TrafficAlerts({
   }, [currentLocation, destinationLocation, connectionStatus]);
 
   const connectWebSocket = useCallback(() => {
-    if (!driverId || !routeId) return;
+    if (!driverId || !routeId) {return;}
 
     try {
       const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';

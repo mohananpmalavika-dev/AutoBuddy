@@ -95,7 +95,7 @@ export const usePushNotifications = (userId: string | null, token: string | null
 
   // Subscribe to notification topics
   const subscribeTo = useCallback(async (topics: string[]) => {
-    if (!userId || !token) return;
+    if (!userId || !token) {return;}
 
     try {
       await axios.post(
@@ -112,7 +112,7 @@ export const usePushNotifications = (userId: string | null, token: string | null
 
   // Send heartbeat to validate token
   const sendHeartbeat = useCallback(async () => {
-    if (!userId || !token) return;
+    if (!userId || !token) {return;}
 
     try {
       await axios.post(
@@ -148,7 +148,7 @@ export const usePushNotifications = (userId: string | null, token: string | null
 
   // Update badge count on device
   const updateBadge = useCallback(async (count: number) => {
-    if (!userId || !token) return;
+    if (!userId || !token) {return;}
 
     try {
       await axios.post(
@@ -165,13 +165,13 @@ export const usePushNotifications = (userId: string | null, token: string | null
 
   // Initialize notifications on mount
   useEffect(() => {
-    if (!userId || !token || isInitialized) return;
+    if (!userId || !token || isInitialized) {return;}
 
     const initialize = async () => {
       try {
         // Request permissions
         const hasPermission = await requestPermissions();
-        if (!hasPermission) return;
+        if (!hasPermission) {return;}
 
         // Get and register FCM token
         const fcmToken = await messaging().getToken();

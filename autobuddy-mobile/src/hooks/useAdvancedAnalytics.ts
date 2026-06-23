@@ -49,7 +49,7 @@ export const useAdvancedAnalytics = (token: string | null): UseAdvancedAnalytics
 
   const fetchReports = useCallback(
     async (userId: string, type?: string) => {
-      if (!token) return;
+      if (!token) {return;}
       setLoading(true);
       try {
         const params = type ? { type } : {};
@@ -73,7 +73,7 @@ export const useAdvancedAnalytics = (token: string | null): UseAdvancedAnalytics
 
   const generateReport = useCallback(
     async (type: string, startDate: Date, endDate: Date, format: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/analytics/reports/generate`,
@@ -92,7 +92,7 @@ export const useAdvancedAnalytics = (token: string | null): UseAdvancedAnalytics
 
   const deleteReport = useCallback(
     async (reportId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.delete(`${API_BASE_URL}/analytics/reports/${reportId}`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -109,7 +109,7 @@ export const useAdvancedAnalytics = (token: string | null): UseAdvancedAnalytics
 
   const exportReport = useCallback(
     async (reportId: string, format: 'pdf' | 'csv' | 'xlsx'): Promise<Blob | null> => {
-      if (!token) return null;
+      if (!token) {return null;}
       try {
         const response = await axios.get(
           `${API_BASE_URL}/analytics/reports/${reportId}/export`,
@@ -130,7 +130,7 @@ export const useAdvancedAnalytics = (token: string | null): UseAdvancedAnalytics
 
   const getMetricsForPeriod = useCallback(
     async (startDate: Date, endDate: Date) => {
-      if (!token) return;
+      if (!token) {return;}
       try {
         const response = await axios.get(
           `${API_BASE_URL}/analytics/metrics`,
@@ -157,7 +157,7 @@ export const useAdvancedAnalytics = (token: string | null): UseAdvancedAnalytics
 
   const scheduleReportGeneration = useCallback(
     async (type: string, frequency: 'daily' | 'weekly' | 'monthly'): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/analytics/reports/schedule`,

@@ -49,12 +49,12 @@ export const OperatorAnalyticsDashboard: React.FC<OperatorAnalyticsDashboardProp
   };
 
   const criticalAlerts = useMemo(() => {
-    if (!alerts || !Array.isArray(alerts)) return [];
+    if (!alerts || !Array.isArray(alerts)) {return [];}
     return alerts.filter(a => a?.severity === 'critical' || a?.severity === 'high');
   }, [alerts]);
 
   const topDrivers = useMemo(() => {
-    if (!drivers || !Array.isArray(drivers)) return [];
+    if (!drivers || !Array.isArray(drivers)) {return [];}
     return [...drivers]
       .sort((a, b) => (b?.rating ?? 0) - (a?.rating ?? 0))
       .slice(0, 5);

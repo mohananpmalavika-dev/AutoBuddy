@@ -46,7 +46,7 @@ export const useDocumentExpiry = (driverId: string | null, authToken: string | n
 
   const fetchAllAlerts = useCallback(
     async (status?: string) => {
-      if (!driverId || !authToken) return;
+      if (!driverId || !authToken) {return;}
       try {
         setIsLoading(true);
         const params = status ? { status } : {};
@@ -73,7 +73,7 @@ export const useDocumentExpiry = (driverId: string | null, authToken: string | n
 
   const fetchExpiringDocuments = useCallback(
     async (days: number = 30, category: string = 'all') => {
-      if (!driverId || !authToken) return;
+      if (!driverId || !authToken) {return;}
       try {
         const response = await axios.get(
           `${API_BASE_URL}/api/v3/document-expiry/documents/${driverId}/expiring`,
@@ -94,7 +94,7 @@ export const useDocumentExpiry = (driverId: string | null, authToken: string | n
 
   const acknowledgeAlert = useCallback(
     async (alertId: string) => {
-      if (!authToken) return;
+      if (!authToken) {return;}
       try {
         await axios.post(
           `${API_BASE_URL}/api/v3/document-expiry/alerts/${alertId}/acknowledge`,
@@ -113,7 +113,7 @@ export const useDocumentExpiry = (driverId: string | null, authToken: string | n
 
   const dismissAlert = useCallback(
     async (alertId: string) => {
-      if (!authToken) return;
+      if (!authToken) {return;}
       try {
         await axios.post(
           `${API_BASE_URL}/api/v3/document-expiry/alerts/${alertId}/dismiss`,
@@ -132,11 +132,11 @@ export const useDocumentExpiry = (driverId: string | null, authToken: string | n
 
   const submitRenewal = useCallback(
     async (documentId: string, documentType: string, file: File, notes?: string) => {
-      if (!driverId || !authToken) return null;
+      if (!driverId || !authToken) {return null;}
       try {
         const formData = new FormData();
         formData.append('file', file);
-        if (notes) formData.append('notes', notes);
+        if (notes) {formData.append('notes', notes);}
 
         const response = await axios.post(
           `${API_BASE_URL}/api/v3/document-expiry/renewals/${driverId}/submit`,
@@ -163,7 +163,7 @@ export const useDocumentExpiry = (driverId: string | null, authToken: string | n
 
   const getPendingRenewals = useCallback(
     async () => {
-      if (!driverId || !authToken) return;
+      if (!driverId || !authToken) {return;}
       try {
         const response = await axios.get(
           `${API_BASE_URL}/api/v3/document-expiry/renewals/${driverId}`,
@@ -181,7 +181,7 @@ export const useDocumentExpiry = (driverId: string | null, authToken: string | n
 
   const getRenewalStatus = useCallback(
     async (requestId: string) => {
-      if (!driverId || !authToken) return null;
+      if (!driverId || !authToken) {return null;}
       try {
         const response = await axios.get(
           `${API_BASE_URL}/api/v3/document-expiry/renewals/${driverId}/${requestId}`,

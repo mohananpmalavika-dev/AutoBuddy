@@ -116,7 +116,7 @@ export const usePerformanceMonitoring = (token: string | null): UsePerformanceMo
 
   const reportMetrics = useCallback(
     async (userId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
 
       try {
         const stats = getStats();

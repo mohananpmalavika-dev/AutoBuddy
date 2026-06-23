@@ -149,7 +149,7 @@ class TravelIntentService {
   async getTrendingDestinations(category?: string, limit: number = 10) {
     try {
       const params = new URLSearchParams({ limit: limit.toString() });
-      if (category) params.append('category', category);
+      if (category) {params.append('category', category);}
 
       const response = await this.api.get(`/api/intent/trending?${params}`);
       return response.data;
@@ -164,8 +164,8 @@ class TravelIntentService {
   async listLocations(category?: string, search?: string, limit: number = 20) {
     try {
       const params = new URLSearchParams({ limit: limit.toString() });
-      if (category) params.append('category', category);
-      if (search) params.append('search', search);
+      if (category) {params.append('category', category);}
+      if (search) {params.append('search', search);}
 
       const response = await this.api.get(`/api/intent/locations?${params}`);
       return response.data;
@@ -261,7 +261,7 @@ class TravelIntentService {
         suggestion_id: suggestionId,
         rating: rating.toString(),
       });
-      if (comment) params.append('comment', comment);
+      if (comment) {params.append('comment', comment);}
 
       const response = await this.api.post(`/api/intent/feedback?${params}`);
       return response.data;

@@ -53,12 +53,12 @@ export const useOperatorDriverManagement = (
 
   const fetchDrivers = useCallback(
     async (filters?: { status?: string; search?: string }) => {
-      if (!token) return;
+      if (!token) {return;}
       setLoading(true);
       try {
         const params = new URLSearchParams();
-        if (filters?.status) params.append('status', filters.status);
-        if (filters?.search) params.append('search', filters.search);
+        if (filters?.status) {params.append('status', filters.status);}
+        if (filters?.search) {params.append('search', filters.search);}
 
         const response = await axios.get(
           `${API_BASE_URL}/operators/${operatorId}/drivers?${params}`,
@@ -77,7 +77,7 @@ export const useOperatorDriverManagement = (
 
   const approveDriver = useCallback(
     async (driverId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/operators/${operatorId}/drivers/${driverId}/approve`,
@@ -98,7 +98,7 @@ export const useOperatorDriverManagement = (
 
   const rejectDriver = useCallback(
     async (driverId: string, reason: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/operators/${operatorId}/drivers/${driverId}/reject`,
@@ -119,7 +119,7 @@ export const useOperatorDriverManagement = (
 
   const suspendDriver = useCallback(
     async (driverId: string, reason: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/operators/${operatorId}/drivers/${driverId}/suspend`,
@@ -140,7 +140,7 @@ export const useOperatorDriverManagement = (
 
   const unsuspendDriver = useCallback(
     async (driverId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/operators/${operatorId}/drivers/${driverId}/unsuspend`,
@@ -161,7 +161,7 @@ export const useOperatorDriverManagement = (
 
   const setCommissionRate = useCallback(
     async (driverId: string, rate: number): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.put(
           `${API_BASE_URL}/operators/${operatorId}/drivers/${driverId}/commission`,
@@ -182,7 +182,7 @@ export const useOperatorDriverManagement = (
 
   const bulkApprove = useCallback(
     async (driverIds: string[]): Promise<number> => {
-      if (!token) return 0;
+      if (!token) {return 0;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/operators/${operatorId}/drivers/bulk-approve`,
@@ -201,7 +201,7 @@ export const useOperatorDriverManagement = (
 
   const bulkReject = useCallback(
     async (driverIds: string[]): Promise<number> => {
-      if (!token) return 0;
+      if (!token) {return 0;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/operators/${operatorId}/drivers/bulk-reject`,
@@ -220,7 +220,7 @@ export const useOperatorDriverManagement = (
 
   const removeDriver = useCallback(
     async (driverId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.delete(
           `${API_BASE_URL}/operators/${operatorId}/drivers/${driverId}`,
@@ -238,7 +238,7 @@ export const useOperatorDriverManagement = (
 
   const sendMessage = useCallback(
     async (driverId: string, message: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/operators/${operatorId}/drivers/${driverId}/message`,
@@ -256,7 +256,7 @@ export const useOperatorDriverManagement = (
 
   const getDriverStats = useCallback((driverId: string) => {
     const driver = drivers.find((d) => d.id === driverId);
-    if (!driver) return null;
+    if (!driver) {return null;}
 
     return {
       totalEarnings: driver.totalEarnings,

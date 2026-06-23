@@ -127,7 +127,7 @@ export const useEnhancedMessaging = (token: string | null, userId: string) => {
 
   // Encrypt message content
   const encryptMessage = useCallback(async (content: string): Promise<{ encrypted: string; iv: string }> => {
-    if (!encryptionKey) throw new Error('Encryption key not initialized');
+    if (!encryptionKey) {throw new Error('Encryption key not initialized');}
 
     try {
       // Generate IV (initialization vector)
@@ -150,7 +150,7 @@ export const useEnhancedMessaging = (token: string | null, userId: string) => {
 
   // Decrypt message content
   const decryptMessage = useCallback(async (encrypted: string, iv: string): Promise<string> => {
-    if (!encryptionKey) throw new Error('Encryption key not initialized');
+    if (!encryptionKey) {throw new Error('Encryption key not initialized');}
 
     try {
       // This is a placeholder for decryption
@@ -342,7 +342,7 @@ export const useEnhancedMessaging = (token: string | null, userId: string) => {
 
         // Search in active conversations and archives
         for (const [convId, archive] of messageArchives) {
-          if (conversationId && convId !== conversationId) continue;
+          if (conversationId && convId !== conversationId) {continue;}
 
           for (const message of archive.messages) {
             if (message.encryptedContent.toLowerCase().includes(queryLower)) {
@@ -372,7 +372,7 @@ export const useEnhancedMessaging = (token: string | null, userId: string) => {
   const loadBlockedUsers = useCallback(async (): Promise<Map<string, BlockedUser>> => {
     try {
       const data = await AsyncStorage.getItem(BLOCKED_USERS_STORAGE);
-      if (!data) return new Map();
+      if (!data) {return new Map();}
 
       const users: BlockedUser[] = JSON.parse(data);
       const map = new Map();
@@ -388,7 +388,7 @@ export const useEnhancedMessaging = (token: string | null, userId: string) => {
   const loadArchivedConversations = useCallback(async (): Promise<Map<string, ArchivedConversation>> => {
     try {
       const data = await AsyncStorage.getItem(ARCHIVED_CONVERSATIONS_STORAGE);
-      if (!data) return new Map();
+      if (!data) {return new Map();}
 
       const conversations: ArchivedConversation[] = JSON.parse(data);
       const map = new Map();
@@ -404,7 +404,7 @@ export const useEnhancedMessaging = (token: string | null, userId: string) => {
   const loadMessageArchives = useCallback(async (): Promise<Map<string, MessageArchive>> => {
     try {
       const data = await AsyncStorage.getItem(MESSAGE_ARCHIVE_STORAGE);
-      if (!data) return new Map();
+      if (!data) {return new Map();}
 
       const archives: MessageArchive[] = JSON.parse(data);
       const map = new Map();

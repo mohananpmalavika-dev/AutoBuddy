@@ -71,7 +71,7 @@ export const usePooling = (userId: string | null, authToken: string | null) => {
       vehicleType: string,
       scheduledAt: Date
     ) => {
-      if (!userId || !authToken) return null;
+      if (!userId || !authToken) {return null;}
 
       try {
         setIsLoading(true);
@@ -116,7 +116,7 @@ export const usePooling = (userId: string | null, authToken: string | null) => {
       vehicleType: string,
       scheduledAt: Date
     ) => {
-      if (!userId || !authToken) return [];
+      if (!userId || !authToken) {return [];}
 
       try {
         setIsLoading(true);
@@ -151,7 +151,7 @@ export const usePooling = (userId: string | null, authToken: string | null) => {
   // Join a pool
   const joinPool = useCallback(
     async (poolId: string) => {
-      if (!userId || !authToken) return false;
+      if (!userId || !authToken) {return false;}
 
       try {
         setIsLoading(true);
@@ -178,7 +178,7 @@ export const usePooling = (userId: string | null, authToken: string | null) => {
   // Decline a pool
   const declinePool = useCallback(
     async (poolId: string) => {
-      if (!authToken) return false;
+      if (!authToken) {return false;}
 
       try {
         setIsLoading(true);
@@ -200,7 +200,7 @@ export const usePooling = (userId: string | null, authToken: string | null) => {
   // Get pool details
   const getPoolDetails = useCallback(
     async (poolId: string) => {
-      if (!authToken) return null;
+      if (!authToken) {return null;}
 
       try {
         const response = await axios.get(
@@ -223,9 +223,9 @@ export const usePooling = (userId: string | null, authToken: string | null) => {
     async (originalFare: number, memberCount: number): Promise<PoolSavingsEstimate | null> => {
       try {
         let savingsPercent = 0;
-        if (memberCount === 2) savingsPercent = 25;
-        else if (memberCount === 3) savingsPercent = 35;
-        else if (memberCount >= 4) savingsPercent = 40;
+        if (memberCount === 2) {savingsPercent = 25;}
+        else if (memberCount === 3) {savingsPercent = 35;}
+        else if (memberCount >= 4) {savingsPercent = 40;}
 
         const poolFare = originalFare * (1 - savingsPercent / 100);
         const perPersonFare = poolFare / memberCount;
@@ -248,7 +248,7 @@ export const usePooling = (userId: string | null, authToken: string | null) => {
   // Set pool preferences
   const setPreferences = useCallback(
     async (prefs: PoolPreference) => {
-      if (!userId || !authToken) return false;
+      if (!userId || !authToken) {return false;}
 
       try {
         setIsLoading(true);
@@ -274,7 +274,7 @@ export const usePooling = (userId: string | null, authToken: string | null) => {
 
   // Fetch pool preferences
   const fetchPreferences = useCallback(async () => {
-    if (!userId || !authToken) return;
+    if (!userId || !authToken) {return;}
 
     try {
       const response = await axios.get(
@@ -291,7 +291,7 @@ export const usePooling = (userId: string | null, authToken: string | null) => {
   // Connect to WebSocket for real-time updates
   const connectToPoolUpdates = useCallback(
     (poolId: string) => {
-      if (!userId || !authToken) return;
+      if (!userId || !authToken) {return;}
 
       try {
         const wsProtocol = API_BASE_URL.startsWith('https') ? 'wss' : 'ws';

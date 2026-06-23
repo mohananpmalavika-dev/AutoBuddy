@@ -148,7 +148,7 @@ export const useRouteRecalculation = () => {
       return null;
     }
 
-    if (!route.stops.length) return null;
+    if (!route.stops.length) {return null;}
 
     const nextStop = route.stops[0];
     const distanceToStop = calculateHaversineDistance(
@@ -172,7 +172,7 @@ export const useRouteRecalculation = () => {
 
   const evaluateRecalculation = useCallback(
     (newRoute: OptimizedRoute, trigger: RecalculationTrigger | null, currentPosition?: { lat: number; lng: number }): boolean => {
-      if (!state.currentRoute) return false;
+      if (!state.currentRoute) {return false;}
 
       let shouldRecalc = false;
       let finalTrigger = trigger;

@@ -20,7 +20,7 @@ export function AppSessionProvider({ children }: { children: React.ReactNode }) 
 
   // Auto-refresh token before expiry
   useEffect(() => {
-    if (!session?.expiresAt) return;
+    if (!session?.expiresAt) {return;}
 
     const expiresIn = session.expiresAt - Date.now();
     const refreshTime = Math.max(expiresIn - 5 * 60 * 1000, 1000);

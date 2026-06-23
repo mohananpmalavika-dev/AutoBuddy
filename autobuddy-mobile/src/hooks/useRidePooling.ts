@@ -77,7 +77,7 @@ export const useRidePooling = (token: string | null, userId: string): UseRidePoo
 
   const createPool = useCallback(
     async (baseRoute: RidePool['baseRoute'], capacity = 4): Promise<RidePool | null> => {
-      if (!token) return null;
+      if (!token) {return null;}
       setLoading(true);
       try {
         const response = await axios.post(
@@ -105,7 +105,7 @@ export const useRidePooling = (token: string | null, userId: string): UseRidePoo
       dropoffLat: number,
       dropoffLng: number
     ): Promise<RidePool[]> => {
-      if (!token) return [];
+      if (!token) {return [];}
       try {
         const response = await axios.get(`${API_BASE_URL}/pools/available`, {
           params: { pickupLat, pickupLng, dropoffLat, dropoffLng },
@@ -127,7 +127,7 @@ export const useRidePooling = (token: string | null, userId: string): UseRidePoo
       poolId: string,
       passenger: Omit<PooledPassenger, 'id' | 'status' | 'joinedAt'>
     ): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/pools/${poolId}/join`,
@@ -145,7 +145,7 @@ export const useRidePooling = (token: string | null, userId: string): UseRidePoo
 
   const acceptJoinRequest = useCallback(
     async (poolId: string, requestId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/pools/${poolId}/requests/${requestId}/accept`,
@@ -166,7 +166,7 @@ export const useRidePooling = (token: string | null, userId: string): UseRidePoo
 
   const rejectJoinRequest = useCallback(
     async (poolId: string, requestId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/pools/${poolId}/requests/${requestId}/reject`,
@@ -187,7 +187,7 @@ export const useRidePooling = (token: string | null, userId: string): UseRidePoo
 
   const removePassengerFromPool = useCallback(
     async (poolId: string, passengerId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.delete(
           `${API_BASE_URL}/pools/${poolId}/passengers/${passengerId}`,
@@ -216,7 +216,7 @@ export const useRidePooling = (token: string | null, userId: string): UseRidePoo
 
   const startPool = useCallback(
     async (poolId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/pools/${poolId}/start`,
@@ -239,7 +239,7 @@ export const useRidePooling = (token: string | null, userId: string): UseRidePoo
 
   const completePool = useCallback(
     async (poolId: string): Promise<RidePool | null> => {
-      if (!token) return null;
+      if (!token) {return null;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/pools/${poolId}/complete`,
@@ -263,7 +263,7 @@ export const useRidePooling = (token: string | null, userId: string): UseRidePoo
 
   const cancelPool = useCallback(
     async (poolId: string, reason: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/pools/${poolId}/cancel`,
@@ -290,7 +290,7 @@ export const useRidePooling = (token: string | null, userId: string): UseRidePoo
       passengerId: string,
       status: PooledPassenger['status']
     ): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.put(
           `${API_BASE_URL}/pools/${poolId}/passengers/${passengerId}`,
@@ -322,7 +322,7 @@ export const useRidePooling = (token: string | null, userId: string): UseRidePoo
 
   const getPoolDetails = useCallback(
     async (poolId: string): Promise<RidePool | null> => {
-      if (!token) return null;
+      if (!token) {return null;}
       try {
         const response = await axios.get(`${API_BASE_URL}/pools/${poolId}`, {
           headers: { Authorization: `Bearer ${token}` },

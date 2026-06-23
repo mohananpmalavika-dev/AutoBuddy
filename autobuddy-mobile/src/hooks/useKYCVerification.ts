@@ -46,7 +46,7 @@ export const useKYCVerification = (token: string | null, userId: string): UseKYC
   const [error, setError] = useState<Error | null>(null);
 
   const fetchProfile = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
     setLoading(true);
     try {
       const response = await axios.get(
@@ -65,7 +65,7 @@ export const useKYCVerification = (token: string | null, userId: string): UseKYC
 
   const uploadDocument = useCallback(
     async (type: string, fileUri: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const formData = new FormData();
         formData.append('type', type);
@@ -97,7 +97,7 @@ export const useKYCVerification = (token: string | null, userId: string): UseKYC
   );
 
   const submitForVerification = useCallback(async (): Promise<boolean> => {
-    if (!token) return false;
+    if (!token) {return false;}
     try {
       const response = await axios.post(
         `${API_BASE_URL}/kyc/submit-for-verification`,
@@ -122,7 +122,7 @@ export const useKYCVerification = (token: string | null, userId: string): UseKYC
 
   const resubmitDocument = useCallback(
     async (documentId: string, fileUri: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const formData = new FormData();
         formData.append('document', {

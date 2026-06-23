@@ -33,7 +33,7 @@ export const RouteComparisonCard: React.FC<RouteComparisonCardProps> = ({
   tollRoutes = {},
 }) => {
   const comparisons = useMemo<RouteComparison[]>(() => {
-    if (!routes.length) return [];
+    if (!routes.length) {return [];}
 
     const comps = routes.map((route) => {
       const eta = ETACalculator.calculateFromRoute(route);

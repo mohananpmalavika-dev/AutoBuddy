@@ -68,7 +68,7 @@ export const useRideReceipts = (token: string | null, userId: string): UseRideRe
 
   const fetchRides = useCallback(
     async (userId: string, startDate?: Date, endDate?: Date) => {
-      if (!token) return;
+      if (!token) {return;}
       setLoading(true);
       try {
         const params = startDate && endDate ? { startDate, endDate } : {};
@@ -92,7 +92,7 @@ export const useRideReceipts = (token: string | null, userId: string): UseRideRe
 
   const generateReceipt = useCallback(
     async (rideId: string, format: 'pdf' | 'html' | 'email'): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/receipts/generate`,
@@ -111,7 +111,7 @@ export const useRideReceipts = (token: string | null, userId: string): UseRideRe
 
   const generateTaxInvoice = useCallback(
     async (startDate: Date, endDate: Date): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/receipts/tax-invoice`,
@@ -130,7 +130,7 @@ export const useRideReceipts = (token: string | null, userId: string): UseRideRe
 
   const downloadReceipt = useCallback(
     async (receiptId: string): Promise<Blob | null> => {
-      if (!token) return null;
+      if (!token) {return null;}
       try {
         const response = await axios.get(
           `${API_BASE_URL}/receipts/${receiptId}/download`,
@@ -150,7 +150,7 @@ export const useRideReceipts = (token: string | null, userId: string): UseRideRe
 
   const emailReceipt = useCallback(
     async (receiptId: string, email: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/receipts/${receiptId}/email`,
@@ -168,7 +168,7 @@ export const useRideReceipts = (token: string | null, userId: string): UseRideRe
 
   const getTaxSummary = useCallback(
     async (startDate: Date, endDate: Date) => {
-      if (!token) return;
+      if (!token) {return;}
       try {
         const response = await axios.get(
           `${API_BASE_URL}/tax/summary/${userId}`,
@@ -188,7 +188,7 @@ export const useRideReceipts = (token: string | null, userId: string): UseRideRe
 
   const generateTaxReport = useCallback(
     async (year: number): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/tax/report`,
@@ -213,7 +213,7 @@ export const useRideReceipts = (token: string | null, userId: string): UseRideRe
 
   const bulkGenerateReceipts = useCallback(
     async (rideIds: string[]): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/receipts/bulk-generate`,

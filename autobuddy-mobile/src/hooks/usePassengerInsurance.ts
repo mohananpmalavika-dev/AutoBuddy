@@ -57,7 +57,7 @@ export const usePassengerInsurance = (token: string | null, passengerId: string)
   const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 
   const fetchActivePlans = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
     setLoading(true);
     try {
       const response = await axios.get(
@@ -74,7 +74,7 @@ export const usePassengerInsurance = (token: string | null, passengerId: string)
   }, [token, passengerId, API_BASE_URL]);
 
   const fetchAvailablePlans = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
     try {
       const response = await axios.get(
         `${API_BASE_URL}/insurance/plans`,
@@ -88,7 +88,7 @@ export const usePassengerInsurance = (token: string | null, passengerId: string)
   }, [token, API_BASE_URL]);
 
   const fetchClaims = useCallback(async () => {
-    if (!token) return;
+    if (!token) {return;}
     try {
       const response = await axios.get(
         `${API_BASE_URL}/passengers/${passengerId}/insurance/claims`,
@@ -103,7 +103,7 @@ export const usePassengerInsurance = (token: string | null, passengerId: string)
 
   const purchasePlan = useCallback(
     async (planId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/passengers/${passengerId}/insurance/plans/${planId}/purchase`,
@@ -123,7 +123,7 @@ export const usePassengerInsurance = (token: string | null, passengerId: string)
 
   const cancelPlan = useCallback(
     async (planId: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         await axios.post(
           `${API_BASE_URL}/passengers/${passengerId}/insurance/plans/${planId}/cancel`,
@@ -147,7 +147,7 @@ export const usePassengerInsurance = (token: string | null, passengerId: string)
       description: string,
       documents: string[]
     ): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await axios.post(
           `${API_BASE_URL}/passengers/${passengerId}/insurance/claims`,
@@ -166,7 +166,7 @@ export const usePassengerInsurance = (token: string | null, passengerId: string)
 
   const updateClaim = useCallback(
     async (claimId: string, updates: Partial<InsuranceClaim>): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const response = await axios.put(
           `${API_BASE_URL}/passengers/${passengerId}/insurance/claims/${claimId}`,
@@ -187,7 +187,7 @@ export const usePassengerInsurance = (token: string | null, passengerId: string)
 
   const uploadClaimDocument = useCallback(
     async (claimId: string, filePath: string): Promise<boolean> => {
-      if (!token) return false;
+      if (!token) {return false;}
       try {
         const formData = new FormData();
         formData.append('file', {

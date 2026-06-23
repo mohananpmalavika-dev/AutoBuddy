@@ -15,7 +15,7 @@ import { useDriverPerformanceInsights } from '../hooks/useDriverPerformanceInsig
 type DateLike = string | number | Date | null | undefined;
 
 const formatDateSafely = (date: DateLike): string => {
-  if (!date) return 'Unknown';
+  if (!date) {return 'Unknown';}
   const dateObj = new Date(date);
   return !isNaN(dateObj.getTime()) ? dateObj.toLocaleDateString() : 'Unknown';
 };
@@ -95,14 +95,14 @@ export const DriverPerformanceInsightsScreen: React.FC<
   const ratingTrend = getPerformanceTrend('rating', timeRange);
 
   const getTrendColor = (trend: number) => {
-    if (trend > 0) return '#4CAF50';
-    if (trend < 0) return '#F44336';
+    if (trend > 0) {return '#4CAF50';}
+    if (trend < 0) {return '#F44336';}
     return '#999';
   };
 
   const getTrendIcon = (trend: number) => {
-    if (trend > 0) return 'trending-up';
-    if (trend < 0) return 'trending-down';
+    if (trend > 0) {return 'trending-up';}
+    if (trend < 0) {return 'trending-down';}
     return 'trending-flat';
   };
 

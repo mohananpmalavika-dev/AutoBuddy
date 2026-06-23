@@ -32,7 +32,7 @@ export const FamilyAssistantDashboard: React.FC<FamilyAssistantDashboardProps> =
     relation: 'parent' as const,
   });
 
-  const relations: Array<'parent' | 'child' | 'spouse' | 'sibling' | 'friend'> = [
+  const relations: ('parent' | 'child' | 'spouse' | 'sibling' | 'friend')[] = [
     'parent',
     'child',
     'spouse',

@@ -60,7 +60,7 @@ export function useReferralProgram(userId: string | undefined, authToken: string
   });
 
   const fetchReferralInfo = useCallback(async () => {
-    if (!userId || !authToken) return;
+    if (!userId || !authToken) {return;}
 
     setState(prev => ({ ...prev, isLoading: true, error: null }));
     try {
@@ -68,7 +68,7 @@ export function useReferralProgram(userId: string | undefined, authToken: string
         headers: { Authorization: `Bearer ${authToken}` },
       });
 
-      if (!response.ok) throw new Error('Failed to fetch referral info');
+      if (!response.ok) {throw new Error('Failed to fetch referral info');}
 
       const data = await response.json();
       const referral = data.referral || {};
@@ -108,7 +108,7 @@ export function useReferralProgram(userId: string | undefined, authToken: string
   }, [userId, authToken]);
 
   const claimBonus = useCallback(async (amount: number) => {
-    if (!authToken) return false;
+    if (!authToken) {return false;}
 
     try {
       const response = await fetch(`${API_BASE}/v3/revenue/referral/claim-bonus`, {
@@ -120,7 +120,7 @@ export function useReferralProgram(userId: string | undefined, authToken: string
         body: JSON.stringify({ amount }),
       });
 
-      if (!response.ok) throw new Error('Failed to claim bonus');
+      if (!response.ok) {throw new Error('Failed to claim bonus');}
 
       // Refresh referral info after claiming
       await fetchReferralInfo();
@@ -139,7 +139,7 @@ export function useReferralProgram(userId: string | undefined, authToken: string
     const code = state.referralInfo?.code || '';
     const bonusAmount = 50; // Default referral bonus amount
 
-    if (!link) return;
+    if (!link) {return;}
 
     const message = `Join me on AutoBuddy with referral code ${code} and get ₹${bonusAmount} bonus! ${link}`;
 

@@ -32,7 +32,7 @@ export const useRidePaymentCapture = (token: string | null) => {
       rideId: string,
       fare: number
     ): Promise<PaymentCaptureResult> => {
-      if (!token) throw new Error('Not authenticated');
+      if (!token) {throw new Error('Not authenticated');}
 
       setIsCapturing(true);
       setError(null);

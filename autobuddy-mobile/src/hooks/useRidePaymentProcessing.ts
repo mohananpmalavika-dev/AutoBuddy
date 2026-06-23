@@ -115,7 +115,7 @@ export const useRidePaymentProcessing = (
 
   const authorizePayment = useCallback(
     async (rideId: string, amount: number, paymentMethodId: string): Promise<string> => {
-      if (!token) throw new Error('Not authenticated');
+      if (!token) {throw new Error('Not authenticated');}
       try {
         setIsProcessing(true);
         setError(null);
@@ -151,7 +151,7 @@ export const useRidePaymentProcessing = (
 
   const capturePayment = useCallback(
     async (rideId: string, amount: number): Promise<RidePayment> => {
-      if (!token) throw new Error('Not authenticated');
+      if (!token) {throw new Error('Not authenticated');}
       try {
         setIsProcessing(true);
         setError(null);
@@ -195,7 +195,7 @@ export const useRidePaymentProcessing = (
       paymentMethodId: string,
       billingDetails: { name: string; email: string; phone: string }
     ): Promise<RidePayment> => {
-      if (!token) throw new Error('Not authenticated');
+      if (!token) {throw new Error('Not authenticated');}
       try {
         setIsProcessing(true);
         setError(null);
@@ -268,7 +268,7 @@ export const useRidePaymentProcessing = (
 
   const refundRidePayment = useCallback(
     async (rideId: string, paymentId: string, reason?: string): Promise<boolean> => {
-      if (!token) throw new Error('Not authenticated');
+      if (!token) {throw new Error('Not authenticated');}
       try {
         setIsProcessing(true);
         setError(null);
@@ -308,13 +308,13 @@ export const useRidePaymentProcessing = (
 
   const getRidePaymentStatus = useCallback(
     async (rideId: string): Promise<RidePayment | null> => {
-      if (!token) return null;
+      if (!token) {return null;}
       try {
         const response = await apiRequest(`/payments/ride/${rideId}`, {
           method: 'GET',
         });
 
-        if (!response) return null;
+        if (!response) {return null;}
 
         return {
           id: response.id,
@@ -340,7 +340,7 @@ export const useRidePaymentProcessing = (
 
   const generatePaymentReceipt = useCallback(
     async (paymentId: string): Promise<string> => {
-      if (!token) throw new Error('Not authenticated');
+      if (!token) {throw new Error('Not authenticated');}
       try {
         const response = await apiRequest(`/payments/receipt/${paymentId}`, {
           method: 'GET',
@@ -358,7 +358,7 @@ export const useRidePaymentProcessing = (
 
   const getPaymentHistory = useCallback(
     async (userId: string, limit: number = 10): Promise<RidePayment[]> => {
-      if (!token) return [];
+      if (!token) {return [];}
       try {
         const response = await apiRequest(`/payments/history/${userId}?limit=${limit}`, {
           method: 'GET',
@@ -388,7 +388,7 @@ export const useRidePaymentProcessing = (
 
   const getDriverRevenue = useCallback(
     async (driverId: string, startDate: Date, endDate: Date): Promise<number> => {
-      if (!token) return 0;
+      if (!token) {return 0;}
       try {
         const response = await apiRequest('/payments/driver-revenue', {
           method: 'POST',

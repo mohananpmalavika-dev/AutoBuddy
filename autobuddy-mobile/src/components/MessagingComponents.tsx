@@ -101,7 +101,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
 
   // Send message handler
   const handleSendMessage = useCallback(async () => {
-    if (!inputText.trim()) return;
+    if (!inputText.trim()) {return;}
 
     setSending(true);
     try {
@@ -298,7 +298,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
 };
 
 interface TypingIndicatorProps {
-  users: Array<{ userName: string; isTyping: boolean }>;
+  users: { userName: string; isTyping: boolean }[];
 }
 
 const TypingIndicator: React.FC<TypingIndicatorProps> = ({ users }) => {
@@ -434,9 +434,9 @@ const formatTime = (date: Date | string): string => {
   const hours = Math.floor(diff / 3600000);
   const days = Math.floor(diff / 86400000);
 
-  if (minutes < 60) return `${minutes}m ago`;
-  if (hours < 24) return `${hours}h ago`;
-  if (days < 7) return `${days}d ago`;
+  if (minutes < 60) {return `${minutes}m ago`;}
+  if (hours < 24) {return `${hours}h ago`;}
+  if (days < 7) {return `${days}d ago`;}
 
   return messageDate.toLocaleDateString([], { month: 'short', day: 'numeric' });
 };

@@ -14,13 +14,13 @@ import { useVideoCall } from '../hooks/useVideoCall';
 type DateLike = string | number | Date | null | undefined;
 
 const formatDateSafely = (date: DateLike): string => {
-  if (!date) return 'Unknown';
+  if (!date) {return 'Unknown';}
   const dateObj = new Date(date);
   return !isNaN(dateObj.getTime()) ? dateObj.toLocaleDateString() : 'Unknown';
 };
 
 const formatDateTimeSafely = (date: DateLike): string => {
-  if (!date) return 'Unknown';
+  if (!date) {return 'Unknown';}
   const dateObj = new Date(date);
   return !isNaN(dateObj.getTime()) ? dateObj.toLocaleString() : 'Unknown';
 };
@@ -102,7 +102,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
   };
 
   const handleAnswerCall = async () => {
-    if (!currentCall) return;
+    if (!currentCall) {return;}
     const success = await answerCall(currentCall.id);
     if (!success) {
       Alert.alert('Error', 'Failed to answer call');
@@ -110,7 +110,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
   };
 
   const handleRejectCall = async () => {
-    if (!currentCall) return;
+    if (!currentCall) {return;}
     const success = await rejectCall(currentCall.id);
     if (success) {
       setCallDuration(0);
@@ -118,7 +118,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
   };
 
   const handleEndCall = async () => {
-    if (!currentCall) return;
+    if (!currentCall) {return;}
     const success = await endCall(currentCall.id);
     if (success) {
       setCallDuration(0);

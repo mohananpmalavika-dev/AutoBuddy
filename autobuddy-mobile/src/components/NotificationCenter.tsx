@@ -68,8 +68,8 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
   };
 
   const getNotificationColor = (type: PushNotification['type'], severity?: string) => {
-    if (severity === 'critical') return '#F44336';
-    if (severity === 'high') return '#FF9800';
+    if (severity === 'critical') {return '#F44336';}
+    if (severity === 'high') {return '#FF9800';}
 
     switch (type) {
       case 'ride_request':
@@ -100,10 +100,10 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
     const hours = Math.floor(minutes / 60);
     const days = Math.floor(hours / 24);
 
-    if (seconds < 60) return 'now';
-    if (minutes < 60) return `${minutes}m ago`;
-    if (hours < 24) return `${hours}h ago`;
-    if (days < 7) return `${days}d ago`;
+    if (seconds < 60) {return 'now';}
+    if (minutes < 60) {return `${minutes}m ago`;}
+    if (hours < 24) {return `${hours}h ago`;}
+    if (days < 7) {return `${days}d ago`;}
 
     return new Date(date).toLocaleDateString();
   };
@@ -112,7 +112,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
     <Pressable
       style={[styles.notificationItem, !item.read && styles.notificationUnread]}
       onPress={() => {
-        if (!item.read) markAsRead(item.id);
+        if (!item.read) {markAsRead(item.id);}
       }}
     >
       <View
@@ -257,7 +257,7 @@ export const NotificationBanner: React.FC<NotificationBannerProps> = ({
     return () => clearTimeout(timer);
   }, [onDismiss]);
 
-  if (!visible) return null;
+  if (!visible) {return null;}
 
   const color = notification.severity === 'critical' ? '#F44336' : '#2196F3';
 
