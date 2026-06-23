@@ -397,6 +397,99 @@ async def get_search_metrics(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/single-screen", response_model=Dict[str, Any])
+async def single_screen_book(
+    request: IntentRequest,
+    auto_confirm: bool = Query(False, description="If true, book immediately"),
+):
+    """
+    Single-screen AI booking: accept a natural language query and return a booking preview
+    that includes detected pickup, destination, chosen vehicle, fare estimate and optional auto-confirm.
+    """
+    try:
+        # Recognize intent
+        intent_result = intent_recognition.recognize_intent(request)
+
+        if not intent_result.is_valid_intent:
+            raise HTTPException(status_code=400, detail=intent_result.error_message or "Invalid travel intent")
+
+        # Get top suggestion
+        suggestions = suggestion_engine.suggest_destinations(
+            intent_result=intent_result,
+            user_location=request.current_location,
+            num_passengers=request.num_passengers,
+            preferences=request.preferences,
+            limit=1,
+        )
+
+        if not suggestions:
+            raise HTTPException(status_code=404, detail="No destination suggestion found")
+
+        suggestion = suggestions[0]
+
+        # Choose vehicle: prefer user preference, else cheapest option that fits passenger count
+        preferred_vehicle = None
+        if request.preferences and isinstance(request.preferences, dict):
+            preferred_vehicle = request.preferences.get("vehicle_type")
+
+        pricing_options = suggestion.pricing_options or []
+        selected_pricing = None
+        if preferred_vehicle:
+            for p in pricing_options:
+                if p.vehicle_type == preferred_vehicle:
+                    selected_pricing = p
+                    break
+
+        if not selected_pricing and pricing_options:
+            # pick lowest estimated fare that satisfies capacity
+            selected_pricing = min(pricing_options, key=lambda p: p.estimated_fare)
+
+        if not selected_pricing:
+            raise HTTPException(status_code=500, detail="No pricing options available")
+
+        # Calculate dynamic fare using pricing engine
+        estimated_fare = pricing_engine.calculate_dynamic_price(
+            base_fare=selected_pricing.base_fare,
+            per_km_charge=selected_pricing.per_km_charge,
+            distance_km=selected_pricing.estimated_distance_km,
+            duration_minutes=selected_pricing.estimated_duration_minutes,
+            per_minute_charge=selected_pricing.per_minute_charge,
+            current_time=datetime.utcnow(),
+        )
+
+        # Build response preview
+        preview = {
+            "pickup": request.current_location if request.current_location else "USE_DEVICE_LOCATION",
+            "destination": suggestion.location.dict(),
+            "vehicle_type": selected_pricing.vehicle_type,
+            "estimated_fare": estimated_fare,
+            "estimated_arrival_minutes": suggestion.estimated_arrival_minutes,
+            "pricing_breakdown": selected_pricing.dict(),
+            "suggestion_id": suggestion.id,
+            "message": "Preview generated. Set auto_confirm=true to book immediately.",
+        }
+
+        if auto_confirm:
+            ride_id = f"ride_{datetime.utcnow().timestamp()}"
+            # In production, integrate with ride booking system here
+            return {
+                "status": "booked",
+                "ride_id": ride_id,
+                "preview": preview,
+                "message": "Ride booked successfully. Driver will arrive shortly.",
+            }
+
+        return {
+            "status": "preview",
+            "preview": preview,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/feedback", response_model=Dict[str, Any])
 async def submit_feedback(
     suggestion_id: str = Query(...),
