@@ -22,6 +22,16 @@ export const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({
   token,
   userId,
 }) => {
+  // Guard against missing credentials
+  if (!token || !userId) {
+    return (
+      <View style={styles.centered}>
+        <MaterialIcons name="error-outline" size={48} color="#F44336" />
+        <Text style={styles.errorText}>Authentication required</Text>
+      </View>
+    );
+  }
+
   const {
     complianceItems,
     alerts,
@@ -48,9 +58,13 @@ export const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({
   }, []);
 
   const loadAllData = async () => {
-    await fetchComplianceStatus();
-    await fetchAlerts();
-    await generateComplianceReport();
+    try {
+      await fetchComplianceStatus?.();
+      await fetchAlerts?.();
+      await generateComplianceReport?.();
+    } catch (err) {
+      console.error('Failed to load compliance data:', err);
+    }
   };
 
   const onRefresh = async () => {
@@ -60,21 +74,26 @@ export const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({
   };
 
   const handleAcknowledgeAlert = async (alertId: string) => {
-    const success = await acknowledgeAlert(alertId);
-    if (success) {
-      Alert.alert('Success', 'Alert acknowledged');
-      setShowAlertDetail(false);
+    try {
+      const success = await acknowledgeAlert(alertId);
+      if (success) {
+        Alert.alert('Success', 'Alert acknowledged');
+        setShowAlertDetail(false);
+      }
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to acknowledge alert';
+      Alert.alert('Error', errorMsg);
     }
   };
 
-  const score = getComplianceScore();
-  const expiringItems = getExpiringItems(30);
-  const expiredItems = getExpiredItems();
-  const timeline = getComplianceTimeline();
+  const score = Math.min(Math.max(getComplianceScore?.() ?? 0, 0), 100);
+  const expiringItems = getExpiringItems?.(30) ?? [];
+  const expiredItems = getExpiredItems?.() ?? [];
+  const timeline = getComplianceTimeline?.() ?? [];
 
-  const getScoreColor = (score: number) => {
-    if (score >= 80) return '#4CAF50';
-    if (score >= 60) return '#FF9800';
+  const getScoreColor = (scoreValue: number): string => {
+    if (scoreValue >= 80) return '#4CAF50';
+    if (scoreValue >= 60) return '#FF9800';
     return '#F44336';
   };
 
@@ -145,7 +164,7 @@ export const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({
         <View style={styles.statItem}>
           <MaterialIcons name="check-circle" size={24} color="#4CAF50" />
           <Text style={styles.statValue}>
-            {complianceItems.filter((i) => i.status === 'compliant').length}
+            {(complianceItems || []).filter((i) => i?.status === 'compliant').length}
           </Text>
           <Text style={styles.statLabel}>Compliant</Text>
         </View>
@@ -153,7 +172,7 @@ export const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({
         <View style={styles.statItem}>
           <MaterialIcons name="warning" size={24} color="#FF9800" />
           <Text style={styles.statValue}>
-            {complianceItems.filter((i) => i.status === 'warning').length}
+            {(complianceItems || []).filter((i) => i?.status === 'warning').length}
           </Text>
           <Text style={styles.statLabel}>Warning</Text>
         </View>
@@ -161,7 +180,7 @@ export const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({
         <View style={styles.statItem}>
           <MaterialIcons name="error" size={24} color="#F44336" />
           <Text style={styles.statValue}>
-            {complianceItems.filter((i) => i.status === 'non_compliant').length}
+            {(complianceItems || []).filter((i) => i?.status === 'non_compliant').length}
           </Text>
           <Text style={styles.statLabel}>Non-Compliant</Text>
         </View>
@@ -169,22 +188,22 @@ export const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({
         <View style={styles.statItem}>
           <MaterialIcons name="schedule" size={24} color="#9C27B0" />
           <Text style={styles.statValue}>
-            {complianceItems.filter((i) => i.status === 'pending').length}
+            {(complianceItems || []).filter((i) => i?.status === 'pending').length}
           </Text>
           <Text style={styles.statLabel}>Pending</Text>
         </View>
       </View>
 
       {/* Active Alerts */}
-      {alerts.length > 0 && (
+      {(alerts || []).length > 0 && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Active Alerts</Text>
-          {alerts
-            .filter((a) => !a.resolvedAt)
+          {(alerts || [])
+            .filter((a) => !a?.resolvedAt)
             .slice(0, 5)
             .map((alert) => (
               <AlertCard
-                key={alert.id}
+                key={alert?.id || Math.random()}
                 alert={alert}
                 onPress={() => {
                   setSelectedAlert(alert);
@@ -198,17 +217,17 @@ export const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({
       {/* Compliance Items */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Compliance Items</Text>
-        {loading && complianceItems.length === 0 ? (
+        {loading && (complianceItems || []).length === 0 ? (
           <ActivityIndicator size="large" color="#2196F3" style={{ marginVertical: 20 }} />
-        ) : complianceItems.length === 0 ? (
+        ) : (complianceItems || []).length === 0 ? (
           <View style={styles.emptyState}>
             <MaterialIcons name="check-circle" size={48} color="#ddd" />
             <Text style={styles.emptyText}>No compliance items</Text>
           </View>
         ) : (
-          complianceItems.map((item) => (
+          (complianceItems || []).map((item) => (
             <ComplianceItemCard
-              key={item.id}
+              key={item?.id || Math.random()}
               item={item}
               onPress={() => {
                 setSelectedItem(item);
@@ -269,7 +288,7 @@ export const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({
                     <View style={styles.detailContent}>
                       <Text style={styles.detailLabel}>Type</Text>
                       <Text style={styles.detailValue}>
-                        {selectedItem.type.replace(/_/g, ' ').toUpperCase()}
+                        {((selectedItem?.type ?? 'unknown').replace(/_/g, ' ').toUpperCase())}
                       </Text>
                     </View>
                   </View>
@@ -279,17 +298,17 @@ export const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({
                   <View style={styles.detailRow}>
                     <MaterialIcons
                       name={
-                        selectedItem.status === 'compliant'
+                        (selectedItem?.status ?? 'pending') === 'compliant'
                           ? 'check-circle'
-                          : selectedItem.status === 'warning'
+                          : (selectedItem?.status ?? 'pending') === 'warning'
                           ? 'warning'
                           : 'error'
                       }
                       size={20}
                       color={
-                        selectedItem.status === 'compliant'
+                        (selectedItem?.status ?? 'pending') === 'compliant'
                           ? '#4CAF50'
-                          : selectedItem.status === 'warning'
+                          : (selectedItem?.status ?? 'pending') === 'warning'
                           ? '#FF9800'
                           : '#F44336'
                       }
@@ -297,13 +316,13 @@ export const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({
                     <View style={styles.detailContent}>
                       <Text style={styles.detailLabel}>Status</Text>
                       <Text style={styles.detailValue}>
-                        {selectedItem.status.charAt(0).toUpperCase() +
-                          selectedItem.status.slice(1).replace('_', ' ')}
+                        {((selectedItem?.status ?? 'pending').charAt(0).toUpperCase() +
+                          (selectedItem?.status ?? 'pending').slice(1).replace('_', ' '))}
                       </Text>
                     </View>
                   </View>
 
-                  {selectedItem.expiryDate && (
+                  {selectedItem?.expiryDate && (
                     <>
                       <View style={styles.divider} />
                       <View style={styles.detailRow}>
@@ -311,14 +330,14 @@ export const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({
                         <View style={styles.detailContent}>
                           <Text style={styles.detailLabel}>Expiry Date</Text>
                           <Text style={styles.detailValue}>
-                            {new Date(selectedItem.expiryDate).toLocaleDateString()}
+                            {selectedItem?.expiryDate ? new Date(selectedItem.expiryDate).toLocaleDateString() : 'Unknown'}
                           </Text>
                         </View>
                       </View>
                     </>
                   )}
 
-                  {selectedItem.daysUntilExpiry !== undefined && (
+                  {selectedItem?.daysUntilExpiry !== undefined && (
                     <>
                       <View style={styles.divider} />
                       <View style={styles.detailRow}>
@@ -326,8 +345,8 @@ export const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({
                         <View style={styles.detailContent}>
                           <Text style={styles.detailLabel}>Days Until Expiry</Text>
                           <Text style={styles.detailValue}>
-                            {selectedItem.daysUntilExpiry > 0
-                              ? `${selectedItem.daysUntilExpiry} days`
+                            {(selectedItem?.daysUntilExpiry ?? 0) > 0
+                              ? `${selectedItem?.daysUntilExpiry} days`
                               : 'Expired'}
                           </Text>
                         </View>
@@ -335,7 +354,7 @@ export const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({
                     </>
                   )}
 
-                  {selectedItem.verifiedAt && (
+                  {selectedItem?.verifiedAt && (
                     <>
                       <View style={styles.divider} />
                       <View style={styles.detailRow}>
@@ -343,34 +362,34 @@ export const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({
                         <View style={styles.detailContent}>
                           <Text style={styles.detailLabel}>Verified At</Text>
                           <Text style={styles.detailValue}>
-                            {new Date(selectedItem.verifiedAt).toLocaleDateString()}
+                            {selectedItem?.verifiedAt ? new Date(selectedItem.verifiedAt).toLocaleDateString() : 'Not verified'}
                           </Text>
                         </View>
                       </View>
                     </>
                   )}
 
-                  {selectedItem.verifiedBy && (
+                  {selectedItem?.verifiedBy && (
                     <>
                       <View style={styles.divider} />
                       <View style={styles.detailRow}>
                         <MaterialIcons name="person" size={20} color="#2196F3" />
                         <View style={styles.detailContent}>
                           <Text style={styles.detailLabel}>Verified By</Text>
-                          <Text style={styles.detailValue}>{selectedItem.verifiedBy}</Text>
+                          <Text style={styles.detailValue}>{selectedItem?.verifiedBy ?? 'Unknown'}</Text>
                         </View>
                       </View>
                     </>
                   )}
 
-                  {selectedItem.notes && (
+                  {selectedItem?.notes && (
                     <>
                       <View style={styles.divider} />
                       <View style={styles.detailRow}>
                         <MaterialIcons name="note" size={20} color="#2196F3" />
                         <View style={styles.detailContent}>
                           <Text style={styles.detailLabel}>Notes</Text>
-                          <Text style={styles.detailValue}>{selectedItem.notes}</Text>
+                          <Text style={styles.detailValue}>{selectedItem?.notes ?? 'No notes'}</Text>
                         </View>
                       </View>
                     </>
@@ -402,7 +421,7 @@ export const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({
                     <View style={styles.detailContent}>
                       <Text style={styles.detailLabel}>Type</Text>
                       <Text style={styles.detailValue}>
-                        {selectedAlert.type.replace(/_/g, ' ').toUpperCase()}
+                        {((selectedAlert?.type ?? 'unknown').replace(/_/g, ' ').toUpperCase())}
                       </Text>
                     </View>
                   </View>
@@ -412,17 +431,17 @@ export const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({
                   <View style={styles.detailRow}>
                     <MaterialIcons
                       name={
-                        selectedAlert.severity === 'critical'
+                        (selectedAlert?.severity ?? 'medium') === 'critical'
                           ? 'error'
-                          : selectedAlert.severity === 'high'
+                          : (selectedAlert?.severity ?? 'medium') === 'high'
                           ? 'warning'
                           : 'info'
                       }
                       size={20}
                       color={
-                        selectedAlert.severity === 'critical'
+                        (selectedAlert?.severity ?? 'medium') === 'critical'
                           ? '#F44336'
-                          : selectedAlert.severity === 'high'
+                          : (selectedAlert?.severity ?? 'medium') === 'high'
                           ? '#FF9800'
                           : '#2196F3'
                       }
@@ -430,8 +449,8 @@ export const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({
                     <View style={styles.detailContent}>
                       <Text style={styles.detailLabel}>Severity</Text>
                       <Text style={styles.detailValue}>
-                        {selectedAlert.severity.charAt(0).toUpperCase() +
-                          selectedAlert.severity.slice(1)}
+                        {((selectedAlert?.severity ?? 'medium').charAt(0).toUpperCase() +
+                          (selectedAlert?.severity ?? 'medium').slice(1))}
                       </Text>
                     </View>
                   </View>
@@ -442,7 +461,7 @@ export const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({
                     <MaterialIcons name="message" size={20} color="#2196F3" />
                     <View style={styles.detailContent}>
                       <Text style={styles.detailLabel}>Message</Text>
-                      <Text style={styles.detailValue}>{selectedAlert.message}</Text>
+                      <Text style={styles.detailValue}>{selectedAlert?.message ?? 'No message'}</Text>
                     </View>
                   </View>
 
@@ -453,7 +472,7 @@ export const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({
                     <View style={styles.detailContent}>
                       <Text style={styles.detailLabel}>Created At</Text>
                       <Text style={styles.detailValue}>
-                        {new Date(selectedAlert.createdAt).toLocaleDateString()}
+                        {selectedAlert?.createdAt ? new Date(selectedAlert.createdAt).toLocaleDateString() : 'Unknown'}
                       </Text>
                     </View>
                   </View>
@@ -512,39 +531,41 @@ const AlertCard: React.FC<{
       <View
         style={[
           styles.alertIcon,
-          { backgroundColor: getSeverityColor(alert.severity) + '20' },
+          { backgroundColor: getSeverityColor((alert?.severity ?? 'medium') as string) + '20' },
         ]}
       >
         <MaterialIcons
-          name={alert.severity === 'critical' ? 'error' : 'warning'}
+          name={(alert?.severity ?? 'medium') === 'critical' ? 'error' : 'warning'}
           size={20}
-          color={getSeverityColor(alert.severity)}
+          color={getSeverityColor((alert?.severity ?? 'medium') as string)}
         />
       </View>
 
       <View style={styles.alertInfo}>
-        <Text style={styles.alertType}>{alert.type.replace(/_/g, ' ').toUpperCase()}</Text>
+        <Text style={styles.alertType}>
+          {((alert?.type ?? 'unknown').replace(/_/g, ' ').toUpperCase())}
+        </Text>
         <Text style={styles.alertMessage} numberOfLines={2}>
-          {alert.message}
+          {alert?.message ?? 'No message provided'}
         </Text>
         <Text style={styles.alertDate}>
-          {new Date(alert.createdAt).toLocaleDateString()}
+          {alert?.createdAt ? new Date(alert.createdAt).toLocaleDateString() : 'Unknown date'}
         </Text>
       </View>
 
       <View
         style={[
           styles.alertSeverityBadge,
-          { backgroundColor: getSeverityColor(alert.severity) + '20' },
+          { backgroundColor: getSeverityColor((alert?.severity ?? 'medium') as string) + '20' },
         ]}
       >
         <Text
           style={[
             styles.alertSeverityText,
-            { color: getSeverityColor(alert.severity) },
+            { color: getSeverityColor((alert?.severity ?? 'medium') as string) },
           ]}
         >
-          {alert.severity.toUpperCase()}
+          {(alert?.severity ?? 'medium').toUpperCase()}
         </Text>
       </View>
     </Pressable>
@@ -576,45 +597,49 @@ const ComplianceItemCard: React.FC<{
         <View
           style={[
             styles.itemIcon,
-            { backgroundColor: getStatusColor(item.status) + '20' },
+            { backgroundColor: getStatusColor((item?.status ?? 'pending') as string) + '20' },
           ]}
         >
           <MaterialIcons
             name={
-              item.status === 'compliant'
+              (item?.status ?? 'pending') === 'compliant'
                 ? 'check-circle'
-                : item.status === 'expired'
+                : (item?.status ?? 'pending') === 'expired'
                 ? 'error'
                 : 'warning'
             }
             size={18}
-            color={getStatusColor(item.status)}
+            color={getStatusColor((item?.status ?? 'pending') as string)}
           />
         </View>
 
         <View style={styles.itemInfo}>
-          <Text style={styles.itemType}>{item.type.replace(/_/g, ' ').toUpperCase()}</Text>
-          <Text style={styles.itemStatus}>{item.status.replace(/_/g, ' ')}</Text>
+          <Text style={styles.itemType}>
+            {((item?.type ?? 'unknown').replace(/_/g, ' ').toUpperCase())}
+          </Text>
+          <Text style={styles.itemStatus}>
+            {((item?.status ?? 'pending').replace(/_/g, ' '))}
+          </Text>
         </View>
 
         <View
           style={[
             styles.itemStatusBadge,
-            { backgroundColor: getStatusColor(item.status) + '20' },
+            { backgroundColor: getStatusColor((item?.status ?? 'pending') as string) + '20' },
           ]}
         >
           <Text
             style={[
               styles.itemStatusText,
-              { color: getStatusColor(item.status) },
+              { color: getStatusColor((item?.status ?? 'pending') as string) },
             ]}
           >
-            {item.status === 'compliant' ? '✓' : item.status === 'expired' ? '✕' : '!'}
+            {(item?.status ?? 'pending') === 'compliant' ? '✓' : (item?.status ?? 'pending') === 'expired' ? '✕' : '!'}
           </Text>
         </View>
       </View>
 
-      {item.daysUntilExpiry !== undefined && item.daysUntilExpiry <= 30 && (
+      {item?.daysUntilExpiry !== undefined && item.daysUntilExpiry <= 30 && (
         <Text style={styles.itemExpiry}>
           Expires in {item.daysUntilExpiry} days
         </Text>
