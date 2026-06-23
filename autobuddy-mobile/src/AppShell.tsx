@@ -25,7 +25,7 @@ import DriverPerformanceInsightsScreen from './screens/DriverPerformanceInsights
 
 // Passenger Screens
 import PassengerDashboardScreen from './screens/PassengerDashboardScreen';
-import RideBookingScreen from './screens/RideBookingScreen';
+import { SingleScreenBooking } from './components/PassengerSingleScreenBooking';
 import PassengerInsuranceScreen from './screens/PassengerInsuranceScreen';
 
 // Financial Screens
@@ -271,7 +271,7 @@ const PassengerTabs = () => (
     />
     <Tab.Screen
       name="RideBooking"
-      component={RideBookingScreen}
+      component={SingleScreenBooking}
       options={{ title: 'Book Ride' }}
     />
     <Tab.Screen

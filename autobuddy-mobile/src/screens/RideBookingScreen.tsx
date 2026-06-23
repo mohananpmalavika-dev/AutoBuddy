@@ -1,6 +1,6 @@
 /**
- * Ride Booking Screen - Main booking interface with AI Travel Intent
- * Displays the unified AI-powered booking experience
+ * Ride Booking Screen - Default: PassengerSingleScreenBooking
+ * Other booking methods accessible via menu
  */
 
 import React, { useEffect, useState } from 'react';
@@ -13,6 +13,8 @@ import {
   RefreshControl,
   TouchableOpacity,
   SafeAreaView,
+  Modal,
+  FlatList,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTravelIntent } from '../hooks/useTravelIntent';
@@ -22,10 +24,54 @@ interface RideBookingScreenProps {
   navigation?: any;
 }
 
+interface BookingOption {
+  id: string;
+  title: string;
+  description: string;
+  icon: string;
+  color: string;
+  route?: string;
+}
+
+const BOOKING_OPTIONS: BookingOption[] = [
+  {
+    id: 'single-screen',
+    title: 'Quick Book',
+    description: 'Fast & simple - destination & vehicle',
+    icon: 'flash-on',
+    color: '#FF6B6B',
+    route: 'SingleScreen',
+  },
+  {
+    id: 'ai',
+    title: 'AI Booking',
+    description: 'Natural language - describe your trip',
+    icon: 'auto-awesome',
+    color: '#4ECDC4',
+    route: 'TravelIntent',
+  },
+  {
+    id: 'manual',
+    title: 'Manual Booking',
+    description: 'Traditional - precise locations',
+    icon: 'place',
+    color: '#95E1D3',
+    route: 'ManualBooking',
+  },
+  {
+    id: 'scheduled',
+    title: 'Scheduled Rides',
+    description: 'Book rides in advance',
+    icon: 'schedule',
+    color: '#F9CA24',
+    route: 'ScheduledRides',
+  },
+];
+
 const RideBookingScreen: React.FC<RideBookingScreenProps> = ({ navigation }) => {
   const travelIntent = useTravelIntent();
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState<'single-screen' | 'ai' | 'manual'>('single-screen');
+  const [showMenu, setShowMenu] = useState(false);
 
   useEffect(() => {
     loadInitialData();
@@ -50,7 +96,6 @@ const RideBookingScreen: React.FC<RideBookingScreenProps> = ({ navigation }) => 
 
   const handleBookRide = async (rideData: any) => {
     try {
-      // Handle booking
       console.log('Booking ride:', rideData);
       if (navigation) {
         navigation.navigate('BookingConfirmation', { rideData });
@@ -60,140 +105,129 @@ const RideBookingScreen: React.FC<RideBookingScreenProps> = ({ navigation }) => 
     }
   };
 
-  const handleQuickBook = async (suggestion: any) => {
-    try {
-      await travelIntent.quickBook(
-        suggestion.id,
-        travelIntent.selectedVehicleType,
-        travelIntent.numPassengers
-      );
-      if (navigation) {
-        navigation.navigate('BookingConfirmation');
-      }
-    } catch (error) {
-      console.error('Booking error:', error);
+  const handleMenuItemPress = (option: BookingOption) => {
+    setShowMenu(false);
+    
+    // If it's the single screen (default), just close menu
+    if (option.id === 'single-screen') {
+      return;
+    }
+    
+    // Navigate to the selected booking method
+    if (option.route && navigation) {
+      navigation.navigate(option.route);
     }
   };
 
+  const renderMenuOption = ({ item }: { item: BookingOption }) => (
+    <TouchableOpacity
+      style={[styles.menuOption, { borderLeftColor: item.color }]}
+      onPress={() => handleMenuItemPress(item)}
+      activeOpacity={0.7}
+    >
+      <View style={[styles.menuIconContainer, { backgroundColor: item.color + '20' }]}>
+        <MaterialIcons name={item.icon as any} size={28} color={item.color} />
+      </View>
+      <View style={styles.menuTextContainer}>
+        <Text style={styles.menuTitle}>{item.title}</Text>
+        <Text style={styles.menuDescription}>{item.description}</Text>
+      </View>
+      <MaterialIcons name="chevron-right" size={24} color="#999" />
+    </TouchableOpacity>
+  );
+
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-      >
+      <View style={styles.content}>
         {/* Header */}
         <View style={styles.header}>
           <Text style={styles.title}>Book a Ride</Text>
-        </View>
-
-        {/* Tab Selector */}
-        <View style={styles.tabContainer}>
           <TouchableOpacity
-            style={[styles.tab, activeTab === 'single-screen' && styles.activeTab]}
-            onPress={() => setActiveTab('single-screen')}
+            style={styles.menuButton}
+            onPress={() => setShowMenu(!showMenu)}
           >
-            <MaterialIcons name="flash-on" size={20} color={activeTab === 'single-screen' ? '#2196F3' : '#999'} />
-            <Text style={[styles.tabText, activeTab === 'single-screen' && styles.activeTabText]}>Quick Book</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.tab, activeTab === 'ai' && styles.activeTab]}
-            onPress={() => setActiveTab('ai')}
-          >
-            <MaterialIcons name="auto-awesome" size={20} color={activeTab === 'ai' ? '#2196F3' : '#999'} />
-            <Text style={[styles.tabText, activeTab === 'ai' && styles.activeTabText]}>AI Booking</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.tab, activeTab === 'manual' && styles.activeTab]}
-            onPress={() => setActiveTab('manual')}
-          >
-            <MaterialIcons name="directions-car" size={20} color={activeTab === 'manual' ? '#2196F3' : '#999'} />
-            <Text style={[styles.tabText, activeTab === 'manual' && styles.activeTabText]}>Manual</Text>
+            <MaterialIcons name="more-vert" size={28} color="#2196F3" />
           </TouchableOpacity>
         </View>
 
-        {/* Single Screen Booking Tab - FASTEST BOOKING */}
-        {activeTab === 'single-screen' && (
-          <View style={styles.content}>
-            <SingleScreenBooking
-              onBookRide={handleBookRide}
-              loading={travelIntent.loading}
+        {/* Main Content - Default: SingleScreenBooking */}
+        <ScrollView
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          style={styles.scrollContent}
+        >
+          <SingleScreenBooking
+            onBookRide={handleBookRide}
+            loading={travelIntent.loading}
+          />
+
+          {/* Quick Tips Section */}
+          <View style={styles.tipsSection}>
+            <Text style={styles.tipsTitle}>💡 Quick Tips</Text>
+            <Text style={styles.tipText}>• Enter your destination to get instant fare estimates</Text>
+            <Text style={styles.tipText}>• Select your preferred vehicle type</Text>
+            <Text style={styles.tipText}>• Check the "more options" menu for other booking methods</Text>
+          </View>
+        </ScrollView>
+
+        {/* Floating Menu Button Badge */}
+        {!showMenu && (
+          <View style={styles.menuBadge}>
+            <MaterialIcons name="info" size={16} color="#FFF" />
+            <Text style={styles.menuBadgeText}>More options</Text>
+          </View>
+        )}
+      </View>
+
+      {/* Booking Options Menu Modal */}
+      <Modal
+        visible={showMenu}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowMenu(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            {/* Modal Header */}
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Booking Methods</Text>
+              <TouchableOpacity onPress={() => setShowMenu(false)}>
+                <MaterialIcons name="close" size={28} color="#000" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Current Method Indicator */}
+            <View style={styles.currentMethodBox}>
+              <MaterialIcons name="check-circle" size={24} color="#4CAF50" />
+              <Text style={styles.currentMethodText}>Currently using: Quick Book</Text>
+            </View>
+
+            {/* Menu Options List */}
+            <FlatList
+              data={BOOKING_OPTIONS}
+              renderItem={renderMenuOption}
+              keyExtractor={(item) => item.id}
+              scrollEnabled={false}
+              style={styles.optionsList}
             />
+
+            {/* Close Button */}
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => setShowMenu(false)}
+            >
+              <Text style={styles.closeButtonText}>Continue with Quick Book</Text>
+            </TouchableOpacity>
           </View>
-        )}
+        </View>
+      </Modal>
 
-        {/* AI Booking Tab */}
-        {activeTab === 'ai' && (
-          <View style={styles.content}>
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>AI Travel Intent</Text>
-              <Text style={styles.sectionDescription}>
-                Describe your trip naturally and we'll find the best ride for you
-              </Text>
-
-              <View style={styles.featureCard}>
-                <MaterialIcons name="bulb" size={32} color="#FFC107" />
-                <Text style={styles.featureTitle}>Smart Suggestions</Text>
-                <Text style={styles.featureText}>
-                  Our AI understands your destination and preferences to suggest the best ride type
-                </Text>
-              </View>
-
-              <View style={styles.featureCard}>
-                <MaterialIcons name="trending-up" size={32} color="#4CAF50" />
-                <Text style={styles.featureTitle}>Trending Routes</Text>
-                <Text style={styles.featureText}>
-                  See popular destinations and save time booking common trips
-                </Text>
-              </View>
-
-              <View style={styles.featureCard}>
-                <MaterialIcons name="flash-on" size={32} color="#FF9800" />
-                <Text style={styles.featureTitle}>Quick Book</Text>
-                <Text style={styles.featureText}>
-                  Book rides in seconds with smart defaults based on your preferences
-                </Text>
-              </View>
-
-              <TouchableOpacity
-                style={styles.primaryButton}
-                onPress={() => navigation?.navigate('TravelIntent')}
-              >
-                <MaterialIcons name="arrow-forward" size={24} color="#FFF" />
-                <Text style={styles.buttonText}>Start AI Booking</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-
-        {/* Manual Booking Tab */}
-        {activeTab === 'manual' && (
-          <View style={styles.content}>
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Traditional Booking</Text>
-              <Text style={styles.sectionDescription}>
-                Book a ride with specific pickup and dropoff locations
-              </Text>
-
-              <TouchableOpacity
-                style={styles.secondaryButton}
-                onPress={() => navigation?.navigate('ManualBooking')}
-              >
-                <MaterialIcons name="add-location" size={24} color="#2196F3" />
-                <Text style={styles.secondaryButtonText}>Set Locations</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-
-        {/* Loading State */}
-        {travelIntent.loading && (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#2196F3" />
-            <Text style={styles.loadingText}>Loading suggestions...</Text>
-          </View>
-        )}
-      </ScrollView>
+      {/* Loading State */}
+      {travelIntent.loading && (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#2196F3" />
+          <Text style={styles.loadingText}>Preparing ride options...</Text>
+        </View>
+      )}
     </SafeAreaView>
   );
 };
@@ -203,7 +237,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F5F5F5',
   },
+  content: {
+    flex: 1,
+  },
   header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     padding: 16,
     backgroundColor: '#FFF',
     borderBottomWidth: 1,
@@ -214,111 +254,148 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#000',
   },
-  tabContainer: {
-    flexDirection: 'row',
-    backgroundColor: '#FFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#EFEFEF',
+  menuButton: {
+    padding: 8,
   },
-  tab: {
+  scrollContent: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    gap: 8,
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
   },
-  activeTab: {
-    borderBottomColor: '#2196F3',
-  },
-  tabText: {
-    fontSize: 12,
-    color: '#999',
-  },
-  activeTabText: {
-    color: '#2196F3',
-    fontWeight: '600',
-  },
-  content: {
-    flex: 1,
+  tipsSection: {
+    backgroundColor: '#F0F8FF',
+    margin: 16,
     padding: 16,
-  },
-  section: {
-    backgroundColor: '#FFF',
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: '#2196F3',
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
+  tipsTitle: {
+    fontSize: 16,
+    fontWeight: '600',
     color: '#000',
     marginBottom: 8,
   },
-  sectionDescription: {
-    fontSize: 14,
-    color: '#666',
+  tipText: {
+    fontSize: 13,
+    color: '#555',
+    marginBottom: 6,
+    lineHeight: 18,
+  },
+  menuBadge: {
+    position: 'absolute',
+    bottom: 20,
+    right: 20,
+    backgroundColor: '#2196F3',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    gap: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  menuBadgeText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#FFF',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 20,
+    paddingHorizontal: 16,
+    maxHeight: '90%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 16,
   },
-  featureCard: {
-    backgroundColor: '#F9F9F9',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-    alignItems: 'center',
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#000',
   },
-  featureTitle: {
+  currentMethodBox: {
+    backgroundColor: '#E8F5E9',
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+    gap: 8,
+  },
+  currentMethodText: {
+    color: '#2E7D32',
     fontSize: 14,
+    fontWeight: '500',
+  },
+  optionsList: {
+    marginBottom: 16,
+  },
+  menuOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+    backgroundColor: '#FAFAFA',
+    borderRadius: 8,
+    borderLeftWidth: 4,
+  },
+  menuIconContainer: {
+    width: 50,
+    height: 50,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  menuTextContainer: {
+    flex: 1,
+  },
+  menuTitle: {
+    fontSize: 16,
     fontWeight: '600',
     color: '#000',
-    marginTop: 8,
+    marginBottom: 4,
   },
-  featureText: {
+  menuDescription: {
     fontSize: 12,
     color: '#666',
-    marginTop: 4,
-    textAlign: 'center',
   },
-  primaryButton: {
+  closeButton: {
     backgroundColor: '#2196F3',
-    borderRadius: 8,
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    marginTop: 16,
-  },
-  secondaryButton: {
-    backgroundColor: '#F0F0F0',
     borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    marginTop: 16,
-    borderWidth: 1,
-    borderColor: '#2196F3',
+    marginBottom: 20,
   },
-  buttonText: {
+  closeButtonText: {
     color: '#FFF',
     fontSize: 16,
     fontWeight: '600',
   },
-  secondaryButtonText: {
-    color: '#2196F3',
-    fontSize: 16,
-    fontWeight: '600',
-  },
   loadingContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 40,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
   },
   loadingText: {
     marginTop: 12,

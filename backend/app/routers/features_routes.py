@@ -277,20 +277,34 @@ def get_preferences(
     db: Session = Depends(get_db)
 ):
     """Get passenger preferences"""
-    prefs = db.query(PassengerPreferences)\
-        .filter(PassengerPreferences.passenger_id == current_passenger["id"]).first()
-    
-    if not prefs:
-        # Create default preferences if not exist
-        prefs = PassengerPreferences(
-            id=f"prefs-{uuid.uuid4()}",
-            passenger_id=current_passenger["id"]
-        )
-        db.add(prefs)
-        db.commit()
-        db.refresh(prefs)
-    
-    return serialize_preferences(prefs)
+    try:
+        if not current_passenger or not current_passenger.get("id"):
+            raise HTTPException(status_code=401, detail="Passenger ID not found in token")
+        
+        passenger_id = current_passenger["id"]
+        
+        prefs = db.query(PassengerPreferences).filter(
+            PassengerPreferences.passenger_id == passenger_id
+        ).first()
+        
+        if not prefs:
+            # Create default preferences if not exist
+            prefs = PassengerPreferences(
+                id=f"prefs-{uuid.uuid4()}",
+                passenger_id=passenger_id
+            )
+            db.add(prefs)
+            db.commit()
+            db.refresh(prefs)
+        
+        return serialize_preferences(prefs)
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"Error in get_preferences: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error retrieving preferences: {str(e)}")
 
 
 @router.patch("/preferences", response_model=PreferencesResponse)

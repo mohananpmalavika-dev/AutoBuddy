@@ -1006,6 +1006,14 @@ async def run_startup_bootstrap() -> None:
 
     logger.info("Startup bootstrap started")
     try:
+        # Initialize SQL feature database tables
+        from app.db.database import init_db
+        try:
+            init_db()
+            logger.info("Feature database tables initialized")
+        except Exception as e:
+            logger.warning(f"Feature database initialization failed (non-critical): {e}")
+        
         await seed_admin()
         await initialize_default_catalogs(db)
         await ensure_rate_limit_defaults(db)
