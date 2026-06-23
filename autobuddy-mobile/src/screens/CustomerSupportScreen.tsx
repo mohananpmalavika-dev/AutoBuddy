@@ -15,6 +15,18 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useCustomerSupport, SupportTicket, FAQItem } from '../hooks/useCustomerSupport';
 
+const formatDateSafely = (date: any): string => {
+  if (!date) return 'Unknown';
+  const dateObj = new Date(date);
+  return !isNaN(dateObj.getTime()) ? dateObj.toLocaleDateString() : 'Unknown';
+};
+
+const formatDateTimeSafely = (date: any): string => {
+  if (!date) return 'Unknown';
+  const dateObj = new Date(date);
+  return !isNaN(dateObj.getTime()) ? dateObj.toLocaleString() : 'Unknown';
+};
+
 interface CustomerSupportScreenProps {
   token: string | null;
   userId: string;
@@ -480,7 +492,7 @@ const TicketCard: React.FC<{
         </View>
       </View>
       <Text style={styles.ticketDate}>
-        {new Date(ticket.createdAt).toLocaleDateString()}
+        {formatDateSafely(ticket.createdAt)}
       </Text>
     </Pressable>
   );

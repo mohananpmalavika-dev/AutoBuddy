@@ -13,6 +13,18 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAdvancedAnalytics } from '../hooks/useAdvancedAnalytics';
 
+const formatDateSafely = (date: any): string => {
+  if (!date) return 'Unknown';
+  const dateObj = new Date(date);
+  return !isNaN(dateObj.getTime()) ? dateObj.toLocaleDateString() : 'Unknown';
+};
+
+const formatDateTimeSafely = (date: any): string => {
+  if (!date) return 'Unknown';
+  const dateObj = new Date(date);
+  return !isNaN(dateObj.getTime()) ? dateObj.toLocaleString() : 'Unknown';
+};
+
 interface AdvancedAnalyticsScreenProps {
   token: string | null;
   userId: string;
@@ -170,7 +182,7 @@ export const AdvancedAnalyticsScreen: React.FC<
                     <Text style={styles.reportType}>{report.type}</Text>
                   </View>
                   <Text style={styles.reportDate}>
-                    {new Date(report.generatedAt).toLocaleDateString()}
+                    {formatDateSafely(report.generatedAt)}
                   </Text>
                 </View>
                 <Text style={styles.reportDescription}>{report.description}</Text>
@@ -343,7 +355,7 @@ export const AdvancedAnalyticsScreen: React.FC<
                 <View style={styles.detailRow}>
                   <Text style={styles.detailLabel}>Generated</Text>
                   <Text style={styles.detailValue}>
-                    {new Date(selectedReport.generatedAt).toLocaleString()}
+                    {formatDateTimeSafely(selectedReport.generatedAt)}
                   </Text>
                 </View>
                 <View style={styles.detailRow}>

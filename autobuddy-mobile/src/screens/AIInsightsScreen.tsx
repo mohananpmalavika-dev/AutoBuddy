@@ -23,9 +23,17 @@ import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useAIInsights, useTravelPatterns } from "../hooks/useAIInsights";
 import { AIInsightCard, AIInsightsCarousel, AIAlertBanner } from "../components/AIInsightCard";
 
+interface Insight {
+  id?: string;
+  action_type?: string;
+  destination_lat?: number;
+  destination_lng?: number;
+  [key: string]: unknown;
+}
+
 interface AIInsightsScreenProps {
   userId: string;
-  onInsightSelected?: (insight: any) => void;
+  onInsightSelected?: (insight: Insight) => void;
   onQuickBook?: (destination: { lat: number; lng: number }) => void;
 }
 
@@ -43,7 +51,7 @@ export const AIInsightsScreen: React.FC<AIInsightsScreenProps> = ({
     fetchInsights().finally(() => setRefreshing(false));
   }, [fetchInsights]);
 
-  const handleInsightAction = (insight: any) => {
+  const handleInsightAction = (insight: Insight) => {
     if (insight.action_type === "quick_book" && insight.destination_lat && insight.destination_lng) {
       onQuickBook?.({
         lat: insight.destination_lat,

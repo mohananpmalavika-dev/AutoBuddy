@@ -15,12 +15,22 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { usePromotionsAndCoupons } from '../hooks/usePromotionsAndCoupons';
 
+interface Coupon {
+  id?: string;
+  code?: string;
+  discount?: number;
+  minRideAmount?: number;
+  maxDiscount?: number;
+  expiryDate?: string;
+  [key: string]: unknown;
+}
+
 interface PromoScreenProps {
   token: string | null;
   userId: string;
   userType: 'passenger' | 'driver';
   currentRideAmount?: number;
-  onCouponSelected?: (coupon: any, discount: number) => void;
+  onCouponSelected?: (coupon: Coupon, discount: number) => void;
 }
 
 export const PromotionsScreen: React.FC<PromoScreenProps> = ({
@@ -83,7 +93,7 @@ export const PromotionsScreen: React.FC<PromoScreenProps> = ({
     }
   };
 
-  const checkCouponEligibility = (coupon: any) => {
+  const checkCouponEligibility = (coupon: Coupon) => {
     return checkEligibility(coupon.id, currentRideAmount, userType);
   };
 

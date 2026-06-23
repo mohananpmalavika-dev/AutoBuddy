@@ -11,6 +11,18 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useVideoCall } from '../hooks/useVideoCall';
 
+const formatDateSafely = (date: any): string => {
+  if (!date) return 'Unknown';
+  const dateObj = new Date(date);
+  return !isNaN(dateObj.getTime()) ? dateObj.toLocaleDateString() : 'Unknown';
+};
+
+const formatDateTimeSafely = (date: any): string => {
+  if (!date) return 'Unknown';
+  const dateObj = new Date(date);
+  return !isNaN(dateObj.getTime()) ? dateObj.toLocaleString() : 'Unknown';
+};
+
 interface VideoCallScreenProps {
   token: string | null;
   userId: string;
@@ -327,7 +339,7 @@ export const VideoCallScreen: React.FC<VideoCallScreenProps> = ({
                           {call.callType})
                         </Text>
                         <Text style={styles.callHistoryTime}>
-                          {call.startTime && new Date(call.startTime).toLocaleString()}
+                          {call.startTime && formatDateTimeSafely(call.startTime)}
                         </Text>
                       </View>
                     </View>

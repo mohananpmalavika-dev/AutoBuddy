@@ -240,13 +240,13 @@ export const WalletScreen: React.FC<WalletScreenProps> = ({
                 <View style={styles.settingRow}>
                   <Text style={styles.settingLabel}>Recharge Amount</Text>
                   <Text style={styles.settingValue}>
-                    ₹{autoRechargeSettings?.amount || 1000}
+                    ₹{autoRechargeSettings?.amount ?? 1000}
                   </Text>
                 </View>
                 <View style={styles.settingRow}>
                   <Text style={styles.settingLabel}>Threshold</Text>
                   <Text style={styles.settingValue}>
-                    ₹{autoRechargeSettings?.threshold || 500}
+                    ₹{autoRechargeSettings?.threshold ?? 500}
                   </Text>
                 </View>
               </>

@@ -13,6 +13,18 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useExpenseTracking } from '../hooks/useExpenseTracking';
 
+const formatDateSafely = (date: any): string => {
+  if (!date) return 'Unknown';
+  const dateObj = new Date(date);
+  return !isNaN(dateObj.getTime()) ? dateObj.toLocaleDateString() : 'Unknown';
+};
+
+const formatDateTimeSafely = (date: any): string => {
+  if (!date) return 'Unknown';
+  const dateObj = new Date(date);
+  return !isNaN(dateObj.getTime()) ? dateObj.toLocaleString() : 'Unknown';
+};
+
 interface ExpenseTrackingScreenProps {
   token: string | null;
   userId: string;
@@ -277,7 +289,7 @@ export const ExpenseTrackingScreen: React.FC<ExpenseTrackingScreenProps> = ({
                   </Text>
                   <Text style={styles.expenseDescription}>{expense.description}</Text>
                   <Text style={styles.expenseDate}>
-                    {new Date(expense.date).toLocaleDateString()}
+                    {formatDateSafely(expense.date)}
                   </Text>
                 </View>
               </View>
@@ -442,7 +454,7 @@ export const ExpenseTrackingScreen: React.FC<ExpenseTrackingScreenProps> = ({
                   <DetailRow label="Description" value={selectedExpense.description} />
                   <DetailRow
                     label="Date"
-                    value={new Date(selectedExpense.date).toLocaleString()}
+                    value={formatDateTimeSafely(selectedExpense.date)}
                   />
                   <DetailRow
                     label="Status"

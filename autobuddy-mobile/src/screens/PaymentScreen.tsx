@@ -3,9 +3,22 @@ import { View, Text, Button, Alert, StyleSheet } from 'react-native';
 import { CardField, useStripe } from '@stripe/stripe-react-native';
 import { paymentAPI } from '../services/apiClient';
 
+interface CardDetails {
+  complete: boolean;
+  [key: string]: unknown;
+}
+
+interface PaymentIntentResponse {
+  client_secret?: string;
+  data?: {
+    client_secret?: string;
+  };
+  [key: string]: unknown;
+}
+
 export default function PaymentScreen({ bookingId, onSuccess }: { bookingId: string; onSuccess?: () => void }) {
   const { confirmPayment } = useStripe();
-  const [cardDetails, setCardDetails] = useState<any>(null);
+  const [cardDetails, setCardDetails] = useState<CardDetails | null>(null);
   const [loading, setLoading] = useState(false);
 
   const handlePay = async () => {
@@ -17,7 +30,7 @@ export default function PaymentScreen({ bookingId, onSuccess }: { bookingId: str
     try {
       // 1. Create payment intent on backend
       const amount = 100; // Replace with actual amount calculation
-      const intentResp: any = await paymentAPI.createPaymentIntent(bookingId, amount);
+      const intentResp: PaymentIntentResponse = await paymentAPI.createPaymentIntent(bookingId, amount);
       const clientSecret = intentResp.client_secret || intentResp.data?.client_secret;
 
       if (!clientSecret) {
@@ -32,7 +45,7 @@ export default function PaymentScreen({ bookingId, onSuccess }: { bookingId: str
             name: 'Passenger',
           },
         },
-      } as any);
+      });
 
       if (error) {
         Alert.alert('Payment failed', error.message || 'Unknown error');
@@ -45,8 +58,9 @@ export default function PaymentScreen({ bookingId, onSuccess }: { bookingId: str
 
       Alert.alert('Payment successful');
       onSuccess?.();
-    } catch (err: any) {
-      Alert.alert('Payment error', err.message || 'An error occurred');
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : 'An error occurred';
+      Alert.alert('Payment error', errorMsg);
     } finally {
       setLoading(false);
     }
@@ -60,7 +74,7 @@ export default function PaymentScreen({ bookingId, onSuccess }: { bookingId: str
         placeholders={{ number: '4242 4242 4242 4242' }}
         cardStyle={{ backgroundColor: '#FFFFFF', textColor: '#000000' }}
         style={{ width: '100%', height: 50, marginVertical: 10 }}
-        onCardChange={(details: any) => setCardDetails(details)}
+        onCardChange={(details: CardDetails) => setCardDetails(details)}
       />
       <Button title={loading ? 'Processing...' : 'Pay'} onPress={handlePay} disabled={loading} />
     </View>

@@ -14,6 +14,18 @@ import { Text } from 'react-native';
 import { useFamilyAssistant } from '../hooks/useFamilyAssistant';
 import { FamilyMemberCard } from '../components/FamilyMemberCard';
 
+const formatDateSafely = (date: any): string => {
+  if (!date) return 'Unknown';
+  const dateObj = new Date(date);
+  return !isNaN(dateObj.getTime()) ? dateObj.toLocaleDateString() : 'Unknown';
+};
+
+const formatDateTimeSafely = (date: any): string => {
+  if (!date) return 'Unknown';
+  const dateObj = new Date(date);
+  return !isNaN(dateObj.getTime()) ? dateObj.toLocaleString() : 'Unknown';
+};
+
 interface FamilyAssistantDashboardProps {
   userId: string;
   token: string;
@@ -182,7 +194,7 @@ export const FamilyAssistantDashboard: React.FC<FamilyAssistantDashboardProps> =
                   <View style={styles.appointmentTitleContainer}>
                     <Text style={styles.appointmentTitle}>{appointment.title}</Text>
                     <Text style={styles.appointmentTime}>
-                      {new Date(appointment.start_time).toLocaleString()}
+                      {formatDateTimeSafely(appointment.start_time)}
                     </Text>
                   </View>
                   <View
@@ -252,7 +264,7 @@ export const FamilyAssistantDashboard: React.FC<FamilyAssistantDashboardProps> =
               <View key={notification.id} style={styles.notificationItem}>
                 <Text style={styles.notificationMessage}>{notification.message}</Text>
                 <Text style={styles.notificationTime}>
-                  {new Date(notification.created_at).toLocaleString()}
+                  {formatDateTimeSafely(notification.created_at)}
                 </Text>
               </View>
             ))}
@@ -365,7 +377,7 @@ export const FamilyAssistantDashboard: React.FC<FamilyAssistantDashboardProps> =
                 <View style={[styles.notificationItem, !item.read && styles.unreadNotification]}>
                   <Text style={styles.notificationMessage}>{item.message}</Text>
                   <Text style={styles.notificationTime}>
-                    {new Date(item.created_at).toLocaleString()}
+                    {formatDateTimeSafely(item.created_at)}
                   </Text>
                   {item.quick_action_data?.can_book_ride && (
                     <TouchableOpacity style={styles.quickActionButton}>

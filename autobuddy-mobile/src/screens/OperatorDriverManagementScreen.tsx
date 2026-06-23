@@ -100,8 +100,8 @@ export const OperatorDriverManagementScreen: React.FC<OperatorDriverManagementSc
   const filteredDrivers = drivers.filter((driver) => {
     if (!driver) return false;
     const matchesSearch =
-      (driver.name?.toLowerCase?.() || '').includes(searchQuery.toLowerCase()) ||
-      (driver.email?.toLowerCase?.() || '').includes(searchQuery.toLowerCase()) ||
+      (driver.name?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
+      (driver.email?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
       (driver.phone || '').includes(searchQuery);
     const matchesStatus = !statusFilter || driver.status === statusFilter;
     return matchesSearch && matchesStatus;

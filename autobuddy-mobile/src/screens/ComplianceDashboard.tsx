@@ -13,6 +13,18 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useComplianceTracking, ComplianceItem, ComplianceAlert } from '../hooks/useComplianceTracking';
 
+const formatDateSafely = (date: any): string => {
+  if (!date) return 'Unknown';
+  const dateObj = new Date(date);
+  return !isNaN(dateObj.getTime()) ? dateObj.toLocaleDateString() : 'Unknown';
+};
+
+const formatDateTimeSafely = (date: any): string => {
+  if (!date) return 'Unknown';
+  const dateObj = new Date(date);
+  return !isNaN(dateObj.getTime()) ? dateObj.toLocaleString() : 'Unknown';
+};
+
 interface ComplianceDashboardProps {
   token: string | null;
   userId: string;
@@ -255,7 +267,7 @@ export const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({
                   </Text>
                   <Text style={styles.timelineDate}>
                     {item.verifiedAt
-                      ? new Date(item.verifiedAt).toLocaleDateString()
+                      ? formatDateSafely(item.verifiedAt)
                       : 'Not verified'}
                   </Text>
                   {item.verifiedBy && (
@@ -330,7 +342,7 @@ export const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({
                         <View style={styles.detailContent}>
                           <Text style={styles.detailLabel}>Expiry Date</Text>
                           <Text style={styles.detailValue}>
-                            {selectedItem?.expiryDate ? new Date(selectedItem.expiryDate).toLocaleDateString() : 'Unknown'}
+                            {selectedItem?.expiryDate ? formatDateSafely(selectedItem.expiryDate) : 'Unknown'}
                           </Text>
                         </View>
                       </View>
@@ -362,7 +374,7 @@ export const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({
                         <View style={styles.detailContent}>
                           <Text style={styles.detailLabel}>Verified At</Text>
                           <Text style={styles.detailValue}>
-                            {selectedItem?.verifiedAt ? new Date(selectedItem.verifiedAt).toLocaleDateString() : 'Not verified'}
+                            {selectedItem?.verifiedAt ? formatDateSafely(selectedItem.verifiedAt) : 'Not verified'}
                           </Text>
                         </View>
                       </View>
@@ -472,7 +484,7 @@ export const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({
                     <View style={styles.detailContent}>
                       <Text style={styles.detailLabel}>Created At</Text>
                       <Text style={styles.detailValue}>
-                        {selectedAlert?.createdAt ? new Date(selectedAlert.createdAt).toLocaleDateString() : 'Unknown'}
+                        {selectedAlert?.createdAt ? formatDateSafely(selectedAlert.createdAt) : 'Unknown'}
                       </Text>
                     </View>
                   </View>
@@ -549,7 +561,7 @@ const AlertCard: React.FC<{
           {alert?.message ?? 'No message provided'}
         </Text>
         <Text style={styles.alertDate}>
-          {alert?.createdAt ? new Date(alert.createdAt).toLocaleDateString() : 'Unknown date'}
+          {alert?.createdAt ? formatDateSafely(alert.createdAt) : 'Unknown date'}
         </Text>
       </View>
 

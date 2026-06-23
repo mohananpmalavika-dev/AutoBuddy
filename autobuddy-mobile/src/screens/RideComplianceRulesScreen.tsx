@@ -20,6 +20,18 @@ import {
   ComplianceAlert,
 } from '../hooks/useRideComplianceRules';
 
+const formatDateSafely = (date: any): string => {
+  if (!date) return 'Unknown';
+  const dateObj = new Date(date);
+  return !isNaN(dateObj.getTime()) ? dateObj.toLocaleDateString() : 'Unknown';
+};
+
+const formatDateTimeSafely = (date: any): string => {
+  if (!date) return 'Unknown';
+  const dateObj = new Date(date);
+  return !isNaN(dateObj.getTime()) ? dateObj.toLocaleString() : 'Unknown';
+};
+
 interface RideComplianceRulesScreenProps {
   token: string | null;
   userId: string;
@@ -159,7 +171,7 @@ export const RideComplianceRulesScreen: React.FC<RideComplianceRulesScreenProps>
         <View style={{ flex: 1 }}>
           <Text style={styles.alertTitle}>{alert.title}</Text>
           <Text style={styles.alertTime}>
-            {new Date(alert.timestamp).toLocaleDateString()}
+            {formatDateSafely(alert.timestamp)}
           </Text>
         </View>
         {!alert.acknowledged && (
@@ -636,7 +648,7 @@ export const RideComplianceRulesScreen: React.FC<RideComplianceRulesScreenProps>
                 <View style={styles.detailSection}>
                   <Text style={styles.detailSectionTitle}>Alert Time</Text>
                   <Text style={styles.detailText}>
-                    {new Date(selectedAlert.timestamp).toLocaleString()}
+                    {formatDateTimeSafely(selectedAlert.timestamp)}
                   </Text>
                 </View>
 

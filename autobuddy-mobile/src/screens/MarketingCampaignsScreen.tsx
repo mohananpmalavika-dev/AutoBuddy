@@ -13,6 +13,18 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useMarketingCampaigns, Campaign } from '../hooks/useMarketingCampaigns';
 
+const formatDateSafely = (date: any): string => {
+  if (!date) return 'Unknown';
+  const dateObj = new Date(date);
+  return !isNaN(dateObj.getTime()) ? dateObj.toLocaleDateString() : 'Unknown';
+};
+
+const formatDateTimeSafely = (date: any): string => {
+  if (!date) return 'Unknown';
+  const dateObj = new Date(date);
+  return !isNaN(dateObj.getTime()) ? dateObj.toLocaleString() : 'Unknown';
+};
+
 interface MarketingCampaignsScreenProps {
   token: string | null;
   adminId: string;
@@ -303,7 +315,7 @@ export const MarketingCampaignsScreen: React.FC<MarketingCampaignsScreenProps> =
                       <View style={styles.dateText}>
                         <Text style={styles.dateLabel}>Start Date</Text>
                         <Text style={styles.dateValue}>
-                          {new Date(selectedCampaign.startDate).toLocaleDateString()}
+                          {formatDateSafely(selectedCampaign.startDate)}
                         </Text>
                       </View>
                     </View>
@@ -313,7 +325,7 @@ export const MarketingCampaignsScreen: React.FC<MarketingCampaignsScreenProps> =
                       <View style={styles.dateText}>
                         <Text style={styles.dateLabel}>End Date</Text>
                         <Text style={styles.dateValue}>
-                          {new Date(selectedCampaign.endDate).toLocaleDateString()}
+                          {formatDateSafely(selectedCampaign.endDate)}
                         </Text>
                       </View>
                     </View>
