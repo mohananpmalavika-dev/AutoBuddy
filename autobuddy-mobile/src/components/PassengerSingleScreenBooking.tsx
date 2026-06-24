@@ -53,36 +53,36 @@ interface SingleScreenBookingProps {
 
 const RIDE_TYPES: RideType[] = [
   {
-    id: 'bike',
-    name: 'BIKE',
+    id: 'auto',
+    name: 'AUTO',
     icon: 'two-wheeler',
-    capacity: 1,
-    basePrice: 30,
-    perKmPrice: 8,
+    capacity: 3,
+    basePrice: 50,
+    perKmPrice: 10,
   },
   {
     id: 'economy',
     name: 'ECONOMY',
     icon: 'directions-car',
     capacity: 4,
-    basePrice: 50,
-    perKmPrice: 10,
+    basePrice: 70,
+    perKmPrice: 12,
   },
   {
     id: 'premium',
     name: 'PREMIUM',
     icon: 'directions-car',
     capacity: 4,
-    basePrice: 80,
-    perKmPrice: 15,
+    basePrice: 100,
+    perKmPrice: 18,
   },
   {
     id: 'xl',
     name: 'XL',
     icon: 'domain',
     capacity: 5,
-    basePrice: 100,
-    perKmPrice: 18,
+    basePrice: 120,
+    perKmPrice: 20,
   },
 ];
 
@@ -115,9 +115,11 @@ export function SingleScreenBooking({
 
   // Sync modal state when ride type is selected or modal opens
   useEffect(() => {
-    if (showRideDetailsModal && selectedRideType) {
+    if (showRideDetailsModal) {
       // Initialize modal selections based on the selected ride type
       setSelectedVehicleType(selectedRideType);
+      setSelectedVehicleModel('sedan');
+      setSelectedRideCategory('normal');
     }
   }, [showRideDetailsModal, selectedRideType]);
 
@@ -370,16 +372,23 @@ export function SingleScreenBooking({
     setShowRideDetailsModal(false);
   };
 
-  const handleRideDetailsConfirm = () => {
+  const handleRideDetailsConfirm = async () => {
     // Commit the modal selections to the main state
-    // selectedVehicleType is what the user selected in the modal
     const finalRideType = selectedVehicleType;
     
     // Update the main ride type immediately
     setSelectedRideType(finalRideType);
     
-    // Then close modal without delay
+    // Close modal immediately
     setShowRideDetailsModal(false);
+    
+    // Force fare recalculation by triggering effect
+    // This ensures fare updates with the new ride type
+    setTimeout(() => {
+      // The useEffect will trigger automatically due to selectedRideType change
+      // But we can add a small debug log to verify
+      console.log('Ride type updated to:', finalRideType);
+    }, 100);
   };
 
   const handleBookRide = () => {
@@ -688,22 +697,22 @@ export function SingleScreenBooking({
               <View style={styles.modalSection}>
                 <Text style={styles.modalSectionTitle}>Vehicle type</Text>
                 <View style={styles.vehicleTypeGrid}>
-                  {['economy', 'premium', 'xl', 'traveller'].map(type => (
+                  {RIDE_TYPES.map(type => (
                     <Pressable
-                      key={type}
+                      key={type.id}
                       style={[
                         styles.vehicleOption,
-                        selectedVehicleType === type && styles.vehicleOptionSelected,
+                        selectedVehicleType === type.id && styles.vehicleOptionSelected,
                       ]}
-                      onPress={() => setSelectedVehicleType(type)}
+                      onPress={() => setSelectedVehicleType(type.id)}
                     >
                       <Text
                         style={[
                           styles.vehicleOptionText,
-                          selectedVehicleType === type && styles.vehicleOptionTextSelected,
+                          selectedVehicleType === type.id && styles.vehicleOptionTextSelected,
                         ]}
                       >
-                        {type.charAt(0).toUpperCase() + type.slice(1)}
+                        {type.name}
                       </Text>
                     </Pressable>
                   ))}
