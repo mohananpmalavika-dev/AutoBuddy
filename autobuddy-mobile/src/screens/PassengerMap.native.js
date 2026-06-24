@@ -2241,7 +2241,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     return () => {
       clearTimeout(timer);
     };
-  }, [dropoffLocation, pickupLocation, refreshDriverDiscovery]);
+  }, [dropoffLocation, pickupLocation, refreshDriverDiscovery, effectiveSelectedVehicleTypeId, effectiveRideProduct]);
 
   useEffect(() => {
     if (activePassengerMenu !== 'drivers') {
