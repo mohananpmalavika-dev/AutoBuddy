@@ -28,6 +28,8 @@ MOCK_LOCATIONS = {
     # Kochi area
     "8.5241,76.9366": {
         "address": "Kochi, Kerala",
+        "latitude": 8.5241,
+        "longitude": 76.9366,
         "city": "Kochi",
         "state": "Kerala",
         "country": "India",
@@ -35,6 +37,8 @@ MOCK_LOCATIONS = {
     },
     "9.9676,76.3261": {
         "address": "MG Road, Kochi",
+        "latitude": 9.9676,
+        "longitude": 76.3261,
         "city": "Kochi",
         "state": "Kerala",
         "country": "India",
@@ -42,6 +46,8 @@ MOCK_LOCATIONS = {
     },
     "8.6753,76.8589": {
         "address": "Ernakulathappan, Kochi",
+        "latitude": 8.6753,
+        "longitude": 76.8589,
         "city": "Kochi",
         "state": "Kerala",
         "country": "India",
@@ -49,6 +55,8 @@ MOCK_LOCATIONS = {
     },
     "8.8965,76.5667": {
         "address": "Fort Kochi, Kochi",
+        "latitude": 8.8965,
+        "longitude": 76.5667,
         "city": "Kochi",
         "state": "Kerala",
         "country": "India",
@@ -56,6 +64,8 @@ MOCK_LOCATIONS = {
     },
     "8.9270,76.3906": {
         "address": "Cochin International Airport, Kochi",
+        "latitude": 8.9270,
+        "longitude": 76.3906,
         "city": "Kochi",
         "state": "Kerala",
         "country": "India",
@@ -64,6 +74,8 @@ MOCK_LOCATIONS = {
     # Thiruvananthapuram area
     "8.7426,76.7873": {
         "address": "Thiruvananthapuram, Kerala",
+        "latitude": 8.7426,
+        "longitude": 76.7873,
         "city": "Thiruvananthapuram",
         "state": "Kerala",
         "country": "India",
@@ -71,6 +83,8 @@ MOCK_LOCATIONS = {
     },
     "8.7249,76.7367": {
         "address": "Vazhuthacaud, Thiruvananthapuram",
+        "latitude": 8.7249,
+        "longitude": 76.7367,
         "city": "Thiruvananthapuram",
         "state": "Kerala",
         "country": "India",
@@ -79,6 +93,8 @@ MOCK_LOCATIONS = {
     # Kollam area
     "8.5344,76.2450": {
         "address": "Kollam, Kerala",
+        "latitude": 8.5344,
+        "longitude": 76.2450,
         "city": "Kollam",
         "state": "Kerala",
         "country": "India",
@@ -86,6 +102,17 @@ MOCK_LOCATIONS = {
     },
     "8.8956,76.5687": {
         "address": "Kollam City Center",
+        "latitude": 8.8956,
+        "longitude": 76.5687,
+        "city": "Kollam",
+        "state": "Kerala",
+        "country": "India",
+        "type": "area",
+    },
+    "8.8750,76.2900": {
+        "address": "Mulankadakam, Kollam, Kerala",
+        "latitude": 8.8750,
+        "longitude": 76.2900,
         "city": "Kollam",
         "state": "Kerala",
         "country": "India",
@@ -94,6 +121,8 @@ MOCK_LOCATIONS = {
     # Kottayam area
     "8.4942,76.8194": {
         "address": "Kottayam, Kerala",
+        "latitude": 8.4942,
+        "longitude": 76.8194,
         "city": "Kottayam",
         "state": "Kerala",
         "country": "India",
@@ -101,6 +130,8 @@ MOCK_LOCATIONS = {
     },
     "8.5123,76.8234": {
         "address": "Kottayam City Center",
+        "latitude": 8.5123,
+        "longitude": 76.8234,
         "city": "Kottayam",
         "state": "Kerala",
         "country": "India",
@@ -109,6 +140,8 @@ MOCK_LOCATIONS = {
     # Pathanamthitta area
     "9.2756,76.7871": {
         "address": "Pathanamthitta, Kerala",
+        "latitude": 9.2756,
+        "longitude": 76.7871,
         "city": "Pathanamthitta",
         "state": "Kerala",
         "country": "India",
@@ -117,6 +150,8 @@ MOCK_LOCATIONS = {
     # Alappuzha area
     "9.4981,76.3388": {
         "address": "Alappuzha, Kerala",
+        "latitude": 9.4981,
+        "longitude": 76.3388,
         "city": "Alappuzha",
         "state": "Kerala",
         "country": "India",
@@ -125,6 +160,8 @@ MOCK_LOCATIONS = {
     # Ernakulam area
     "9.6355,76.2263": {
         "address": "Ernakulam Junction",
+        "latitude": 9.6355,
+        "longitude": 76.2263,
         "city": "Ernakulam",
         "state": "Kerala",
         "country": "India",
@@ -367,62 +404,102 @@ async def reverse_geocode(
 async def autocomplete(
     input: str = Query(..., min_length=3, description="Search query"),
     language: str = Query("en", description="Language code"),
-    country_code: Optional[str] = Query(None, description="Country code filter"),
+    country_code: Optional[str] = Query("IN", description="Country code filter"),
     latitude: Optional[float] = Query(None, description="Latitude for proximity bias"),
     longitude: Optional[float] = Query(None, description="Longitude for proximity bias"),
     radius: Optional[int] = Query(50000, description="Search radius in meters"),
 ):
     """
-    Autocomplete place search.
+    Autocomplete place search using Nominatim (OpenStreetMap real data).
     
-    Returns list of matching places with descriptions and place IDs.
+    Returns list of matching places with descriptions and coordinates.
     """
     try:
         if len(input) < 3:
             raise HTTPException(status_code=400, detail="Search query must be at least 3 characters.")
         
-        search_term = input.lower()
         results = []
         
-        # Search in mock places
-        for place_id, place in MOCK_PLACES.items():
-            if (search_term in place["name"].lower() or 
-                search_term in place["address"].lower()):
+        # Use Nominatim search for real data
+        search_url = "https://nominatim.openstreetmap.org/search"
+        
+        params = {
+            "q": input,
+            "format": "json",
+            "addressdetails": 1,
+            "limit": 20,
+            "countrycodes": country_code.lower() if country_code else "in",
+        }
+        
+        # Add proximity bias if coordinates provided
+        if latitude is not None and longitude is not None:
+            params["viewbox"] = f"{longitude - 0.5},{latitude - 0.5},{longitude + 0.5},{latitude + 0.5}"
+            params["bounded"] = 1
+        
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(search_url, params=params)
+                response.raise_for_status()
+                nominatim_results = response.json()
+            
+            # Convert Nominatim results to our format
+            for result in nominatim_results:
                 results.append({
-                    "place_id": place_id,
-                    "placeId": place_id,
-                    "name": place["name"],
-                    "description": place["address"],
-                    "address": place["address"],
-                    "latitude": place.get("latitude"),
-                    "longitude": place.get("longitude"),
+                    "place_id": result.get("place_id"),
+                    "placeId": result.get("place_id"),
+                    "name": result.get("name"),
+                    "description": result.get("display_name", result.get("name")),
+                    "address": result.get("display_name", result.get("name")),
+                    "latitude": float(result.get("lat", 0)),
+                    "longitude": float(result.get("lon", 0)),
                 })
         
-        # Also search in locations
-        for loc_data in MOCK_LOCATIONS.values():
-            if search_term in loc_data["address"].lower():
-                results.append({
-                    "place_id": loc_data["address"],
-                    "placeId": loc_data["address"],
-                    "name": loc_data["address"],
-                    "description": loc_data["address"],
-                    "address": loc_data["address"],
-                })
+        except Exception as e:
+            logger.warning(f"Nominatim API error: {e}, falling back to mock data")
+            # Fallback to mock data if Nominatim fails
+            search_term = input.lower()
+            
+            for place_id, place in MOCK_PLACES.items():
+                if (search_term in place["name"].lower() or 
+                    search_term in place["address"].lower()):
+                    results.append({
+                        "place_id": place_id,
+                        "placeId": place_id,
+                        "name": place["name"],
+                        "description": place["address"],
+                        "address": place["address"],
+                        "latitude": place.get("latitude"),
+                        "longitude": place.get("longitude"),
+                    })
+            
+            for loc_data in MOCK_LOCATIONS.values():
+                if search_term in loc_data["address"].lower():
+                    results.append({
+                        "place_id": loc_data["address"],
+                        "placeId": loc_data["address"],
+                        "name": loc_data["address"],
+                        "description": loc_data["address"],
+                        "address": loc_data["address"],
+                        "latitude": loc_data.get("latitude"),
+                        "longitude": loc_data.get("longitude"),
+                    })
         
-        # Remove duplicates
-        seen = set()
-        unique_results = []
+        # Deduplicate by address
+        unique_results = {}
         for result in results:
-            key = (result["place_id"], result["address"])
-            if key not in seen:
-                seen.add(key)
-                unique_results.append(result)
+            key = result.get("address")
+            if key not in unique_results:
+                unique_results[key] = result
         
-        return unique_results[:10]  # Return top 10 results
+        # Return top 10 results
+        final_results = list(unique_results.values())[:10]
+        
+        return final_results
     
     except HTTPException:
         raise
     except Exception as e:
+        logger.exception(f"Autocomplete error: {e}")
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
 

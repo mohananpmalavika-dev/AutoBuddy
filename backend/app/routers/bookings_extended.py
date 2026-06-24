@@ -396,6 +396,7 @@ async def create_booking(
         
         booking = {
             "_id": booking_id,
+            "id": booking_id,  # Add explicit id field for compatibility
             "passenger_id": passenger_id,
             "status": "pending",
             

@@ -10972,11 +10972,12 @@ async def admin_reply_to_driver_support_ticket(
 async def places_autocomplete(
     input: str,
     language: str = "en",
-    country_code: Optional[str] = None,
+    country_code: Optional[str] = "IN",
     latitude: Optional[float] = None,
     longitude: Optional[float] = None,
     radius: int = 50000,
 ):
+    """Autocomplete using Nominatim (real OpenStreetMap data)"""
     text = str(input or "").strip()
     if len(text) < 3:
         return []
@@ -10994,30 +10995,46 @@ async def places_autocomplete(
         except (TypeError, ValueError):
             raise HTTPException(status_code=400, detail="Invalid latitude or longitude: must be valid numbers")
 
-    params: Dict[str, Any] = {
-        "input": text,
-        "language": language or "en",
+    results = []
+    
+    # Use Nominatim for real data
+    search_url = "https://nominatim.openstreetmap.org/search"
+    
+    params = {
+        "q": text,
+        "format": "json",
+        "addressdetails": 1,
+        "limit": 20,
+        "countrycodes": country_code.lower() if country_code else "in",
     }
-    if country_code:
-        params["components"] = f"country:{country_code}"
+    
+    # Add proximity bias if coordinates provided
     if latitude is not None and longitude is not None:
-        params["location"] = f"{latitude},{longitude}"
-        params["radius"] = str(max(1000, min(int(radius), 100000)))
-
-    payload = await fetch_google_maps_json(
-        "place/autocomplete/json",
-        params,
-        allow_zero_results=True,
-    )
-    predictions = payload.get("predictions") or []
-    return [
-        {
-            "placeId": item.get("place_id"),
-            "description": item.get("description"),
-        }
-        for item in predictions
-        if item.get("place_id") and item.get("description")
-    ]
+        params["viewbox"] = f"{longitude - 0.5},{latitude - 0.5},{longitude + 0.5},{latitude + 0.5}"
+        params["bounded"] = 1
+    
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(search_url, params=params)
+            response.raise_for_status()
+            nominatim_results = response.json()
+        
+        # Convert Nominatim results to our format
+        for result in nominatim_results:
+            results.append({
+                "placeId": result.get("place_id"),
+                "description": result.get("display_name", result.get("name")),
+                "name": result.get("name"),
+                "latitude": float(result.get("lat", 0)),
+                "longitude": float(result.get("lon", 0)),
+            })
+    except Exception as e:
+        logger.warning(f"Nominatim API error: {e}")
+        # Return empty list on error, frontend can handle gracefully
+        return []
+    
+    # Return top 10 results
+    return results[:10]
 
 @api_router.get("/places/details")
 async def places_details(place_id: str, language: str = "en"):
