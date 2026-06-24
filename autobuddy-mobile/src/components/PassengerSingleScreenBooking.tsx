@@ -113,6 +113,14 @@ export function SingleScreenBooking({
   // Get pickup location from saved locations (first one is usually current)
   const pickupLocation = savedLocations?.[0];
 
+  // Sync modal state when ride type is selected or modal opens
+  useEffect(() => {
+    if (showRideDetailsModal && selectedRideType) {
+      // Initialize modal selections based on the selected ride type
+      setSelectedVehicleType(selectedRideType);
+    }
+  }, [showRideDetailsModal, selectedRideType]);
+
   // Call real fare estimation endpoint
   useEffect(() => {
     if (!selectedDestinationLocation || !pickupLocation) {
@@ -363,7 +371,19 @@ export function SingleScreenBooking({
   };
 
   const handleRideDetailsConfirm = () => {
-    setShowRideDetailsModal(false);
+    // Combine modal selections to create an updated ride type identifier
+    // Map vehicle type to a ride type if needed
+    const combinedRideType = selectedVehicleType || selectedRideType;
+    
+    // Update the main ride type selection with the modal choices
+    // This will trigger the fareEstimate useEffect which depends on selectedRideType
+    setSelectedRideType(combinedRideType);
+    
+    // Close modal with a small delay to allow React to process state updates
+    // This ensures fare estimation calculation completes before modal closes
+    setTimeout(() => {
+      setShowRideDetailsModal(false);
+    }, 100);
   };
 
   const handleBookRide = () => {
@@ -531,11 +551,14 @@ export function SingleScreenBooking({
       )}
 
       {/* Fare Estimate */}
-      {fareEstimate && (
+      {(fareEstimate || isEstimatingFare) && (
         <View style={styles.fareCard}>
           <View style={styles.fareHeader}>
             <Text style={styles.fareLabel}>Estimated Fare</Text>
-            {fareEstimate.surgeMultiplier && (
+            {isEstimatingFare && (
+              <ActivityIndicator size="small" color="#2196F3" />
+            )}
+            {fareEstimate?.surgeMultiplier && (
               <View style={styles.surgeBadge}>
                 <Text style={styles.surgeBadgeText}>
                   🔴 {fareEstimate.surgeMultiplier}x surge
@@ -544,27 +567,36 @@ export function SingleScreenBooking({
             )}
           </View>
 
-          <Text style={styles.fareRange}>
-            ₹ {fareEstimate.minFare} - {fareEstimate.maxFare}
-          </Text>
+          {isEstimatingFare ? (
+            <View style={styles.estimatingContainer}>
+              <ActivityIndicator size="large" color="#2196F3" />
+              <Text style={styles.estimatingText}>Calculating fare...</Text>
+            </View>
+          ) : fareEstimate ? (
+            <>
+              <Text style={styles.fareRange}>
+                ₹ {fareEstimate.minFare} - {fareEstimate.maxFare}
+              </Text>
 
-          <View style={styles.fareDetails}>
-            <FareDetailItem
-              icon="schedule"
-              label="Pickup time"
-              value={`${fareEstimate.estimatedTime} min`}
-            />
-            <FareDetailItem
-              icon="directions"
-              label="Distance"
-              value={`${fareEstimate.distance} km`}
-            />
-            <FareDetailItem
-              icon="info"
-              label="Surge pricing"
-              value={fareEstimate.surgeMultiplier ? `${fareEstimate.surgeMultiplier}x` : 'None'}
-            />
-          </View>
+              <View style={styles.fareDetails}>
+                <FareDetailItem
+                  icon="schedule"
+                  label="Pickup time"
+                  value={`${fareEstimate.estimatedTime} min`}
+                />
+                <FareDetailItem
+                  icon="directions"
+                  label="Distance"
+                  value={`${fareEstimate.distance} km`}
+                />
+                <FareDetailItem
+                  icon="info"
+                  label="Surge pricing"
+                  value={fareEstimate.surgeMultiplier ? `${fareEstimate.surgeMultiplier}x` : 'None'}
+                />
+              </View>
+            </>
+          ) : null}
         </View>
       )}
 
@@ -994,6 +1026,18 @@ const styles = StyleSheet.create({
   fareDetails: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+  },
+  estimatingContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 24,
+    paddingHorizontal: 16,
+  },
+  estimatingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: '#2196F3',
+    fontWeight: '500',
   },
   fareDetailItem: {
     flexDirection: 'row',
