@@ -11005,26 +11005,29 @@ async def places_autocomplete(
         "format": "json",
         "addressdetails": 1,
         "limit": 20,
-        "countrycodes": country_code.lower() if country_code else "in",
     }
     
     # Add proximity bias if coordinates provided
     if latitude is not None and longitude is not None:
         params["viewbox"] = f"{longitude - 0.5},{latitude - 0.5},{longitude + 0.5},{latitude + 0.5}"
-        params["bounded"] = 1
+        params["bounded"] = 0  # Don't strictly bound, just prioritize
     
     try:
+        headers = {"User-Agent": "AutoBuddy/1.0 (Passenger booking app)"}
         async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(search_url, params=params)
+            response = await client.get(search_url, params=params, headers=headers)
             response.raise_for_status()
             nominatim_results = response.json()
+        
+        logger.info(f"Nominatim search for '{text}' returned {len(nominatim_results)} results")
         
         # Convert Nominatim results to our format
         for result in nominatim_results:
             results.append({
-                "placeId": result.get("place_id"),
-                "description": result.get("display_name", result.get("name")),
-                "name": result.get("name"),
+                "placeId": str(result.get("place_id", "")),
+                "description": result.get("display_name", result.get("name", "")),
+                "name": result.get("name", ""),
+                "address": result.get("display_name", result.get("name", "")),
                 "latitude": float(result.get("lat", 0)),
                 "longitude": float(result.get("lon", 0)),
             })

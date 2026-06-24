@@ -364,8 +364,6 @@ export function SingleScreenBooking({
 
   const handleRideDetailsConfirm = () => {
     setShowRideDetailsModal(false);
-    // Update the main ride type based on modal selections
-    setSelectedRideType(selectedVehicleType);
   };
 
   const handleBookRide = () => {
@@ -506,7 +504,7 @@ export function SingleScreenBooking({
                   selectedRideType === rideType.id && styles.rideTypeCardSelected,
                 ]}
                 onPress={() => {
-                  setSelectedVehicleType(rideType.id);
+                  setSelectedRideType(rideType.id);
                   setShowRideDetailsModal(true);
                 }}
               >
