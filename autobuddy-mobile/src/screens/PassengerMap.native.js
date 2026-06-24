@@ -572,6 +572,17 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [rideProduct, setRideProduct] = useState('normal');
   const [selectedVehicleTypeId, setSelectedVehicleTypeId] = useState('');
   const [selectedVehicleModelId, setSelectedVehicleModelId] = useState('');
+  
+  // Auto-select first vehicle type when available to ensure fare estimation works
+  useEffect(() => {
+    if (availableVehicleTypes && availableVehicleTypes.length > 0 && !selectedVehicleTypeId) {
+      const firstVehicleTypeId = getVehicleTypeId(availableVehicleTypes[0]);
+      if (firstVehicleTypeId) {
+        setSelectedVehicleTypeId(firstVehicleTypeId);
+      }
+    }
+  }, [availableVehicleTypes]);
+  
   const [corporateCode, setCorporateCode] = useState('');
   const [corporatePurpose, setCorporatePurpose] = useState('');
   const [corporateCostCenterId, setCorporateCostCenterId] = useState('');
