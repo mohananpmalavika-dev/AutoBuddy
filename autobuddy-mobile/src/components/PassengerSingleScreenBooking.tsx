@@ -128,9 +128,6 @@ export function SingleScreenBooking({
       return;
     }
 
-    console.log('📍 FARE ESTIMATION - useEffect triggered');
-    console.log('📍 FARE ESTIMATION - selectedRideType:', selectedRideType);
-
     const estimateFareFromApi = async () => {
       try {
         setIsEstimatingFare(true);
@@ -378,13 +375,8 @@ export function SingleScreenBooking({
     // selectedVehicleType is what the user selected in the modal
     const finalRideType = selectedVehicleType;
     
-    console.log('🚗 RIDE CONFIRM - selectedVehicleType:', selectedVehicleType);
-    console.log('🚗 RIDE CONFIRM - current selectedRideType:', selectedRideType);
-    console.log('🚗 RIDE CONFIRM - finalRideType:', finalRideType);
-    
     // Update the main ride type immediately
     setSelectedRideType(finalRideType);
-    console.log('🚗 RIDE CONFIRM - setSelectedRideType called with:', finalRideType);
     
     // Then close modal without delay
     setShowRideDetailsModal(false);
