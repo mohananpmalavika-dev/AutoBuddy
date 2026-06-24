@@ -128,6 +128,9 @@ export function SingleScreenBooking({
       return;
     }
 
+    console.log('📍 FARE ESTIMATION - useEffect triggered');
+    console.log('📍 FARE ESTIMATION - selectedRideType:', selectedRideType);
+
     const estimateFareFromApi = async () => {
       try {
         setIsEstimatingFare(true);
@@ -371,19 +374,20 @@ export function SingleScreenBooking({
   };
 
   const handleRideDetailsConfirm = () => {
-    // Combine modal selections to create an updated ride type identifier
-    // Map vehicle type to a ride type if needed
-    const combinedRideType = selectedVehicleType || selectedRideType;
+    // Commit the modal selections to the main state
+    // selectedVehicleType is what the user selected in the modal
+    const finalRideType = selectedVehicleType;
     
-    // Update the main ride type selection with the modal choices
-    // This will trigger the fareEstimate useEffect which depends on selectedRideType
-    setSelectedRideType(combinedRideType);
+    console.log('🚗 RIDE CONFIRM - selectedVehicleType:', selectedVehicleType);
+    console.log('🚗 RIDE CONFIRM - current selectedRideType:', selectedRideType);
+    console.log('🚗 RIDE CONFIRM - finalRideType:', finalRideType);
     
-    // Close modal with a small delay to allow React to process state updates
-    // This ensures fare estimation calculation completes before modal closes
-    setTimeout(() => {
-      setShowRideDetailsModal(false);
-    }, 100);
+    // Update the main ride type immediately
+    setSelectedRideType(finalRideType);
+    console.log('🚗 RIDE CONFIRM - setSelectedRideType called with:', finalRideType);
+    
+    // Then close modal without delay
+    setShowRideDetailsModal(false);
   };
 
   const handleBookRide = () => {
