@@ -3,7 +3,7 @@
 ## Overview
 The Calendar Booking feature has been successfully integrated into the AutoBuddy mobile app's PassengerDashboard. Users can now connect their Google Calendar, manage auto-booking preferences, and view their upcoming calendar-based rides.
 
-## What Was Added
+## What Was Added  
 
 ### 1. New CalendarBookingScreen Component
 **File:** `autobuddy-mobile/src/screens/scheduled/CalendarBookingScreen.tsx` (632 lines)
