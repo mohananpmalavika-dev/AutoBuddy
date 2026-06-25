@@ -40,12 +40,38 @@ export default function AdminAnalyticsPanel({ token, isActive = true }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [payload, setPayload] = useState(null);
+  const [hazardHotspots, setHazardHotspots] = useState([]);
+  const [hazardSummary, setHazardSummary] = useState({
+    count: 0,
+    verifiedClusters: 0,
+    evidenceCount: 0,
+    avgVerification: 0,
+  });
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await apiRequest('/admin/analytics/live?days=30&forecast_days=7', { token });
+      const [data, hotspotData] = await Promise.all([
+        apiRequest('/admin/analytics/live?days=30&forecast_days=7', { token }),
+        apiRequest('/api/safepath/hotspots', { token, query: { limit: 5 } }),
+      ]);
+
       setPayload(data);
+      const hotspots = Array.isArray(hotspotData?.hotspots) ? hotspotData.hotspots : [];
+      setHazardHotspots(hotspots);
+
+      const evidenceCount = hotspots.reduce((sum, item) => sum + Number(item.evidence_count || 0), 0);
+      const verifiedClusters = hotspots.filter((item) => item.verified).length;
+      const avgVerification = hotspots.length
+        ? Math.round(hotspots.reduce((sum, item) => sum + Number(item.verification_score || 0), 0) / hotspots.length)
+        : 0;
+
+      setHazardSummary({
+        count: hotspots.length,
+        verifiedClusters,
+        evidenceCount,
+        avgVerification,
+      });
       setError('');
     } catch (err) {
       setError(err.message || 'Failed to load analytics');
@@ -143,6 +169,10 @@ export default function AdminAnalyticsPanel({ token, isActive = true }) {
   );
   const fraudAlerts = payload?.fraud_risk_alerts || { high_risk_count: 0, alerts: [] };
   const investorKpi = payload?.investor_kpi_dashboard || {};
+  const topVerifiedHotspots = useMemo(
+    () => hazardHotspots.filter((item) => item.verified).slice(0, 3),
+    [hazardHotspots],
+  );
 
   if (loading && !payload) {
     return (
@@ -178,6 +208,25 @@ export default function AdminAnalyticsPanel({ token, isActive = true }) {
           <StatCard label="Repeat Rate" value={`${Number(investorKpi.repeat_customer_rate || 0).toFixed(2)}%`} />
           <StatCard label="Cancel Rate" value={`${Number(investorKpi.cancel_rate || 0).toFixed(2)}%`} />
         </View>
+      </View>
+
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Hazard Verification Summary</Text>
+        <View style={styles.statsGrid}>
+          <StatCard label="Hotspot Clusters" value={Number(hazardSummary.count || 0)} />
+          <StatCard label="Verified Clusters" value={Number(hazardSummary.verifiedClusters || 0)} />
+          <StatCard label="Evidence Photos" value={Number(hazardSummary.evidenceCount || 0)} />
+          <StatCard label="Avg Verification" value={`${Number(hazardSummary.avgVerification || 0)}%`} />
+        </View>
+        {topVerifiedHotspots.length === 0 ? (
+          <Text style={styles.emptyText}>No hazard hotspots have been identified yet.</Text>
+        ) : (
+          topVerifiedHotspots.map((hotspot, idx) => (
+            <Text key={`hazard-${idx}`} style={styles.listRow}>
+              #{idx + 1} {hotspot.center?.latitude?.toFixed(4)},{hotspot.center?.longitude?.toFixed(4)} | Reports {hotspot.report_count || 0} | Hazards {hotspot.hazard_count || 0} | Evidence {hotspot.evidence_count || 0} | {hotspot.verification_level || 'unknown'} verification
+            </Text>
+          ))
+        )}
       </View>
 
       <View style={styles.card}>

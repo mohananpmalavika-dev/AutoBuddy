@@ -55,6 +55,7 @@ from app.routers.ai_visibility import router as ai_visibility_router
 from app.routers.places import router as places_router
 from app.routers.guardian_ai import router as guardian_ai_router
 from app.routers.ai_destination_predictor import router as ai_predictor_router
+from app.routers.smart_intent_booking import router as smart_intent_router
 from app.services.feature_service import bootstrap_features
 from app.db.retry import retry_on_db_error
 from app.db.client import create_mongo_client, create_database
@@ -19469,6 +19470,7 @@ app.include_router(ai_visibility_router)
 app.include_router(places_router)
 app.include_router(guardian_ai_router)
 app.include_router(ai_predictor_router)
+app.include_router(smart_intent_router)
 app.mount("/socket.io", root_socket_app)
 app.mount("/ws", socket_app)
 

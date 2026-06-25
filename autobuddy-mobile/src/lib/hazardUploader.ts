@@ -6,8 +6,12 @@ export async function uploadHazard(event: {
   longitude: number;
   severity?: number;
   type?: string;
+  category?: string;
   source?: string;
   speed_kmph?: number;
+  confidence?: number;
+  verified?: boolean;
+  evidence_url?: string;
   metadata?: Record<string, any>;
 }) {
   try {
@@ -16,8 +20,12 @@ export async function uploadHazard(event: {
       longitude: event.longitude,
       severity: event.severity,
       type: event.type || 'pothole',
+      category: event.category,
       source: event.source || 'driver_app',
       speed_kmph: event.speed_kmph,
+      confidence: event.confidence,
+      verified: event.verified,
+      evidence_url: event.evidence_url,
       metadata: event.metadata || {},
     };
 

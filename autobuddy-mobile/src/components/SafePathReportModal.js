@@ -1,6 +1,8 @@
 import React, { useState, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, TextInput, Modal, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, TextInput, Modal, Alert, ActivityIndicator, Platform, Image } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { apiRequest } from '../lib/api';
+import { appendPickerAssetToFormData, prepareImageAssetForUpload } from '../lib/uploadFormData';
 
 const REPORT_CATEGORIES = [
   { label: 'Broken footpath', value: 'broken_footpath' },
@@ -16,20 +18,78 @@ export default function SafePathReportModal({ visible, onClose, location, userId
   const [category, setCategory] = useState('');
   const [description, setDescription] = useState('');
   const [imageUrl, setImageUrl] = useState('');
+  const [imageAsset, setImageAsset] = useState(null);
   const [loading, setLoading] = useState(false);
   const fileInputRef = useRef(null);
+
+  const handlePickPhoto = async () => {
+    if (Platform.OS === 'web') {
+      fileInputRef.current?.click();
+      return;
+    }
+
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission Required', 'Camera access is required to take a photo for evidence.');
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 0.7,
+      aspect: [4, 3],
+    });
+
+    if (result.canceled || !result.assets?.length) {
+      return;
+    }
+
+    const asset = result.assets[0];
+    setImageAsset(asset);
+    setImageUrl(asset.uri || '');
+  };
 
   const handleFileSelect = (e) => {
     const file = e.target?.files?.[0];
     if (file) {
-      // In a real app, upload to cloud storage and get URL
-      // For now, use a data URL or placeholder
       const reader = new FileReader();
       reader.onload = () => {
         setImageUrl(reader.result);
       };
       reader.readAsDataURL(file);
+      setImageAsset(file);
     }
+  };
+
+  const uploadEvidence = async () => {
+    if (!imageAsset) {
+      return imageUrl;
+    }
+
+    const preparedAsset = await prepareImageAssetForUpload(imageAsset, {
+      fallbackName: imageAsset.fileName || imageAsset.name || `hazard-${Date.now()}.jpg`,
+      fallbackType: imageAsset.mimeType || imageAsset.type || 'image/jpeg',
+      maxDimension: 1024,
+      quality: 0.75,
+    });
+
+    const formData = new FormData();
+    await appendPickerAssetToFormData(
+      formData,
+      'file',
+      preparedAsset,
+      preparedAsset.fileName || preparedAsset.name || `hazard-${Date.now()}.jpg`,
+      preparedAsset.mimeType || preparedAsset.type || 'image/jpeg',
+    );
+
+    const response = await apiRequest('/api/uploads/hazard-evidence', {
+      method: 'POST',
+      body: formData,
+      isFormData: true,
+    });
+
+    return response?.data?.file_url || response?.file_url || response?.data?.file_key || response?.file_key || imageUrl;
   };
 
   const handleSubmit = async () => {
@@ -49,12 +109,23 @@ export default function SafePathReportModal({ visible, onClose, location, userId
 
     try {
       setLoading(true);
-      const res = await apiRequest('/api/safepath/report', { method: 'POST', body: JSON.stringify(payload) });
+      let uploadedImageUrl = imageUrl;
+      if (imageAsset) {
+        uploadedImageUrl = await uploadEvidence();
+      }
+
+      const finalPayload = {
+        ...payload,
+        image_url: uploadedImageUrl,
+      };
+
+      await apiRequest('/api/safepath/report', { method: 'POST', body: JSON.stringify(finalPayload) });
       Alert.alert('Success', 'Thank you! Your report has been submitted.');
       // Reset form
       setCategory('');
       setDescription('');
       setImageUrl('');
+      setImageAsset(null);
       onClose();
     } catch (e) {
       console.error('Report submission error', e);
@@ -108,19 +179,26 @@ export default function SafePathReportModal({ visible, onClose, location, userId
             <Text style={styles.label}>Photo (optional)</Text>
             <TouchableOpacity
               style={styles.uploadButton}
-              onPress={() => fileInputRef.current?.click()}
+              onPress={handlePickPhoto}
             >
               <Text style={styles.uploadText}>
-                {imageUrl ? '✓ Photo attached' : '📷 Upload photo'}
+                {imageUrl ? '✓ Photo attached' : '📷 Add photo evidence'}
               </Text>
             </TouchableOpacity>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handleFileSelect}
-              style={{ display: 'none' }}
-            />
+            {Platform.OS === 'web' ? (
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleFileSelect}
+                style={{ display: 'none' }}
+              />
+            ) : null}
+            {imageUrl ? (
+              <View style={styles.previewContainer}>
+                <Image source={{ uri: imageUrl }} style={styles.previewImage} />
+              </View>
+            ) : null}
 
             {/* Location display */}
             <Text style={styles.label}>Location</Text>
@@ -253,6 +331,16 @@ const styles = StyleSheet.create({
   },
   submitButtonDisabled: {
     backgroundColor: '#CCC',
+  },
+  previewContainer: {
+    marginTop: 12,
+    alignItems: 'center',
+  },
+  previewImage: {
+    width: '100%',
+    height: 180,
+    borderRadius: 10,
+    marginTop: 8,
   },
   submitText: {
     color: '#fff',

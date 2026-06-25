@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, Float, String, DateTime, JSON, Index
+from sqlalchemy import Column, Integer, Float, String, DateTime, JSON, Boolean, Index
+from sqlalchemy.orm import synonym
 from app.models.vehicle_platform import Base
 from app.utils.time_helpers import get_ist_now
 
@@ -17,6 +18,9 @@ class RoadHazard(Base):
     type = Column(String(64), nullable=True)  # pothole, waterlogging, crack, missing-sign
     source = Column(String(64), nullable=True)  # driver_app, user_report, automated
     speed_kmph = Column(Float, nullable=True)
+    confidence = Column(Float, nullable=True)
+    verified = Column(Boolean, default=False, nullable=False)
+    evidence_url = Column(String(1024), nullable=True)
     metadata_json = Column('metadata', JSON, nullable=True)
     created_at = Column(DateTime, default=get_ist_now, nullable=True)
 

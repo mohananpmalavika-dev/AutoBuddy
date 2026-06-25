@@ -174,30 +174,71 @@ def hotspots(limit: int = Query(20, gt=0, le=200), db: Session = Depends(get_db)
 
     for r in reports:
         key = bucket(r.latitude, r.longitude)
-        clusters.setdefault(key, {'count': 0, 'lat': 0.0, 'lng': 0.0, 'types': {}})
+        clusters.setdefault(key, {
+            'count': 0,
+            'report_count': 0,
+            'hazard_count': 0,
+            'evidence': 0,
+            'lat': 0.0,
+            'lng': 0.0,
+            'types': {},
+        })
         c = clusters[key]
         c['count'] += 1
+        c['report_count'] += 1
         c['lat'] += r.latitude
         c['lng'] += r.longitude
+        if r.image_url:
+            c['evidence'] += 1
         t = (r.category or 'report').lower()
         c['types'][t] = c['types'].get(t, 0) + 1
 
     for h in hazards:
         key = bucket(h.latitude, h.longitude)
-        clusters.setdefault(key, {'count': 0, 'lat': 0.0, 'lng': 0.0, 'types': {}})
+        clusters.setdefault(key, {
+            'count': 0,
+            'report_count': 0,
+            'hazard_count': 0,
+            'evidence': 0,
+            'lat': 0.0,
+            'lng': 0.0,
+            'types': {},
+        })
         c = clusters[key]
         c['count'] += 1
+        c['hazard_count'] += 1
         c['lat'] += h.latitude
         c['lng'] += h.longitude
+        if h.evidence_url:
+            c['evidence'] += 1
         t = (h.type or 'hazard').lower()
         c['types'][t] = c['types'].get(t, 0) + 1
 
     items = []
     for k, v in clusters.items():
         cnt = v['count']
+        evidence = v.get('evidence', 0)
+        reports = v.get('report_count', 0)
+        hazards = v.get('hazard_count', 0)
+        verified = evidence > 0
+        verification_score = int(min(100, round((evidence / cnt) * 100))) if cnt else 0
+        if verification_score >= 80:
+            verification_level = 'high'
+        elif verification_score >= 40:
+            verification_level = 'medium'
+        elif verification_score > 0:
+            verification_level = 'low'
+        else:
+            verification_level = 'unverified'
         items.append({
             'center': {'latitude': v['lat'] / cnt, 'longitude': v['lng'] / cnt},
             'count': cnt,
+            'report_count': reports,
+            'hazard_count': hazards,
+            'evidence_count': evidence,
+            'verified': verified,
+            'verification_score': verification_score,
+            'verification_level': verification_level,
             'types': v['types'],
         })
 

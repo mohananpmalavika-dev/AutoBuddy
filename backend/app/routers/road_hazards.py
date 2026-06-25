@@ -22,8 +22,12 @@ class IngestHazardPayload(BaseModel):
     longitude: float
     severity: Optional[int] = None
     type: Optional[str] = None
+    category: Optional[str] = None
     source: Optional[str] = "driver_app"
     speed_kmph: Optional[float] = None
+    confidence: Optional[float] = None
+    verified: Optional[bool] = None
+    evidence_url: Optional[str] = None
     metadata: Optional[dict] = None
 
 
@@ -37,13 +41,50 @@ async def ingest_hazard(payload: IngestHazardPayload, db: Session = Depends(get_
     except Exception:
         inferred = {}
 
+    inferred_type = inferred.get("type")
+    inferred_confidence = inferred.get("confidence")
+    if inferred_confidence is None and payload.metadata:
+        # use a lightweight sensor confidence heuristic when ML model does not provide one
+        az_std = float(payload.metadata.get("az_std", 0) or 0.0)
+        az_max = float(payload.metadata.get("az_max", 0) or 0.0)
+        inferred_confidence = min(0.99, max(0.2, min(1.0, (az_std / 4.0) + min(0.6, az_max / 10.0))))
+
+    def _normalize_hazard_type(value: Optional[str]) -> Optional[str]:
+        if not value:
+            return None
+        normalized = value.strip().lower().replace(' ', '_')
+        mapping = {
+            'pot-hole': 'pothole',
+            'roadwork': 'road_work',
+            'road_work': 'road_work',
+            'road-work': 'road_work',
+            'fallen tree': 'fallen_tree',
+            'fallen-tree': 'fallen_tree',
+            'water_logging': 'waterlogging',
+            'water-logging': 'waterlogging',
+            'signal outage': 'signal_outage',
+            'traffic_signal_outage': 'signal_outage',
+            'bridge damage': 'bridge_damage',
+        }
+        return mapping.get(normalized, normalized)
+
+    def _normalize_hazard_confidence(value: Optional[float]) -> Optional[float]:
+        if value is None:
+            return None
+        return max(0.0, min(1.0, float(value)))
+
+    hazard_type = _normalize_hazard_type(payload.type or payload.category or inferred_type)
+
     hazard = RoadHazard(
         latitude=payload.latitude,
         longitude=payload.longitude,
-        severity=payload.severity or inferred.get("severity"),
-        type=payload.type or inferred.get("type"),
+        severity=payload.severity or inferred.get("severity") or 3,
+        type=hazard_type,
         source=payload.source,
         speed_kmph=payload.speed_kmph,
+        confidence=_normalize_hazard_confidence(payload.confidence if payload.confidence is not None else inferred_confidence),
+        verified=payload.verified if payload.verified is not None else False,
+        evidence_url=payload.evidence_url,
         metadata=payload.metadata,
     )
     db.add(hazard)
@@ -67,9 +108,13 @@ async def ingest_hazard(payload: IngestHazardPayload, db: Session = Depends(get_
                 "longitude": hazard.longitude,
                 "severity": hazard.severity,
                 "type": hazard.type,
+                    "category": hazard.type,
                 "source": hazard.source,
                 "speed_kmph": hazard.speed_kmph,
-                "metadata": hazard.metadata,
+                    "confidence": hazard.confidence,
+                    "verified": hazard.verified,
+                    "evidence_url": hazard.evidence_url,
+                "metadata": hazard.metadata_json,
                 "created_at": hazard.created_at.isoformat() if hasattr(hazard.created_at, "isoformat") else hazard.created_at,
             },
         },
@@ -87,6 +132,8 @@ class ReportPayload(BaseModel):
     latitude: float
     longitude: float
     description: Optional[str]
+    category: Optional[str] = None
+    image_url: Optional[str] = None
 
 
 class SafeRoutePayload(BaseModel):
@@ -104,6 +151,8 @@ async def report_hazard(payload: ReportPayload, db: Session = Depends(get_db)):
         latitude=payload.latitude,
         longitude=payload.longitude,
         description=payload.description,
+        category=payload.category,
+        image_url=payload.image_url,
     )
     db.add(report)
     db.commit()
@@ -124,6 +173,8 @@ async def report_hazard(payload: ReportPayload, db: Session = Depends(get_db)):
                 "user_id": report.user_id,
                 "latitude": report.latitude,
                 "longitude": report.longitude,
+                "category": report.category,
+                "image_url": report.image_url,
                 "description": report.description,
                 "created_at": report.created_at.isoformat() if hasattr(report.created_at, "isoformat") else report.created_at,
             },
@@ -154,6 +205,21 @@ def _hazard_type_weight(hazard_type: Optional[str]) -> int:
         "bump": 2,
         "minor": 1,
     }
+    extra = {
+        "accident": 9,
+        "road_work": 4,
+        "road-work": 4,
+        "fallen_tree": 6,
+        "fallen-tree": 6,
+        "flooding": 8,
+        "obstruction": 5,
+        "debris": 5,
+        "bridge_damage": 8,
+        "signal_outage": 3,
+        "traffic_signal_outage": 3,
+        "hazard": 4,
+    }
+    weights.update(extra)
     return weights.get((hazard_type or "").lower(), 2)
 
 
@@ -235,13 +301,18 @@ def hazard_risk(
         .all()
     )
     score = _hazard_risk_score(hazards)
+    hazard_types = {}
+    for hazard in hazards:
+        if hazard.type:
+            key = hazard.type.lower()
+            hazard_types[key] = hazard_types.get(key, 0) + 1
     return {
         "location": {"latitude": latitude, "longitude": longitude},
         "radius_km": radius_km,
         "hazard_count": score["hazard_count"],
         "risk_score": score["risk_score"],
         "risk_level": score["risk_level"],
-        "hazard_types": [h.type for h in hazards if h.type],
+        "hazard_types": hazard_types,
         "hazard_summary": score,
     }
 

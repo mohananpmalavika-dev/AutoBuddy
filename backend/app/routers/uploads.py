@@ -314,6 +314,73 @@ async def upload_support_attachment(
         )
 
 
+@router.post("/hazard-evidence")
+async def upload_hazard_evidence(
+    file: UploadFile = File(...),
+    user=Depends(require_roles("passenger", "driver", "admin"))
+):
+    """Upload hazard evidence photo"""
+    try:
+        structured_logger.log_operation(
+            "upload_hazard_evidence",
+            "started",
+            category=LogCategory.SYSTEM,
+            resource_id=user.get("id"),
+            metadata={"filename": file.filename}
+        )
+
+        file_content = await file.read()
+
+        if not file.content_type or not file.content_type.startswith('image/'):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File must be an image"
+            )
+
+        success, file_url, error = await file_upload_service.upload_hazard_evidence(
+            file_content=file_content,
+            file_name=file.filename,
+            user_id=user.get("id"),
+            mime_type=file.content_type
+        )
+
+        if not success:
+            raise HTTPException(
+                status_code=_upload_failure_status(error),
+                detail=error
+            )
+
+        structured_logger.log_operation(
+            "upload_hazard_evidence",
+            "success",
+            category=LogCategory.SYSTEM,
+            resource_id=user.get("id"),
+            metadata={"file_url": file_url}
+        )
+
+        return StandardResponse.created(
+            data={
+                "file_url": file_url,
+                "filename": file.filename,
+                "size": len(file_content)
+            },
+            resource_id=file_url,
+            message="Hazard evidence uploaded successfully"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        structured_logger.error(
+            f"Hazard evidence upload failed: {str(e)}",
+            category=LogCategory.SYSTEM,
+            exception=e
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Hazard evidence upload failed"
+        )
+
+
 @router.get("/download/{file_key:path}")
 async def download_file(
     file_key: str,

@@ -62,6 +62,31 @@ def test_safepath_hotspots(client):
     assert "count" in data
 
 
+def test_safepath_hotspot_verification_metadata(client, db):
+    """Test hotspot response includes verification metadata."""
+    report = HazardReport(
+        user_id="test_user",
+        latitude=13.0850,
+        longitude=80.2700,
+        description="Photo evidence exists",
+        category="pothole",
+        image_url="https://example.com/evidence.jpg",
+    )
+    db.add(report)
+    db.commit()
+
+    response = client.get("/api/safepath/hotspots?limit=10")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] >= 1
+    assert len(data["hotspots"]) >= 1
+    hotspot = data["hotspots"][0]
+    assert hotspot["verified"] is True
+    assert hotspot["evidence_count"] >= 1
+    assert hotspot["verification_score"] >= 1
+    assert hotspot["verification_level"] in ["high", "medium", "low", "unverified"]
+
+
 def test_safepath_route_missing_params(client):
     """Test safe route with missing parameters"""
     payload = {

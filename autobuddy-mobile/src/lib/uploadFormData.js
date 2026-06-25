@@ -29,6 +29,9 @@ function getJpegFileName(fileName) {
 
 async function readWebAssetBlob(asset) {
   const BlobCtor = globalThis.Blob;
+  if (BlobCtor && asset instanceof BlobCtor) {
+    return asset;
+  }
   if (BlobCtor && asset?.file instanceof BlobCtor) {
     return asset.file;
   }
@@ -153,6 +156,15 @@ export async function prepareImageAssetForUpload(asset, options = {}) {
 async function appendWebAsset(formData, fieldName, asset, fileName, mimeType) {
   const BlobCtor = globalThis.Blob;
   const FileCtor = globalThis.File;
+
+  if (BlobCtor && asset instanceof BlobCtor) {
+    const uploadFile =
+      FileCtor && !(asset instanceof FileCtor)
+        ? new FileCtor([asset], fileName, { type: mimeType || asset.type || DEFAULT_MIME_TYPE })
+        : asset;
+    formData.append(fieldName, uploadFile, fileName);
+    return;
+  }
 
   if (BlobCtor && asset?.file instanceof BlobCtor) {
     const uploadFile =

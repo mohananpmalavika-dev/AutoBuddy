@@ -5,6 +5,7 @@ import {
   StyleSheet,
   ScrollView,
   Pressable,
+  TouchableOpacity,
   ActivityIndicator,
   Alert,
   FlatList,
@@ -20,6 +21,7 @@ import { DriverInfoCard } from '../components/DriverInfoCard';
 import { ComplianceAlertBanner } from '../components/ComplianceAlertBanner';
 import { AIInsightsScreen, AIInsightsWidget } from '../screens/AIInsightsScreen';
 import GuardianModeScreen from './GuardianModeScreen';
+import SmartIntentInput from '../components/SmartIntentInput';
 import {
   usePassengerBooking,
   usePassengerRideTracking,
@@ -74,11 +76,11 @@ export default function PassengerDashboard({
 }: PassengerDashboardProps) {
   const [activeTab, setActiveTab] = useState<DashboardTab>('home');
   const [guardianModeVisible, setGuardianModeVisible] = useState(false);
+  const [smartIntentVisible, setSmartIntentVisible] = useState(false);
   const [scheduleModalVisible, setScheduleModalVisible] = useState(false);
   const [bookingDestination, setBookingDestination] = useState('');
   const [bookingRideType, setBookingRideType] = useState('economy');
   const [voiceOverlayVisible, setVoiceOverlayVisible] = useState(false);
-
   // Standard booking hooks
   const { booking, loading: bookingLoading, bookRide, cancelBooking } =
     usePassengerBooking(token);
@@ -87,7 +89,6 @@ export default function PassengerDashboard({
   const { profile } = usePassengerProfile(token);
   const { rides, hasMore, loadMore: loadMoreRides } = usePassengerHistory(token);
   const { scheduled } = usePassengerSchedule(token);
-
   // Voice booking hook – WhatsApp-style persistent mic
   const lastIntentRef = useRef<any>(null);
   const {
@@ -123,7 +124,6 @@ export default function PassengerDashboard({
   });
   // Keep latest intent accessible in callbacks
   lastIntentRef.current = lastIntent;
-
   const handleBookRide = (rideData: any) => {
     if (!rideData || !rideData.destination || !rideData.destination.trim()) {
       Alert.alert('Destination Required', 'Please enter your destination');
@@ -133,16 +133,13 @@ export default function PassengerDashboard({
     setBookingRideType(rideData.rideType);
     bookRide('Current Location', rideData.destination, rideData.rideType, rideData.fare || 150);
   };
-
   const handleScheduleClick = () => {
     setScheduleModalVisible(true);
   };
-
   const handleScheduleConfirm = (scheduleData: any) => {
     setScheduleModalVisible(false);
     Alert.alert('Success', 'Ride scheduled successfully!');
   };
-
   const mockSavedLocations = [
     {
       latitude: 13.0827,
@@ -157,13 +154,11 @@ export default function PassengerDashboard({
       name: 'Work',
     },
   ];
-
   // Predictive morning booking — one-tap commute suggestion
   const predictiveBooking = usePredictiveBooking(
     token,
     ((profile?.name ?? user?.name ?? '')?.split(' ') || []).filter(Boolean)?.[0] || 'there'
   );
-
   // -------------------------------------------------------------------------
   // Voice booking handlers – WhatsApp flow
   // -------------------------------------------------------------------------
@@ -176,24 +171,20 @@ export default function PassengerDashboard({
       stopListening();
     }
   }, [voiceState, resetVoice, startListening, stopListening]);
-
   const handleVoiceConfirm = useCallback(async () => {
     await confirmAndBook(token || undefined);
   }, [confirmAndBook, token]);
-
   const handleOpenVoice = useCallback(() => {
     resetVoice();
     setVoiceOverlayVisible(true);
     setTimeout(() => startListening(), 400);
   }, [resetVoice, startListening]);
-
   const handleCloseVoice = useCallback(() => {
     stopListening();
     resetVoice();
     setVoiceOverlayVisible(false);
   }, [stopListening, resetVoice]);
-
-  const handleRetryVoice = useCallback(() => {
+ const handleRetryVoice = useCallback(() => {
     resetVoice();
     setTimeout(() => startListening(), 300);
   }, [resetVoice, startListening]);
@@ -236,7 +227,6 @@ export default function PassengerDashboard({
           </Pressable>
         </View>
       )}
-
       {!booking && (
         <View style={styles.bookingSection}>
           <SingleScreenBooking
@@ -245,7 +235,20 @@ export default function PassengerDashboard({
             onScheduleClick={handleScheduleClick}
             loading={bookingLoading}
           />
-
+          { !smartIntentVisible && (
+            <TouchableOpacity
+              style={styles.smartIntentPrompt}
+              activeOpacity={0.9}
+              onPress={() => setSmartIntentVisible(true)}
+            >
+              <MaterialIcons name="lightbulb" size={20} color="#F59E0B" />
+              <View style={styles.promptContent}>
+                <Text style={styles.promptTitle}>Try Smart Intent Booking</Text>
+                <Text style={styles.promptSubtitle}>Just type "Need to reach airport" — AI handles the rest</Text>
+              </View>
+              <MaterialIcons name="arrow-forward" size={20} color="#9CA3AF" />
+            </TouchableOpacity>
+          )}
           {/* WhatsApp-style voice booking widget - always visible */}
           {isVoiceAvailable && (
             <View style={styles.voiceBookingWidget}>
@@ -254,7 +257,6 @@ export default function PassengerDashboard({
                 <Text style={styles.voiceBookingOr}>OR</Text>
                 <View style={styles.dividerLine} />
               </View>
-
               <View style={styles.voiceBookingRow}>
                 <View style={styles.voiceBookingContent}>
                   <Text style={styles.voiceBookingTitle}>
@@ -264,7 +266,6 @@ export default function PassengerDashboard({
                     Say "Book an auto to Kollam station"
                   </Text>
                 </View>
-
                 <VoiceFloatingButton
                   onPress={handleVoicePress}
                   isAvailable={true}
@@ -273,7 +274,6 @@ export default function PassengerDashboard({
               </View>
             </View>
           )}
-
           {/* AI Insights Widget */}
           <AIInsightsWidget 
             userId={user?.id || ''}
@@ -285,7 +285,6 @@ export default function PassengerDashboard({
           />
         </View>
       )}
-
       {scheduled.length > 0 && !booking && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>
@@ -315,7 +314,6 @@ export default function PassengerDashboard({
       )}
     </View>
   );
-
   const renderActiveTab = () => (
     <View style={styles.tabContent}>
       <Text style={styles.sectionTitle}>Active Rides</Text>
@@ -341,7 +339,6 @@ export default function PassengerDashboard({
       )}
     </View>
   );
-
   const renderHistoryTab = () => (
     <View style={styles.tabContent}>
       <Text style={styles.sectionTitle}>Ride History</Text>
@@ -385,7 +382,6 @@ export default function PassengerDashboard({
       )}
     </View>
   );
-
   const renderProfileTab = () => {
     const p = profile;
     return (
@@ -404,7 +400,6 @@ export default function PassengerDashboard({
             {p?.phone || user?.phone || ''}
           </Text>
         </View>
-
         <View style={styles.profileStats}>
           <View style={styles.profileStatItem}>
             <Text style={styles.profileStatValue}>
@@ -427,13 +422,11 @@ export default function PassengerDashboard({
             <Text style={styles.profileStatLabel}>Payments</Text>
           </View>
         </View>
-
         <Pressable style={styles.modeSelectionButton} onPress={() => setActiveTab('mode')}>
           <MaterialIcons name="tune" size={20} color="#2196F3" />
           <Text style={styles.modeSelectionButtonText}>Mode Selection</Text>
           <MaterialIcons name="chevron-right" size={20} color="#2196F3" />
         </Pressable>
-
         <Pressable
           style={[styles.modeSelectionButton, styles.guardianLaunchButton]}
           onPress={() => setGuardianModeVisible(true)}
@@ -442,7 +435,6 @@ export default function PassengerDashboard({
           <Text style={[styles.modeSelectionButtonText, { color: '#047857' }]}>Guardian Mode</Text>
           <MaterialIcons name="chevron-right" size={20} color="#047857" />
         </Pressable>
-
         <Pressable style={styles.logoutButton} onPress={onLogout}>
           <MaterialIcons name="logout" size={20} color="#D32F2F" />
           <Text style={styles.logoutButtonText}>Logout</Text>
@@ -450,7 +442,6 @@ export default function PassengerDashboard({
       </ScrollView>
     );
   };
-
   const renderTravelTab = () => {
     return (
       <ScrollView style={styles.tabContent}>
@@ -465,17 +456,15 @@ export default function PassengerDashboard({
       </ScrollView>
     );
   };
-
   // Voice state indicator that appears during active voice session
   const renderVoiceIndicator = () => {
     if (voiceState === 'idle' || voiceState === 'done') {return null;}
     if (voiceOverlayVisible) {return null;}
-
     return (
       <Pressable
         style={styles.voiceIndicator}
         onPress={() => setVoiceOverlayVisible(true)}
-      >
+     >
         <View style={styles.voiceIndicatorContent}>
           <MaterialIcons
             name={voiceState === 'listening' ? 'graphic-eq' : 'mic'}
@@ -494,7 +483,6 @@ export default function PassengerDashboard({
       </Pressable>
     );
   };
-
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <ComplianceAlertBanner token={token} userId={user?.id || ''} />
@@ -506,13 +494,11 @@ export default function PassengerDashboard({
           </Text>
           <Text style={styles.headerSubtitle}>Where are you headed?</Text>
         </View>
-
         {/* Notification bell */}
         <Pressable style={styles.notifButton}>
           <MaterialIcons name="notifications-none" size={24} color="#333" />
         </Pressable>
       </View>
-
       {/* Main content */}
       <ScrollView
         style={styles.scrollView}
@@ -529,12 +515,10 @@ export default function PassengerDashboard({
         {activeTab === 'profile' && renderProfileTab()}
         {activeTab === 'mode' && <ModeSelectionScreen onLaunchGuardianMode={() => setGuardianModeVisible(true)} />}
       </ScrollView>
-
       {/* Guardian Mode overlay */}
       {guardianModeVisible && (
         <GuardianModeScreen onClose={() => setGuardianModeVisible(false)} />
       )}
-
       {/* AI Predictive Destination Card */}
       <PredictiveDestinationCard
         token={token}
@@ -545,6 +529,24 @@ export default function PassengerDashboard({
           setActiveTab('home');
         }}
       />
+      {smartIntentVisible && (
+        <View style={styles.smartIntentModal}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity onPress={() => setSmartIntentVisible(false)} style={{ padding: 8 }}>
+              <MaterialIcons name="close" size={24} color="#1F2937" />
+            </TouchableOpacity>
+          </View>
+          <SmartIntentInput
+            token={token}
+            userId={user?.id || ''}
+            onIntentParsed={() => {}}
+            onBook={() => {
+              setSmartIntentVisible(false);
+              setActiveTab('active');
+            }}
+          />
+        </View>
+      )}
 
       {/* Predictive morning booking card */}
       <PredictiveBookingCard
@@ -563,10 +565,8 @@ export default function PassengerDashboard({
         onBook={predictiveBooking.bookRide}
         onDismiss={predictiveBooking.dismiss}
       />
-
       {/* Voice indicator pill (shows when voice is active but overlay is closed) */}
       {renderVoiceIndicator()}
-
       {/* WhatsApp-style Voice Booking Overlay */}
       <VoiceBookingOverlay
         visible={voiceOverlayVisible}
@@ -581,7 +581,6 @@ export default function PassengerDashboard({
         onRetry={handleRetryVoice}
         onClose={handleCloseVoice}
       />
-
       {/* Schedule Ride Modal */}
       <ScheduleRideModal
         visible={scheduleModalVisible}
@@ -590,7 +589,6 @@ export default function PassengerDashboard({
         onConfirm={handleScheduleConfirm}
         onCancel={() => setScheduleModalVisible(false)}
       />
-
       {/* Bottom Tab Bar */}
       <View style={styles.tabBar}>
         {([

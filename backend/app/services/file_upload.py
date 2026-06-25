@@ -62,6 +62,7 @@ class FileUploadConfig:
         'vehicle_documents': 'vehicles/documents/',
         'ride_receipts': 'rides/receipts/',
         'support_attachments': 'support/attachments/',
+        'hazard_evidence': 'hazards/evidence/',
     }
     
     # Signed URL expiration (seconds)
@@ -388,6 +389,53 @@ class FileUploadService:
             )
             return False, None, str(e)
     
+    async def upload_hazard_evidence(
+        self,
+        file_content: bytes,
+        file_name: str,
+        user_id: str | None = None,
+        mime_type: str = "image/jpeg"
+    ) -> Tuple[bool, Optional[str], Optional[str]]:
+        """Upload hazard evidence image to S3"""
+        try:
+            valid, error = self.validator.validate_image_file(
+                file_content,
+                file_name,
+                mime_type
+            )
+            if not valid:
+                return False, None, error
+
+            prefix = str(user_id or 'hazard').strip() or 'hazard'
+            safe_name = self.validator.generate_file_name(
+                file_name,
+                prefix=prefix
+            )
+
+            success, file_key, error = await self.s3_client.upload_file(
+                file_content=file_content,
+                file_name=safe_name,
+                folder=FileUploadConfig.UPLOAD_FOLDERS['hazard_evidence'],
+                content_type=mime_type,
+                metadata={
+                    'user_id': user_id,
+                    'file_type': 'hazard_evidence'
+                }
+            )
+
+            if not success:
+                return False, None, error
+
+            success, url, error = await self.s3_client.get_signed_url(file_key)
+            return success, url or file_key, error
+        except Exception as e:
+            structured_logger.error(
+                f"Hazard evidence upload failed: {str(e)}",
+                category=LogCategory.SYSTEM,
+                exception=e
+            )
+            return False, None, str(e)
+
     async def upload_driver_document(
         self,
         file_content: bytes,
