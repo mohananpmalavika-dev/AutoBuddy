@@ -32,6 +32,7 @@ import { useVoiceBooking } from '../hooks/useVoiceBooking';
 import VoiceBookingOverlay from '../components/VoiceBookingOverlay';
 import VoiceFloatingButton from '../components/VoiceFloatingButton';
 import PredictiveBookingCard from '../components/PredictiveBookingCard';
+import PredictiveDestinationCard from '../components/PredictiveDestinationCard';
 import { usePredictiveBooking } from '../hooks/usePredictiveBooking';
 import CalendarBookingScreen from './scheduled/CalendarBookingScreen';
 import { ModeSelectionScreen } from './ModeSelectionScreen';
@@ -533,6 +534,17 @@ export default function PassengerDashboard({
       {guardianModeVisible && (
         <GuardianModeScreen onClose={() => setGuardianModeVisible(false)} />
       )}
+
+      {/* AI Predictive Destination Card */}
+      <PredictiveDestinationCard
+        token={token}
+        userId={user?.id || ''}
+        onQuickBook={(destination) => {
+          setBookingDestination(`${destination.latitude},${destination.longitude}`);
+          setBookingRideType('economy');
+          setActiveTab('home');
+        }}
+      />
 
       {/* Predictive morning booking card */}
       <PredictiveBookingCard
