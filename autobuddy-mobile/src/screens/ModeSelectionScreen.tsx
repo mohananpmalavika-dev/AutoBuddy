@@ -31,6 +31,10 @@ interface ModeCardProps {
   loading: boolean;
 }
 
+interface ModeSelectionScreenContainerProps {
+  onLaunchGuardianMode?: () => void;
+}
+
 const ModeCard: React.FC<ModeCardProps> = ({ mode, isCurrentMode, onSelect, loading }) => {
   const summary = getModeSummary(mode);
 
@@ -81,7 +85,7 @@ const ModeCard: React.FC<ModeCardProps> = ({ mode, isCurrentMode, onSelect, load
   );
 };
 
-export const ModeSelectionScreen: React.FC = () => {
+export const ModeSelectionScreen: React.FC<ModeSelectionScreenContainerProps> = ({ onLaunchGuardianMode }) => {
   const {
     currentMode,
     loading,
@@ -171,6 +175,20 @@ export const ModeSelectionScreen: React.FC = () => {
           onSelect={handleModeSelect}
           loading={loading}
         />
+      </View>
+
+      <View style={styles.guardianSection}>
+        <Text style={styles.guardianSectionTitle}>Guardian Mode</Text>
+        <Text style={styles.guardianSectionDescription}>
+          Activate Guardian Mode for safe journeys with voice guidance, caregiver monitoring, and SOS support.
+        </Text>
+        <TouchableOpacity
+          style={styles.guardianButton}
+          onPress={() => onLaunchGuardianMode?.()}
+          disabled={loading}
+        >
+          <Text style={styles.guardianButtonText}>Open Guardian Mode</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Comparison Table */}
@@ -415,6 +433,36 @@ const styles = StyleSheet.create({
   comparisonContainer: {
     paddingHorizontal: 16,
     marginTop: 20,
+  },
+  guardianSection: {
+    marginTop: 24,
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: '#EEF2FF',
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+  },
+  guardianSectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#3730A3',
+    marginBottom: 8,
+  },
+  guardianSectionDescription: {
+    fontSize: 14,
+    color: '#4B5563',
+    marginBottom: 16,
+  },
+  guardianButton: {
+    backgroundColor: '#4338CA',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  guardianButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
   },
   comparisonTitle: {
     fontSize: 20,

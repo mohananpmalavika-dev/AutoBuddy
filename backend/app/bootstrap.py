@@ -123,6 +123,9 @@ def register_modular_routers(app: "FastAPI") -> None:
     from app.routers.family_assistant import router as family_assistant_router
     from app.routers.ai_travel_intent import router as ai_travel_intent_router
     from app.routers.analytics_events import router as analytics_events_router
+    from app.routers.road_hazards import router as road_hazards_router
+    from app.routers.safepath import router as safepath_router
+    from app.routers.guardian_ai import router as guardian_ai_router
 
     routers = (
         auth_router,
@@ -202,6 +205,9 @@ def register_modular_routers(app: "FastAPI") -> None:
         family_assistant_router,
         analytics_events_router,
         ai_travel_intent_router,
+        road_hazards_router,
+        safepath_router,
+        guardian_ai_router,
     )
     for router in routers:
         app.include_router(router)

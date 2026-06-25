@@ -130,6 +130,11 @@ export const driverAPI = {
     return apiRequest('/drivers/me/profile', { token });
   },
 
+  // Update driver profile (partial)
+  updateProfile: async (token: string, data: any) => {
+    return apiRequest('/drivers/me/profile', { method: 'PUT', token, body: data });
+  },
+
   getEarnings: async (token: string, period = 'day') => {
     return apiRequest(`/drivers/me/earnings?period=${period}`, { token });
   },

@@ -117,6 +117,7 @@ export default function RealtimeNotificationHost() {
         socket.on('disconnect', handleDisconnect);
         socket.on('connect_error', handleConnectError);
         socket.on('notification', handleNotification);
+        socket.on('hazard_alert', handleNotification);
 
         if (socket.connected) {
           handleConnect();
@@ -127,6 +128,7 @@ export default function RealtimeNotificationHost() {
           socket.off('disconnect', handleDisconnect);
           socket.off('connect_error', handleConnectError);
           socket.off('notification', handleNotification);
+          socket.off('hazard_alert', handleNotification);
         };
       } catch (error) {
         console.error('Error setting up socket:', error);

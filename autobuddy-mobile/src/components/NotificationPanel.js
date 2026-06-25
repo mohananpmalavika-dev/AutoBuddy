@@ -57,9 +57,12 @@ function notificationId(data = {}, fallbackPrefix = 'notification') {
 
 function normalizeGenericNotification(data = {}) {
   const nested = data.data && typeof data.data === 'object' ? data.data : {};
+  const payloadType = data.type || nested.type || 'info';
+  const normalizedType = payloadType === 'hazard' || nested.event?.startsWith('hazard') ? 'safety' : payloadType;
+
   return {
     id: notificationId(data),
-    type: data.type || nested.type || 'info',
+    type: normalizedType,
     title: data.title || nested.title || 'Notification',
     message: data.message || data.body || nested.message || nested.body || '',
     timestamp: data.timestamp || data.created_at || nested.timestamp || new Date(),
@@ -231,6 +234,7 @@ const NotificationPanel = ({ socket = null, isConnected = false } = {}) => {
 
     socket.on('in_app_notification', handleNotification);
     socket.on('notification', handleNotification);
+    socket.on('hazard_alert', handleNotification);
     socket.on('booking_status_changed', handleRideUpdate);
     socket.on('ride_state_sync', handleRideUpdate);
     socket.on('ride:update', handleRideUpdate);
@@ -243,6 +247,7 @@ const NotificationPanel = ({ socket = null, isConnected = false } = {}) => {
     return () => {
       socket.off('in_app_notification', handleNotification);
       socket.off('notification', handleNotification);
+      socket.off('hazard_alert', handleNotification);
       socket.off('booking_status_changed', handleRideUpdate);
       socket.off('ride_state_sync', handleRideUpdate);
       socket.off('ride:update', handleRideUpdate);

@@ -14,12 +14,12 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
 import { SingleScreenBooking } from '../components/PassengerSingleScreenBooking';
 import { ScheduleRideModal } from '../components/ScheduleRideModal';
 import { DriverInfoCard } from '../components/DriverInfoCard';
 import { ComplianceAlertBanner } from '../components/ComplianceAlertBanner';
-import { AIInsightsWidget } from '../screens/AIInsightsScreen';
+import { AIInsightsScreen, AIInsightsWidget } from '../screens/AIInsightsScreen';
+import GuardianModeScreen from './GuardianModeScreen';
 import {
   usePassengerBooking,
   usePassengerRideTracking,
@@ -34,7 +34,7 @@ import VoiceFloatingButton from '../components/VoiceFloatingButton';
 import PredictiveBookingCard from '../components/PredictiveBookingCard';
 import { usePredictiveBooking } from '../hooks/usePredictiveBooking';
 import CalendarBookingScreen from './scheduled/CalendarBookingScreen';
-import ModeSelectionScreen from './ModeSelectionScreen';
+import { ModeSelectionScreen } from './ModeSelectionScreen';
 
 type DateLike = string | number | Date | null | undefined;
 
@@ -72,11 +72,11 @@ export default function PassengerDashboard({
   onLogout,
 }: PassengerDashboardProps) {
   const [activeTab, setActiveTab] = useState<DashboardTab>('home');
+  const [guardianModeVisible, setGuardianModeVisible] = useState(false);
   const [scheduleModalVisible, setScheduleModalVisible] = useState(false);
   const [bookingDestination, setBookingDestination] = useState('');
   const [bookingRideType, setBookingRideType] = useState('economy');
   const [voiceOverlayVisible, setVoiceOverlayVisible] = useState(false);
-  const navigation = useNavigation<any>();
 
   // Standard booking hooks
   const { booking, loading: bookingLoading, bookRide, cancelBooking } =
@@ -433,6 +433,15 @@ export default function PassengerDashboard({
           <MaterialIcons name="chevron-right" size={20} color="#2196F3" />
         </Pressable>
 
+        <Pressable
+          style={[styles.modeSelectionButton, styles.guardianLaunchButton]}
+          onPress={() => setGuardianModeVisible(true)}
+        >
+          <MaterialIcons name="shield" size={20} color="#047857" />
+          <Text style={[styles.modeSelectionButtonText, { color: '#047857' }]}>Guardian Mode</Text>
+          <MaterialIcons name="chevron-right" size={20} color="#047857" />
+        </Pressable>
+
         <Pressable style={styles.logoutButton} onPress={onLogout}>
           <MaterialIcons name="logout" size={20} color="#D32F2F" />
           <Text style={styles.logoutButtonText}>Logout</Text>
@@ -517,8 +526,13 @@ export default function PassengerDashboard({
         )}
         {activeTab === 'travel' && renderTravelTab()}
         {activeTab === 'profile' && renderProfileTab()}
-        {activeTab === 'mode' && <ModeSelectionScreen />}
+        {activeTab === 'mode' && <ModeSelectionScreen onLaunchGuardianMode={() => setGuardianModeVisible(true)} />}
       </ScrollView>
+
+      {/* Guardian Mode overlay */}
+      {guardianModeVisible && (
+        <GuardianModeScreen onClose={() => setGuardianModeVisible(false)} />
+      )}
 
       {/* Predictive morning booking card */}
       <PredictiveBookingCard
@@ -640,6 +654,12 @@ const styles = StyleSheet.create({
   tabContent: {
     paddingHorizontal: 16,
     paddingTop: 16,
+  },
+  guardianLaunchButton: {
+    marginTop: 12,
+    backgroundColor: '#ECFDF5',
+    borderColor: '#D1FAE5',
+    borderWidth: 1,
   },
   section: {
     marginBottom: 24,

@@ -16,6 +16,7 @@ export interface SocketEventHandlers {
   onDriverLocation?: (data: any) => void;
   onRideStatusChanged?: (data: any) => void;
   onNotification?: (data: any) => void;
+  onHazardAlert?: (data: any) => void;
   onSupportTicketMessage?: (data: any) => void;
   onLostItemReported?: (data: any) => void;
   onPoolCreated?: (data: any) => void;
@@ -82,6 +83,10 @@ export const registerPassengerListeners = (handlers: SocketEventHandlers) => {
     handlers.onNotification?.(data);
   });
 
+  socket.on('hazard_alert', (data) => {
+    handlers.onHazardAlert?.(data);
+  });
+
   socket.on('support_ticket_message', (data) => {
     handlers.onSupportTicketMessage?.(data);
   });
@@ -116,12 +121,16 @@ export const registerDriverListeners = (handlers: SocketEventHandlers) => {
     handlers.onNotification?.(data);
   });
 
-  socket.on('ride_status_changed', (data) => {
-    handlers.onRideStatusChanged?.(data);
-  });
-
   socket.on('notification', (data) => {
     handlers.onNotification?.(data);
+  });
+
+  socket.on('hazard_alert', (data) => {
+    handlers.onHazardAlert?.(data);
+  });
+
+  socket.on('ride_status_changed', (data) => {
+    handlers.onRideStatusChanged?.(data);
   });
 
   socket.on('support_ticket_message', (data) => {
@@ -140,6 +149,10 @@ export const registerAdminListeners = (handlers: SocketEventHandlers) => {
 
   socket.on('notification', (data) => {
     handlers.onNotification?.(data);
+  });
+
+  socket.on('hazard_alert', (data) => {
+    handlers.onHazardAlert?.(data);
   });
 
   socket.on('ride_status_changed', (data) => {

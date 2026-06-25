@@ -160,6 +160,7 @@ export const notificationService = {
 
       bindSocketHandler('notification', handleSocketNotification);
       bindSocketHandler('in_app_notification', handleSocketNotification);
+      bindSocketHandler('hazard_alert', handleSocketNotification);
 
       bindSocketHandler('booking_accepted', (data) => {
         onNotification?.({

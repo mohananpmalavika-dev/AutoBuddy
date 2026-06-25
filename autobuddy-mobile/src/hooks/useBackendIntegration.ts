@@ -92,6 +92,17 @@ export const useNotifications = (notificationContext: AnyRecord, userId: string 
         onNotification: (data) => {
           notificationContext.addNotification?.(data);
         },
+        onHazardAlert: (data) => {
+          notificationContext.addNotification?.({
+            ...data,
+            type: 'safety',
+            title: data.title || 'Road Hazard Alert',
+            body: data.body || data.message || 'A road hazard has been reported nearby.',
+            timestamp: data.timestamp || data.created_at || new Date().toISOString(),
+            read: false,
+            data,
+          });
+        },
         onRideStatusChanged: (data) => {
           notificationContext.addNotification?.({
             type: 'booking',

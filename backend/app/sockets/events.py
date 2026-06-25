@@ -40,10 +40,13 @@ async def emit_to_user(user_id: str, event: str, data: Optional[Dict[str, Any]] 
     await _socket_server.emit(str(event), data or {}, room=user_room(normalized_user_id))
 
 
-async def broadcast_event(event_type: str, data: Optional[Dict[str, Any]] = None) -> None:
+async def broadcast_event(event_type: str, data: Optional[Dict[str, Any]] = None, room: Optional[str] = None) -> None:
     if _socket_server is None:
         return
-    await _socket_server.emit(str(event_type), data or {})
+    kwargs = {}
+    if room:
+        kwargs["room"] = room
+    await _socket_server.emit(str(event_type), data or {}, **kwargs)
 
 
 async def get_connection_stats() -> Dict[str, Any]:

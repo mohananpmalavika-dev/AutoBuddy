@@ -48,6 +48,7 @@ import FavoriteDriversPanel from '../components/FavoriteDriversPanel';
 import PostRideRatingModal from '../components/PostRideRatingModal';
 import PassengerBookingNavigator from './PassengerBookingNavigator';
 import PassengerProfile from './PassengerProfile.web';
+import SafePathScreen from './SafePathScreen';
 import SavedPlacesQuickSelect from '../components/SavedPlacesQuickSelect';
 import PreferencesPanel from '../components/PreferencesPanel';
 import SavedPlacesPanel from '../components/SavedPlacesPanel';
@@ -702,7 +703,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     [passengerAccessibility?.haptic_feedback, passengerPreferences],
   );
   useNotificationManager(token, user?.id, passengerNotificationSettings);
-  const { unreadCount } = useNotifications();
+  const { unreadCount, addNotification } = useNotifications();
   const { vehicleTypes: availableVehicleTypes, loading: vehicleTypesLoading } = useVehicleTypes();
   const [rideProduct, setRideProduct] = useState('normal');
   const [selectedVehicleTypeId, setSelectedVehicleTypeId] = useState('');
@@ -771,6 +772,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [womenOnlyShareGuardianTracking, setWomenOnlyShareGuardianTracking] = useState(true);
   const [passengerCountInput, setPassengerCountInput] = useState('1');
   const [showProfile, setShowProfile] = useState(false);
+  const [showSafePath, setShowSafePath] = useState(false);
   const [showPassengerMenus, setShowPassengerMenus] = useState(false);
   const [showRideDetailsModal, setShowRideDetailsModal] = useState(false);
   const [poolCreateRequest, setPoolCreateRequest] = useState({ key: 0, model: null });
@@ -1067,6 +1069,10 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       routeDestination,
     };
   }, [selectedPickupLocation, selectedDropoffLocation, liveDriverLocation, activeBookingStatus, isDriverLiveSharing]);
+
+  // Hazard UI state
+  const [hazardMarkers, setHazardMarkers] = React.useState([]);
+  const [autoCenterHazardId, setAutoCenterHazardId] = React.useState(null);
 
   const fareExpectation = useMemo(() => {
     const parsed = Number(String(fareExpectationInput || '').trim());
@@ -2500,6 +2506,54 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     socket.on('booking_status_changed', handleBookingStatusChanged);
     socket.on('ride_state_sync', handleRideStateSync);
     socket.on('booking_completed', handleBookingCompleted);
+    const handleHazardAlert = (data) => {
+      try {
+        addNotification?.({
+          ...data,
+          type: 'safety',
+          title: data?.title || 'Road Hazard Alert',
+          body: data?.body || data?.message || 'A road hazard has been reported nearby.',
+          timestamp: data?.timestamp || data?.created_at || new Date().toISOString(),
+          read: false,
+          data,
+        });
+
+        if (typeof Notification !== 'undefined') {
+          if (Notification.permission === 'granted') {
+            try {
+              void new Notification(data?.title || 'Road Hazard Alert', { body: data?.body || data?.message || '' });
+            } catch (e) {
+              // ignore
+            }
+          } else if (Notification.permission === 'default') {
+            Notification.requestPermission().catch(() => null);
+          }
+        }
+        // Add hazard marker to local map state and auto-center
+        try {
+          const hazard = data?.data?.hazard || data?.hazard || data?.data || data;
+          if (hazard) {
+            const h = {
+              id: hazard.id || data.id || `${hazard.latitude}_${hazard.longitude}`,
+              latitude: hazard.latitude || hazard.lat,
+              longitude: hazard.longitude || hazard.longitude || hazard.lng,
+              severity: hazard.severity ?? data?.severity ?? 1,
+              title: data?.title,
+              body: data?.body,
+              type: hazard.type || data?.type,
+            };
+            setHazardMarkers((prev) => [h, ...prev].slice(0, 20));
+            setAutoCenterHazardId(h.id);
+            setTimeout(() => setAutoCenterHazardId(null), 4000);
+          }
+        } catch (e) {
+          // ignore
+        }
+      } catch (e) {
+        console.warn('Failed to handle hazard_alert:', e);
+      }
+    };
+    socket.on('hazard_alert', handleHazardAlert);
     if (socket.connected) {
       joinBookingRoom();
     }
@@ -2512,6 +2566,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       socket.off('booking_status_changed', handleBookingStatusChanged);
       socket.off('ride_state_sync', handleRideStateSync);
       socket.off('booking_completed', handleBookingCompleted);
+      socket.off('hazard_alert', handleHazardAlert);
       socket.disconnect();
       socketRef.current = null;
     };
@@ -4136,6 +4191,12 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     </View>
   );
 
+  if (showSafePath) {
+    return (
+      <SafePathScreen onClose={() => setShowSafePath(false)} />
+    );
+  }
+
   if (showProfile) {
     return (
       <PassengerProfile
@@ -4160,6 +4221,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             defaultCenter={DEFAULT_CITY_LOCATION}
             pickupLocation={mapState.origin}
             dropoffLocation={mapState.destination}
+            hazardMarkers={hazardMarkers}
+            autoCenterHazardId={autoCenterHazardId}
             driverLocation={mapState.driverLiveLocation}
             routeOrigin={mapState.routeOrigin}
             routeDestination={mapState.routeDestination}
@@ -4201,6 +4264,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               onPress={() => handleMenuSelection('safety', t.safety)}
               style={[styles.logoutButton, styles.safetyHeaderButton, isMobileWeb && styles.logoutButtonMobile]}>
               <Text style={[styles.logoutText, styles.safetyHeaderText]}>{t.safety}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setShowSafePath(true)} style={[styles.logoutButton, isMobileWeb && styles.logoutButtonMobile]}>
+              <Text style={[styles.logoutText]}>Safe Route</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={onLogout} style={[styles.logoutButton, isMobileWeb && styles.logoutButtonMobile]}>
               <Text style={styles.logoutText}>{t.logout}</Text>

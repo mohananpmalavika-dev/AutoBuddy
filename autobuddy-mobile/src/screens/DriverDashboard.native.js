@@ -75,6 +75,7 @@ import DriverPhotoVerificationPanel from '../components/DriverPhotoVerificationP
 import PassengerSafetyRatingsPanel from '../components/PassengerSafetyRatingsPanel';
 import { useNotifications } from '../contexts/NotificationContext';
 import { usePreferences } from '../contexts/PreferencesContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DRIVER_QUICK_ACTIONS } from '../constants/driverQuickActions';
 import { useKeralaSafety } from '../hooks/useKeralaSafety';
 import { useDriverRealtimeTracking } from '../hooks/useDriverRealtimeTracking';
@@ -83,6 +84,8 @@ import { useNotificationManager } from '../hooks/useNotificationManager';
 import { useSOSAlert } from '../hooks/useSOSAlert';
 import { useRequestCountdown } from '../hooks/useRequestCountdown';
 import { useExpenseTracking } from '../hooks/useExpenseTracking';
+import useSensorUploader from '../hooks/useSensorUploader';
+import { fetchHazardRisk, requestSafeRoute } from '../lib/hazardUploader';
 import {
   filterBlockedPassengers,
   formatBlockedPassengerDate,
@@ -436,7 +439,151 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     }
     return driverAvailability.isOnline ? 'ONLINE & READY' : 'OFFLINE';
   }, [driverAvailability.isOnline, driverAvailability.label]);
-  
+
+  const [hazardSensorEnabled, setHazardSensorEnabled] = useState(true);
+  const [hazardRisk, setHazardRisk] = useState(null);
+  const [safeRouteOptions, setSafeRouteOptions] = useState(null);
+  const [safeRouteLoading, setSafeRouteLoading] = useState(false);
+  const [safeRouteError, setSafeRouteError] = useState('');
+
+  const refreshHazardRisk = useCallback(async () => {
+    if (!driverLocation?.latitude || !driverLocation?.longitude) {
+      return;
+    }
+
+    try {
+      const response = await fetchHazardRisk({
+        latitude: driverLocation.latitude,
+        longitude: driverLocation.longitude,
+        radius_km: 0.8,
+      });
+      setHazardRisk(response);
+      setSafeRouteError('');
+    } catch (err) {
+      console.warn('[DriverDashboard] fetch hazard risk failed', err);
+      setSafeRouteError('Unable to load nearby hazard risk.');
+    }
+  }, [driverLocation]);
+
+  const requestActiveSafeRoute = useCallback(async () => {
+    if (!activeRide) {
+      setSafeRouteError('No active ride to calculate a safe route.');
+      return;
+    }
+
+    const pickup = normalizeLocation(activeRide.pickup_location || activeRide.pickup || activeRide.pickup_location_details);
+    const drop = normalizeLocation(
+      activeRide.drop_location || activeRide.dropoff_location || activeRide.dropoff || activeRide.dropoff_location_details,
+    );
+
+    if (!pickup?.latitude || !pickup?.longitude || !drop?.latitude || !drop?.longitude) {
+      setSafeRouteError('Active ride origin or destination coordinates are unavailable.');
+      return;
+    }
+
+    setSafeRouteLoading(true);
+    setSafeRouteError('');
+
+    try {
+      const payload = {
+        origin: {
+          latitude: pickup.latitude,
+          longitude: pickup.longitude,
+        },
+        destination: {
+          latitude: drop.latitude,
+          longitude: drop.longitude,
+        },
+        count: 2,
+        distance_km: Math.max(
+          0.1,
+          Math.hypot(drop.latitude - pickup.latitude, drop.longitude - pickup.longitude) * 111.0,
+        ),
+        timestamp: new Date().toISOString(),
+      };
+      const response = await requestSafeRoute(payload);
+      setSafeRouteOptions(response);
+    } catch (err) {
+      console.warn('[DriverDashboard] request safe route failed', err);
+      setSafeRouteError('Unable to fetch safe route recommendations.');
+    } finally {
+      setSafeRouteLoading(false);
+    }
+  }, [activeRide]);
+
+  useEffect(() => {
+    if (displayIsOnline || activeRideId) {
+      refreshHazardRisk();
+    }
+  }, [refreshHazardRisk, displayIsOnline, activeRideId]);
+
+  // Load persisted hazard sensor preference on mount
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem('hazardSensorEnabled');
+        if (!mounted) return;
+        if (stored !== null) {
+          const val = stored === 'true';
+          setHazardSensorEnabled(val);
+          try { updatePreference('hazardSensor.enabled', val); } catch (_) {}
+        } else {
+          // persist default
+          await AsyncStorage.setItem('hazardSensorEnabled', 'true');
+          try { updatePreference('hazardSensor.enabled', true); } catch (_) {}
+        }
+      } catch (e) {
+        // ignore
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  const persistHazardToggle = async (val) => {
+    try {
+      setHazardSensorEnabled(val);
+      await AsyncStorage.setItem('hazardSensorEnabled', val ? 'true' : 'false');
+      try { updatePreference('hazardSensor.enabled', val); } catch (_) {}
+      // Sync preference to server profile (best-effort)
+      try {
+        await runAction(() => driverAPI.updateProfile({ preferences: { hazard_sensor_enabled: val } }));
+      } catch (_) {}
+    } catch (e) {
+      // ignore
+    }
+  };
+
+  const handleToggleHazardSensor = () => {
+    // If currently enabled and driver is in an active ride, confirm before disabling
+    if (hazardSensorEnabled && activeRideId) {
+      Alert.alert(
+        'Disable Hazard Sensor?',
+        'You are currently on an active ride. Disabling the hazard sensor will stop uploads for this trip. Do you want to continue?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Disable', style: 'destructive', onPress: () => persistHazardToggle(false) },
+        ],
+      );
+      return;
+    }
+    persistHazardToggle(!hazardSensorEnabled);
+  };
+
+  const { detectionCount: roadHazardDetections } = useSensorUploader({
+    enabled: hazardSensorEnabled && (displayIsOnline || !!activeRideId),
+    threshold: 2.8,
+    windowMs: 450,
+    onDetect: (event) => {
+      setMessage(
+        event.latitude && event.longitude
+          ? `Road hazard detected near ${event.latitude.toFixed(5)}, ${event.longitude.toFixed(5)}.`
+          : 'Road hazard detected; GPS data unavailable.',
+      );
+      console.debug('[DriverDashboard] road hazard event', event);
+    },
+  });
+
   const visibleMessage = getVisibleAvailabilityMessage(message);
 
   const visibleBlockedPassengers = useMemo(
@@ -2297,6 +2444,58 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
           <Text style={styles.infoText}>
             Live Tracking: {realtimeConnected ? 'Online' : 'Reconnecting...'}
           </Text>
+          {(displayIsOnline || activeRideId) && (
+            <TouchableOpacity
+              style={[
+                styles.hazardToggleButton,
+                hazardSensorEnabled ? styles.hazardToggleOn : styles.hazardToggleOff,
+              ]}
+              onPress={handleToggleHazardSensor}>
+              <Text style={styles.hazardToggleText}>
+                {hazardSensorEnabled ? 'Disable Hazard Sensor' : 'Enable Hazard Sensor'}
+              </Text>
+            </TouchableOpacity>
+          )}
+          {roadHazardDetections > 0 && (
+            <View style={styles.hazardStatusCard}>
+              <Text style={styles.hazardStatusTitle}>Road Hazard Sensor</Text>
+              <Text style={styles.hazardStatusText}>
+                Active detections: <Text style={styles.hazardStatusCount}>{roadHazardDetections}</Text>
+              </Text>
+              <Text style={styles.hazardStatusSub}>Sensor uploads are running while your app is online or on an active ride.</Text>
+            </View>
+          )}
+          {!!hazardRisk && (
+            <View style={styles.hazardRiskCard}>
+              <Text style={styles.hazardStatusTitle}>Nearby Hazard Risk</Text>
+              <Text style={styles.hazardStatusText}>
+                {hazardRisk.risk_level?.toUpperCase() || 'UNKNOWN'} risk — {hazardRisk.hazard_count ?? 0} hazards within {hazardRisk.radius_km ?? 0.5} km.
+              </Text>
+              <TouchableOpacity
+                style={[styles.safeRouteButton, safeRouteLoading && styles.safeRouteButtonDisabled]}
+                onPress={requestActiveSafeRoute}
+                disabled={safeRouteLoading || !activeRide}
+              >
+                <Text style={styles.safeRouteButtonText}>
+                  {safeRouteLoading ? 'Calculating safe route…' : 'Find Safer Route'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          {!!safeRouteError && <Text style={styles.warningText}>{safeRouteError}</Text>}
+          {!!safeRouteOptions?.routes?.length && (
+            <View style={styles.safeRouteCard}>
+              <Text style={styles.hazardStatusTitle}>Safe Route Recommendations</Text>
+              {safeRouteOptions.routes.map((route) => (
+                <View key={route.id} style={styles.safeRouteOption}>
+                  <Text style={styles.hazardStatusText}>{route.name}</Text>
+                  <Text style={styles.hazardStatusSub}>
+                    {route.distance_km} km · {route.duration_minutes} min · {route.risk_level?.toUpperCase()} ({route.risk_score})
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
           {!!trackingError && <Text style={styles.warningText}>{trackingError}</Text>}
           {!!error && <Text style={styles.error}>{error}</Text>}
           {!!visibleMessage && <Text style={styles.message}>{visibleMessage}</Text>}
@@ -3127,6 +3326,84 @@ const styles = StyleSheet.create({
   locationText: { color: COLORS.textMuted, marginBottom: 8, fontWeight: '600' },
   infoText: { color: COLORS.textMain, marginBottom: 6, fontWeight: '600' },
   warningText: { color: '#D97706', marginBottom: 8, fontWeight: '600' },
+  hazardStatusCard: {
+    backgroundColor: '#FFF8E1',
+    borderColor: '#FFD54F',
+    borderWidth: 1,
+    padding: 10,
+    borderRadius: 14,
+    marginBottom: 10,
+  },
+  hazardRiskCard: {
+    backgroundColor: '#E3F2FD',
+    borderColor: '#90CAF9',
+    borderWidth: 1,
+    padding: 10,
+    borderRadius: 14,
+    marginBottom: 10,
+  },
+  safeRouteCard: {
+    backgroundColor: '#E8F5E9',
+    borderColor: '#A5D6A7',
+    borderWidth: 1,
+    padding: 10,
+    borderRadius: 14,
+    marginBottom: 10,
+  },
+  safeRouteOption: {
+    marginBottom: 8,
+  },
+  safeRouteButton: {
+    marginTop: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    backgroundColor: COLORS.primary,
+    alignItems: 'center',
+  },
+  safeRouteButtonDisabled: {
+    opacity: 0.65,
+  },
+  safeRouteButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  hazardStatusTitle: {
+    color: '#B85C00',
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  hazardStatusText: {
+    color: '#7B4F01',
+    fontSize: 14,
+    marginBottom: 2,
+  },
+  hazardStatusCount: {
+    color: COLORS.primary,
+    fontWeight: '700',
+  },
+  hazardStatusSub: {
+    color: '#5D4037',
+    fontSize: 12,
+  },
+  hazardToggleButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    alignSelf: 'flex-start',
+    marginBottom: 8,
+  },
+  hazardToggleOn: {
+    backgroundColor: '#FFEBC7',
+    borderWidth: 1,
+    borderColor: '#FFB74D',
+  },
+  hazardToggleOff: {
+    backgroundColor: '#F5F5F5',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  hazardToggleText: { color: COLORS.textMain, fontWeight: '700' },
   fareTitle: { color: COLORS.textMain, fontWeight: '800', marginBottom: 6 },
   fieldLabel: { color: COLORS.textMain, fontWeight: '700', marginTop: 10, marginBottom: 4 },
   input: {

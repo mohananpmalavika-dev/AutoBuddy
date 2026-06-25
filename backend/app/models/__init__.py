@@ -79,4 +79,7 @@ __all__ = [
     "RideHistory",
     "Weather",
     "RideStatus",
+    # Road hazards
+    "RoadHazard",
+    "HazardReport",
 ]

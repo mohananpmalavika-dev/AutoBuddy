@@ -327,7 +327,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   const [menuBadges, setMenuBadges] = useState({});
   const [driverSettings, setDriverSettings] = useState(DEFAULT_DRIVER_SETTINGS);
   useNotificationManager(token, user?.id, driverSettings);
-  const { unreadCount } = useNotifications();
+  const { unreadCount, addNotification } = useNotifications();
   const { updatePreference } = usePreferences();
   const [driverLocation, setDriverLocation] = useState(null);
   const [pendingRequests, setPendingRequests] = useState([]);
@@ -1573,6 +1573,76 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     };
   }, [applyAvailabilitySnapshot]);
 
+  // Hazard markers for driver map
+  const [driverHazardMarkers, setDriverHazardMarkers] = React.useState([]);
+
+  useEffect(() => {
+    const socket = socketRef.current;
+    if (!socket) return;
+
+    const handleHazard = (data) => {
+      try {
+        const hazard = data?.data?.hazard || data?.hazard || data?.data || data;
+        if (!hazard) return;
+        const h = {
+          id: hazard.id || data.id || `${hazard.latitude}_${hazard.longitude}`,
+          latitude: hazard.latitude || hazard.lat,
+          longitude: hazard.longitude || hazard.lng || hazard.longitude,
+          severity: hazard.severity ?? data?.severity ?? 1,
+          title: data?.title,
+          body: data?.body,
+          type: hazard.type || data?.type,
+        };
+        setDriverHazardMarkers((prev) => [h, ...prev].slice(0, 50));
+      } catch (e) {
+        // ignore
+      }
+    };
+
+    socket.on('hazard_alert', handleHazard);
+    return () => socket.off('hazard_alert', handleHazard);
+  }, []);
+
+  // Page-level hazard alert handling (for web sockets created on this page)
+  useEffect(() => {
+    const socket = socketRef.current;
+    if (!socket) return;
+
+    const handleHazardAlert = (data) => {
+      try {
+        addNotification?.({
+          ...data,
+          type: 'safety',
+          title: data?.title || 'Road Hazard Alert',
+          body: data?.body || data?.message || 'A road hazard has been reported nearby.',
+          timestamp: data?.timestamp || data?.created_at || new Date().toISOString(),
+          read: false,
+          data,
+        });
+
+        if (driverSettings.push_notifications !== false && typeof Notification !== 'undefined') {
+          try {
+            if (Notification.permission === 'granted') {
+              void new Notification(data?.title || 'Road Hazard Alert', { body: data?.body || data?.message || '' });
+            } else if (Notification.permission === 'default') {
+              Notification.requestPermission().catch(() => null);
+            }
+          } catch (e) {
+            // ignore
+          }
+        }
+      } catch (e) {
+        console.warn('DriverDashboard hazard_alert handler error:', e);
+      }
+    };
+
+    socket.on('hazard_alert', handleHazardAlert);
+
+    return () => {
+      socket.off('hazard_alert', handleHazardAlert);
+    };
+  }, [addNotification, driverSettings]);
+
   useEffect(() => {
     let unmounted = false;
     let cycleCount = 0;
@@ -2228,6 +2298,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
             driverLocation={mapState.driverPlace}
             routeOrigin={mapState.routeOrigin}
             routeDestination={mapState.routeDestination}
+            hazardMarkers={driverHazardMarkers}
             showStatusOverlay={false}
           />
           <View style={styles.mapOverlayWrap} pointerEvents="none">

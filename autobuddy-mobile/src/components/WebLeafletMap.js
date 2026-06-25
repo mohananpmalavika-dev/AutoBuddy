@@ -71,6 +71,29 @@ function MapBoundsUpdater({ points }) {
   return null;
 }
 
+function MapAutoCenter({ hazardId, hazards = [] }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!hazardId) return;
+    const hazard = (hazards || []).find((h) => String(h.id) === String(hazardId));
+    if (!hazard) return;
+    const lat = Number(hazard.latitude ?? hazard.location?.latitude ?? hazard.lat);
+    const lng = Number(hazard.longitude ?? hazard.location?.longitude ?? hazard.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const prevCenter = map.getCenter();
+    map.panTo([lat, lng]);
+    const timeout = setTimeout(() => {
+      try {
+        map.panTo(prevCenter);
+      } catch (e) {
+        // ignore
+      }
+    }, 4000);
+    return () => clearTimeout(timeout);
+  }, [hazardId, hazards, map]);
+  return null;
+}
+
 function MapClickHandler({ isInteractiveMode, onMapPress }) {
   useMapEvents({
     click(e) {
@@ -124,6 +147,8 @@ export default function WebLeafletMap({
   title,
   mapStyle,
   defaultCenter,
+  hazardMarkers = [],
+  autoCenterHazardId = null,
   pickupLocation = null,
   dropoffLocation = null,
   driverLocation = null,
@@ -134,6 +159,8 @@ export default function WebLeafletMap({
   onMarkerDragEnd = null,
   selectingPoint = null,
   showStatusOverlay = true,
+  showReportButton = false,
+  onReportPress = null,
 }) {
   const [mapReady, setMapReady] = useState(false);
 
@@ -165,6 +192,13 @@ export default function WebLeafletMap({
 
   return (
     <View style={[mapStyle, styles.mapContainer]}>
+      {/* Inject hazard marker CSS once */}
+      <style>{`
+        .hazard-marker-wrapper{ position: relative; width: 18px; height: 18px; }
+        .hazard-marker{ width: 14px; height: 14px; border-radius: 999px; box-shadow: 0 0 0 rgba(0,0,0,0.2); border: 2px solid rgba(255,255,255,0.9); }
+        .hazard-marker.pulse::after{ content:''; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:14px; height:14px; border-radius:999px; box-shadow:0 0 0 rgba(0,0,0,0.12); animation: hazard-pulse 1.5s infinite ease-out; opacity:0.9 }
+        @keyframes hazard-pulse{ 0% { transform: translate(-50%,-50%) scale(1); opacity:0.9 } 70% { transform: translate(-50%,-50%) scale(2.2); opacity:0 } 100% { opacity:0 } }
+      `}</style>
       <div style={{ width: '100%', height: '100%', position: 'relative' }}>
         <link
           rel="stylesheet"
@@ -248,7 +282,67 @@ export default function WebLeafletMap({
               Tap on the map to select {selectingPoint === 'pickup' ? 'pickup location' : 'dropoff location'}
             </div>
           )}
+
+          {/* Render hazard markers */}
+          {Array.isArray(hazardMarkers) && hazardMarkers.map((h) => {
+            const lat = Number(h.latitude ?? h.lat ?? h.location?.latitude);
+            const lng = Number(h.longitude ?? h.lng ?? h.location?.longitude);
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+            const severity = Number(h.severity || 0);
+            const color = severity >= 4 ? '#D32F2F' : severity >= 2 ? '#F57C00' : '#FBC02D';
+            const icon = L.divIcon({
+              html: `<div class="hazard-marker-wrapper"><div class="hazard-marker pulse" style="background:${color};"></div></div>`,
+              className: '',
+              iconSize: [18, 18],
+              iconAnchor: [9, 9],
+            });
+
+            return (
+              <Marker
+                key={`hazard_${h.id || `${lat}_${lng}`}`}
+                position={[lat, lng]}
+                icon={icon}
+                title={h.title || 'Road Hazard'}
+                zIndexOffset={50}
+              >
+                <Popup>
+                  <div style={{ minWidth: 180 }}>
+                    <strong>{h.title || 'Road Hazard'}</strong>
+                    <div style={{ marginTop: 6 }}>{h.body || h.description || ''}</div>
+                    <div style={{ marginTop: 6, fontSize: 12, color: '#666' }}>{h.type || ''} • Severity {h.severity ?? 'n/a'}</div>
+                  </div>
+                </Popup>
+              </Marker>
+            );
+          })}
+
+          {/* Auto-center helper */}
+          {autoCenterHazardId && <MapAutoCenter hazardId={autoCenterHazardId} hazards={hazardMarkers} />}
         </MapContainer>
+
+        {/* Floating report button (web) */}
+        {showReportButton && (
+          <div style={{ position: 'absolute', right: 18, bottom: 18, zIndex: 1200 }}>
+            <button
+              onClick={() => onReportPress && onReportPress()}
+              style={{
+                background: '#D32F2F',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 28,
+                width: 56,
+                height: 56,
+                boxShadow: '0 6px 18px rgba(0,0,0,0.18)',
+                cursor: 'pointer',
+                fontWeight: 700,
+                fontSize: 16,
+              }}
+              title="Report issue"
+            >
+              !
+            </button>
+          </div>
+        )}
 
         {!mapReady && (
           <View style={styles.mapLoadingPlaceholder} pointerEvents="none">
