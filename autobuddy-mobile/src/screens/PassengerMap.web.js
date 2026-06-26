@@ -711,10 +711,26 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   
   // Auto-select first vehicle type when available to ensure fare estimation works
   useEffect(() => {
+    console.log('[VEHICLE_TYPE_AUTO_SELECT_EFFECT]', {
+      hasAvailableVehicleTypes: !!availableVehicleTypes && availableVehicleTypes.length > 0,
+      vehicleTypesCount: availableVehicleTypes?.length,
+      selectedVehicleTypeId,
+      shouldAutoSelect: availableVehicleTypes && availableVehicleTypes.length > 0 && !selectedVehicleTypeId,
+      timestamp: new Date().toISOString()
+    });
+    
     if (availableVehicleTypes && availableVehicleTypes.length > 0 && !selectedVehicleTypeId) {
       const firstVehicleTypeId = getVehicleTypeId(availableVehicleTypes[0]);
+      console.log('[VEHICLE_TYPE_AUTO_SELECT_RUNNING]', {
+        firstVehicleTypeId,
+        timestamp: new Date().toISOString()
+      });
       if (firstVehicleTypeId) {
         setSelectedVehicleTypeId(firstVehicleTypeId);
+        console.log('[VEHICLE_TYPE_AUTO_SELECT_SET]', {
+          firstVehicleTypeId,
+          timestamp: new Date().toISOString()
+        });
       }
     }
   }, [availableVehicleTypes]);
@@ -1354,14 +1370,27 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       
       const nextTypeId = getVehicleTypeId(vehicleTypeOrId);
       if (!nextTypeId) {
+        console.log('[VEHICLE_TYPE_SELECT_FAILED] nextTypeId is falsy', { nextTypeId });
         return;
       }
-      console.log('[VEHICLE_TYPE_SELECT]', { nextTypeId });
+      console.log('[VEHICLE_TYPE_SELECT]', { nextTypeId, timestamp: new Date().toISOString() });
       const nextVehicleType =
         (availableVehicleTypes || []).find((type) => getVehicleTypeId(type) === nextTypeId) || null;
       const nextVehicleModelId = getVehicleModelOptions(nextVehicleType)[0]?.id || '';
+      console.log('[VEHICLE_TYPE_SELECT_STATE_ABOUT_TO_SET]', {
+        nextTypeId,
+        nextVehicleModelId,
+        currentSelectedVehicleTypeId: selectedVehicleTypeId,
+        currentSelectedVehicleModelId: selectedVehicleModelId,
+        timestamp: new Date().toISOString()
+      });
       setSelectedVehicleTypeId(nextTypeId);
       setSelectedVehicleModelId(nextVehicleModelId);
+      console.log('[VEHICLE_TYPE_SELECT_STATE_SET]', {
+        nextTypeId,
+        nextVehicleModelId,
+        timestamp: new Date().toISOString()
+      });
       clearRideSelectionResults();
     },
     [availableVehicleTypes, clearRideSelectionResults],
@@ -1383,22 +1412,51 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const handleRideProductSelect = useCallback(
     (product) => {
       const nextProduct = String(product || 'normal').trim() || 'normal';
-      console.log('[RIDE_PRODUCT_SELECT]', { nextProduct });
+      console.log('[RIDE_PRODUCT_SELECT]', { 
+        nextProduct,
+        currentRideProduct: rideProduct,
+        currentSelectedVehicleTypeId: selectedVehicleTypeId,
+        effectiveSelectedVehicleTypeId,
+        timestamp: new Date().toISOString()
+      });
       const preferredVehicle = getPreferredVehicleForRideProduct(
         availableVehicleTypes,
         nextProduct,
         effectiveSelectedVehicleTypeId,
       );
       const preferredVehicleTypeId = getVehicleTypeId(preferredVehicle);
+      console.log('[RIDE_PRODUCT_SELECT_PREFERRED_VEHICLE]', {
+        nextProduct,
+        preferredVehicleTypeId,
+        effectiveSelectedVehicleTypeId,
+        isSamAsEffective: preferredVehicleTypeId === effectiveSelectedVehicleTypeId,
+        preferredVehicleSupportsProduct: preferredVehicle ? vehicleSupportsRideProduct(preferredVehicle, nextProduct) : false,
+        timestamp: new Date().toISOString()
+      });
       if (preferredVehicleTypeId && preferredVehicleTypeId !== effectiveSelectedVehicleTypeId) {
         console.log('[RIDE_PRODUCT_SELECT_VEHICLE_SWITCH]', { 
           from: effectiveSelectedVehicleTypeId, 
-          to: preferredVehicleTypeId 
+          to: preferredVehicleTypeId,
+          timestamp: new Date().toISOString()
         });
         setSelectedVehicleTypeId(preferredVehicleTypeId);
         setSelectedVehicleModelId(getVehicleModelOptions(preferredVehicle)[0]?.id || '');
+      } else {
+        console.log('[RIDE_PRODUCT_SELECT_NO_VEHICLE_SWITCH]', {
+          preferredVehicleTypeId,
+          effectiveSelectedVehicleTypeId,
+          timestamp: new Date().toISOString()
+        });
       }
+      console.log('[RIDE_PRODUCT_SELECT_STATE_ABOUT_TO_SET]', {
+        nextProduct,
+        timestamp: new Date().toISOString()
+      });
       setRideProduct(nextProduct);
+      console.log('[RIDE_PRODUCT_SELECT_STATE_SET]', {
+        nextProduct,
+        timestamp: new Date().toISOString()
+      });
       clearRideSelectionResults();
     },
     [availableVehicleTypes, clearRideSelectionResults, effectiveSelectedVehicleTypeId],
@@ -3408,36 +3466,60 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   
   // DEBUG: Log the computed label when it changes
   useEffect(() => {
-    console.log('[RIDE_CHOICE_LABEL_UPDATE]', {
+    console.log('[RIDE_CHOICE_LABEL_RECOMPUTE]', {
       label: selectedRideChoiceLabel,
-      vehicleTypeId: selectedVehicleTypeId,
-      vehicleModelId: selectedVehicleModelId,
-      rideProduct: rideProduct,
-      effective: {
+      stateValues: {
+        vehicleTypeId: selectedVehicleTypeId,
+        vehicleModelId: selectedVehicleModelId,
+        rideProduct: rideProduct,
+      },
+      effectiveValues: {
         typeId: effectiveSelectedVehicleTypeId,
         modelId: effectiveSelectedVehicleModelId,
         product: effectiveRideProduct,
-      }
+      },
+      derivedDisplay: {
+        vehicleDisplayName: selectedVehicleDisplayName,
+        vehicleModelDisplayName: selectedVehicleModelDisplayName,
+        productName: getRideProductName(effectiveRideProduct, rideProductLabels),
+      },
+      timestamp: new Date().toISOString()
     });
-  }, [selectedRideChoiceLabel, selectedVehicleTypeId, selectedVehicleModelId, rideProduct, effectiveSelectedVehicleTypeId, effectiveSelectedVehicleModelId, effectiveRideProduct]);
+  }, [selectedRideChoiceLabel, selectedVehicleTypeId, selectedVehicleModelId, rideProduct, effectiveSelectedVehicleTypeId, effectiveSelectedVehicleModelId, effectiveRideProduct, selectedVehicleDisplayName, selectedVehicleModelDisplayName]);
 
   const closeRideDetailsModal = useCallback(() => {
     // Force state update to persist modal selections
     // Even if values haven't changed, re-triggering ensures React recognizes the update
+    console.log('[RIDE_DETAILS_MODAL_CLOSE_START]', {
+      currentSelectedVehicleTypeId: selectedVehicleTypeId,
+      currentSelectedVehicleModelId: selectedVehicleModelId,
+      currentRideProduct: rideProduct,
+      effectiveSelectedVehicleTypeId,
+      effectiveSelectedVehicleModelId,
+      effectiveRideProduct,
+      availableVehicleTypesCount: availableVehicleTypes?.length,
+      timestamp: new Date().toISOString()
+    });
+
     const typeId = String(effectiveSelectedVehicleTypeId || '').trim() || getVehicleTypeId(availableVehicleTypes?.[0]) || '';
     const modelId = String(effectiveSelectedVehicleModelId || '').trim();
     const product = String(effectiveRideProduct || 'normal').trim() || 'normal';
     
-    // DEBUG: Log the state being committed
-    console.log('[RIDE_DETAILS_MODAL_CLOSE] Persisting selections:', {
+    console.log('[RIDE_DETAILS_MODAL_CLOSE_COMPUTED_VALUES]', {
+      computedTypeId: typeId,
+      computedModelId: modelId,
+      computedProduct: product,
+      usedEffectiveTypeId: !!effectiveSelectedVehicleTypeId,
+      usedEffectiveModelId: !!effectiveSelectedVehicleModelId,
+      usedEffectiveProduct: !!effectiveRideProduct,
+      timestamp: new Date().toISOString()
+    });
+    
+    console.log('[RIDE_DETAILS_MODAL_CLOSE_STATE_ABOUT_TO_SET]', {
       vehicleTypeId: typeId,
       vehicleModelId: modelId,
       rideProduct: product,
-      effective: {
-        typeId: effectiveSelectedVehicleTypeId,
-        modelId: effectiveSelectedVehicleModelId,
-        product: effectiveRideProduct,
-      }
+      timestamp: new Date().toISOString()
     });
     
     // Commit selections to state (trigger re-render)
@@ -3445,9 +3527,17 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     setSelectedVehicleModelId(modelId);
     setRideProduct(product);
     
+    console.log('[RIDE_DETAILS_MODAL_CLOSE_STATE_SET]', {
+      vehicleTypeId: typeId,
+      vehicleModelId: modelId,
+      rideProduct: product,
+      timestamp: new Date().toISOString()
+    });
+    
     // Close modal after state is committed
     setShowRideDetailsModal(false);
-  }, [effectiveSelectedVehicleTypeId, effectiveSelectedVehicleModelId, effectiveRideProduct, availableVehicleTypes]);
+    console.log('[RIDE_DETAILS_MODAL_CLOSE_END]', { timestamp: new Date().toISOString() });
+  }, [effectiveSelectedVehicleTypeId, effectiveSelectedVehicleModelId, effectiveRideProduct, availableVehicleTypes, selectedVehicleTypeId, selectedVehicleModelId, rideProduct]);
   const recentDestinationOptions = useMemo(() => {
     const seen = new Set();
     return (passengerBookings || [])
@@ -4164,13 +4254,21 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           selectedVehicleTypeId,
           selectedVehicleModelId,
           rideProduct,
+          effectiveSelectedVehicleTypeId,
+          effectiveSelectedVehicleModelId,
+          effectiveRideProduct,
+          isUsingFallback: !selectedRideChoiceLabel,
+          showRideDetailsModal,
           timestamp: new Date().toISOString()
         });
         return (
           <View style={styles.quickChoiceRow}>
             <TouchableOpacity
               style={styles.quickChoiceChip}
-              onPress={() => setShowRideDetailsModal(true)}
+              onPress={() => {
+                console.log('[USER_TAPPED_RIDE_CHOICE]', { timestamp: new Date().toISOString() });
+                setShowRideDetailsModal(true);
+              }}
               accessibilityLabel="Select ride details"
               accessibilityRole="button">
               <Text style={styles.quickChoiceLabel}>Ride</Text>
