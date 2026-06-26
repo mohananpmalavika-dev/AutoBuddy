@@ -56,6 +56,28 @@ PREFERENCE_EXTRA_DEFAULTS = {
 }
 
 
+def _normalize_bool(value, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off", "none", "null", "nil", ""}:
+            return False
+    return default
+
+
+def _normalize_string(value, default: str) -> str:
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped:
+            return stripped
+    return default
+
+
 def serialize_preferences(prefs: PassengerPreferences) -> dict:
     """Return DB-backed preference columns plus flexible passenger settings."""
     try:
@@ -86,11 +108,32 @@ def serialize_preferences(prefs: PassengerPreferences) -> dict:
     extra_settings = getattr(prefs, "additional_settings", {}) or {}
     if not isinstance(extra_settings, dict):
         extra_settings = {}
+
+    normalized = {
+        "id": data.get("id"),
+        "passenger_id": data.get("passenger_id"),
+        "push_notifications": _normalize_bool(data.get("push_notifications"), True),
+        "email_notifications": _normalize_bool(data.get("email_notifications"), True),
+        "sms_notifications": _normalize_bool(data.get("sms_notifications"), True),
+        "promotional_offers": _normalize_bool(data.get("promotional_offers"), False),
+        "default_payment_method": _normalize_string(data.get("default_payment_method"), "wallet"),
+        "save_card_details": _normalize_bool(data.get("save_card_details"), True),
+        "biometric_payment": _normalize_bool(data.get("biometric_payment"), False),
+        "profile_public": _normalize_bool(data.get("profile_public"), False),
+        "share_location_with_driver": _normalize_bool(data.get("share_location_with_driver"), True),
+        "analytics_enabled": _normalize_bool(data.get("analytics_enabled"), True),
+        "language": _normalize_string(data.get("language"), "en"),
+        "timezone": _normalize_string(data.get("timezone") or extra_settings.get("timezone"), None) or "local",
+        "ac_preference": _normalize_string(data.get("ac_preference"), "cool"),
+        "communication_level": _normalize_string(data.get("communication_level"), "normal"),
+        "vehicle_type_preference": data.get("vehicle_type_preference") if isinstance(data.get("vehicle_type_preference"), str) else None,
+        "additional_settings": extra_settings,
+    }
+
     return {
         **PREFERENCE_EXTRA_DEFAULTS,
-        **data,
+        **normalized,
         **extra_settings,
-        "timezone": data.get("timezone") or extra_settings.get("timezone") or "local",
     }
 
 

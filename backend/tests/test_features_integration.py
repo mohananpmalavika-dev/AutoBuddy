@@ -257,6 +257,89 @@ class TestPreferences:
         # Other defaults should remain
         assert data["push_notifications"] == True
 
+    def test_serializer_normalizes_malformed_values(self):
+        """The serializer should coerce malformed stored values to safe defaults."""
+        from app.routers.features_routes import serialize_preferences
+        from app.db.models_features import PassengerPreferences
+
+        prefs = PassengerPreferences(
+            id="prefs-malformed-test",
+            passenger_id="test-passenger-456",
+            push_notifications={"bad": 1},
+            email_notifications="0",
+            sms_notifications="yes",
+            promotional_offers=None,
+            default_payment_method=None,
+            save_card_details=None,
+            biometric_payment=None,
+            profile_public=None,
+            share_location_with_driver=None,
+            analytics_enabled=None,
+            language=[],
+            timezone=None,
+            ac_preference=None,
+            communication_level=None,
+            vehicle_type_preference=None,
+            additional_settings={"timezone": "asia_kolkata"},
+        )
+
+        data = serialize_preferences(prefs)
+
+        assert data["push_notifications"] is True
+        assert data["email_notifications"] is False
+        assert data["sms_notifications"] is True
+        assert data["promotional_offers"] is False
+        assert data["default_payment_method"] == "wallet"
+        assert data["save_card_details"] is True
+        assert data["biometric_payment"] is False
+        assert data["profile_public"] is False
+        assert data["share_location_with_driver"] is True
+        assert data["analytics_enabled"] is True
+        assert data["language"] == "en"
+        assert data["timezone"] == "asia_kolkata"
+
+    def test_get_preferences_normalizes_null_values(self, client: TestClient, auth_headers: dict, db_session: Session):
+        """Null or malformed stored values should not cause response validation failures."""
+        from app.db.models_features import PassengerPreferences
+
+        passenger_id = "test-passenger-123"
+        prefs = PassengerPreferences(
+            id="prefs-null-test",
+            passenger_id=passenger_id,
+            push_notifications=None,
+            email_notifications=None,
+            sms_notifications=None,
+            promotional_offers=None,
+            default_payment_method=None,
+            save_card_details=None,
+            biometric_payment=None,
+            profile_public=None,
+            share_location_with_driver=None,
+            analytics_enabled=None,
+            language=None,
+            timezone=None,
+            ac_preference=None,
+            communication_level=None,
+            vehicle_type_preference=None,
+            additional_settings={"timezone": "asia_kolkata"},
+        )
+        db_session.add(prefs)
+        db_session.commit()
+
+        response = client.get(
+            "/api/v1/passengers/preferences",
+            headers={**auth_headers, "X-Passenger-ID": passenger_id},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["push_notifications"] is True
+        assert data["email_notifications"] is True
+        assert data["sms_notifications"] is True
+        assert data["default_payment_method"] == "wallet"
+        assert data["language"] == "en"
+        assert data["timezone"] == "asia_kolkata"
+
 
 class TestScheduledRides:
     """Test scheduled ride feature route deprecation"""
