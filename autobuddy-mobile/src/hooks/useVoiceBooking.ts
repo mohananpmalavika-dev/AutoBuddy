@@ -22,6 +22,8 @@ export type VoiceState = 'idle' | 'listening' | 'processing' | 'confirming' | 'b
 
 export type VoiceEngine = 'web' | 'native' | null;
 
+export type VoiceLanguage = 'en-IN' | 'hi-IN' | 'ml-IN';
+
 export interface VoiceBookingCallbacks {
   onIntentParsed?: (intent: VoiceBookingIntent) => void;
   onBookingComplete?: (result: any) => void;
@@ -59,18 +61,34 @@ function getSpeechRecognitionCtor() {
 }
 
 // ---------------------------------------------------------------------------
+// Language Support Mapping
+// ---------------------------------------------------------------------------
+const LANGUAGE_CODES: Record<VoiceLanguage, string> = {
+  'en-IN': 'English (India)',
+  'hi-IN': 'हिंदी (Hindi)',
+  'ml-IN': 'മലയാളം (Malayalam)',
+};
+
+const LANGUAGE_HINTS: Record<VoiceLanguage, string[]> = {
+  'en-IN': ['book', 'ride', 'auto', 'cab', 'taxi', 'to', 'airport', 'station'],
+  'hi-IN': ['बुक', 'राइड', 'ऑटो', 'कैब', 'टैक्सी', 'तक', 'एयरपोर्ट', 'स्टेशन'],
+  'ml-IN': ['ബുക്ക്', 'റൈഡ്', 'ഓട്ടോ', 'ക്യാബ്', 'ടാക്സി', 'വരെ', 'എയർപോർട്ട്', 'സ്റ്റേഷൻ'],
+};
+
+// ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
 
-const DEFAULT_LANG = 'en-IN';
+const DEFAULT_LANG: VoiceLanguage = 'en-IN';
 
-export function useVoiceBooking(callbacks: VoiceBookingCallbacks = {}) {
+export function useVoiceBooking(callbacks: VoiceBookingCallbacks = {}, initialLanguage: VoiceLanguage = DEFAULT_LANG) {
   const [voiceState, setVoiceState] = useState<VoiceState>('idle');
   const [transcript, setTranscript] = useState('');
   const [lastIntent, setLastIntent] = useState<VoiceBookingIntent | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [voiceEngine, setVoiceEngine] = useState<VoiceEngine>(null);
   const [isNativeAvailable, setIsNativeAvailable] = useState(false);
+  const [currentLanguage, setCurrentLanguage] = useState<VoiceLanguage>(initialLanguage);
 
   const recognitionRef = useRef<any>(null);
   const partialTranscriptRef = useRef('');
@@ -157,7 +175,14 @@ export function useVoiceBooking(callbacks: VoiceBookingCallbacks = {}) {
   }, []);
 
   // -----------------------------------------------------------------------
-  // Process transcript into intent
+  // Switch language (en-IN, hi-IN, ml-IN)
+  // -----------------------------------------------------------------------
+  const switchLanguage = useCallback((lang: VoiceLanguage) => {
+    setCurrentLanguage(lang);
+  }, []);
+
+  // -----------------------------------------------------------------------
+  // Process transcript into intent (language-aware)
   // -----------------------------------------------------------------------
   const processTranscript = useCallback((text: string) => {
     const trimmed = text.trim();
@@ -165,18 +190,21 @@ export function useVoiceBooking(callbacks: VoiceBookingCallbacks = {}) {
 
     setTranscript(trimmed);
 
-    // Check if it looks like a booking intent
-    if (!looksLikeBookingIntent(trimmed)) {
-      setErrorMessage(
-        "I didn't catch a booking request. Try saying something like 'Book an auto to Kollam railway station'.",
-      );
+    // Check if it looks like a booking intent (language-aware)
+    if (!looksLikeBookingIntent(trimmed, currentLanguage)) {
+      const errorMsgs: Record<VoiceLanguage, string> = {
+        'en-IN': "I didn't catch a booking request. Try saying something like 'Book an auto to Kollam railway station'.",
+        'hi-IN': "मुझे बुकिंग रिक्वेस्ट नहीं समझ आई। 'कोल्लम रेलवे स्टेशन के लिए ऑटो बुक करें' जैसा कुछ कहने की कोशिश करें।",
+        'ml-IN': "ഞാൻ ബുകിംഗ് അഭ്യർത്ഥന മനസ്സിലാക്കിയില്ല. 'കൊല്ലം റെയിൽവേ സ്റ്റേഷനിലേക്ക് ഓട്ടോ ബുക്ക് ചെയ്യുക' പോലത്തെ എന്തെങ്കിലും പറയാൻ ശ്രമിക്കുക.",
+      };
+      setErrorMessage(errorMsgs[currentLanguage]);
       updateState('error');
       return;
     }
 
-    // Parse the intent
+    // Parse the intent (language-aware)
     updateState('processing');
-    const rawIntent = parseIntent(trimmed);
+    const rawIntent = parseIntent(trimmed, currentLanguage);
     const intent: VoiceBookingIntent = {
       ...rawIntent,
       rideProductPreference: rawIntent.rideProductPreference ?? null,
@@ -189,7 +217,7 @@ export function useVoiceBooking(callbacks: VoiceBookingCallbacks = {}) {
 
     // Move to confirmation state
     updateState('confirming');
-  }, [updateState]);
+  }, [updateState, currentLanguage]);
 
   // -----------------------------------------------------------------------
   // Web speech recognition
@@ -207,7 +235,7 @@ export function useVoiceBooking(callbacks: VoiceBookingCallbacks = {}) {
 
     const recognition = new ctor();
     recognitionRef.current = recognition;
-    recognition.lang = DEFAULT_LANG;
+    recognition.lang = currentLanguage;  // Use selected language
     recognition.interimResults = true;
     recognition.continuous = false;
     recognition.maxAlternatives = 1;
@@ -253,7 +281,7 @@ export function useVoiceBooking(callbacks: VoiceBookingCallbacks = {}) {
       setErrorMessage('Voice input is unavailable right now.');
       updateState('error');
     }
-  }, [updateState, processTranscript]);
+  }, [updateState, processTranscript, currentLanguage]);
 
   // -----------------------------------------------------------------------
   // Native speech recognition (Android/iOS via @react-native-voice/voice)
@@ -312,14 +340,14 @@ export function useVoiceBooking(callbacks: VoiceBookingCallbacks = {}) {
 
     try {
       listeningRef.current = true;
-      await NativeVoiceModule.start(DEFAULT_LANG);
+      await NativeVoiceModule.start(currentLanguage);  // Use selected language
       updateState('listening');
     } catch {
       listeningRef.current = false;
       setErrorMessage('Could not start voice input.');
       updateState('error');
     }
-  }, [isNativeAvailable, requestAudioPermission, updateState, processTranscript]);
+  }, [isNativeAvailable, requestAudioPermission, updateState, processTranscript, currentLanguage]);
 
   // -----------------------------------------------------------------------
   // Start listening
@@ -370,6 +398,7 @@ export function useVoiceBooking(callbacks: VoiceBookingCallbacks = {}) {
           preferred_vehicle_hint: lastIntent.preferredVehicleHint,
           preferred_ride_product: lastIntent.rideProductPreference,
           intent_type: lastIntent.intentType,
+          language_detected: currentLanguage,
         },
       });
 
@@ -383,7 +412,7 @@ export function useVoiceBooking(callbacks: VoiceBookingCallbacks = {}) {
       callbacksRef.current.onError?.(msg);
       return null;
     }
-  }, [lastIntent, updateState]);
+  }, [lastIntent, updateState, currentLanguage]);
 
   // -----------------------------------------------------------------------
   // Retry / reset
@@ -407,10 +436,13 @@ export function useVoiceBooking(callbacks: VoiceBookingCallbacks = {}) {
     errorMessage,
     voiceEngine,
     isVoiceAvailable: voiceEngine !== null,
+    currentLanguage,
+    supportedLanguages: Object.keys(LANGUAGE_CODES) as VoiceLanguage[],
 
     startListening,
     stopListening,
     confirmAndBook,
     reset,
+    switchLanguage,
   };
 }

@@ -174,6 +174,85 @@ async def book_ride(
     return {"ride_id": str(result.inserted_id), "status": "searching"}
 
 
+@router.post("/bookings/voice")
+async def voice_book_ride(
+    voice_booking_data: Dict[str, Any],
+    current_user: dict = Depends(get_current_user_secure),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    """
+    Book a ride via voice command.
+    
+    Accepts natural language intent parsed by mobile client.
+    
+    Expected payload:
+    {
+        "raw_utterance": "Book me a cab to Kollam Railway Station",
+        "destination_text": "Kollam Railway Station",
+        "pickup_text": null,  // Optional: extracted pickup location
+        "preferred_vehicle_hint": "auto",  // Optional: extracted vehicle preference
+        "preferred_ride_product": "economy",  // Optional: ride type hint
+        "intent_type": "booking"  // Intent classification
+    }
+    """
+    if current_user.get("role") != "passenger":
+        raise HTTPException(status_code=403, detail="Only passengers can book rides")
+
+    # Extract and validate voice booking data
+    destination_text = voice_booking_data.get("destination_text", "").strip()
+    pickup_text = voice_booking_data.get("pickup_text", "").strip()
+    raw_utterance = voice_booking_data.get("raw_utterance", "").strip()
+    preferred_vehicle_hint = voice_booking_data.get("preferred_vehicle_hint", "").strip()
+    preferred_ride_product = voice_booking_data.get("preferred_ride_product", "economy").strip().lower()
+    intent_type = voice_booking_data.get("intent_type", "booking").strip()
+    
+    if not destination_text:
+        raise HTTPException(
+            status_code=400,
+            detail="Destination text is required for voice booking"
+        )
+    
+    # Normalize ride product to valid type
+    valid_ride_types = ["bike", "economy", "premium", "xl"]
+    if preferred_ride_product not in valid_ride_types:
+        preferred_ride_product = "economy"
+    
+    # Create ride record with voice booking metadata
+    rides = db.get_collection("rides")
+    ride = {
+        "_id": str(__import__("uuid").uuid4()),
+        "passenger_id": current_user["id"],
+        "pickup": pickup_text or "Current Location",
+        "dropoff": destination_text,
+        "ride_type": preferred_ride_product,
+        "status": "searching",
+        "created_at": datetime.utcnow(),
+        "fare": 0,  # Will be calculated based on distance
+        # Voice-specific metadata
+        "booking_method": "voice",
+        "raw_utterance": raw_utterance,
+        "preferred_vehicle_hint": preferred_vehicle_hint or None,
+        "intent_type": intent_type,
+        "language_detected": voice_booking_data.get("language_detected", "en"),
+    }
+
+    try:
+        result = await rides.insert_one(ride)
+        return {
+            "ride_id": str(result.inserted_id),
+            "status": "searching",
+            "destination": destination_text,
+            "ride_type": preferred_ride_product,
+            "message": f"Your {preferred_ride_product} cab to {destination_text} is being arranged."
+        }
+    except Exception as e:
+        logger.error(f"Error creating voice booking: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to create voice booking. Please try again."
+        )
+
+
 @router.get("/passengers/rides/{booking_id}/tracking")
 async def get_ride_tracking(
     booking_id: str,

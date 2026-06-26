@@ -3865,17 +3865,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     );
   };
 
-  const SEMANTIC_CARDS = useMemo(
-    () => [
-      { key: 'office', emoji: '🏢', label: 'Office' },
-      { key: 'airport', emoji: '✈️', label: 'Airport' },
-      { key: 'home', emoji: '🏠', label: 'Home' },
-      { key: 'railway_station', emoji: '🚂', label: 'Railway Station' },
-      { key: 'lulu_mall', emoji: '🛍', label: 'Lulu Mall' },
-      { key: 'hospital', emoji: '🏥', label: 'Hospital' },
-    ],
-    [],
-  );
+
 
   const semanticCardToNormalized = (key) => {
     return String(key || '')
@@ -3928,8 +3918,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       if (!placesConfigured) {
         return null;
       }
-      const card = SEMANTIC_CARDS.find((c) => c.key === cardKey);
-      const query = card?.label || String(cardKey || '');
+      const query = String(cardKey || '');
       const suggestions = await searchPlaces(String(query).trim(), searchBias).catch(() => []);
       const best = Array.isArray(suggestions) ? suggestions[0] : null;
       if (!best?.placeId) {
@@ -3943,7 +3932,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         address: String(loc.address || loc.name || query).trim() || query,
       };
     },
-    [SEMANTIC_CARDS, getPlaceLocation, placesConfigured, resolveSemanticDropoffFromHistory, searchBias],
+    [getPlaceLocation, placesConfigured, resolveSemanticDropoffFromHistory, searchBias],
   );
 
   const handleSemanticCardPress = useCallback(
@@ -4005,23 +3994,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         </View>
       </View>
 
-      {bookingMode === 'single' && (
-        <View style={styles.semanticCardsRow}>
-          {SEMANTIC_CARDS.map((card) => (
-            <TouchableOpacity
-              key={card.key}
-              style={styles.semanticCard}
-              onPress={() => {
-                void handleSemanticCardPress(card.key);
-              }}>
-              <Text style={styles.semanticCardEmoji}>{card.emoji}</Text>
-              <Text style={styles.semanticCardLabel} numberOfLines={1}>
-                {card.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
+
 
       {bookingMode === 'single' && (
         <View style={styles.quickStepRow}>
