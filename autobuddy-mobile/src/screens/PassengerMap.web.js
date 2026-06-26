@@ -3376,17 +3376,10 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     .filter(Boolean)
     .join(' / ');
   const closeRideDetailsModal = () => {
-    // Ensure all ride details selections are properly persisted when closing the modal
-    if (effectiveSelectedVehicleTypeId && selectedVehicleTypeId !== effectiveSelectedVehicleTypeId) {
-      setSelectedVehicleTypeId(effectiveSelectedVehicleTypeId);
-    }
-    if (effectiveSelectedVehicleModelId && selectedVehicleModelId !== effectiveSelectedVehicleModelId) {
-      setSelectedVehicleModelId(effectiveSelectedVehicleModelId);
-    }
-    // Ensure rideProduct is also persisted from modal selections
-    if (effectiveRideProduct && effectiveRideProduct !== rideProduct) {
-      setRideProduct(effectiveRideProduct);
-    }
+    // Persist the selected ride details when closing the modal.
+    setSelectedVehicleTypeId(effectiveSelectedVehicleTypeId);
+    setSelectedVehicleModelId(effectiveSelectedVehicleModelId);
+    setRideProduct(effectiveRideProduct);
     setShowRideDetailsModal(false);
   };
   const recentDestinationOptions = useMemo(() => {

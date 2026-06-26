@@ -1041,12 +1041,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     .filter(Boolean)
     .join(' / ');
   const closeRideDetailsModal = () => {
-    if (effectiveSelectedVehicleTypeId && selectedVehicleTypeId !== effectiveSelectedVehicleTypeId) {
-      setSelectedVehicleTypeId(effectiveSelectedVehicleTypeId);
-    }
-    if (effectiveSelectedVehicleModelId && selectedVehicleModelId !== effectiveSelectedVehicleModelId) {
-      setSelectedVehicleModelId(effectiveSelectedVehicleModelId);
-    }
+    setSelectedVehicleTypeId(effectiveSelectedVehicleTypeId);
+    setSelectedVehicleModelId(effectiveSelectedVehicleModelId);
+    setRideProduct(effectiveRideProduct);
     setShowRideDetailsModal(false);
   };
   const recentDestinationOptions = useMemo(() => {
