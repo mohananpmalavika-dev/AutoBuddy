@@ -2196,11 +2196,24 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             pickup_district: availability.pickup_district || null,
           });
           if (!enabledProducts.includes(effectiveRideProduct)) {
-            // Reset all ride selections if product is unavailable at this location
-            setSelectedVehicleTypeId('');
-            setSelectedVehicleModelId('');
-            setRideProduct('normal');
-            if (!silent) {
+            // Only reset if user hasn't explicitly selected a custom ride
+            // (i.e., they're still using the defaults)
+            const isUsingDefaults = effectiveRideProduct === 'normal' && 
+                                   (!effectiveSelectedVehicleTypeId || effectiveSelectedVehicleTypeId === 'auto');
+            
+            if (isUsingDefaults) {
+              setRideProduct('normal');
+            } else {
+              // User has a custom selection, keep it (product may become available elsewhere)
+              // Log the mismatch but don't force reset
+              console.log('[RIDE_PRODUCT_UNAVAILABLE_AT_LOCATION]', {
+                selected: effectiveRideProduct,
+                available: enabledProducts,
+                keeping: 'user selection'
+              });
+            }
+            
+            if (!silent && isUsingDefaults) {
               setMessage(t.selectedRideProductSwitched);
             }
           }
