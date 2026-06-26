@@ -310,6 +310,64 @@ const TOURISM_PACKAGES = [
   },
 ];
 
+function normalizeDistanceKm(value) {
+  const distance = Number(value);
+  if (!Number.isFinite(distance) || distance <= 0) {
+    return 0;
+  }
+  return distance > 1000 ? distance / 1000 : distance;
+}
+
+function getFareDistanceKm(fareEstimate) {
+  if (!fareEstimate) {
+    return 0;
+  }
+  const candidates = [
+    fareEstimate.distance_km,
+    fareEstimate.estimated_distance_km,
+    fareEstimate.distance,
+    fareEstimate.estimated_distance,
+    fareEstimate.route?.distance_km,
+    fareEstimate.route?.distance ? Number(fareEstimate.route.distance) / 1000 : undefined,
+    fareEstimate.distance_m ? Number(fareEstimate.distance_m) / 1000 : undefined,
+    fareEstimate.distanceMeters ? Number(fareEstimate.distanceMeters) / 1000 : undefined,
+    fareEstimate.route?.distance_meters ? Number(fareEstimate.route.distance_meters) / 1000 : undefined,
+    fareEstimate.route?.distanceMeters ? Number(fareEstimate.route.distanceMeters) / 1000 : undefined,
+  ];
+  for (const candidate of candidates) {
+    const distanceKm = normalizeDistanceKm(candidate);
+    if (distanceKm > 0) {
+      return distanceKm;
+    }
+  }
+  return 0;
+}
+
+function calculateDirectDistanceKm(origin, destination) {
+  const originLatitude = Number(origin?.latitude ?? origin?.lat);
+  const originLongitude = Number(origin?.longitude ?? origin?.lng);
+  const destinationLatitude = Number(destination?.latitude ?? destination?.lat);
+  const destinationLongitude = Number(destination?.longitude ?? destination?.lng);
+  if (
+    !Number.isFinite(originLatitude) ||
+    !Number.isFinite(originLongitude) ||
+    !Number.isFinite(destinationLatitude) ||
+    !Number.isFinite(destinationLongitude)
+  ) {
+    return 0;
+  }
+  const toRadians = (degrees) => (degrees * Math.PI) / 180;
+  const latitudeDelta = toRadians(destinationLatitude - originLatitude);
+  const longitudeDelta = toRadians(destinationLongitude - originLongitude);
+  const a =
+    Math.sin(latitudeDelta / 2) * Math.sin(latitudeDelta / 2) +
+    Math.cos(toRadians(originLatitude)) *
+      Math.cos(toRadians(destinationLatitude)) *
+      Math.sin(longitudeDelta / 2) *
+      Math.sin(longitudeDelta / 2);
+  return 6371.0088 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 function setPassengerPollCooldown(ref, cooldownMs) {
   ref.current = Date.now() + Math.max(0, Number(cooldownMs || 0));
 }
@@ -1106,15 +1164,11 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   }, [normalizeLocation, passengerBookings]);
   const quickFareValue = Number(fare?.total_fare || 0);
   const quickFareLabel = quickFareValue > 0 ? `Rs. ${quickFareValue.toFixed(0)}` : 'Fare ready soon';
-  const fareDistanceKm = Number(
-    fare?.distance_km ??
-      fare?.estimated_distance_km ??
-      fare?.distance ??
-      (fare?.route?.distance_km ??
-        (fare?.route?.distance_meters ? fare.route.distance_meters / 1000 : undefined) ??
-        (fare?.route?.distance ? fare.route.distance / 1000 : undefined)),
-  );
-  const quickDistanceLabel = Number(fareDistanceKm || 0) > 0 ? `${Number(fareDistanceKm).toFixed(1)} km` : 'Distance calculating';
+  const directTripDistanceKm = calculateDirectDistanceKm(pickupLocation, dropoffLocation);
+  const fareDistanceKm = getFareDistanceKm(fare);
+  const resolvedTripDistanceKm = fareDistanceKm || directTripDistanceKm;
+  const quickDistanceLabel =
+    resolvedTripDistanceKm > 0 ? `${resolvedTripDistanceKm.toFixed(1)} km` : 'Distance calculating';
   const quickEtaLabel = visibleDrivers.length > 0 ? `${visibleDrivers.length} nearby` : autoFetchingTripData ? 'Finding drivers' : 'Driver search live';
   const quickBookingReady = Boolean(pickupLocation && dropoffLocation);
   const quickBookingStep = !dropoffLocation ? 1 : quickBookingReady && !fare && autoFetchingTripData ? 2 : 3;
@@ -2677,7 +2731,15 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         token,
         body: {
           pickup_location: pickupLocation,
-          drop_location: dropoffLocation,
+          drop_location: {
+            ...dropoffLocation,
+            distance_km: Number(
+              getFareDistanceKm(fare) ||
+                calculateDirectDistanceKm(pickupLocation, dropoffLocation) ||
+                dropoffLocation?.distance_km ||
+                0,
+            ),
+          },
           payment_method: selectedPaymentMethod,
           payment_method_id: selectedPaymentMethodId || undefined,
           payment_channel: selectedPaymentChannel || undefined,
