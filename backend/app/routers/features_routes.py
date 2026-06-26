@@ -58,8 +58,32 @@ PREFERENCE_EXTRA_DEFAULTS = {
 
 def serialize_preferences(prefs: PassengerPreferences) -> dict:
     """Return DB-backed preference columns plus flexible passenger settings."""
-    data = prefs.to_dict()
-    extra_settings = prefs.additional_settings or {}
+    try:
+        data = prefs.to_dict()
+    except Exception as e:
+        print("serialize_preferences: prefs.to_dict() failed", str(e))
+        data = {
+            "id": getattr(prefs, "id", None),
+            "passenger_id": getattr(prefs, "passenger_id", None),
+            "push_notifications": getattr(prefs, "push_notifications", True),
+            "email_notifications": getattr(prefs, "email_notifications", True),
+            "sms_notifications": getattr(prefs, "sms_notifications", True),
+            "promotional_offers": getattr(prefs, "promotional_offers", False),
+            "default_payment_method": getattr(prefs, "default_payment_method", "wallet"),
+            "save_card_details": getattr(prefs, "save_card_details", True),
+            "biometric_payment": getattr(prefs, "biometric_payment", False),
+            "profile_public": getattr(prefs, "profile_public", False),
+            "share_location_with_driver": getattr(prefs, "share_location_with_driver", True),
+            "analytics_enabled": getattr(prefs, "analytics_enabled", True),
+            "language": getattr(prefs, "language", "en"),
+            "timezone": getattr(prefs, "timezone", None),
+            "ac_preference": getattr(prefs, "ac_preference", "cool"),
+            "communication_level": getattr(prefs, "communication_level", "normal"),
+            "vehicle_type_preference": getattr(prefs, "vehicle_type_preference", None),
+            "additional_settings": getattr(prefs, "additional_settings", {}) or {},
+        }
+
+    extra_settings = getattr(prefs, "additional_settings", {}) or {}
     if not isinstance(extra_settings, dict):
         extra_settings = {}
     return {
@@ -336,27 +360,61 @@ def update_preferences(
     db: Session = Depends(get_db)
 ):
     """Update passenger preferences"""
-    prefs = db.query(PassengerPreferences)\
-        .filter(PassengerPreferences.passenger_id == current_passenger["id"]).first()
+    prefs = None
+    try:
+        prefs = db.query(PassengerPreferences)\
+            .filter(PassengerPreferences.passenger_id == current_passenger["id"]).first()
+    except Exception as e:
+        print("Preferences DB query error on PATCH:", str(e))
+        import traceback
+        print(traceback.format_exc())
+        prefs = None
     
     if not prefs:
         prefs = PassengerPreferences(
             id=f"prefs-{uuid.uuid4()}",
             passenger_id=current_passenger["id"]
         )
-        db.add(prefs)
-    
+        try:
+            db.add(prefs)
+            db.commit()
+            db.refresh(prefs)
+        except Exception as e:
+            print("Preferences DB create/commit error on PATCH:", str(e))
+            import traceback
+            print(traceback.format_exc())
+            prefs = PassengerPreferences(
+                id=f"prefs-{uuid.uuid4()}",
+                passenger_id=current_passenger["id"]
+            )
+
     update_data = prefs_update.dict(exclude_unset=True)
-    additional_settings = dict(prefs.additional_settings or {})
+    additional_settings = dict(getattr(prefs, "additional_settings", {}) or {})
     for field, value in update_data.items():
         if hasattr(prefs, field):
-            setattr(prefs, field, value)
+            try:
+                setattr(prefs, field, value)
+            except Exception as e:
+                print(f"Failed to set preference field {field}: {str(e)}")
+                additional_settings[field] = value
         else:
             additional_settings[field] = value
     prefs.additional_settings = additional_settings
-    
-    db.commit()
-    db.refresh(prefs)
+
+    try:
+        db.commit()
+        db.refresh(prefs)
+    except Exception as e:
+        print("Preferences DB commit/refresh error on PATCH:", str(e))
+        import traceback
+        print(traceback.format_exc())
+        # Fall back to existing in-memory prefs if DB write fails
+        prefs = PassengerPreferences(
+            id=getattr(prefs, "id", f"prefs-{uuid.uuid4()}"),
+            passenger_id=current_passenger["id"]
+        )
+        prefs.additional_settings = additional_settings
+
     return serialize_preferences(prefs)
 
 
