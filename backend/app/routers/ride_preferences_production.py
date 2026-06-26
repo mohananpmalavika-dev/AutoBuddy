@@ -29,7 +29,6 @@ async def get_or_create_preferences(db: Session, passenger_id: str) -> Passenger
         prefs = PassengerPreferences(
             id=str(uuid.uuid4()),
             passenger_id=passenger_id,
-            music_preference="neutral",
             ac_preference="cool",
             communication_level="normal",
             vehicle_type_preference=None,
@@ -59,7 +58,6 @@ async def get_ride_preferences(
     prefs = await get_or_create_preferences(db, passenger_id)
     return RidePreferencesResponse(
         passenger_id=prefs.passenger_id,
-        music_preference=prefs.music_preference,
         ac_preference=prefs.ac_preference,
         communication_level=prefs.communication_level,
         vehicle_type_preference=prefs.vehicle_type_preference.split(',') if prefs.vehicle_type_preference else None,
@@ -81,7 +79,6 @@ async def update_ride_preferences(
     prefs = await get_or_create_preferences(db, passenger_id)
 
     # Update preferences
-    prefs.music_preference = request.music_preference
     prefs.ac_preference = request.ac_preference
     prefs.communication_level = request.communication_level
     prefs.vehicle_type_preference = ','.join(request.vehicle_type_preference) if request.vehicle_type_preference else None
@@ -92,7 +89,6 @@ async def update_ride_preferences(
 
     return RidePreferencesResponse(
         passenger_id=prefs.passenger_id,
-        music_preference=prefs.music_preference,
         ac_preference=prefs.ac_preference,
         communication_level=prefs.communication_level,
         vehicle_type_preference=prefs.vehicle_type_preference.split(',') if prefs.vehicle_type_preference else None,
@@ -112,7 +108,6 @@ async def reset_ride_preferences(
     prefs = await get_or_create_preferences(db, passenger_id)
 
     # Reset to defaults
-    prefs.music_preference = "neutral"
     prefs.ac_preference = "cool"
     prefs.communication_level = "normal"
     prefs.vehicle_type_preference = None
@@ -126,7 +121,6 @@ async def reset_ride_preferences(
         "passenger_id": passenger_id,
         "preferences": RidePreferencesResponse(
             passenger_id=prefs.passenger_id,
-            music_preference=prefs.music_preference,
             ac_preference=prefs.ac_preference,
             communication_level=prefs.communication_level,
             vehicle_type_preference=None,
@@ -147,7 +141,7 @@ async def get_ride_preferences_summary(
     prefs = await get_or_create_preferences(db, passenger_id)
 
     return RidePreferenceSummary(
-        music=prefs.music_preference,
+        music='neutral',
         temperature=prefs.ac_preference,
         communication=prefs.communication_level,
         vehicles=prefs.vehicle_type_preference.split(',') if prefs.vehicle_type_preference else None,

@@ -291,7 +291,7 @@ def get_preferences(
         except Exception as e:
             # Guard against missing DB columns (migration not applied).
             msg = str(e)
-            if 'UndefinedColumn' in msg or 'music_preference' in msg or isinstance(e, ProgrammingError):
+            if 'UndefinedColumn' in msg or isinstance(e, ProgrammingError):
                 print("Preferences DB missing columns or migration not applied:", msg)
                 # Return in-memory default preferences without raising 500 so clients keep working.
                 prefs = PassengerPreferences(

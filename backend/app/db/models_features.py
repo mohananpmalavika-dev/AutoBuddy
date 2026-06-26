@@ -121,8 +121,7 @@ class PassengerPreferences(Base):
     language = Column(String, default="en")  # "en", "ml", etc.
     timezone = Column(String, nullable=True)
 
-    # Ride Preferences (MVP - 4 core preferences)
-    music_preference = Column(String, default="neutral")  # "no_preference", "neutral", "preferred"
+    # Ride Preferences (MVP - 3 core preferences)
     ac_preference = Column(String, default="cool")  # "cold", "cool", "warm", "hot"
     communication_level = Column(String, default="normal")  # "quiet", "normal", "chatty"
     vehicle_type_preference = Column(String, nullable=True)  # JSON array: '["auto", "taxi", "xl"]'
@@ -149,7 +148,6 @@ class PassengerPreferences(Base):
             "analytics_enabled": self.analytics_enabled,
             "language": self.language,
             "timezone": self.timezone,
-            "music_preference": self.music_preference,
             "ac_preference": self.ac_preference,
             "communication_level": self.communication_level,
             "vehicle_type_preference": self.vehicle_type_preference,

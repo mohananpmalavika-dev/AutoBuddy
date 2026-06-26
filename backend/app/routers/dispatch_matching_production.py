@@ -386,14 +386,7 @@ def calculate_preference_match_score(driver: DriverLocation, passenger_prefs: di
     penalties = 0
 
     # 1. Music preference (0-3 points)
-    music_pref = passenger_prefs.get('music_preference', 'neutral')
-    driver_likes_music = getattr(driver, 'likes_music', True)
-    if music_pref == 'not_preferred' and driver_likes_music:
-        penalties += 3
-    elif music_pref == 'preferred' and not driver_likes_music:
-        penalties += 1.5
-
-    # 2. Communication level (0-3 points)
+    # 1. Communication level (0-3 points)
     comm_map = {'quiet': 0, 'normal': 1, 'chatty': 2}
     passenger_comm = comm_map.get(passenger_prefs.get('communication_level', 'normal'), 1)
     driver_comm = comm_map.get(getattr(driver, 'communication_level', 'normal'), 1)
@@ -479,8 +472,7 @@ def calculate_match_score(
         prefs_obj = db.execute(stmt).scalar_one_or_none()
         if prefs_obj:
             passenger_prefs = {
-                'music_preference': prefs_obj.music_preference,
-                'ac_preference': prefs_obj.ac_preference,
+
                 'communication_level': prefs_obj.communication_level,
                 'vehicle_type_preference': prefs_obj.vehicle_type_preference.split(',') if prefs_obj.vehicle_type_preference else None
             }

@@ -8,18 +8,9 @@ from typing import List, Optional
 
 class RidePreferencesRequest(BaseModel):
     """Request model for updating ride preferences"""
-    music_preference: str = Field(default="neutral", description="Music preference: no_preference, neutral, or preferred")
     ac_preference: str = Field(default="cool", description="AC temperature: cold, cool, warm, or hot")
     communication_level: str = Field(default="normal", description="Communication level: quiet, normal, or chatty")
     vehicle_type_preference: Optional[List[str]] = Field(default=None, description="Preferred vehicle types: auto, taxi, xl, etc.")
-
-    @field_validator('music_preference')
-    @classmethod
-    def validate_music_preference(cls, v):
-        allowed = ['no_preference', 'neutral', 'preferred']
-        if v not in allowed:
-            raise ValueError(f'music_preference must be one of {allowed}')
-        return v
 
     @field_validator('ac_preference')
     @classmethod
@@ -52,7 +43,6 @@ class RidePreferencesRequest(BaseModel):
 class RidePreferencesResponse(BaseModel):
     """Response model for ride preferences"""
     passenger_id: str
-    music_preference: str
     ac_preference: str
     communication_level: str
     vehicle_type_preference: Optional[List[str]]
