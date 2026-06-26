@@ -1450,6 +1450,16 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         timestamp: new Date().toISOString()
       });
       clearRideSelectionResults();
+      // Ensure fare & driver discovery refreshes immediately after the selection
+      setTimeout(() => {
+        try {
+          if (typeof refreshDriverDiscovery === 'function') {
+            refreshDriverDiscovery({ silent: false, force: true }).catch(() => null);
+          }
+        } catch (e) {
+          // ignore
+        }
+      }, 120);
     },
     [availableVehicleTypes, clearRideSelectionResults],
   );
@@ -1463,6 +1473,16 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       console.log('[VEHICLE_MODEL_SELECT]', { nextModelId });
       setSelectedVehicleModelId(nextModelId);
       clearRideSelectionResults();
+      // Force a near-immediate refresh so fare/driver info updates for the new model
+      setTimeout(() => {
+        try {
+          if (typeof refreshDriverDiscovery === 'function') {
+            refreshDriverDiscovery({ silent: false, force: true }).catch(() => null);
+          }
+        } catch (e) {
+          // ignore
+        }
+      }, 120);
     },
     [clearRideSelectionResults],
   );
@@ -1516,6 +1536,16 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         timestamp: new Date().toISOString()
       });
       clearRideSelectionResults();
+      // Trigger a forced refresh so fare estimate reflects the new ride product immediately
+      setTimeout(() => {
+        try {
+          if (typeof refreshDriverDiscovery === 'function') {
+            refreshDriverDiscovery({ silent: false, force: true }).catch(() => null);
+          }
+        } catch (e) {
+          // ignore
+        }
+      }, 120);
     },
     [availableVehicleTypes, clearRideSelectionResults, effectiveSelectedVehicleTypeId],
   );
