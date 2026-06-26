@@ -5,6 +5,7 @@ Implements CRUD operations for all 10 features
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import ProgrammingError
 from typing import List, Optional
 from datetime import datetime
 from app.utils.time_helpers import get_ist_now
@@ -283,9 +284,22 @@ def get_preferences(
         
         passenger_id = current_passenger["id"]
         
-        prefs = db.query(PassengerPreferences).filter(
-            PassengerPreferences.passenger_id == passenger_id
-        ).first()
+        try:
+            prefs = db.query(PassengerPreferences).filter(
+                PassengerPreferences.passenger_id == passenger_id
+            ).first()
+        except Exception as e:
+            # Guard against missing DB columns (migration not applied).
+            msg = str(e)
+            if 'UndefinedColumn' in msg or 'music_preference' in msg or isinstance(e, ProgrammingError):
+                print("Preferences DB missing columns or migration not applied:", msg)
+                # Return in-memory default preferences without raising 500 so clients keep working.
+                prefs = PassengerPreferences(
+                    id=f"prefs-{uuid.uuid4()}",
+                    passenger_id=passenger_id
+                )
+                return serialize_preferences(prefs)
+            raise
         
         if not prefs:
             # Create default preferences if not exist
