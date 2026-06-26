@@ -1040,12 +1040,49 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   ]
     .filter(Boolean)
     .join(' / ');
-  const closeRideDetailsModal = () => {
-    setSelectedVehicleTypeId(effectiveSelectedVehicleTypeId);
-    setSelectedVehicleModelId(effectiveSelectedVehicleModelId);
-    setRideProduct(effectiveRideProduct);
+  
+  // DEBUG: Log the computed label when it changes
+  useEffect(() => {
+    console.log('[RIDE_CHOICE_LABEL_UPDATE]', {
+      label: selectedRideChoiceLabel,
+      vehicleTypeId: selectedVehicleTypeId,
+      vehicleModelId: selectedVehicleModelId,
+      rideProduct: rideProduct,
+      effective: {
+        typeId: effectiveSelectedVehicleTypeId,
+        modelId: effectiveSelectedVehicleModelId,
+        product: effectiveRideProduct,
+      }
+    });
+  }, [selectedRideChoiceLabel, selectedVehicleTypeId, selectedVehicleModelId, rideProduct, effectiveSelectedVehicleTypeId, effectiveSelectedVehicleModelId, effectiveRideProduct]);
+
+  const closeRideDetailsModal = useCallback(() => {
+    // Force state update to persist modal selections
+    // Even if values haven't changed, re-triggering ensures React recognizes the update
+    const typeId = String(effectiveSelectedVehicleTypeId || '').trim() || getVehicleTypeId(availableVehicleTypes?.[0]) || '';
+    const modelId = String(effectiveSelectedVehicleModelId || '').trim();
+    const product = String(effectiveRideProduct || 'normal').trim() || 'normal';
+    
+    // DEBUG: Log the state being committed
+    console.log('[RIDE_DETAILS_MODAL_CLOSE] Persisting selections:', {
+      vehicleTypeId: typeId,
+      vehicleModelId: modelId,
+      rideProduct: product,
+      effective: {
+        typeId: effectiveSelectedVehicleTypeId,
+        modelId: effectiveSelectedVehicleModelId,
+        product: effectiveRideProduct,
+      }
+    });
+    
+    // Commit selections to state (trigger re-render)
+    setSelectedVehicleTypeId(typeId);
+    setSelectedVehicleModelId(modelId);
+    setRideProduct(product);
+    
+    // Close modal after state is committed
     setShowRideDetailsModal(false);
-  };
+  }, [effectiveSelectedVehicleTypeId, effectiveSelectedVehicleModelId, effectiveRideProduct, availableVehicleTypes]);
   const recentDestinationOptions = useMemo(() => {
     const seen = new Set();
     return (passengerBookings || [])
