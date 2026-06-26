@@ -284,41 +284,49 @@ def get_preferences(
         
         passenger_id = current_passenger["id"]
         
+        prefs = None
         try:
             prefs = db.query(PassengerPreferences).filter(
                 PassengerPreferences.passenger_id == passenger_id
             ).first()
         except Exception as e:
-            # Guard against missing DB columns (migration not applied).
-            msg = str(e)
-            if 'UndefinedColumn' in msg or isinstance(e, ProgrammingError):
-                print("Preferences DB missing columns or migration not applied:", msg)
-                # Return in-memory default preferences without raising 500 so clients keep working.
-                prefs = PassengerPreferences(
-                    id=f"prefs-{uuid.uuid4()}",
-                    passenger_id=passenger_id
-                )
-                return serialize_preferences(prefs)
-            raise
+            # Guard against missing DB columns or schema/runtime issues.
+            print("Preferences DB query error:", str(e))
+            import traceback
+            print(traceback.format_exc())
+            prefs = None
         
         if not prefs:
-            # Create default preferences if not exist
+            # Create default in-memory preferences without raising 500.
             prefs = PassengerPreferences(
                 id=f"prefs-{uuid.uuid4()}",
                 passenger_id=passenger_id
             )
-            db.add(prefs)
-            db.commit()
-            db.refresh(prefs)
+            try:
+                db.add(prefs)
+                db.commit()
+                db.refresh(prefs)
+            except Exception as e:
+                print("Preferences DB create/commit error:", str(e))
+                print(traceback.format_exc())
+                # Fall back to in-memory defaults on DB failure
+                prefs = PassengerPreferences(
+                    id=f"prefs-{uuid.uuid4()}",
+                    passenger_id=passenger_id
+                )
         
         return serialize_preferences(prefs)
     except HTTPException:
         raise
     except Exception as e:
         import traceback
-        print(f"Error in get_preferences: {str(e)}")
+        print(f"Unhandled error in get_preferences: {str(e)}")
         print(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Error retrieving preferences: {str(e)}")
+        # Fall back to safe defaults rather than returning 500.
+        return serialize_preferences(PassengerPreferences(
+            id=f"prefs-{uuid.uuid4()}",
+            passenger_id=current_passenger.get("id") if current_passenger else "unknown"
+        ))
 
 
 @router.patch("/preferences", response_model=PreferencesResponse)
