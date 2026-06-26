@@ -1106,7 +1106,15 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   }, [normalizeLocation, passengerBookings]);
   const quickFareValue = Number(fare?.total_fare || 0);
   const quickFareLabel = quickFareValue > 0 ? `Rs. ${quickFareValue.toFixed(0)}` : 'Fare ready soon';
-  const quickDistanceLabel = Number(fare?.distance_km || 0) > 0 ? `${Number(fare.distance_km).toFixed(1)} km` : 'Distance calculating';
+  const fareDistanceKm = Number(
+    fare?.distance_km ??
+      fare?.estimated_distance_km ??
+      fare?.distance ??
+      (fare?.route?.distance_km ??
+        (fare?.route?.distance_meters ? fare.route.distance_meters / 1000 : undefined) ??
+        (fare?.route?.distance ? fare.route.distance / 1000 : undefined)),
+  );
+  const quickDistanceLabel = Number(fareDistanceKm || 0) > 0 ? `${Number(fareDistanceKm).toFixed(1)} km` : 'Distance calculating';
   const quickEtaLabel = visibleDrivers.length > 0 ? `${visibleDrivers.length} nearby` : autoFetchingTripData ? 'Finding drivers' : 'Driver search live';
   const quickBookingReady = Boolean(pickupLocation && dropoffLocation);
   const quickBookingStep = !dropoffLocation ? 1 : quickBookingReady && !fare && autoFetchingTripData ? 2 : 3;
