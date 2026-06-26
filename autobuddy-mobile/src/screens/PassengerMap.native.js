@@ -1718,6 +1718,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             pickup_district: availability.pickup_district || null,
           });
           if (!enabledProducts.includes(effectiveRideProduct)) {
+            // Reset all ride selections if product is unavailable at this location
+            setSelectedVehicleTypeId('');
+            setSelectedVehicleModelId('');
             setRideProduct('normal');
             if (!silent) {
               setMessage('Selected ride product is not active here. Switched to Normal.');
