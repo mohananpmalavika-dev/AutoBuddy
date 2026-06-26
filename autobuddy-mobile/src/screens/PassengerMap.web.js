@@ -4140,24 +4140,37 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         </View>
       )}
 
-      <View style={styles.quickChoiceRow}>
-        <TouchableOpacity
-          style={styles.quickChoiceChip}
-          onPress={() => setShowRideDetailsModal(true)}
-          accessibilityLabel="Select ride details"
-          accessibilityRole="button">
-          <Text style={styles.quickChoiceLabel}>Ride</Text>
-          <Text style={styles.quickChoiceValue} numberOfLines={1}>
-            {selectedRideChoiceLabel || 'Auto / Standard / Normal'}
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.quickChoiceChip}
-          onPress={() => handleMenuSelection('payment', t.payment || 'Payment')}>
-          <Text style={styles.quickChoiceLabel}>Payment</Text>
-          <Text style={styles.quickChoiceValue}>{selectedPaymentMethod === 'online' ? 'Online' : 'Cash'}</Text>
-        </TouchableOpacity>
-      </View>
+      {(() => {
+        const displayLabel = selectedRideChoiceLabel || 'Auto / Standard / Normal';
+        console.log('[RENDER_RIDE_CHOICE_DISPLAY]', {
+          displayLabel,
+          selectedRideChoiceLabel,
+          selectedVehicleTypeId,
+          selectedVehicleModelId,
+          rideProduct,
+          timestamp: new Date().toISOString()
+        });
+        return (
+          <View style={styles.quickChoiceRow}>
+            <TouchableOpacity
+              style={styles.quickChoiceChip}
+              onPress={() => setShowRideDetailsModal(true)}
+              accessibilityLabel="Select ride details"
+              accessibilityRole="button">
+              <Text style={styles.quickChoiceLabel}>Ride</Text>
+              <Text style={styles.quickChoiceValue} numberOfLines={1}>
+                {displayLabel}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.quickChoiceChip}
+              onPress={() => handleMenuSelection('payment', t.payment || 'Payment')}>
+              <Text style={styles.quickChoiceLabel}>Payment</Text>
+              <Text style={styles.quickChoiceValue}>{selectedPaymentMethod === 'online' ? 'Online' : 'Cash'}</Text>
+            </TouchableOpacity>
+          </View>
+        );
+      })()}
 
       <View style={styles.quickFareCard}>
         <View>
