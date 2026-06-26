@@ -1345,6 +1345,13 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
 
   const handleVehicleTypeSelect = useCallback(
     (vehicleTypeOrId) => {
+      console.log('[VEHICLE_TYPE_SELECT_RAW_INPUT]', {
+        inputType: typeof vehicleTypeOrId,
+        input: vehicleTypeOrId,
+        isObject: typeof vehicleTypeOrId === 'object',
+        keys: vehicleTypeOrId && typeof vehicleTypeOrId === 'object' ? Object.keys(vehicleTypeOrId) : null
+      });
+      
       const nextTypeId = getVehicleTypeId(vehicleTypeOrId);
       if (!nextTypeId) {
         return;
