@@ -1389,6 +1389,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   };
 
   const setLocationForPoint = (point, location) => {
+    const nextPickupLocation = point === 'pickup' ? location : pickupLocation;
+    const nextDropoffLocation = point === 'dropoff' ? location : dropoffLocation;
+
     if (point === 'pickup') {
       setPickupLocation(location);
       setPickupQuery(location.address || '');
@@ -1406,6 +1409,18 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     setSelectedDriverId('');
     driverDiscoveryRequestRef.current = { signature: '', request: null, completedAt: 0 };
     driverDiscoveryCooldownUntilRef.current = 0;
+
+    if (nextPickupLocation && nextDropoffLocation) {
+      setTimeout(() => {
+        try {
+          if (typeof refreshDriverDiscovery === 'function') {
+            refreshDriverDiscovery({ silent: false, force: true }).catch(() => null);
+          }
+        } catch (e) {
+          // ignore
+        }
+      }, 120);
+    }
   };
 
   const clearRideSelectionResults = useCallback(() => {

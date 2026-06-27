@@ -1215,6 +1215,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   }, [passengerAccessibility?.reduce_motion]);
 
   const setLocationForPoint = (point, location) => {
+    const nextPickupLocation = point === 'pickup' ? location : pickupLocation;
+    const nextDropoffLocation = point === 'dropoff' ? location : dropoffLocation;
+
     if (point === 'pickup') {
       setPickupLocation(location);
       setPickupQuery(location.address);
@@ -1230,6 +1233,18 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     setNearbyDrivers([]);
     setOptedOutDriverIds([]);
     setSelectedDriverId('');
+
+    if (nextPickupLocation && nextDropoffLocation) {
+      setTimeout(() => {
+        try {
+          if (typeof refreshDriverDiscovery === 'function') {
+            refreshDriverDiscovery({ silent: false, force: true }).catch(() => null);
+          }
+        } catch (e) {
+          // ignore
+        }
+      }, 120);
+    }
   };
 
   const clearRideSelectionResults = useCallback(() => {
