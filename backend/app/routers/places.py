@@ -533,6 +533,8 @@ async def place_details(
                 "name": location["address"],
                 "address": location["address"],
                 "description": location["address"],
+                "latitude": location.get("latitude"),
+                "longitude": location.get("longitude"),
             }
         else:
             raise HTTPException(status_code=404, detail=f"Place {place_id} not found.")
