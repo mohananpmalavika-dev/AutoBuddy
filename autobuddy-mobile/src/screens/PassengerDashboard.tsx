@@ -15,7 +15,6 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { SingleScreenBooking } from '../components/PassengerSingleScreenBooking';
 import { ScheduleRideModal } from '../components/ScheduleRideModal';
 import { DriverInfoCard } from '../components/DriverInfoCard';
 import { ComplianceAlertBanner } from '../components/ComplianceAlertBanner';
@@ -229,12 +228,6 @@ export default function PassengerDashboard({
       )}
       {!booking && (
         <View style={styles.bookingSection}>
-          <SingleScreenBooking
-            savedLocations={mockSavedLocations}
-            onBookRide={handleBookRide}
-            onScheduleClick={handleScheduleClick}
-            loading={bookingLoading}
-          />
           { !smartIntentVisible && (
             <TouchableOpacity
               style={styles.smartIntentPrompt}
