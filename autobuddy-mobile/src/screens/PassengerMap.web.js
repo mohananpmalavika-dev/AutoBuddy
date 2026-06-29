@@ -126,7 +126,7 @@ const PASSENGER_MENU_OPTIONS = [
   { key: 'family', label: 'Family Booking', symbol: PASSENGER_MENU_SYMBOLS.family },
   { key: 'corporate', label: 'Corporate Booking', symbol: PASSENGER_MENU_SYMBOLS.corporate },
   { key: 'travel', label: 'Travel Packages', symbol: PASSENGER_MENU_SYMBOLS.travel },
-  { key: 'scheduled_rides', label: 'Scheduled Rides', symbol: PASSENGER_MENU_SYMBOLS.scheduled_rides },
+  { key: 'scheduled_rides', label: 'Schedule Ride', symbol: PASSENGER_MENU_SYMBOLS.scheduled_rides },
   { key: 'drivers', label: 'Drivers', symbol: PASSENGER_MENU_SYMBOLS.drivers },
   { key: 'favorites', label: 'Favorite Drivers', symbol: PASSENGER_MENU_SYMBOLS.favorites },
   { key: 'safety', label: 'Safety', symbol: PASSENGER_MENU_SYMBOLS.safety },
@@ -141,7 +141,7 @@ const PASSENGER_MENU_OPTIONS = [
   { key: 'places', label: 'Saved Places', symbol: PASSENGER_MENU_SYMBOLS.places },
   { key: 'emergency', label: 'Emergency', symbol: PASSENGER_MENU_SYMBOLS.emergency },
   { key: 'accessibility', label: 'Accessibility', symbol: PASSENGER_MENU_SYMBOLS.accessibility },
-  { key: 'scheduled', label: 'Scheduled Rides', symbol: PASSENGER_MENU_SYMBOLS.scheduled },
+  { key: 'scheduled', label: 'My Scheduled Rides', symbol: PASSENGER_MENU_SYMBOLS.scheduled },
   { key: 'history', label: 'Ride History', symbol: PASSENGER_MENU_SYMBOLS.history },
   { key: 'profile', label: 'Profile', symbol: PASSENGER_MENU_SYMBOLS.profile },
   { key: 'kyc', label: 'KYC Verification', symbol: PASSENGER_MENU_SYMBOLS.kyc },
@@ -847,7 +847,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [passengerCountInput, setPassengerCountInput] = useState('1');
   const [showProfile, setShowProfile] = useState(false);
   const [showSafePath, setShowSafePath] = useState(false);
-  const [showPassengerMenus, setShowPassengerMenus] = useState(false);
+  const [showPassengerMenus, setShowPassengerMenus] = useState(true);
   const [showRideDetailsModal, setShowRideDetailsModal] = useState(false);
   const [poolCreateRequest, setPoolCreateRequest] = useState({ key: 0, model: null });
   const [driverLiveAddress, setDriverLiveAddress] = useState('');
@@ -1912,10 +1912,38 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const openPoolRideFlow = useCallback(
     (model = 'SYSTEM_CREATED') => {
       setRideProduct('pool');
+      setBookingMode('pooling');
       setShowRideDetailsModal(false);
       setPoolCreateRequest((prev) => ({ key: prev.key + 1, model }));
     },
     [],
+  );
+
+  const startVisibleBookingMode = useCallback(
+    (mode, product, announcement, options = {}) => {
+      const nextMode = String(mode || 'single').trim() || 'single';
+      const nextProduct = String(product || 'normal').trim() || 'normal';
+
+      setBookingMode(nextMode);
+      handleRideProductSelect(nextProduct);
+      setActivePassengerMenu(PRIMARY_PASSENGER_MENU_KEY);
+      setShowPassengerMenus(false);
+      setShowNotificationCenter(false);
+
+      if (options.passengerCount) {
+        setPassengerCountInput(String(options.passengerCount));
+      }
+
+      if (options.openRideDetails !== false) {
+        setShowRideDetailsModal(true);
+      }
+
+      if (announcement) {
+        setMessage(announcement);
+        triggerA11yFeedback(announcement);
+      }
+    },
+    [handleRideProductSelect, triggerA11yFeedback],
   );
 
   const handleMenuSelection = useCallback(
@@ -1927,7 +1955,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         pooling: 'pooling',
         corporate: 'corporate',
         travel: 'travel',
-        scheduled_rides: 'scheduled',  // Map scheduled_rides menu option to 'scheduled' menu
+        scheduled_rides: 'ride',
       };
 
       const targetMenu = modeMapping[menuKey] || menuKey;
@@ -1941,13 +1969,58 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         return;
       }
 
+      if (menuKey === 'family') {
+        startVisibleBookingMode(
+          'family',
+          'normal',
+          'Family booking opened. Add pickup, destination, passenger count and notes.',
+          { passengerCount: passengerCountInput && passengerCountInput !== '1' ? passengerCountInput : '2' },
+        );
+        return;
+      }
+
+      if (menuKey === 'corporate') {
+        startVisibleBookingMode(
+          'corporate',
+          'corporate',
+          'Corporate booking opened. Enter company code, pickup and destination.',
+        );
+        return;
+      }
+
+      if (menuKey === 'travel') {
+        startVisibleBookingMode(
+          'travel',
+          'tourism',
+          'Travel packages opened. Choose package, city, add-ons, pickup and destination.',
+        );
+        return;
+      }
+
+      if (menuKey === 'scheduled_rides') {
+        startVisibleBookingMode(
+          'scheduled',
+          'scheduled',
+          'Scheduled ride opened. Pick route and future pickup time.',
+        );
+        return;
+      }
+
       // For all other menu items, just set the active menu
       setActivePassengerMenu(targetMenu);
       setShowPassengerMenus(false);
       setShowNotificationCenter(menuKey === 'notifications');
       triggerA11yFeedback(`${label || 'Menu'} selected`);
     },
-    [triggerA11yFeedback, openPoolRideFlow, setActivePassengerMenu, setShowPassengerMenus, setShowNotificationCenter],
+    [
+      triggerA11yFeedback,
+      openPoolRideFlow,
+      passengerCountInput,
+      startVisibleBookingMode,
+      setActivePassengerMenu,
+      setShowPassengerMenus,
+      setShowNotificationCenter,
+    ],
   );
 
   const getMenuLabel = useCallback(
@@ -4411,7 +4484,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           style={styles.quickSecondaryButton}
           onPress={() => {
             setShowPassengerMenus((prev) => !prev);
-            setActivePassengerMenu('booking');
+            setActivePassengerMenu(PRIMARY_PASSENGER_MENU_KEY);
           }}>
           <Text style={styles.quickSecondaryText}>
             {bookingMode === 'single' ? 'Single' : bookingMode === 'family' ? 'Family' : bookingMode === 'pooling' ? 'Pool' : bookingMode === 'corporate' ? 'Corporate' : bookingMode === 'travel' ? 'Travel' : bookingMode === 'scheduled' ? 'Scheduled' : 'Booking Mode'}
@@ -5734,15 +5807,24 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               <View style={[styles.infoBlock, isMobileWeb && styles.infoBlockMobile]}>
                 <Text style={[styles.infoTitle, isMobileWeb && styles.infoTitleMobile]}>Family Booking</Text>
                 <Text style={[styles.infoText, isMobileWeb && styles.infoTextMobile]}>
-                  Book rides for your family members. Add family members and manage their ride preferences.
+                  Start a family ride with the fewest required inputs: pickup, destination, passenger count, then confirm.
+                  Add care instructions in ride notes when needed.
                 </Text>
+                <View style={styles.featureValueList}>
+                  <Text style={styles.hint}>Visible in passenger flow: passenger count, saved places, ride notes, emergency contacts, live sharing.</Text>
+                  <Text style={styles.hint}>Best for: parent/child pickup, elder care trips, or grouped family rides.</Text>
+                </View>
                 <TouchableOpacity
-                  style={[styles.button, isMobileWeb && styles.buttonMobile]}
+                  style={[styles.actionButton, styles.featureLauncherButton, isMobileWeb && styles.buttonMobile]}
                   onPress={() => {
-                    setMessage('Family booking feature coming soon');
-                    triggerA11yFeedback('Family booking feature coming soon');
+                    startVisibleBookingMode(
+                      'family',
+                      'normal',
+                      'Family booking opened. Add pickup, destination, passenger count and notes.',
+                      { passengerCount: passengerCountInput && passengerCountInput !== '1' ? passengerCountInput : '2' },
+                    );
                   }}>
-                  <Text style={[styles.buttonText, isMobileWeb && styles.buttonTextMobile]}>Add Family Member</Text>
+                  <Text style={styles.actionText}>Start Family Ride</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -5750,15 +5832,22 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               <View style={[styles.infoBlock, isMobileWeb && styles.infoBlockMobile]}>
                 <Text style={[styles.infoTitle, isMobileWeb && styles.infoTitleMobile]}>Corporate Booking</Text>
                 <Text style={[styles.infoText, isMobileWeb && styles.infoTextMobile]}>
-                  Book rides for your company. Manage employee bookings and corporate accounts.
+                  Book a business ride with only the company code required. Purpose and cost center stay optional.
                 </Text>
+                <View style={styles.featureValueList}>
+                  <Text style={styles.hint}>Visible in passenger flow: corporate code, trip purpose, cost center, payment, receipt and history.</Text>
+                  <Text style={styles.hint}>Required before confirm: company code, pickup and destination.</Text>
+                </View>
                 <TouchableOpacity
-                  style={[styles.button, isMobileWeb && styles.buttonMobile]}
+                  style={[styles.actionButton, styles.featureLauncherButton, isMobileWeb && styles.buttonMobile]}
                   onPress={() => {
-                    setMessage('Corporate booking feature coming soon');
-                    triggerA11yFeedback('Corporate booking feature coming soon');
+                    startVisibleBookingMode(
+                      'corporate',
+                      'corporate',
+                      'Corporate booking opened. Enter company code, pickup and destination.',
+                    );
                   }}>
-                  <Text style={[styles.buttonText, isMobileWeb && styles.buttonTextMobile]}>Select Employee</Text>
+                  <Text style={styles.actionText}>Start Corporate Ride</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -5766,15 +5855,22 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               <View style={[styles.infoBlock, isMobileWeb && styles.infoBlockMobile]}>
                 <Text style={[styles.infoTitle, isMobileWeb && styles.infoTitleMobile]}>Travel Packages</Text>
                 <Text style={[styles.infoText, isMobileWeb && styles.infoTextMobile]}>
-                  Plan multi-stop journeys and book travel packages for your entire trip.
+                  Pick a city/package, optional add-ons, route and passengers. The fare preview updates before booking.
                 </Text>
+                <View style={styles.featureValueList}>
+                  <Text style={styles.hint}>Visible in passenger flow: package type, city, tour package, language, guide, photographer, boat, hotel and ticket help.</Text>
+                  <Text style={styles.hint}>Required before confirm: pickup and destination; package defaults are prefilled.</Text>
+                </View>
                 <TouchableOpacity
-                  style={[styles.button, isMobileWeb && styles.buttonMobile]}
+                  style={[styles.actionButton, styles.featureLauncherButton, isMobileWeb && styles.buttonMobile]}
                   onPress={() => {
-                    setMessage('Travel package booking coming soon');
-                    triggerA11yFeedback('Travel package booking coming soon');
+                    startVisibleBookingMode(
+                      'travel',
+                      'tourism',
+                      'Travel packages opened. Choose package, city, add-ons, pickup and destination.',
+                    );
                   }}>
-                  <Text style={[styles.buttonText, isMobileWeb && styles.buttonTextMobile]}>Plan Journey</Text>
+                  <Text style={styles.actionText}>Plan Travel Package</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -6878,6 +6974,14 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     paddingVertical: 10,
     paddingHorizontal: 12,
     ...SHADOWS.soft,
+  },
+  featureLauncherButton: {
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  featureValueList: {
+    gap: 4,
+    marginTop: 8,
   },
   actionText: { color: '#fff', fontWeight: '700', textAlign: 'center' },
   infoBlock: {
