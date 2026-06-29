@@ -170,6 +170,14 @@ const PASSENGER_MENU_BY_KEY = PASSENGER_MENU_OPTIONS.reduce(
   (acc, menu) => ({ ...acc, [menu.key]: menu }),
   {},
 );
+const QUICK_BOOKING_MODE_SHORTCUTS = [
+  { key: 'ride', label: 'Single', helper: 'Everyday', mode: 'single' },
+  { key: 'family', label: 'Family', helper: '2+ riders', mode: 'family' },
+  { key: 'corporate', label: 'Corporate', helper: 'Company', mode: 'corporate' },
+  { key: 'travel', label: 'Travel', helper: 'Package', mode: 'travel' },
+  { key: 'scheduled_rides', label: 'Schedule', helper: 'Later', mode: 'scheduled' },
+  { key: 'pooling', label: 'Pool', helper: 'Shared', mode: 'pooling' },
+];
 const DRIVER_GENDER_OPTIONS = [
   { label: 'Any', value: 'any' },
   { label: 'Female', value: 'female' },
@@ -847,7 +855,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [passengerCountInput, setPassengerCountInput] = useState('1');
   const [showProfile, setShowProfile] = useState(false);
   const [showSafePath, setShowSafePath] = useState(false);
-  const [showPassengerMenus, setShowPassengerMenus] = useState(true);
+  const [showPassengerMenus, setShowPassengerMenus] = useState(false);
   const [showRideDetailsModal, setShowRideDetailsModal] = useState(false);
   const [poolCreateRequest, setPoolCreateRequest] = useState({ key: 0, model: null });
   const [driverLiveAddress, setDriverLiveAddress] = useState('');
@@ -1959,6 +1967,16 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       };
 
       const targetMenu = modeMapping[menuKey] || menuKey;
+
+      if (menuKey === PRIMARY_PASSENGER_MENU_KEY) {
+        startVisibleBookingMode(
+          'single',
+          'normal',
+          label ? `${label} mode selected` : 'Ride booking opened',
+          { openRideDetails: false },
+        );
+        return;
+      }
 
       // Special handling for pooling - use the flow method
       if (menuKey === 'pooling') {
@@ -4416,6 +4434,43 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         </View>
       )}
 
+      <View style={styles.quickModeSection}>
+        <View style={styles.quickModeHeaderRow}>
+          <Text style={styles.quickSectionLabel}>Ride modes</Text>
+          <TouchableOpacity
+            style={styles.quickModeSeeAllButton}
+            onPress={() => {
+              setShowPassengerMenus(true);
+              setActivePassengerMenu(PRIMARY_PASSENGER_MENU_KEY);
+            }}>
+            <Text style={styles.quickModeSeeAllText}>All services</Text>
+          </TouchableOpacity>
+        </View>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.quickModeRail}>
+          {QUICK_BOOKING_MODE_SHORTCUTS.map((option) => {
+            const selected = bookingMode === option.mode;
+            return (
+              <TouchableOpacity
+                key={option.key}
+                style={[styles.quickModeChip, selected && styles.quickModeChipActive]}
+                onPress={() => handleMenuSelection(option.key, option.label)}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}>
+                <Text style={[styles.quickModeChipTitle, selected && styles.quickModeChipTitleActive]}>
+                  {option.label}
+                </Text>
+                <Text style={[styles.quickModeChipHelper, selected && styles.quickModeChipHelperActive]}>
+                  {option.helper}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+
       {(() => {
         const displayLabel = selectedRideChoiceLabel || 'Auto / Standard / Normal';
         console.log('[RENDER_RIDE_CHOICE_DISPLAY]', {
@@ -4493,7 +4548,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         <TouchableOpacity
           style={styles.quickSecondaryButton}
           onPress={() => setShowInteractiveMap((prev) => !prev)}>
-          <Text style={styles.quickSecondaryText}>{showInteractiveMap ? 'Map pick on' : 'Map pick off'}</Text>
+          <Text style={styles.quickSecondaryText}>{showInteractiveMap ? 'Map pick on' : 'Enable map pick'}</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.quickSecondaryButton}
@@ -4550,6 +4605,26 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             selectingPoint={selectingPoint}
             showStatusOverlay={false}
           />
+          <View style={[styles.mapGlassOverlay, isMobileWeb && styles.mapGlassOverlayMobile]}>
+            <View style={styles.mapGlassCopy}>
+              <Text style={styles.mapGlassEyebrow}>Live map</Text>
+              <Text style={styles.mapGlassTitle} numberOfLines={1}>
+                {mapState.destination?.address || quickDestinationText || 'Choose destination'}
+              </Text>
+              <Text style={styles.mapGlassHint} numberOfLines={1}>
+                {showInteractiveMap ? `Tap map to set ${selectingPoint}` : 'Route preview updates while booking'}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.mapGlassButton, showInteractiveMap && styles.mapGlassButtonActive]}
+              onPress={() => setShowInteractiveMap((prev) => !prev)}
+              accessibilityRole="button"
+              accessibilityLabel={showInteractiveMap ? 'Disable map pick' : 'Enable map pick'}>
+              <Text style={[styles.mapGlassButtonText, showInteractiveMap && styles.mapGlassButtonTextActive]}>
+                {showInteractiveMap ? 'Picking' : 'Pick'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         <View style={[styles.panel, isMobileWeb && styles.panelMobile, accessibilityUi.panelStyle]}>
@@ -6011,6 +6086,75 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   mapIframeMobile: {
     borderRadius: 14,
   },
+  mapGlassOverlay: {
+    position: 'absolute',
+    left: 14,
+    right: 14,
+    bottom: 14,
+    minHeight: 70,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.72)',
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.88)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    ...SHADOWS.soft,
+  },
+  mapGlassOverlayMobile: {
+    left: 12,
+    right: 12,
+    bottom: 30,
+    borderRadius: 18,
+  },
+  mapGlassCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  mapGlassEyebrow: {
+    color: '#557061',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+    marginBottom: 2,
+    textTransform: 'uppercase',
+  },
+  mapGlassTitle: {
+    color: COLORS.textMain,
+    fontSize: 15,
+    fontWeight: '900',
+    marginBottom: 2,
+  },
+  mapGlassHint: {
+    color: '#52685B',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  mapGlassButton: {
+    minWidth: 68,
+    borderWidth: 1,
+    borderColor: '#C9D9CF',
+    borderRadius: 999,
+    backgroundColor: '#F8FBF9',
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    alignItems: 'center',
+  },
+  mapGlassButtonActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primary,
+  },
+  mapGlassButtonText: {
+    color: COLORS.textMain,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  mapGlassButtonTextActive: {
+    color: '#FFFFFF',
+  },
   panel: {
     marginTop: 14,
     flex: 1,
@@ -6438,6 +6582,61 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     color: '#66786D',
     fontSize: 10,
     fontWeight: '700',
+  },
+  quickModeSection: {
+    marginBottom: 10,
+  },
+  quickModeHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginBottom: 6,
+  },
+  quickModeSeeAllButton: {
+    borderRadius: 999,
+    backgroundColor: '#EEF6F1',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  quickModeSeeAllText: {
+    color: COLORS.primaryDark,
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  quickModeRail: {
+    gap: 8,
+    paddingRight: 4,
+  },
+  quickModeChip: {
+    minWidth: 92,
+    borderWidth: 1,
+    borderColor: '#D8E5DC',
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  quickModeChipActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: '#E8F5EC',
+  },
+  quickModeChipTitle: {
+    color: COLORS.textMain,
+    fontSize: 13,
+    fontWeight: '900',
+    marginBottom: 2,
+  },
+  quickModeChipTitleActive: {
+    color: COLORS.primaryDark,
+  },
+  quickModeChipHelper: {
+    color: '#66786D',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  quickModeChipHelperActive: {
+    color: '#355243',
   },
   quickFareCard: {
     flexDirection: 'row',
