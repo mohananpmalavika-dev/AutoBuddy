@@ -127,6 +127,16 @@ const DEFAULT_DRIVER_SETTINGS = {
   share_location: true,
   accept_promo: true,
 };
+const DRIVER_HOME_SHORTCUTS = [
+  { actionKey: 'go_online', label: 'Online', helper: 'Requests' },
+  { actionKey: 'resume_active_ride', label: 'Active Ride', helper: 'Controls' },
+  { actionKey: 'navigate_active_ride', label: 'Navigate', helper: 'Map route' },
+  { actionKey: 'earnings_report', label: 'Earnings', helper: 'Report' },
+  { actionKey: 'documents', label: 'Docs', helper: 'KYC' },
+  { actionKey: 'vehicle', label: 'Vehicle', helper: 'Manage' },
+  { actionKey: 'support_contact', label: 'Support', helper: 'Help' },
+  { actionKey: 'sos', label: 'SOS', helper: 'Safety' },
+];
 const AVAILABILITY_RETRY_WINDOW_MS = 300000;
 const AVAILABILITY_CONFIRMED_OVERRIDE_MS = 90000;
 const DRIVER_DASHBOARD_RATE_LIMIT_COOLDOWN_MS = 60000;
@@ -2283,6 +2293,28 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
     setActiveTab('profile');
   }, [onProfilePress]);
 
+  const mapOverlayTitle = activeRide ? 'Active ride route' : displayIsOnline ? 'Live coverage map' : 'Driver map preview';
+  const mapOverlaySubtitle = activeRide
+    ? 'Pickup, drop and route are ready for this ride.'
+    : displayIsOnline
+      ? 'Your live area is visible while you accept requests.'
+      : 'Go online when you are ready to receive trips.';
+  const driverLocationLabel =
+    driverGPSLocation?.address ||
+    driverLocation?.address ||
+    (driverGPSLocation
+      ? `${driverGPSLocation.latitude}, ${driverGPSLocation.longitude}`
+      : driverLocation
+        ? `${driverLocation.latitude}, ${driverLocation.longitude}`
+        : 'Location not synced yet');
+  const trackingLabel = isTracking ? 'Tracking active' : 'Tracking paused';
+  const driverHomeStats = [
+    { label: 'Requests', value: String(pendingRequests.length || 0) },
+    { label: 'Upcoming', value: String(upcomingRideCount || 0) },
+    { label: 'Rating', value: Number(driverMetrics.average_rating || 0) > 0 ? Number(driverMetrics.average_rating).toFixed(1) : '--' },
+    { label: 'Hours online', value: String(driverMetrics.hours_online || 0) },
+  ];
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
@@ -2303,10 +2335,12 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
           />
           <View style={styles.mapOverlayWrap} pointerEvents="none">
             <View style={styles.mapOverlayCard}>
-              <Text style={styles.mapOverlayTitle}>Live Driver Map</Text>
-              <Text style={styles.mapOverlayMalayalam}>
-                {activeRide ? 'Route view ready for the current ride.' : 'Showing current driver coverage area.'}
-              </Text>
+              <View style={[styles.mapOverlayStatusDot, displayIsOnline && styles.mapOverlayStatusDotOnline]} />
+              <View style={styles.mapOverlayCopy}>
+                <Text style={styles.mapOverlayEyebrow}>Driver map</Text>
+                <Text style={styles.mapOverlayTitle}>{mapOverlayTitle}</Text>
+                <Text style={styles.mapOverlayMalayalam}>{mapOverlaySubtitle}</Text>
+              </View>
             </View>
           </View>
         </View>
@@ -2388,18 +2422,72 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
             </View>
           </View>
 
-          <Text style={styles.title}>Driver Command Center</Text>
-          {!!driverGPSLocation && (
-            <Text style={styles.locationText}>
-              📍 {driverGPSLocation.address || `${driverGPSLocation.latitude}, ${driverGPSLocation.longitude}`}
-              {driverSpeed ? ` • Speed: ${driverSpeed} km/h` : ''} {isTracking ? '✅ Tracking' : '⏸️ Paused'}
-            </Text>
-          )}
-          {!!driverLocation && !driverGPSLocation && (
-            <Text style={styles.locationText}>
-              Current location: {driverLocation.address || `${driverLocation.latitude}, ${driverLocation.longitude}`}
-            </Text>
-          )}
+          <View style={styles.driverHeroCard}>
+            <View style={styles.driverHeroCopy}>
+              <Text style={styles.driverHeroEyebrow}>{displayIsOnline ? 'Ready for rides' : 'Paused'}</Text>
+              <Text style={styles.title}>Driver Command Center</Text>
+              <Text style={styles.driverHeroSubtitle}>
+                {activeRide ? 'Current ride controls are ready.' : 'Go online, manage rides, earnings and safety from one clean screen.'}
+              </Text>
+            </View>
+            <View style={styles.driverHeroMeta}>
+              <Text style={styles.driverHeroMetaLabel}>Location</Text>
+              <Text style={styles.locationText} numberOfLines={2}>
+                {driverLocationLabel}
+              </Text>
+              <Text style={styles.driverHeroMetaSub}>
+                {driverSpeed ? `Speed ${driverSpeed} km/h · ` : ''}{trackingLabel}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.driverStatsRow}>
+            {driverHomeStats.map((item) => (
+              <View key={item.label} style={styles.driverStatCard}>
+                <Text style={styles.driverStatValue}>{item.value}</Text>
+                <Text style={styles.driverStatLabel}>{item.label}</Text>
+              </View>
+            ))}
+          </View>
+
+          <View style={styles.driverShortcutSection}>
+            <View style={styles.driverShortcutHeaderRow}>
+              <Text style={styles.driverShortcutTitle}>Driver tools</Text>
+              <TouchableOpacity style={styles.driverShortcutSeeAllButton} onPress={() => setActiveTab('actions')}>
+                <Text style={styles.driverShortcutSeeAllText}>All actions</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.driverShortcutRail}>
+              {DRIVER_HOME_SHORTCUTS.map((shortcut) => {
+                const action = DRIVER_QUICK_ACTIONS.find((item) => item.key === shortcut.actionKey);
+                if (!action) {
+                  return null;
+                }
+                const selected =
+                  (shortcut.actionKey === 'go_online' && displayIsOnline) ||
+                  (action.tab && activeTab === action.tab) ||
+                  (shortcut.actionKey === 'resume_active_ride' && activeTab === 'requests' && Boolean(activeRide));
+                return (
+                  <TouchableOpacity
+                    key={shortcut.actionKey}
+                    style={[styles.driverShortcutChip, selected && styles.driverShortcutChipActive]}
+                    onPress={() => handleQuickActionPress(action)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}>
+                    <Text style={[styles.driverShortcutChipTitle, selected && styles.driverShortcutChipTitleActive]}>
+                      {shortcut.actionKey === 'go_online' && displayIsOnline ? 'Pause' : shortcut.label}
+                    </Text>
+                    <Text style={[styles.driverShortcutChipHelper, selected && styles.driverShortcutChipHelperActive]}>
+                      {shortcut.actionKey === 'go_online' && displayIsOnline ? 'Online now' : shortcut.helper}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
           {!!visibleError && <Text style={styles.error}>{visibleError}</Text>}
           {!!visibleMessage && <Text style={styles.message}>{visibleMessage}</Text>}
           {loading && <ActivityIndicator color={COLORS.primary} style={styles.loader} />}
@@ -3163,27 +3251,53 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 12,
     right: 12,
-    top: 12,
+    bottom: 14,
   },
   mapOverlayCard: {
-    alignSelf: 'flex-start',
-    maxWidth: 360,
-    borderRadius: 12,
+    alignSelf: 'stretch',
+    minHeight: 70,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(215, 226, 218, 0.9)',
-    backgroundColor: 'rgba(255, 255, 255, 0.94)',
+    borderColor: 'rgba(255,255,255,0.72)',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
     paddingVertical: 10,
     paddingHorizontal: 12,
+    ...SHADOWS.soft,
+  },
+  mapOverlayStatusDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#8A8A8A',
+  },
+  mapOverlayStatusDotOnline: {
+    backgroundColor: COLORS.primary,
+  },
+  mapOverlayCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  mapOverlayEyebrow: {
+    color: '#557061',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+    marginBottom: 2,
+    textTransform: 'uppercase',
   },
   mapOverlayTitle: {
-    fontSize: 13,
-    fontWeight: '800',
+    fontSize: 15,
+    fontWeight: '900',
     color: COLORS.textMain,
   },
   mapOverlayMalayalam: {
     marginTop: 2,
-    ...TYPOGRAPHY.malayalam,
-    fontSize: 12,
+    color: '#52685B',
+    fontSize: 11,
+    fontWeight: '700',
   },
   mapFallback: {
     height: 220,
@@ -3258,7 +3372,151 @@ const styles = StyleSheet.create({
     ...SHADOWS.soft,
   },
   refreshText: { color: COLORS.textMain, fontWeight: '700', fontSize: 12 },
-  title: { fontSize: 22, fontWeight: '900', color: COLORS.textMain, marginTop: 12, marginBottom: 10 },
+  driverHeroCard: {
+    marginTop: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#D8E5DC',
+    borderRadius: 16,
+    backgroundColor: '#FBFDFB',
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'stretch',
+    justifyContent: 'space-between',
+  },
+  driverHeroCopy: {
+    flex: 1.4,
+    minWidth: 0,
+  },
+  driverHeroEyebrow: {
+    color: '#557061',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+    marginBottom: 3,
+    textTransform: 'uppercase',
+  },
+  title: { fontSize: 24, lineHeight: 29, fontWeight: '900', color: COLORS.textMain },
+  driverHeroSubtitle: {
+    color: '#52685B',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
+    marginTop: 4,
+  },
+  driverHeroMeta: {
+    flex: 1,
+    minWidth: 190,
+    borderWidth: 1,
+    borderColor: '#D8E5DC',
+    borderRadius: 13,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 11,
+    paddingVertical: 10,
+  },
+  driverHeroMetaLabel: {
+    color: '#66786D',
+    fontSize: 10,
+    fontWeight: '900',
+    marginBottom: 3,
+    textTransform: 'uppercase',
+  },
+  driverHeroMetaSub: {
+    color: COLORS.primaryDark,
+    fontSize: 11,
+    fontWeight: '800',
+    marginTop: 3,
+  },
+  driverStatsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 10,
+  },
+  driverStatCard: {
+    flex: 1,
+    minWidth: 0,
+    borderWidth: 1,
+    borderColor: '#D8E5DC',
+    borderRadius: 13,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+  },
+  driverStatValue: {
+    color: COLORS.textMain,
+    fontSize: 18,
+    fontWeight: '900',
+    marginBottom: 2,
+  },
+  driverStatLabel: {
+    color: '#66786D',
+    fontSize: 10,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  driverShortcutSection: {
+    marginBottom: 10,
+  },
+  driverShortcutHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginBottom: 6,
+  },
+  driverShortcutTitle: {
+    color: '#66786D',
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  driverShortcutSeeAllButton: {
+    borderRadius: 999,
+    backgroundColor: '#EEF6F1',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  driverShortcutSeeAllText: {
+    color: COLORS.primaryDark,
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  driverShortcutRail: {
+    gap: 8,
+    paddingRight: 4,
+  },
+  driverShortcutChip: {
+    minWidth: 104,
+    borderWidth: 1,
+    borderColor: '#D8E5DC',
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  driverShortcutChipActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: '#E8F5EC',
+  },
+  driverShortcutChipTitle: {
+    color: COLORS.textMain,
+    fontSize: 13,
+    fontWeight: '900',
+    marginBottom: 2,
+  },
+  driverShortcutChipTitleActive: {
+    color: COLORS.primaryDark,
+  },
+  driverShortcutChipHelper: {
+    color: '#66786D',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  driverShortcutChipHelperActive: {
+    color: '#355243',
+  },
   dashboardTopRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
   primaryMenuButton: {
     flex: 1,
