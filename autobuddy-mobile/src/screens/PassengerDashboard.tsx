@@ -80,6 +80,9 @@ export default function PassengerDashboard({
   const [bookingDestination, setBookingDestination] = useState('');
   const [bookingRideType, setBookingRideType] = useState('economy');
   const [voiceOverlayVisible, setVoiceOverlayVisible] = useState(false);
+  // BUG-011 FIX: Add state to prevent duplicate booking submissions
+  const [isSubmittingBooking, setIsSubmittingBooking] = useState(false);
+  
   // Standard booking hooks
   const { booking, loading: bookingLoading, bookRide, cancelBooking } =
     usePassengerBooking(token);
@@ -123,14 +126,47 @@ export default function PassengerDashboard({
   });
   // Keep latest intent accessible in callbacks
   lastIntentRef.current = lastIntent;
-  const handleBookRide = (rideData: any) => {
+  
+  // BUG-011 FIX: Prevent duplicate booking submissions with race condition protection
+  const handleBookRide = async (rideData: any) => {
+    // Prevent duplicate submissions - return early if already submitting
+    if (isSubmittingBooking) {
+      console.log('[Booking] Submission already in progress, ignoring duplicate click');
+      return;
+    }
+    
+    // Validate input
     if (!rideData || !rideData.destination || !rideData.destination.trim()) {
       Alert.alert('Destination Required', 'Please enter your destination');
       return;
     }
-    setBookingDestination(rideData.destination);
-    setBookingRideType(rideData.rideType);
-    bookRide('Current Location', rideData.destination, rideData.rideType, rideData.fare || 150);
+    
+    // Set submitting flag immediately to block duplicate clicks
+    setIsSubmittingBooking(true);
+    
+    try {
+      // Set booking parameters
+      setBookingDestination(rideData.destination);
+      setBookingRideType(rideData.rideType);
+      
+      // Call booking API (this is async)
+      await bookRide(
+        'Current Location',
+        rideData.destination,
+        rideData.rideType,
+        rideData.fare || 150
+      );
+      
+      console.log('[Booking] Ride booked successfully');
+    } catch (error: any) {
+      // Handle booking errors
+      console.error('[Booking] Failed to book ride:', error);
+      const errorMessage = error?.userMessage || error?.message || 'Failed to book ride. Please try again.';
+      Alert.alert('Booking Failed', errorMessage);
+    } finally {
+      // Always clear the submitting flag, even if booking fails
+      setIsSubmittingBooking(false);
+    }
   };
   const handleScheduleClick = () => {
     setScheduleModalVisible(true);

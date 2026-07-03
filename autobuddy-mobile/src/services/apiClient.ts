@@ -23,6 +23,7 @@ import {
 } from '../lib/session';
 import { getFreshAccessToken, isAccessTokenExpiringSoon } from '../lib/api';
 import { istISOString } from '../utils/time';
+import { getErrorMessage, isRetriableError, getRetryDelay } from '../utils/errorMessages';
 
 // API Base URL - adjust based on environment
 const API_BASE_URL = (
@@ -217,6 +218,9 @@ const MAX_RETRIES = 3;
 
 rawAxiosInstance.interceptors.response.use(
   async (response: AxiosResponse) => {
+    // Reset retry count on successful response
+    retryCount = 0;
+    
     const headers = response.config?.headers as Record<string, unknown> | undefined;
     const authorization = headers?.Authorization || headers?.authorization;
     if (authorization) {
@@ -225,17 +229,31 @@ rawAxiosInstance.interceptors.response.use(
     return attachLegacyDataAlias(response.data) as AxiosResponse;
   },
   async (error: AxiosError) => {
-    // Handle 401 Unauthorized - token expired
-    if (error.response?.status === 401) {
-      const errorData = error.response?.data as AnyRecord;
+    // BUG-004 FIX: Comprehensive error handling for all HTTP status codes
+    
+    const status = error.response?.status;
+    const errorData = error.response?.data as AnyRecord | string | undefined;
+    
+    // Extract backend message if available (handle both string and object responses)
+    let backendMessage = '';
+    if (typeof errorData === 'string') {
+      backendMessage = errorData;
+    } else if (errorData && typeof errorData === 'object') {
+      backendMessage = errorData?.error?.message || errorData?.message || '';
+    }
+    
+    // Log error for debugging
+    console.log(`[API Error] Status: ${status}, URL: ${error.config?.url}`);
+    
+    // Handle 401 Unauthorized - session expired
+    if (status === 401) {
       if (await shouldPreserveStoredAuth()) {
-        const backendMessage = String(errorData?.error?.message || errorData?.message || '').trim();
-        const message =
-          backendMessage && !backendMessage.toLowerCase().includes('session expired')
-            ? backendMessage
-            : SESSION_RECONNECT_MESSAGE;
+        const message = backendMessage && !backendMessage.toLowerCase().includes('session expired')
+          ? backendMessage
+          : SESSION_RECONNECT_MESSAGE;
         return Promise.reject({
           message,
+          userMessage: message,
           code: 'AUTH_RETRY_REQUIRED',
           authExpired: false,
           sessionPreserved: true,
@@ -247,44 +265,98 @@ rawAxiosInstance.interceptors.response.use(
       await clearStoredAuth();
       redirectToLoginIfWeb();
       return Promise.reject({
-        message: errorData?.error?.message || 'Session expired. Please log in again.',
+        message: backendMessage || 'Session expired',
+        userMessage: getErrorMessage(401),
         code: 'AUTH_EXPIRED',
         authExpired: true,
         status: 401,
         originalError: error,
       });
     }
-
+    
+    // Handle 403 Forbidden
+    if (status === 403) {
+      return Promise.reject({
+        message: backendMessage || 'Forbidden',
+        userMessage: getErrorMessage(403),
+        code: 'FORBIDDEN',
+        status: 403,
+        originalError: error,
+      });
+    }
+    
+    // Handle 404 Not Found
+    if (status === 404) {
+      return Promise.reject({
+        message: backendMessage || 'Not found',
+        userMessage: getErrorMessage(404),
+        code: 'NOT_FOUND',
+        status: 404,
+        originalError: error,
+      });
+    }
+    
     // Handle 429 Too Many Requests - retry with exponential backoff
-    if (error.response?.status === 429 && retryCount < MAX_RETRIES) {
+    if (status === 429 && retryCount < MAX_RETRIES) {
       retryCount++;
-      const delayMs = Math.pow(2, retryCount) * 1000;
+      const delayMs = getRetryDelay(retryCount);
+      console.log(`[API] Rate limited, retrying in ${delayMs}ms (attempt ${retryCount}/${MAX_RETRIES})`);
       await new Promise(resolve => setTimeout(resolve, delayMs));
       return rawAxiosInstance(error.config!);
     }
-
-    // Handle network errors - retry once
-    if (!error.response && retryCount < 1) {
-      retryCount++;
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      return rawAxiosInstance(error.config!);
-    }
-
-    // Extract user-friendly error message
-    const errorData = error.response?.data as AnyRecord;
-    const message = 
-      errorData?.error?.message ||
-      errorData?.message ||
-      error.message ||
-      'An error occurred. Please try again.';
     
-    const code = errorData?.error?.code || 'UNKNOWN_ERROR';
-
+    // Handle 5xx Server Errors - retry with backoff
+    if (status && status >= 500 && status < 600) {
+      if (retryCount < MAX_RETRIES) {
+        retryCount++;
+        const delayMs = getRetryDelay(retryCount);
+        console.log(`[API] Server error ${status}, retrying in ${delayMs}ms (attempt ${retryCount}/${MAX_RETRIES})`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+        return rawAxiosInstance(error.config!);
+      }
+      
+      // Max retries exceeded
+      console.error(`[API] Server error ${status}, max retries exceeded`);
+      return Promise.reject({
+        message: backendMessage || `Server error ${status}`,
+        userMessage: getErrorMessage(status),
+        code: 'SERVER_ERROR',
+        status,
+        originalError: error,
+      });
+    }
+    
+    // Handle network errors (no response) - retry once
+    if (!error.response) {
+      if (retryCount < 1) {
+        retryCount++;
+        console.log('[API] Network error, retrying in 1s...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return rawAxiosInstance(error.config!);
+      }
+      
+      // Network error - no retries left
+      console.error('[API] Network error, no connection');
+      return Promise.reject({
+        message: 'No internet connection',
+        userMessage: getErrorMessage(undefined, 'NETWORK_ERROR'),
+        code: 'NETWORK_ERROR',
+        status: 0,
+        originalError: error,
+      });
+    }
+    
+    // Handle all other errors (400, 409, 422, etc.)
+    const code = errorData && typeof errorData === 'object' 
+      ? errorData?.error?.code || 'UNKNOWN_ERROR'
+      : 'UNKNOWN_ERROR';
+    
     return Promise.reject({
-      message,
+      message: backendMessage || error.message || 'Unknown error',
+      userMessage: getErrorMessage(status, code),
       code,
-      status: error.response?.status || 0,
-      details: errorData?.error?.details,
+      status: status || 0,
+      details: errorData && typeof errorData === 'object' ? errorData?.error?.details : undefined,
       originalError: error,
     });
   }
