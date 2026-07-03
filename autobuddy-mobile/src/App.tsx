@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, View, Alert } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { initializeApiClient, post, del, handleApiError } from './utils/apiClient';
+import { validateUser, type ValidatedUser } from './utils/userValidator';
 import { UserModeProvider } from './contexts/UserModeContext';
 
 // Auth screens
@@ -97,15 +98,36 @@ export default function App() {
       const response = await post<any>('/api/auth/login', credentials);
 
       if (response.status === 'success' && response.data) {
-        const { access_token, user } = response.data;
+        const { access_token, user: rawUser } = response.data;
 
-        // Store token and user data
-        await AsyncStorage.setItem('authToken', access_token);
-        await AsyncStorage.setItem('userId', user.id);
-        await AsyncStorage.setItem('userRole', user.role);
-        await AsyncStorage.setItem('userName', user.name || user.phone);
-        await AsyncStorage.setItem('userEmail', user.email || '');
-        await AsyncStorage.setItem('userPhone', user.phone);
+        // BUG-001 FIX: Validate user object before using
+        const user = validateUser(rawUser);
+        
+        if (!user) {
+          Alert.alert(
+            'Login Error',
+            'Invalid user data received from server. Please try again or contact support.'
+          );
+          console.error('[Login] User validation failed. Raw data:', rawUser);
+          return;
+        }
+
+        // Store token and user data with error handling
+        try {
+          await AsyncStorage.setItem('authToken', access_token);
+          await AsyncStorage.setItem('userId', user.id);
+          await AsyncStorage.setItem('userRole', user.role);
+          await AsyncStorage.setItem('userName', user.name || user.phone);
+          await AsyncStorage.setItem('userEmail', user.email || '');
+          await AsyncStorage.setItem('userPhone', user.phone);
+        } catch (storageError) {
+          console.error('[Login] Failed to save session data:', storageError);
+          Alert.alert(
+            'Storage Error',
+            'Failed to save login session. Please check device storage and try again.'
+          );
+          return;
+        }
 
         // Reinitialize API client with new token
         initializeApiClient(access_token);
@@ -116,10 +138,10 @@ export default function App() {
           user: {
             id: user.id,
             name: user.name || user.phone,
-            email: user.email,
+            email: user.email || undefined,
             phone: user.phone,
             role: user.role,
-            photo: user.photo,
+            photo: user.photo || undefined,
           },
         });
 
@@ -129,7 +151,9 @@ export default function App() {
         }
       }
     } catch (error) {
-      console.error('Login failed:', handleApiError(error));
+      console.error('[Login] Login failed:', error);
+      const errorMessage = (error as any)?.userMessage || (error as any)?.message || 'Login failed. Please try again.';
+      Alert.alert('Login Failed', errorMessage);
     } finally {
       setLoading(false);
     }
@@ -141,15 +165,36 @@ export default function App() {
       const response = await post<any>('/api/auth/signup', data);
 
       if (response.status === 'success' && response.data) {
-        const { access_token, user } = response.data;
+        const { access_token, user: rawUser } = response.data;
 
-        // Store token and user data
-        await AsyncStorage.setItem('authToken', access_token);
-        await AsyncStorage.setItem('userId', user.id);
-        await AsyncStorage.setItem('userRole', user.role);
-        await AsyncStorage.setItem('userName', user.name || user.phone);
-        await AsyncStorage.setItem('userEmail', user.email || '');
-        await AsyncStorage.setItem('userPhone', user.phone);
+        // BUG-001 FIX: Validate user object before using
+        const user = validateUser(rawUser);
+        
+        if (!user) {
+          Alert.alert(
+            'Signup Error',
+            'Invalid user data received from server. Please try again or contact support.'
+          );
+          console.error('[Signup] User validation failed. Raw data:', rawUser);
+          return;
+        }
+
+        // Store token and user data with error handling
+        try {
+          await AsyncStorage.setItem('authToken', access_token);
+          await AsyncStorage.setItem('userId', user.id);
+          await AsyncStorage.setItem('userRole', user.role);
+          await AsyncStorage.setItem('userName', user.name || user.phone);
+          await AsyncStorage.setItem('userEmail', user.email || '');
+          await AsyncStorage.setItem('userPhone', user.phone);
+        } catch (storageError) {
+          console.error('[Signup] Failed to save session data:', storageError);
+          Alert.alert(
+            'Storage Error',
+            'Failed to save signup session. Please check device storage and try again.'
+          );
+          return;
+        }
 
         // Reinitialize API client with new token
         initializeApiClient(access_token);
@@ -160,10 +205,10 @@ export default function App() {
           user: {
             id: user.id,
             name: user.name || user.phone,
-            email: user.email,
+            email: user.email || undefined,
             phone: user.phone,
             role: user.role,
-            photo: user.photo,
+            photo: user.photo || undefined,
           },
         });
 
@@ -173,7 +218,9 @@ export default function App() {
         }
       }
     } catch (error) {
-      console.error('Signup failed:', handleApiError(error));
+      console.error('[Signup] Signup failed:', error);
+      const errorMessage = (error as any)?.userMessage || (error as any)?.message || 'Signup failed. Please try again.';
+      Alert.alert('Signup Failed', errorMessage);
     } finally {
       setLoading(false);
     }
