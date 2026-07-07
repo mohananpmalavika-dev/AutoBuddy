@@ -776,3 +776,9 @@ Sources: `DriverDashboard.ts`, `DriverCommandPage.web.js`, `DriverCommandPage.na
   - Targets now opens `EarningTargetWidget`.
   - Payout now opens `PayoutScheduleWidget`.
   - Pay Methods now opens `DriverPaymentMethodsPanel`.
+- Driver minimal-input voice command surface is now mounted on web and native:
+  - Source hook: `useDriverVoiceCommands.js`.
+  - Source card: `DriverVoiceCommandCard.js`.
+  - Drivers can use one mic control or quick chips for Online, Ride, Map, Earnings, and SOS.
+  - English and Malayalam command parsing supports online/offline, active ride, navigation, passenger call, ride next step, SOS, support, earnings, payout, payment methods, targets, documents, vehicle, analytics, reviews, history, fare, demand map, and settings.
+  - Commands route through the existing driver quick-action and tab handlers so users get the real mounted screens instead of duplicate placeholder flows.

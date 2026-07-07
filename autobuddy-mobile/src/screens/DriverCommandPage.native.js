@@ -30,6 +30,7 @@ import DriverReviewsPanel from '../components/DriverReviewsPanel';
 import DriverSuspensionAppealPanel from '../components/DriverSuspensionAppealPanel';
 import DriverTierBenefitsPanel from '../components/DriverTierBenefitsPanel';
 import DriverTrustCard from '../components/DriverTrustCard';
+import DriverVoiceCommandCard from '../components/DriverVoiceCommandCard';
 import EarningsPanel from '../components/EarningsPanel';
 import EarningTargetWidget from '../components/EarningTargetWidget';
 import EnhancedSettingsPanel from '../components/EnhancedSettingsPanel';
@@ -52,6 +53,7 @@ import TrafficAlerts from '../components/TrafficAlerts';
 import VehicleManagementPanel from '../components/VehicleManagementPanel';
 import { DRIVER_QUICK_ACTIONS } from '../constants/driverQuickActions';
 import { useDriverRideQueueSocket } from '../hooks/useDriverRideQueueSocket';
+import { useDriverVoiceCommands } from '../hooks/useDriverVoiceCommands';
 import { useKeralaSafety } from '../hooks/useKeralaSafety';
 import { apiRequest } from '../lib/api';
 import {
@@ -1245,6 +1247,47 @@ export default function DriverCommandPageNative({
     ],
   );
 
+  const handleDriverVoiceCommand = useCallback(
+    (action) => {
+      if (!action || typeof action !== 'object') {
+        return;
+      }
+      setError('');
+
+      if (action.type === 'toggle_offline') {
+        if (!isAccepting) {
+          setActiveTab('requests');
+          setMessage(activeRideId ? 'Active ride is open. New requests are already paused.' : 'New requests are already paused.');
+          return;
+        }
+        toggleOnlineStatus().catch(() => null);
+        return;
+      }
+
+      if (action.type === 'next_ride_status') {
+        if (!activeRideId) {
+          setError('No active ride to update.');
+          return;
+        }
+        setActiveTab('requests');
+        moveRideToNextStatus().catch(() => null);
+        return;
+      }
+
+      handleQuickActionPress(action);
+    },
+    [activeRideId, handleQuickActionPress, isAccepting, moveRideToNextStatus, toggleOnlineStatus],
+  );
+
+  const driverVoice = useDriverVoiceCommands(
+    {
+      onCommand: handleDriverVoiceCommand,
+      onFeedback: setMessage,
+      onError: setError,
+    },
+    'en-IN',
+  );
+
   const activeRideNavigation = useMemo(
     () =>
       getRideNavigationTarget({
@@ -1852,6 +1895,13 @@ export default function DriverCommandPageNative({
               <MetricTile label="Today" value={formatMoney(earnings?.today_earnings)} />
             </View>
           </View>
+
+          <DriverVoiceCommandCard
+            voice={driverVoice}
+            onCommand={handleDriverVoiceCommand}
+            compact={compactLayout}
+            disabled={loading || availabilityLoading}
+          />
 
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
           {message && !error ? <Text style={styles.messageText}>{message}</Text> : null}
