@@ -13,6 +13,8 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+// BUG-018 FIX: Import phone validation
+import { validatePhone } from '../../utils/validation';
 
 interface SignupScreenProps {
   onSignup: (data: any) => Promise<void>;
@@ -41,10 +43,14 @@ export default function SignupScreen({
         Alert.alert('Required Fields', 'Please fill in all fields');
         return;
       }
-      if (formData.phone.length < 10) {
-        Alert.alert('Invalid Phone', 'Please enter a valid 10-digit number');
+      
+      // BUG-018 FIX: Use validatePhone for comprehensive phone validation
+      const phoneValidation = validatePhone(formData.phone);
+      if (!phoneValidation.isValid) {
+        Alert.alert('Invalid Phone', phoneValidation.error || 'Please enter a valid phone number');
         return;
       }
+      
       setStep(2);
     } else if (step === 2) {
       if (!formData.password.trim() || !formData.confirmPassword.trim()) {

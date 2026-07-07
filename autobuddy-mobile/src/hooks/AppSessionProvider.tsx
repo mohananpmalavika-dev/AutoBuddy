@@ -12,6 +12,8 @@ export function AppSessionProvider({ children }: { children: React.ReactNode }) 
   const [session, setSession] = React.useState<AppSession | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
   const [error, setError] = React.useState<Error | null>(null);
+  // BUG-012 FIX: Track refresh in progress to prevent race condition
+  const refreshInProgressRef = React.useRef(false);
 
   // Restore session on app start
   useEffect(() => {
@@ -135,7 +137,15 @@ export function AppSessionProvider({ children }: { children: React.ReactNode }) 
   };
 
   const refresh = async () => {
+    // BUG-012 FIX: Prevent concurrent refresh calls
+    if (refreshInProgressRef.current) {
+      console.log('[Session] Refresh already in progress, skipping');
+      return;
+    }
+
     try {
+      refreshInProgressRef.current = true;
+
       if (!session?.refreshToken) {
         await logout();
         return;
@@ -161,6 +171,9 @@ export function AppSessionProvider({ children }: { children: React.ReactNode }) 
     } catch (err) {
       console.error('Token refresh failed:', err);
       await logout();
+    } finally {
+      // BUG-012 FIX: Always clear the refresh flag
+      refreshInProgressRef.current = false;
     }
   };
 

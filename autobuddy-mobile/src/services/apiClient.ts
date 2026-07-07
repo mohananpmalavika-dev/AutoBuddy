@@ -24,6 +24,8 @@ import {
 import { getFreshAccessToken, isAccessTokenExpiringSoon } from '../lib/api';
 import { istISOString } from '../utils/time';
 import { getErrorMessage, isRetriableError, getRetryDelay } from '../utils/errorMessages';
+// BUG-013 FIX: Import type guards for safe type assertions
+import { isObject, isString } from '../utils/typeGuards';
 
 // API Base URL - adjust based on environment
 const API_BASE_URL = (
@@ -196,13 +198,50 @@ const rawAxiosInstance: AxiosInstance = create({
   },
 });
 
+// BUG-012 FIX: Prevent concurrent token refresh race conditions
+let tokenRefreshPromise: Promise<string | null> | null = null;
+
+async function getValidToken(): Promise<string | null> {
+  const token = await getStoredAuthToken();
+  
+  // If token doesn't exist or doesn't need refresh, return it
+  if (!token || !isAccessTokenExpiringSoon(token)) {
+    return token;
+  }
+  
+  // If refresh is already in progress, wait for it
+  if (tokenRefreshPromise) {
+    console.log('[API] Token refresh already in progress, waiting...');
+    return tokenRefreshPromise;
+  }
+  
+  // Start new refresh and store promise
+  console.log('[API] Starting token refresh');
+  tokenRefreshPromise = getFreshAccessToken(token)
+    .then((newToken) => {
+      console.log('[API] Token refresh successful');
+      return newToken;
+    })
+    .catch((error) => {
+      console.error('[API] Token refresh failed:', error);
+      return null;
+    })
+    .finally(() => {
+      // Clear promise after completion
+      tokenRefreshPromise = null;
+    });
+  
+  return tokenRefreshPromise;
+}
+
 // Add request interceptor to inject auth token
 rawAxiosInstance.interceptors.request.use(
   async (config) => {
-    let token = await getStoredAuthToken();
-    if (token && !isAuthRequestUrl(config.url) && isAccessTokenExpiringSoon(token)) {
-      token = await getFreshAccessToken(token);
-    }
+    // BUG-012 FIX: Use mutex-protected token refresh
+    const token = isAuthRequestUrl(config.url) 
+      ? await getStoredAuthToken()
+      : await getValidToken();
+    
     if (token) {
       config.headers = config.headers || {};
       (config.headers as Record<string, string>).Authorization = `Bearer ${token}`;
@@ -230,16 +269,26 @@ rawAxiosInstance.interceptors.response.use(
   },
   async (error: AxiosError) => {
     // BUG-004 FIX: Comprehensive error handling for all HTTP status codes
+    // BUG-013 FIX: Safe type checking before casting
     
     const status = error.response?.status;
-    const errorData = error.response?.data as AnyRecord | string | undefined;
+    const responseData = error.response?.data;
     
-    // Extract backend message if available (handle both string and object responses)
+    // Safe type checking - handle both string and object error responses
     let backendMessage = '';
-    if (typeof errorData === 'string') {
-      backendMessage = errorData;
-    } else if (errorData && typeof errorData === 'object') {
-      backendMessage = errorData?.error?.message || errorData?.message || '';
+    let errorData: Record<string, unknown> | undefined;
+    
+    if (isString(responseData)) {
+      backendMessage = responseData;
+    } else if (isObject(responseData)) {
+      errorData = responseData;
+      // Safely extract message from object
+      const errorField = errorData.error;
+      if (isObject(errorField) && isString(errorField.message)) {
+        backendMessage = errorField.message;
+      } else if (isString(errorData.message)) {
+        backendMessage = errorData.message;
+      }
     }
     
     // Log error for debugging

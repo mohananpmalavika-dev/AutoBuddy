@@ -8,6 +8,8 @@ import {
   Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+// BUG-024 FIX: Import image optimization utilities
+import { ImageOptimization } from '../utils/performanceOptimizations';
 
 export interface DriverInfo {
   id: string;
@@ -46,8 +48,9 @@ export function DriverInfoCard({
       {/* Header with rating */}
       <View style={styles.header}>
         <View style={styles.driverInfo}>
+          {/* BUG-024 FIX: Optimize image loading with thumbnail */}
           <Image
-            source={{ uri: driver.photo || 'https://via.placeholder.com/80' }}
+            source={{ uri: ImageOptimization.getThumbnailUri(driver.photo || 'https://via.placeholder.com/80') }}
             style={styles.avatar}
           />
           <View style={styles.driverDetails}>

@@ -11,6 +11,8 @@ import {
 import MapView, { Marker, Circle } from 'react-native-maps';
 import { COLORS, SHADOWS } from '../theme';
 import { demandTrafficAPI } from '../services/apiClient';
+// BUG-008 FIX: Import coordinate validation
+import { validateCoordinates } from '../utils/validation';
 
 type Coordinate = {
   latitude: number;
@@ -90,15 +92,19 @@ const normalizeHotspot = (item: unknown, index: number): DemandHotspot | null =>
   const location = row.location || row.center || row.coordinate || {};
   const latitude = toNumber(row.latitude ?? row.lat ?? location.latitude ?? location.lat, NaN);
   const longitude = toNumber(row.longitude ?? row.lng ?? row.lon ?? location.longitude ?? location.lng ?? location.lon, NaN);
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+  
+  // BUG-008 FIX: Use validateCoordinates instead of basic Number.isFinite check
+  const coordValidation = validateCoordinates(latitude, longitude);
+  if (!coordValidation.isValid) {
+    console.warn(`[DemandHeatmap] Invalid coordinates for hotspot ${index}:`, coordValidation.error);
     return null;
   }
 
   const demandLevel = normalizeDemandLevel(row.demandLevel ?? row.demand_level ?? row.level ?? row.severity);
   return {
     id: String(row.id ?? row._id ?? row.cell_id ?? `hotspot-${index}`),
-    latitude,
-    longitude,
+    latitude: coordValidation.latitude!, // Now guaranteed valid
+    longitude: coordValidation.longitude!, // Now guaranteed valid
     name: String(row.name ?? row.area_name ?? row.label ?? row.locality ?? `Hotspot ${index + 1}`),
     demandLevel,
     estimatedRequests: toNumber(row.estimatedRequests ?? row.estimated_requests ?? row.request_count ?? row.demand_score, 0),
@@ -144,17 +150,21 @@ export default function DemandHeatmapIntegration({
     setLoading(true);
     setError('');
     try {
-      // Validate coordinates before making API call
-      const lat = Number(currentLocation?.latitude);
-      const lon = Number(currentLocation?.longitude);
+      // BUG-008 FIX: Use validateCoordinates for current location
+      const coordValidation = validateCoordinates(
+        currentLocation?.latitude,
+        currentLocation?.longitude
+      );
       
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-        setError('Location unavailable. Please enable location services.');
-        setLoading(false);
+      if (!coordValidation.isValid) {
+        setError(coordValidation.error || 'Location unavailable. Please enable location services.');
         return;
       }
       
-      const payload = await demandTrafficAPI.getDemandHeatmap(lat, lon);
+      const payload = await demandTrafficAPI.getDemandHeatmap(
+        coordValidation.latitude!,
+        coordValidation.longitude!,
+      );
       const hotspots = getHotspotRows(payload)
         .map(normalizeHotspot)
         .filter((hotspot): hotspot is DemandHotspot => Boolean(hotspot));

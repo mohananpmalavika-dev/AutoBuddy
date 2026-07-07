@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -37,6 +37,8 @@ import PredictiveDestinationCard from '../components/PredictiveDestinationCard';
 import { usePredictiveBooking } from '../hooks/usePredictiveBooking';
 import CalendarBookingScreen from './scheduled/CalendarBookingScreen';
 import { ModeSelectionScreen } from './ModeSelectionScreen';
+// BUG-002 FIX: Import safe booking utilities
+import { useSafeBooking, getBookingStatusText, isBookingActive, hasDriver } from '../hooks/useSafeBooking';
 
 type DateLike = string | number | Date | null | undefined;
 
@@ -51,6 +53,10 @@ const formatDateTimeSafely = (date: DateLike): string => {
   const dateObj = new Date(date);
   return !isNaN(dateObj.getTime()) ? dateObj.toLocaleString() : 'Unknown';
 };
+// BUG-014 FIX: Import runtime prop validation utilities
+import { validateProps, PropValidators } from '../utils/typeGuards';
+// BUG-023 & BUG-024 FIX: Import performance optimization utilities
+import { ListOptimization, ImageOptimization } from '../utils/performanceOptimizations';
 
 interface PassengerDashboardProps {
   token: string;
@@ -73,6 +79,23 @@ export default function PassengerDashboard({
   user,
   onLogout,
 }: PassengerDashboardProps) {
+  // BUG-014 FIX: Validate props at component entry
+  useEffect(() => {
+    const validation = validateProps(
+      { token, user, onLogout },
+      {
+        token: PropValidators.requiredString,
+        user: PropValidators.requiredObject,
+        onLogout: PropValidators.requiredFunction,
+      }
+    );
+    
+    if (!validation.isValid) {
+      console.error('[PassengerDashboard] Invalid props:', validation.errors);
+      // In production, you might want to show an error screen or redirect
+    }
+  }, [token, user, onLogout]);
+  
   const [activeTab, setActiveTab] = useState<DashboardTab>('home');
   const [guardianModeVisible, setGuardianModeVisible] = useState(false);
   const [smartIntentVisible, setSmartIntentVisible] = useState(false);
@@ -86,6 +109,8 @@ export default function PassengerDashboard({
   // Standard booking hooks
   const { booking, loading: bookingLoading, bookRide, cancelBooking } =
     usePassengerBooking(token);
+  // BUG-002 FIX: Wrap booking object with safe access utilities
+  const safeBooking = useSafeBooking(booking);
   const { tracking } = usePassengerRideTracking(token, booking?.id);
   const { methods: paymentMethods } = usePassengerPayment(token);
   const { profile } = usePassengerProfile(token);
@@ -93,6 +118,10 @@ export default function PassengerDashboard({
   const { scheduled } = usePassengerSchedule(token);
   // Voice booking hook – WhatsApp-style persistent mic
   const lastIntentRef = useRef<any>(null);
+  // BUG-010 FIX: Prevent voice booking race conditions with ref-based flag
+  const voiceOperationInProgressRef = useRef(false);
+  const voiceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
   const {
     voiceState,
     transcript,
@@ -197,31 +226,94 @@ export default function PassengerDashboard({
   // -------------------------------------------------------------------------
   // Voice booking handlers – WhatsApp flow
   // -------------------------------------------------------------------------
+  // BUG-010 FIX: Race condition prevention with ref-based mutex
   const handleVoicePress = useCallback(() => {
+    // Prevent concurrent operations
+    if (voiceOperationInProgressRef.current) {
+      console.log('[Voice] Operation already in progress, ignoring press');
+      return;
+    }
+    
     // WhatsApp-style: tap mic to start/stop recording
     if (voiceState === 'idle' || voiceState === 'error') {
+      voiceOperationInProgressRef.current = true;
+      
+      // Clear any pending timeout
+      if (voiceTimeoutRef.current) {
+        clearTimeout(voiceTimeoutRef.current);
+        voiceTimeoutRef.current = null;
+      }
+      
       resetVoice();
-      setTimeout(() => startListening(), 200);
+      voiceTimeoutRef.current = setTimeout(() => {
+        startListening();
+        voiceOperationInProgressRef.current = false;
+      }, 200);
     } else if (voiceState === 'listening') {
       stopListening();
     }
   }, [voiceState, resetVoice, startListening, stopListening]);
+  
   const handleVoiceConfirm = useCallback(async () => {
     await confirmAndBook(token || undefined);
   }, [confirmAndBook, token]);
+  
   const handleOpenVoice = useCallback(() => {
+    // Prevent concurrent operations
+    if (voiceOperationInProgressRef.current) {
+      console.log('[Voice] Operation already in progress, ignoring open');
+      return;
+    }
+    
+    voiceOperationInProgressRef.current = true;
+    
+    // Clear any pending timeout
+    if (voiceTimeoutRef.current) {
+      clearTimeout(voiceTimeoutRef.current);
+      voiceTimeoutRef.current = null;
+    }
+    
     resetVoice();
     setVoiceOverlayVisible(true);
-    setTimeout(() => startListening(), 400);
+    voiceTimeoutRef.current = setTimeout(() => {
+      startListening();
+      voiceOperationInProgressRef.current = false;
+    }, 400);
   }, [resetVoice, startListening]);
+  
   const handleCloseVoice = useCallback(() => {
+    // Clear any pending operations
+    if (voiceTimeoutRef.current) {
+      clearTimeout(voiceTimeoutRef.current);
+      voiceTimeoutRef.current = null;
+    }
+    voiceOperationInProgressRef.current = false;
+    
     stopListening();
     resetVoice();
     setVoiceOverlayVisible(false);
   }, [stopListening, resetVoice]);
- const handleRetryVoice = useCallback(() => {
+  
+  const handleRetryVoice = useCallback(() => {
+    // Prevent concurrent operations
+    if (voiceOperationInProgressRef.current) {
+      console.log('[Voice] Operation already in progress, ignoring retry');
+      return;
+    }
+    
+    voiceOperationInProgressRef.current = true;
+    
+    // Clear any pending timeout
+    if (voiceTimeoutRef.current) {
+      clearTimeout(voiceTimeoutRef.current);
+      voiceTimeoutRef.current = null;
+    }
+    
     resetVoice();
-    setTimeout(() => startListening(), 300);
+    voiceTimeoutRef.current = setTimeout(() => {
+      startListening();
+      voiceOperationInProgressRef.current = false;
+    }, 300);
   }, [resetVoice, startListening]);
 
   // -------------------------------------------------------------------------
@@ -229,7 +321,8 @@ export default function PassengerDashboard({
   // -------------------------------------------------------------------------
   const renderHomeTab = () => (
     <View style={styles.tabContent}>
-      {booking && (
+      {/* BUG-002 FIX: Use safeBooking.hasBooking instead of direct booking check */}
+      {safeBooking.hasBooking && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Your Active Ride</Text>
           {tracking && (
@@ -255,14 +348,19 @@ export default function PassengerDashboard({
           )}
           <Pressable
             style={styles.cancelButton}
-            onPress={() => { if (booking.id) {cancelBooking(booking.id);} }}
+            onPress={() => { 
+              // BUG-002 FIX: Use safeBooking.id (always string, never null)
+              if (safeBooking.id) {
+                cancelBooking(safeBooking.id);
+              }
+            }}
           >
             <MaterialIcons name="close" size={18} color="#D32F2F" />
             <Text style={styles.cancelButtonText}>Cancel Ride</Text>
           </Pressable>
         </View>
       )}
-      {!booking && (
+      {!safeBooking.hasBooking && (
         <View style={styles.bookingSection}>
           { !smartIntentVisible && (
             <TouchableOpacity
@@ -314,7 +412,7 @@ export default function PassengerDashboard({
           />
         </View>
       )}
-      {scheduled.length > 0 && !booking && (
+      {scheduled.length > 0 && !safeBooking.hasBooking && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>
             Upcoming Rides ({scheduled.length})
@@ -346,16 +444,17 @@ export default function PassengerDashboard({
   const renderActiveTab = () => (
     <View style={styles.tabContent}>
       <Text style={styles.sectionTitle}>Active Rides</Text>
-      {booking ? (
+      {/* BUG-002 FIX: Use safeBooking with guaranteed properties */}
+      {safeBooking.hasBooking ? (
         <View style={styles.activeRideCard}>
           <MaterialIcons name="directions-car" size={48} color="#4CAF50" />
           <Text style={styles.activeRideText}>
-            Ride to {booking.destination}
+            Ride to {safeBooking.destination || 'Unknown Destination'}
           </Text>
           <Text style={styles.activeRideStatus}>
-            Status: {booking.status}
+            Status: {getBookingStatusText(safeBooking.status)}
           </Text>
-          <Text style={styles.activeRideFare}>₹{booking.fare}</Text>
+          <Text style={styles.activeRideFare}>₹{safeBooking.fare || 0}</Text>
         </View>
       ) : (
         <View style={styles.emptyState}>
@@ -382,9 +481,11 @@ export default function PassengerDashboard({
       ) : (
         <FlatList
           data={rides}
-          keyExtractor={item => item.id}
+          keyExtractor={ListOptimization.keyExtractor}
           onEndReached={hasMore ? loadMoreRides : undefined}
           onEndReachedThreshold={0.5}
+          // BUG-023 FIX: Add FlatList performance optimizations
+          {...ListOptimization.getFlatListOptimizationProps()}
           renderItem={({ item }) => (
             <View style={styles.historyCard}>
               <View style={styles.historyCardHeader}>

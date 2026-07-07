@@ -15,6 +15,8 @@ import {
 } from 'react-native';
 import { ridePoolingAPI } from '@/services/apiClient';
 import { getSocket } from '@/services/socketClient';
+// BUG-019 FIX: Import fare validation
+import { validateFare } from '../utils/validation';
 
 type Coordinate = {
   latitude: number;
@@ -319,12 +321,19 @@ const RidePoolingPanel: React.FC<RidePoolingPanelProps> = ({
       return;
     }
 
+    // BUG-019 FIX: Validate fare before submission
+    const fareValidation = validateFare(formData.estimated_fare, { min: 10, max: 10000 });
+    if (!fareValidation.isValid) {
+      Alert.alert('Invalid Fare', fareValidation.error || 'Please enter a valid fare amount');
+      return;
+    }
+
     try {
       setLoading(true);
       const payload = {
         pickup_location: formData.pickup_location,
         dropoff_location: formData.dropoff_location,
-        estimated_fare: Number(formData.estimated_fare) || 0,
+        estimated_fare: fareValidation.amount!, // Use validated fare
         max_passengers: Number(formData.max_passengers) || 4,
         discount_percentage: Number(formData.discount_percentage) || 0,
         max_wait_minutes: Number(formData.max_wait_minutes) || 10,
@@ -739,9 +748,18 @@ const RidePoolingPanel: React.FC<RidePoolingPanelProps> = ({
                 style={styles.locationTextInput}
                 keyboardType="numeric"
                 value={String(formData.estimated_fare)}
-                onChangeText={(value) =>
-                  setFormData({ ...formData, estimated_fare: Number(value.replace(/[^0-9]/g, '')) || 0 })
-                }
+                onChangeText={(value) => {
+                  // BUG-019 FIX: Validate fare input
+                  const numericValue = Number(value.replace(/[^0-9]/g, '')) || 0;
+                  const fareValidation = validateFare(numericValue, { min: 10, max: 10000 });
+                  
+                  if (!fareValidation.isValid && numericValue > 0) {
+                    // Show warning but still update (for better UX)
+                    console.warn('[RidePooling] Invalid fare:', fareValidation.error);
+                  }
+                  
+                  setFormData({ ...formData, estimated_fare: numericValue });
+                }}
               />
             </View>
 

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { PermissionsAndroid, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 
 const DEFAULT_LANG = 'en-IN';
 let NativeVoiceModule = null;
@@ -260,6 +261,7 @@ export default function VoiceTextInput({
           style={[styles.micButton, listening && styles.micButtonActive]}
           accessibilityRole="button"
           accessibilityLabel={listening ? 'Stop voice input' : 'Start voice input'}>
+          <MaterialIcons name={listening ? 'stop' : 'mic'} size={18} color={listening ? '#1D5D27' : '#2B4E3A'} />
           <Text style={[styles.micText, listening && styles.micTextActive]}>{listening ? '⏹' : '🎙'}</Text>
         </TouchableOpacity>
       ) : null}
@@ -293,6 +295,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#DFF0E5',
   },
   micText: {
+    display: 'none',
     color: '#2B4E3A',
     fontSize: 16,
     fontWeight: '700',

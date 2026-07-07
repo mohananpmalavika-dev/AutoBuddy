@@ -14,6 +14,10 @@ import {
   Animated
 } from 'react-native';
 import { vehicleTypesAPI } from '../../services/apiClient';
+// BUG-007 FIX: Import fare validation
+import { validateFare } from '../../utils/validation';
+// BUG-005 FIX: Import safe async utilities
+import { useSafeAsync } from '../../hooks/useSafeAsync';
 
 interface FareEstimate {
   vehicle_type_id: number;
@@ -46,14 +50,12 @@ export const FareEstimator: React.FC<FareEstimatorProps> = ({
   rideProductId
 }) => {
   const [estimate, setEstimate] = useState<FareEstimate | null>(null);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const scaleAnim = useMemo(() => new Animated.Value(1), []);
 
-  const fetchFareEstimate = useCallback(async () => {
-    try {
-      setError(null);
-
+  // BUG-005 FIX & BUG-007 FIX: Use safe async with fare validation
+  const { execute: fetchFareEstimate, loading } = useSafeAsync(
+    async () => {
       const response = await vehicleTypesAPI.estimateFare({
         pickup_latitude: pickupLatitude,
         pickup_longitude: pickupLongitude,
@@ -63,10 +65,30 @@ export const FareEstimator: React.FC<FareEstimatorProps> = ({
         ride_product_id: rideProductId
       });
 
-      setEstimate(response);
-      setLoading(false);
+      // BUG-007 FIX: Validate fare response
+      const fareValidation = validateFare(response.final_fare, { min: 10, max: 10000 });
+      if (!fareValidation.isValid) {
+        throw new Error(fareValidation.error || 'Invalid fare amount received');
+      }
 
-      // Pulse animation
+      // Additional validation for fare components
+      if (!response.base_fare || response.base_fare < 0) {
+        throw new Error('Invalid base fare in response');
+      }
+
+      if (!response.estimated_distance_km || response.estimated_distance_km <= 0) {
+        throw new Error('Invalid distance in fare estimate');
+      }
+
+      if (!response.surge_multiplier || response.surge_multiplier < 1) {
+        console.warn('Invalid surge multiplier, defaulting to 1.0');
+        response.surge_multiplier = 1.0;
+      }
+
+      setEstimate(response);
+      setError(null);
+
+      // Pulse animation on success
       Animated.sequence([
         Animated.timing(scaleAnim, {
           toValue: 1.05,
@@ -79,20 +101,16 @@ export const FareEstimator: React.FC<FareEstimatorProps> = ({
           useNativeDriver: true
         })
       ]).start();
-    } catch (err) {
-      setError('Failed to calculate fare');
-      setLoading(false);
-      console.error('Error fetching fare estimate:', err);
+    },
+    { 
+      errorMessage: 'Failed to calculate fare. Please try again.',
+      showAlert: false, // Don't show alert, display error in UI
+      onError: (err) => {
+        console.error('Error fetching fare estimate:', err);
+        setError(err?.userMessage || err?.message || 'Failed to calculate fare');
+      }
     }
-  }, [
-    dropoffLatitude,
-    dropoffLongitude,
-    pickupLatitude,
-    pickupLongitude,
-    rideProductId,
-    scaleAnim,
-    vehicleTypeId,
-  ]);
+  );
 
   useEffect(() => {
     const timeout = setTimeout(() => {

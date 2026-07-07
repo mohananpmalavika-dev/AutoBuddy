@@ -39,6 +39,7 @@ import RideCommunicationCard from '../components/RideCommunicationCard';
 import VoiceTextInput from '../components/VoiceTextInput';
 import BookingConfirmationCard from '../components/BookingConfirmationCard';
 import ScheduledPickupPicker from '../components/ScheduledPickupPicker';
+import VoiceBookingOverlay from '../components/VoiceBookingOverlay';
 import KeralaSafetyCard from '../components/KeralaSafetyCard';
 import PromoCodePanel from '../components/PromoCodePanel';
 import SupportTicketsPanel from '../components/SupportTicketsPanel';
@@ -71,6 +72,7 @@ import RidePoolingPanel from './RidePoolingPanel';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useNotificationManager } from '../hooks/useNotificationManager';
 import { useVehicleTypes } from '../hooks/useVehicleTypes';
+import { useVoiceBooking } from '../hooks/useVoiceBooking';
 import { useKeralaSafety } from '../hooks/useKeralaSafety';
 import { AccessibilityProvider } from '../contexts/AccessibilityContext';
 import { validateScheduledPickup } from '../lib/scheduling';
@@ -770,10 +772,53 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   );
   useNotificationManager(token, user?.id, passengerNotificationSettings);
   const { unreadCount, addNotification } = useNotifications();
+  const voiceBooking = useVoiceBooking(
+    {
+      onIntentParsed: (intent) => {
+        if (intent?.pickupText) {
+          setPickupQuery(intent.pickupText);
+          setPickupLocation(null);
+        }
+        if (intent?.destinationText || intent?.destinationLabel) {
+          setDropoffQuery(intent.destinationLabel || intent.destinationText);
+          setDropoffLocation(null);
+        }
+        setActivePassengerMenu(PRIMARY_PASSENGER_MENU_KEY);
+        setMessage(intent?.displaySummary || '');
+        setError('');
+      },
+      onBookingComplete: (result) => {
+        const booking = result?.booking || result?.data?.booking || result?.data || result;
+        if (booking && typeof booking === 'object') {
+          setActiveBooking(booking);
+          setBookingJustCreated(true);
+        }
+        setMessage(languageCode === 'ml' ? 'വോയ്സ് വഴി റൈഡ് അഭ്യർത്ഥന അയച്ചു.' : 'Voice ride request sent.');
+        setShowVoiceBooking(false);
+      },
+      onError: (voiceError) => {
+        setError(voiceError);
+      },
+    },
+    voiceLanguage,
+  );
   const { vehicleTypes: availableVehicleTypes, loading: vehicleTypesLoading } = useVehicleTypes();
   const [rideProduct, setRideProduct] = useState('normal');
   const [selectedVehicleTypeId, setSelectedVehicleTypeId] = useState('');
   const [selectedVehicleModelId, setSelectedVehicleModelId] = useState('');
+
+  useEffect(() => {
+    voiceBooking.switchLanguage(voiceLanguage);
+  }, [voiceBooking.switchLanguage, voiceLanguage]);
+
+  const handleQuickLanguageChange = useCallback((nextLanguageCode) => {
+    const normalized = normalizeLanguageCode(nextLanguageCode);
+    setLanguageCode(normalized);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('autobuddy_lang', normalized);
+      window.dispatchEvent(new CustomEvent('autobuddy-language-change', { detail: { language: normalized } }));
+    }
+  }, []);
   
   // Auto-select first vehicle type when available to ensure fare estimation works
   useEffect(() => {
@@ -856,6 +901,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [showProfile, setShowProfile] = useState(false);
   const [showSafePath, setShowSafePath] = useState(false);
   const [showPassengerMenus, setShowPassengerMenus] = useState(false);
+  const [showVoiceBooking, setShowVoiceBooking] = useState(false);
   const [showRideDetailsModal, setShowRideDetailsModal] = useState(false);
   const [poolCreateRequest, setPoolCreateRequest] = useState({ key: 0, model: null });
   const [driverLiveAddress, setDriverLiveAddress] = useState('');
@@ -879,6 +925,95 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const placesConfigured = isPlacesConfigured();
   const liveTrackStatuses = useMemo(() => LIVE_DRIVER_TRACKING_STATUSES, []);
   const t = useMemo(() => resolvePassengerLocale(languageCode), [languageCode]);
+  const voiceLanguage = useMemo(() => {
+    if (languageCode === 'ml') {
+      return 'ml-IN';
+    }
+    if (languageCode === 'hi') {
+      return 'hi-IN';
+    }
+    return 'en-IN';
+  }, [languageCode]);
+  const quickCopy = useMemo(
+    () => (
+      languageCode === 'ml'
+        ? {
+            greeting: `ഹായ് ${user?.name || 'സുഹൃത്തേ'}`,
+            title: 'പറഞ്ഞ് ബുക്ക് ചെയ്യുക',
+            subtitle: 'പിക്കപ്പ് സ്വയം നിറയ്ക്കാം. ലക്ഷ്യസ്ഥാനം പറഞ്ഞാൽ മതി.',
+            english: 'English',
+            malayalam: 'മലയാളം',
+            voiceTitle: 'മൈക്കിൽ പറഞ്ഞ് റൈഡ് ബുക്ക് ചെയ്യുക',
+            voiceHint: 'ഉദാ: കൊല്ലം റെയിൽവേ സ്റ്റേഷനിലേക്ക് ഓട്ടോ ബുക്ക് ചെയ്യുക',
+            voiceButton: 'സംസാരിക്കുക',
+            pickup: 'പിക്കപ്പ്',
+            destination: 'ലക്ഷ്യസ്ഥാനം',
+            useCurrent: locatingPickup ? 'കണ്ടെത്തുന്നു' : 'നിലവിലെ സ്ഥലം',
+            pickupPlaceholder: 'നിലവിലെ സ്ഥലം ഉപയോഗിക്കുക',
+            destinationPlaceholder: 'എവിടേക്ക് പോകണം?',
+            searchingPickup: 'പിക്കപ്പ് തിരയുന്നു...',
+            searchingDropoff: 'സ്ഥലങ്ങൾ തിരയുന്നു...',
+            recent: 'സമീപകാല സ്ഥലങ്ങൾ',
+            rideModes: 'റൈഡ് മോഡുകൾ',
+            allServices: 'എല്ലാ സേവനങ്ങൾ',
+            ride: 'റൈഡ്',
+            payment: 'പേയ്മെന്റ്',
+            cash: 'ക്യാഷ്',
+            online: 'ഓൺലൈൻ',
+            fareReadySoon: 'നിരക്ക് ഉടൻ',
+            estimatedFare: 'അനുമാന നിരക്ക്',
+            tripPreview: 'യാത്ര പ്രിവ്യൂ',
+            calculating: 'കണക്കാക്കുന്നു...',
+            requesting: 'റൈഡ് അഭ്യർത്ഥിക്കുന്നു...',
+            confirm: 'റൈഡ് സ്ഥിരീകരിക്കുക',
+            selectDestination: 'ലക്ഷ്യസ്ഥാനം തിരഞ്ഞെടുക്കുക',
+            locationPromptTitle: locatingPickup ? 'സ്ഥലം കണ്ടെത്തുന്നു...' : 'നിലവിലെ സ്ഥലം അനുവദിക്കുക',
+            locationPromptText: 'അനുമതി നൽകിയാൽ പിക്കപ്പ് സ്വയം നിറയും.',
+            modeLabel: 'മോഡ്',
+            mapOn: showInteractiveMap ? 'മാപ്പ് പിക്ക് ഓൺ' : 'മാപ്പ് പിക്ക്',
+            safety: 'സുരക്ഷ',
+            profile: 'പ്രൊഫൈൽ',
+          }
+        : {
+            greeting: `Hi ${user?.name || 'there'}`,
+            title: 'Speak or type one thing',
+            subtitle: 'Use current pickup, say the destination, and confirm.',
+            english: 'English',
+            malayalam: 'മലയാളം',
+            voiceTitle: 'Book by voice',
+            voiceHint: 'Try: Book an auto to Kollam railway station',
+            voiceButton: 'Speak',
+            pickup: 'Pickup',
+            destination: 'Destination',
+            useCurrent: locatingPickup ? 'Locating' : 'Use current',
+            pickupPlaceholder: 'Use current location',
+            destinationPlaceholder: 'Where to?',
+            searchingPickup: 'Searching pickup...',
+            searchingDropoff: 'Searching places...',
+            recent: 'Recent places',
+            rideModes: 'Ride modes',
+            allServices: 'All services',
+            ride: 'Ride',
+            payment: 'Payment',
+            cash: 'Cash',
+            online: 'Online',
+            fareReadySoon: 'Fare ready soon',
+            estimatedFare: 'Estimated fare',
+            tripPreview: 'Trip preview',
+            calculating: 'Calculating...',
+            requesting: 'Requesting ride...',
+            confirm: 'Confirm Ride',
+            selectDestination: 'Select destination',
+            locationPromptTitle: locatingPickup ? 'Getting your location...' : 'Allow current location',
+            locationPromptText: 'Pickup fills automatically after permission.',
+            modeLabel: 'Mode',
+            mapOn: showInteractiveMap ? 'Map pick on' : 'Enable map pick',
+            safety: 'Safety',
+            profile: 'Profile',
+          }
+    ),
+    [languageCode, locatingPickup, showInteractiveMap, user?.name],
+  );
   const rideProductLabels = useMemo(() => getPassengerRideProductLabels(t), [t]);
   const menuLabels = useMemo(
     () => ({
@@ -4311,12 +4446,12 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       <View style={styles.quickSheetHandle} />
       <View style={styles.quickBookingHeader}>
         <View style={styles.quickBookingTitleBlock}>
-          <Text style={styles.quickGreeting}>Hi {user?.name || 'there'}</Text>
+          <Text style={styles.quickGreeting}>{quickCopy.greeting}</Text>
           <Text style={[styles.quickTitle, isMobileWeb && styles.quickTitleMobile]}>
-            {bookingMode === 'single' ? 'Where to?' : bookingMode === 'family' ? 'Book for your family' : bookingMode === 'pooling' ? 'Find a ride partner' : bookingMode === 'corporate' ? 'Book for your company' : bookingMode === 'travel' ? 'Plan your journey' : bookingMode === 'scheduled' ? 'Schedule your ride' : 'Where to?'}
+            {quickCopy.title}
           </Text>
           <Text style={[styles.quickSubtitle, isMobileWeb && styles.quickSubtitleMobile]}>
-            {bookingMode === 'single' ? 'Enter your destination' : bookingMode === 'family' ? 'Add family members to your ride' : bookingMode === 'pooling' ? 'Share your ride with others' : bookingMode === 'corporate' ? 'Book for employees' : bookingMode === 'travel' ? 'Plan multiple stops' : bookingMode === 'scheduled' ? 'Schedule for later' : 'Enter your destination'}
+            {quickCopy.subtitle}
           </Text>
         </View>
         <View style={styles.quickHeaderActions}>
@@ -4336,32 +4471,50 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         </View>
       </View>
 
+      <View style={styles.quickLanguageToggle}>
+        {[
+          { code: 'en', label: quickCopy.english },
+          { code: 'ml', label: quickCopy.malayalam },
+        ].map((option) => {
+          const selected = languageCode === option.code;
+          return (
+            <TouchableOpacity
+              key={option.code}
+              style={[styles.quickLanguageChip, selected && styles.quickLanguageChipActive]}
+              onPress={() => handleQuickLanguageChange(option.code)}
+              accessibilityRole="button"
+              accessibilityState={{ selected }}>
+              <Text style={[styles.quickLanguageText, selected && styles.quickLanguageTextActive]}>{option.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
 
-
-      {bookingMode === 'single' && (
-        <View style={styles.quickStepRow}>
-          {['Destination', 'Ride', 'Confirm'].map((label, index) => {
-            const stepNumber = index + 1;
-            const active = quickBookingStep >= stepNumber;
-            return (
-              <View key={label} style={styles.quickStepItem}>
-                <View style={[styles.quickStepDot, active && styles.quickStepDotActive]}>
-                  <Text style={[styles.quickStepNumber, active && styles.quickStepNumberActive]}>{stepNumber}</Text>
-                </View>
-                <Text style={[styles.quickStepLabel, active && styles.quickStepLabelActive]}>{label}</Text>
-              </View>
-            );
-          })}
+      <TouchableOpacity
+        style={[styles.quickVoiceCard, voiceBooking.voiceState === 'listening' && styles.quickVoiceCardListening]}
+        onPress={() => {
+          voiceBooking.reset();
+          setShowVoiceBooking(true);
+        }}
+        accessibilityRole="button"
+        accessibilityLabel={quickCopy.voiceTitle}>
+        <View style={[styles.quickVoiceIcon, voiceBooking.voiceState === 'listening' && styles.quickVoiceIconListening]}>
+          <Text style={styles.quickVoiceIconText}>{voiceBooking.voiceState === 'listening' ? '||' : 'mic'}</Text>
         </View>
-      )}
+        <View style={styles.quickVoiceCopy}>
+          <Text style={styles.quickVoiceTitle}>{quickCopy.voiceTitle}</Text>
+          <Text style={styles.quickVoiceHint}>{quickCopy.voiceHint}</Text>
+        </View>
+        <Text style={styles.quickVoiceAction}>{quickCopy.voiceButton}</Text>
+      </TouchableOpacity>
 
       {shouldShowWebLocationPrompt && (
         <TouchableOpacity
           style={styles.quickLocationPrompt}
           onPress={() => autofillPickupFromCurrentLocation({ silent: false })}
           disabled={locatingPickup}>
-          <Text style={styles.quickLocationPromptTitle}>{locatingPickup ? 'Getting your location...' : 'Allow current location'}</Text>
-          <Text style={styles.quickLocationPromptText}>Pickup fills automatically after permission.</Text>
+          <Text style={styles.quickLocationPromptTitle}>{quickCopy.locationPromptTitle}</Text>
+          <Text style={styles.quickLocationPromptText}>{quickCopy.locationPromptText}</Text>
         </TouchableOpacity>
       )}
 
@@ -4370,12 +4523,12 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           <View style={[styles.quickRouteDot, styles.quickPickupDot]} />
           <View style={styles.quickRouteCopy}>
             <View style={styles.quickRouteLabelRow}>
-              <Text style={styles.quickRouteLabel}>Pickup</Text>
+              <Text style={styles.quickRouteLabel}>{quickCopy.pickup}</Text>
               <TouchableOpacity
                 style={styles.quickUseLocationButton}
                 onPress={() => autofillPickupFromCurrentLocation({ silent: false })}
                 disabled={locatingPickup}>
-                <Text style={styles.quickUseLocationText}>{locatingPickup ? 'Locating' : 'Use current'}</Text>
+                <Text style={styles.quickUseLocationText}>{quickCopy.useCurrent}</Text>
               </TouchableOpacity>
             </View>
             <VoiceTextInput
@@ -4384,9 +4537,10 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               value={pickupQuery}
               onFocus={() => setSelectingPoint('pickup')}
               onChangeText={(text) => handleSearchTextChange('pickup', text)}
-              placeholder={quickPickupText}
+              placeholder={quickPickupText || quickCopy.pickupPlaceholder}
               placeholderTextColor="#7A8A80"
               returnKeyType="search"
+              voiceLang={voiceLanguage}
             />
           </View>
         </View>
@@ -4396,30 +4550,31 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         <View style={styles.quickRouteLine}>
           <View style={[styles.quickRouteDot, styles.quickDropDot]} />
           <View style={styles.quickRouteCopy}>
-            <Text style={styles.quickRouteLabel}>Destination</Text>
+            <Text style={styles.quickRouteLabel}>{quickCopy.destination}</Text>
             <VoiceTextInput
               style={[styles.quickDestinationInput, locationValidation.dropoff && styles.quickDestinationInputError]}
               containerStyle={styles.quickDestinationInputContainer}
               value={dropoffQuery}
               onFocus={() => setSelectingPoint('dropoff')}
               onChangeText={(text) => handleSearchTextChange('dropoff', text)}
-              placeholder="Search destination"
+              placeholder={quickCopy.destinationPlaceholder}
               placeholderTextColor="#7A8A80"
               returnKeyType="search"
+              voiceLang={voiceLanguage}
             />
           </View>
         </View>
       </View>
 
-      {searchingPickup && <Text style={styles.quickHint}>Searching pickup...</Text>}
+      {searchingPickup && <Text style={styles.quickHint}>{quickCopy.searchingPickup}</Text>}
       {pickupSuggestions.slice(0, 4).map((item) => renderQuickSuggestion(item, 'pickup'))}
 
-      {searchingDropoff && <Text style={styles.quickHint}>Searching places...</Text>}
+      {searchingDropoff && <Text style={styles.quickHint}>{quickCopy.searchingDropoff}</Text>}
       {dropoffSuggestions.slice(0, 4).map((item) => renderQuickSuggestion(item, 'dropoff'))}
 
       {!quickDestinationText && recentDestinationOptions.length > 0 && (
         <View style={styles.quickRecentSection}>
-          <Text style={styles.quickSectionLabel}>Recent places</Text>
+          <Text style={styles.quickSectionLabel}>{quickCopy.recent}</Text>
           <View style={styles.quickRecentRow}>
             {recentDestinationOptions.map((item) => (
               <TouchableOpacity
@@ -4436,14 +4591,14 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
 
       <View style={styles.quickModeSection}>
         <View style={styles.quickModeHeaderRow}>
-          <Text style={styles.quickSectionLabel}>Ride modes</Text>
+          <Text style={styles.quickSectionLabel}>{quickCopy.rideModes}</Text>
           <TouchableOpacity
             style={styles.quickModeSeeAllButton}
             onPress={() => {
               setShowPassengerMenus(true);
               setActivePassengerMenu(PRIMARY_PASSENGER_MENU_KEY);
             }}>
-            <Text style={styles.quickModeSeeAllText}>All services</Text>
+            <Text style={styles.quickModeSeeAllText}>{quickCopy.allServices}</Text>
           </TouchableOpacity>
         </View>
         <ScrollView
@@ -4496,7 +4651,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               }}
               accessibilityLabel="Select ride details"
               accessibilityRole="button">
-              <Text style={styles.quickChoiceLabel}>Ride</Text>
+              <Text style={styles.quickChoiceLabel}>{quickCopy.ride}</Text>
               <Text style={styles.quickChoiceValue} numberOfLines={1}>
                 {displayLabel}
               </Text>
@@ -4504,8 +4659,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             <TouchableOpacity
               style={styles.quickChoiceChip}
               onPress={() => handleMenuSelection('payment', t.payment || 'Payment')}>
-              <Text style={styles.quickChoiceLabel}>Payment</Text>
-              <Text style={styles.quickChoiceValue}>{selectedPaymentMethod === 'online' ? 'Online' : 'Cash'}</Text>
+              <Text style={styles.quickChoiceLabel}>{quickCopy.payment}</Text>
+              <Text style={styles.quickChoiceValue}>{selectedPaymentMethod === 'online' ? quickCopy.online : quickCopy.cash}</Text>
             </TouchableOpacity>
           </View>
         );
@@ -4513,8 +4668,10 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
 
       <View style={styles.quickFareCard}>
         <View>
-          <Text style={styles.quickFareLabel}>{quickBookingReady ? 'Estimated fare' : 'Trip preview'}</Text>
-          <Text style={styles.quickFareValue}>{autoFetchingTripData ? 'Calculating...' : quickFareLabel}</Text>
+          <Text style={styles.quickFareLabel}>{quickBookingReady ? quickCopy.estimatedFare : quickCopy.tripPreview}</Text>
+          <Text style={styles.quickFareValue}>
+            {autoFetchingTripData ? quickCopy.calculating : quickFareLabel === 'Fare ready soon' ? quickCopy.fareReadySoon : quickFareLabel}
+          </Text>
         </View>
         <View style={styles.quickFareMeta}>
           <Text style={styles.quickFareMetaText}>{quickDistanceLabel}</Text>
@@ -4530,7 +4687,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         onPress={handleQuickConfirmRide}
         disabled={loading || !quickBookingReady}>
         <Text style={styles.quickConfirmText}>
-          {loading ? 'Requesting ride...' : quickBookingReady ? 'Confirm Ride' : 'Select destination'}
+          {loading ? quickCopy.requesting : quickBookingReady ? quickCopy.confirm : quickCopy.selectDestination}
         </Text>
       </TouchableOpacity>
 
@@ -4542,23 +4699,23 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             setActivePassengerMenu(PRIMARY_PASSENGER_MENU_KEY);
           }}>
           <Text style={styles.quickSecondaryText}>
-            {bookingMode === 'single' ? 'Single' : bookingMode === 'family' ? 'Family' : bookingMode === 'pooling' ? 'Pool' : bookingMode === 'corporate' ? 'Corporate' : bookingMode === 'travel' ? 'Travel' : bookingMode === 'scheduled' ? 'Scheduled' : 'Booking Mode'}
+            {quickCopy.modeLabel}: {bookingMode === 'single' ? 'Single' : bookingMode === 'family' ? 'Family' : bookingMode === 'pooling' ? 'Pool' : bookingMode === 'corporate' ? 'Corporate' : bookingMode === 'travel' ? 'Travel' : bookingMode === 'scheduled' ? 'Scheduled' : 'Booking'}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.quickSecondaryButton}
           onPress={() => setShowInteractiveMap((prev) => !prev)}>
-          <Text style={styles.quickSecondaryText}>{showInteractiveMap ? 'Map pick on' : 'Enable map pick'}</Text>
+          <Text style={styles.quickSecondaryText}>{quickCopy.mapOn}</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.quickSecondaryButton}
           onPress={() => handleMenuSelection('safety', t.safety)}>
-          <Text style={styles.quickSecondaryText}>Safety</Text>
+          <Text style={styles.quickSecondaryText}>{quickCopy.safety}</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.quickSecondaryButton}
           onPress={handleProfilePress}>
-          <Text style={styles.quickSecondaryText}>Profile</Text>
+          <Text style={styles.quickSecondaryText}>{quickCopy.profile}</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -6022,6 +6179,23 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             }}
           />
         )}
+
+        <VoiceBookingOverlay
+          visible={showVoiceBooking}
+          voiceState={voiceBooking.voiceState}
+          transcript={voiceBooking.transcript}
+          lastIntent={voiceBooking.lastIntent}
+          errorMessage={voiceBooking.errorMessage}
+          isVoiceAvailable={voiceBooking.isVoiceAvailable}
+          onStartListening={voiceBooking.startListening}
+          onStopListening={voiceBooking.stopListening}
+          onConfirm={() => voiceBooking.confirmAndBook(token)}
+          onRetry={voiceBooking.reset}
+          onClose={() => {
+            voiceBooking.reset();
+            setShowVoiceBooking(false);
+          }}
+        />
       </View>
       </SafeAreaView>
     </AccessibilityProvider>
@@ -6350,6 +6524,17 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     fontSize: 22,
     lineHeight: 27,
   },
+  quickSubtitle: {
+    color: '#607367',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
+    marginTop: 4,
+  },
+  quickSubtitleMobile: {
+    fontSize: 12,
+    lineHeight: 17,
+  },
   quickHeaderActions: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -6368,6 +6553,91 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   },
   quickMoreText: {
     color: COLORS.textMain,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  quickLanguageToggle: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 10,
+  },
+  quickLanguageChip: {
+    flex: 1,
+    minHeight: 40,
+    borderWidth: 1,
+    borderColor: '#D8E5DC',
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+  },
+  quickLanguageChipActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: '#E8F5EC',
+  },
+  quickLanguageText: {
+    color: '#456253',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  quickLanguageTextActive: {
+    color: COLORS.primaryDark,
+  },
+  quickVoiceCard: {
+    minHeight: 74,
+    borderWidth: 1,
+    borderColor: '#CFE0D4',
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    marginBottom: 10,
+  },
+  quickVoiceCardListening: {
+    borderColor: '#D88A1D',
+    backgroundColor: '#FFF8EC',
+  },
+  quickVoiceIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.primary,
+  },
+  quickVoiceIconListening: {
+    backgroundColor: '#D88A1D',
+  },
+  quickVoiceIconText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  quickVoiceCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  quickVoiceTitle: {
+    color: COLORS.textMain,
+    fontSize: 15,
+    fontWeight: '900',
+    lineHeight: 20,
+  },
+  quickVoiceHint: {
+    color: '#66786D',
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
+    marginTop: 2,
+  },
+  quickVoiceAction: {
+    color: '#0B6A32',
     fontSize: 12,
     fontWeight: '900',
   },

@@ -23,6 +23,7 @@ import DocumentUploadPanel from '../components/DocumentUploadPanel';
 import DriverFareDisplay from '../components/DriverFareDisplay';
 import DriverFareProposal from '../components/DriverFareProposal';
 import DriverKycPanel from '../components/DriverKycPanel';
+import DriverPaymentMethodsPanel from '../components/DriverPaymentMethodsPanel';
 import DriverPhotoVerificationPanel from '../components/DriverPhotoVerificationPanel';
 import DriverReferralPanel from '../components/DriverReferralPanel';
 import DriverReviewsPanel from '../components/DriverReviewsPanel';
@@ -30,11 +31,13 @@ import DriverSuspensionAppealPanel from '../components/DriverSuspensionAppealPan
 import DriverTierBenefitsPanel from '../components/DriverTierBenefitsPanel';
 import DriverTrustCard from '../components/DriverTrustCard';
 import EarningsPanel from '../components/EarningsPanel';
+import EarningTargetWidget from '../components/EarningTargetWidget';
 import EnhancedSettingsPanel from '../components/EnhancedSettingsPanel';
 import { FavoritePassengersPanel } from '../components/FavoritePassengersPanel';
 import KeralaSafetyCard from '../components/KeralaSafetyCard';
 import NotificationCenter from '../components/NotificationCenter';
 import PassengerSafetyRatingsPanel from '../components/PassengerSafetyRatingsPanel';
+import PayoutScheduleWidget from '../components/PayoutScheduleWidget';
 import ProfileManagementPanel from '../components/ProfileManagementPanel';
 import RideCommunicationCard from '../components/RideCommunicationCard';
 import RideFilterPanel from '../components/RideFilterPanel';
@@ -1752,20 +1755,25 @@ export default function DriverCommandPageNative({
           </View>
         );
       case 'targets':
-        return renderLinkedToolPanel({
-          title: 'Earning Targets',
-          description: 'Daily earnings, reports, and withdrawal actions are available from the Earnings tab.',
-          primaryTab: 'earnings',
-          primaryLabel: 'Open Earnings',
-        });
+        return <EarningTargetWidget token={token} driverId={user?.id} />;
       case 'payout':
+        return (
+          <PayoutScheduleWidget
+            isVisible
+            onClose={() => setActiveTab('earnings')}
+            token={token}
+            driverId={user?.id}
+          />
+        );
       case 'paymethods':
-        return renderLinkedToolPanel({
-          title: formatStatus(activeTab),
-          description: 'Manage payout details and withdrawals from Earnings or Profile.',
-          primaryTab: 'earnings',
-          primaryLabel: 'Open Earnings',
-        });
+        return (
+          <DriverPaymentMethodsPanel
+            isVisible
+            onClose={() => setActiveTab('earnings')}
+            token={token}
+            driverId={user?.id}
+          />
+        );
       case 'actions':
         return renderQuickActionsTab();
       case 'settings':

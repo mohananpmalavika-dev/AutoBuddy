@@ -22,12 +22,12 @@ import {
   Alert,
   Animated,
   Dimensions,
-  Platform,
 } from 'react-native';
 import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
-import * as Speech from 'expo-speech';
 import { apiRequest } from '../lib/api-client';
 import { useNotifications } from '../contexts/NotificationContext';
+// BUG-005 FIX: Import safe async utilities
+import { useSafeAsync } from '../hooks/useSafeAsync';
 
 interface ParsedIntent {
   type: string;
@@ -67,41 +67,35 @@ const SmartIntentInput: React.FC<SmartIntentInputProps> = ({
 
   const [intentText, setIntentText] = useState('');
   const [parsedIntent, setParsedIntent] = useState<ParsedIntent | null>(null);
-  const [loading, setLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [showExamples, setShowExamples] = useState(false);
   const [examples, setExamples] = useState<any[]>([]);
   const [fadeAnim] = useState(new Animated.Value(0));
+  const urgencyStyleMap = {
+    critical: styles.urgency_critical,
+    high: styles.urgency_high,
+    medium: styles.urgency_medium,
+    low: styles.urgency_low,
+  } as const;
 
-  // Load example intents on mount
-  useEffect(() => {
-    loadExamples();
-  }, []);
-
-  const loadExamples = async () => {
-    try {
+  // BUG-005 FIX: Wrap async operations with useSafeAsync for automatic error handling
+  const { execute: executeLoadExamples } = useSafeAsync(
+    async () => {
       const response = await apiRequest('/api/intent/examples', { token });
       if ((response as any).ok) {
         setExamples((response as any).examples || []);
       }
-    } catch (error) {
-      console.error('Error loading examples:', error);
+    },
+    { 
+      showAlert: false, // Don't alert on examples load failure
+      onError: (error) => {
+        console.error('Error loading examples:', error);
+      }
     }
-  };
+  );
 
-  const parseIntent = async (text: string) => {
-    if (!text.trim()) {
-      addNotification({
-        title: 'Input Required',
-        message: 'Please describe what you need (e.g., "Airport before 8pm")',
-        type: 'info',
-      });
-      return;
-    }
-
-    try {
-      setLoading(true);
-
+  const { execute: executeParseIntent, loading: parsingIntent } = useSafeAsync(
+    async (text: string) => {
       const response = await apiRequest('/api/intent/parse', {
         method: 'POST',
         token,
@@ -125,28 +119,76 @@ const SmartIntentInput: React.FC<SmartIntentInputProps> = ({
           onIntentParsed(intent);
         }
 
-        // Speak confirmation
-        if (Platform.OS !== 'web') {
-          await Speech.speak(
-            `${intent.vehicle_type} vehicle to ${intent.type.replace('_', ' ')}, estimated fare ${intent.estimated_fare} rupees`,
-            {
-              rate: 0.9,
-              onDone: () => {},
-              onError: () => {},
-            }
-          );
-        }
       }
-    } catch (error) {
-      console.error('Error parsing intent:', error);
-      addNotification({
-        title: 'Parse Error',
-        message: 'Could not understand your request. Please try again.',
-        type: 'error',
-      });
-    } finally {
-      setLoading(false);
+    },
+    { 
+      errorMessage: 'Could not understand your request. Please try again.',
+      onError: (error) => {
+        console.error('Error parsing intent:', error);
+      }
     }
+  );
+
+  const { execute: executeBooking, loading: bookingInProgress } = useSafeAsync(
+    async (intent: ParsedIntent) => {
+      const response = await apiRequest('/api/intent/book-from-intent', {
+        method: 'POST',
+        token,
+        body: {
+          intent_type: intent.type,
+          destination_latitude: intent.destination.latitude,
+          destination_longitude: intent.destination.longitude,
+          vehicle_type: intent.vehicle_type,
+          special_requirements: intent.special_requirements,
+          time_constraint: intent.time_constraint,
+          summary: intent.summary,
+        },
+      });
+
+      if ((response as any).ok) {
+        addNotification({
+          title: 'Booking Confirmed! 🎉',
+          message: (response as any).message || 'Driver will be assigned shortly',
+          type: 'success',
+        });
+
+        if (onBook) {
+          onBook(intent);
+        }
+
+        // Reset
+        setIntentText('');
+        setParsedIntent(null);
+      }
+    },
+    { 
+      errorMessage: 'Could not complete booking. Please try again.',
+      onError: (error) => {
+        console.error('Booking error:', error);
+      }
+    }
+  );
+
+  // Combine loading states
+  const loading = parsingIntent || bookingInProgress;
+
+  // Load example intents on mount
+  useEffect(() => {
+    executeLoadExamples();
+  }, []);
+
+  const parseIntent = async (text: string) => {
+    if (!text.trim()) {
+      addNotification({
+        title: 'Input Required',
+        message: 'Please describe what you need (e.g., "Airport before 8pm")',
+        type: 'info',
+      });
+      return;
+    }
+
+    // BUG-005 FIX: Use safe async wrapper instead of try-catch
+    await executeParseIntent(text);
   };
 
   const handleVoiceInput = async () => {
@@ -162,7 +204,7 @@ const SmartIntentInput: React.FC<SmartIntentInputProps> = ({
             { text: 'Cancel', onPress: () => setIsListening(false) },
             {
               text: 'Parse',
-              onPress: (text) => {
+              onPress: (text?: string) => {
                 if (text) {
                   setIntentText(text);
                   parseIntent(text);
@@ -183,44 +225,8 @@ const SmartIntentInput: React.FC<SmartIntentInputProps> = ({
   const handleBookFromIntent = async () => {
     if (!parsedIntent) return;
 
-    try {
-      setLoading(true);
-
-      const response = await apiRequest('/api/intent/book-from-intent', {
-        method: 'POST',
-        token,
-        body: {
-          intent_type: parsedIntent.type,
-          destination_latitude: parsedIntent.destination.latitude,
-          destination_longitude: parsedIntent.destination.longitude,
-          vehicle_type: parsedIntent.vehicle_type,
-          special_requirements: parsedIntent.special_requirements,
-          time_constraint: parsedIntent.time_constraint,
-          summary: parsedIntent.summary,
-        },
-      });
-
-      if ((response as any).ok) {
-        addNotification({
-          title: 'Booking Confirmed! 🎉',
-          message: (response as any).message || 'Driver will be assigned shortly',
-          type: 'success',
-        });
-
-        if (onBook) {
-          onBook(parsedIntent);
-        }
-
-        // Reset
-        setIntentText('');
-        setParsedIntent(null);
-      }
-    } catch (error) {
-      console.error('Booking error:', error);
-      Alert.alert('Booking Error', 'Could not complete booking. Please try again.');
-    } finally {
-      setLoading(false);
-    }
+    // BUG-005 FIX: Use safe async wrapper instead of try-catch
+    await executeBooking(parsedIntent);
   };
 
   const handleExampleSelect = (exampleText: string) => {
@@ -343,7 +349,11 @@ const SmartIntentInput: React.FC<SmartIntentInputProps> = ({
                 {Math.round(parsedIntent.confidence * 100)}% match
               </Text>
             </View>
-            <View style={[styles.urgencyBadge, styles[`urgency_${parsedIntent.urgency}`]]}>
+            <View
+              style={[
+                styles.urgencyBadge,
+                urgencyStyleMap[parsedIntent.urgency as keyof typeof urgencyStyleMap] || styles.urgency_medium,
+              ]}>
               <Text style={styles.urgencyText}>{parsedIntent.urgency}</Text>
             </View>
           </View>

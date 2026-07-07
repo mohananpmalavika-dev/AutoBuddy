@@ -371,7 +371,7 @@ Source: `PassengerMap.web.js`
   - `corporate_purpose`
   - `corporate_cost_center_id`
 - Corporate code is required for corporate ride product.
-- Corporate menu card exists, but its menu action currently shows "coming soon".
+- Corporate menu action is mounted for users and opens the existing corporate ride flow with company code, purpose, and cost center fields.
 
 ## Airport Ride Features
 
@@ -694,13 +694,15 @@ Source: `PassengerBookingNavigator.js`
 - Supports booking last repeatable ride again from recent bookings.
 - Normalizes previous pickup/drop locations from multiple backend field shapes.
 
-## Existing UI-Only or Placeholder Areas
+## Previously UI-Only Areas Now Mounted
 
-These are visible in the passenger menus but are not fully wired from that menu card in the current code:
+These passenger menu cards now open real passenger flows instead of placeholder messages:
 
-- Family Booking menu card says family booking is coming soon.
-- Corporate Booking menu card says corporate booking is coming soon, although corporate fields exist in the advanced booking payload.
-- Travel Packages menu card says travel package booking is coming soon, although tourism fields exist in the advanced booking payload.
+- Family Booking opens the minimal booking form with passenger count and notes available.
+- Corporate Booking opens the corporate ride product with corporate code, purpose, and cost center fields.
+- Travel Packages opens the tourism ride product with package, city, language, and add-on fields.
+- Schedule Ride opens the scheduled ride product with future pickup time and driver gender preference.
+- Voice Booking is mounted in the passenger quick booking surface on web and native, with English and Malayalam selection.
 
 Important distinction:
 
@@ -747,3 +749,30 @@ Any passenger redesign must preserve these working behaviours:
 - Predictive booking.
 - Guided booking navigator and repeat-last-ride.
 
+## Driver Options Mount Audit
+
+Sources: `DriverDashboard.ts`, `DriverCommandPage.web.js`, `DriverCommandPage.native.js`, `DriverTabBar.js`
+
+- Driver role routing uses the live command page:
+  - Web: `DriverCommandPage.web.js`
+  - Native: `DriverCommandPage.native.js`
+- Every visible driver tab from `DriverTabBar` has a mounted web and native render branch:
+  - Ride Flow, Upcoming, Earnings, Support, History, Alerts.
+  - Profile, Documents, Vehicle, Trust, Plan.
+  - Fare, Analytics, Reviews, Targets, Payout, Pay Methods.
+  - Blocked, Safety, Demand Map, Traffic, Photo Check, Passenger Safety.
+  - Spin, Filters, Maintenance, Actions, Settings.
+  - Pooling, Tax Reports, Favorites, Shifts, Badges, My Tier, Document Alerts, Appeals, Referrals.
+- Driver quick actions are mounted through `runDriverQuickAction` and route to real flow handlers or tabs:
+  - Go Online.
+  - Resume Active Ride.
+  - Navigate Active Ride.
+  - Call Passenger.
+  - SOS.
+  - Withdraw Earnings.
+  - Contact Support.
+  - Subscription, profile, documents, vehicle, alerts, analytics, reviews, history, spin, fare, blocked passengers, trust, and safety.
+- Fixed driver live command-page mount gap:
+  - Targets now opens `EarningTargetWidget`.
+  - Payout now opens `PayoutScheduleWidget`.
+  - Pay Methods now opens `DriverPaymentMethodsPanel`.

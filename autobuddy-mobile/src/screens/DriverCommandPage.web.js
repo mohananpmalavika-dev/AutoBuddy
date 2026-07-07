@@ -21,17 +21,21 @@ import DocumentUploadPanel from '../components/DocumentUploadPanel';
 import DriverFareDisplay from '../components/DriverFareDisplay';
 import DriverFareProposal from '../components/DriverFareProposal';
 import DriverKycPanel from '../components/DriverKycPanel';
+import DriverPaymentMethodsPanel from '../components/DriverPaymentMethodsPanel';
 import DriverPhotoVerificationPanel from '../components/DriverPhotoVerificationPanel';
 import DriverReferralPanel from '../components/DriverReferralPanel';
 import DriverReviewsPanel from '../components/DriverReviewsPanel';
 import DriverSuspensionAppealPanel from '../components/DriverSuspensionAppealPanel';
 import DriverTierBenefitsPanel from '../components/DriverTierBenefitsPanel';
 import DriverTrustCard from '../components/DriverTrustCard';
+import DriverVoiceCommandCard from '../components/DriverVoiceCommandCard';
 import EarningsPanel from '../components/EarningsPanel';
+import EarningTargetWidget from '../components/EarningTargetWidget';
 import EnhancedSettingsPanel from '../components/EnhancedSettingsPanel';
 import { FavoritePassengersPanel } from '../components/FavoritePassengersPanel';
 import KeralaSafetyCard from '../components/KeralaSafetyCard';
 import PassengerSafetyRatingsPanel from '../components/PassengerSafetyRatingsPanel';
+import PayoutScheduleWidget from '../components/PayoutScheduleWidget';
 import ProfileManagementPanel from '../components/ProfileManagementPanel';
 import RideCommunicationCard from '../components/RideCommunicationCard';
 import RideFilterPanel from '../components/RideFilterPanel';
@@ -47,6 +51,7 @@ import VehicleManagementPanel from '../components/VehicleManagementPanel';
 import WebLeafletMap from '../components/WebLeafletMap';
 import { DRIVER_QUICK_ACTIONS } from '../constants/driverQuickActions';
 import { useDriverRideQueueSocket } from '../hooks/useDriverRideQueueSocket';
+import { useDriverVoiceCommands } from '../hooks/useDriverVoiceCommands';
 import { useKeralaSafety } from '../hooks/useKeralaSafety';
 import { apiRequest } from '../lib/api';
 import {
@@ -1377,6 +1382,47 @@ export default function DriverCommandPage({
     ],
   );
 
+  const handleDriverVoiceCommand = useCallback(
+    (action) => {
+      if (!action || typeof action !== 'object') {
+        return;
+      }
+      setError('');
+
+      if (action.type === 'toggle_offline') {
+        if (!isAccepting) {
+          setActiveTab('requests');
+          setMessage(activeRideId ? 'Active ride is open. New requests are already paused.' : 'New requests are already paused.');
+          return;
+        }
+        toggleOnlineStatus().catch(() => null);
+        return;
+      }
+
+      if (action.type === 'next_ride_status') {
+        if (!activeRideId) {
+          setError('No active ride to update.');
+          return;
+        }
+        setActiveTab('requests');
+        moveRideToNextStatus().catch(() => null);
+        return;
+      }
+
+      handleQuickActionPress(action);
+    },
+    [activeRideId, handleQuickActionPress, isAccepting, moveRideToNextStatus, toggleOnlineStatus],
+  );
+
+  const driverVoice = useDriverVoiceCommands(
+    {
+      onCommand: handleDriverVoiceCommand,
+      onFeedback: setMessage,
+      onError: setError,
+    },
+    'en-IN',
+  );
+
   const activeRideNavigation = useMemo(
     () =>
       getRideNavigationTarget({
@@ -1894,20 +1940,25 @@ export default function DriverCommandPage({
           </View>
         );
       case 'targets':
-        return renderLinkedToolPanel({
-          title: 'Earning Targets',
-          description: 'Daily earnings, reports, and withdrawal actions are available from the Earnings tab.',
-          primaryTab: 'earnings',
-          primaryLabel: 'Open Earnings',
-        });
+        return <EarningTargetWidget token={token} driverId={user?.id} />;
       case 'payout':
+        return (
+          <PayoutScheduleWidget
+            isVisible
+            onClose={() => setActiveTab('earnings')}
+            token={token}
+            driverId={user?.id}
+          />
+        );
       case 'paymethods':
-        return renderLinkedToolPanel({
-          title: formatStatus(activeTab),
-          description: 'Manage payout details and withdrawals from Earnings or Profile.',
-          primaryTab: 'earnings',
-          primaryLabel: 'Open Earnings',
-        });
+        return (
+          <DriverPaymentMethodsPanel
+            isVisible
+            onClose={() => setActiveTab('earnings')}
+            token={token}
+            driverId={user?.id}
+          />
+        );
       case 'actions':
         return renderQuickActionsTab();
       case 'settings':
@@ -2001,6 +2052,13 @@ export default function DriverCommandPage({
               <MetricTile label="Today" value={formatMoney(earnings?.today_earnings)} compact={compactLayout} />
             </View>
           </View>
+
+          <DriverVoiceCommandCard
+            voice={driverVoice}
+            onCommand={handleDriverVoiceCommand}
+            compact={compactLayout}
+            disabled={loading || availabilityLoading}
+          />
 
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
           {message && !error ? <Text style={styles.messageText}>{message}</Text> : null}

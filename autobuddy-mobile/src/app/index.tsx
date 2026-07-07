@@ -245,20 +245,23 @@ export default function HomeScreen() {
     };
   }, [isWeb]);
 
+  // BUG-015 FIX: Add cleanup for async hydrate operation
   useEffect(() => {
+    let mounted = true; // Cleanup flag
+    
     async function hydrate() {
       try {
         const stored = await loadSession();
 
         if (!stored?.token) {
-          setBooting(false);
+          if (mounted) setBooting(false);
           return;
         }
 
         let activeSession: AppSession | null = stored;
 
         if (stored?.user) {
-          setSession(stored);
+          if (mounted) setSession(stored);
           if (stored.user?.id) {
             Sentry.setUser({ id: String(stored.user.id) });
           }
@@ -268,37 +271,45 @@ export default function HomeScreen() {
           const user = await apiRequest<AppSession['user']>('/auth/me', { token: stored.token });
           const nextSession = { ...stored, user };
           activeSession = nextSession;
-          setSession(nextSession);
-          await saveSession(nextSession);
-          await extendSessionExpiry();
+          if (mounted) {
+            setSession(nextSession);
+            await saveSession(nextSession);
+            await extendSessionExpiry();
+          }
         } catch (err: unknown) {
           if (isAuthSessionInvalid(err)) {
             const localSessionStillValid = await isSessionValid().catch(() => false);
             if (localSessionStillValid) {
-              setBooting(false);
+              if (mounted) setBooting(false);
               return;
             }
-            setSession(null);
-            await clearSession();
-            setBooting(false);
+            if (mounted) {
+              setSession(null);
+              await clearSession();
+              setBooting(false);
+            }
             return;
           }
-          if (!stored?.user) {
+          if (!stored?.user && mounted) {
             setSession(null);
           }
         }
 
-        if (activeSession?.token) {
+        if (activeSession?.token && mounted) {
           await initializeBackgroundNotifications();
         }
       } catch {
-        setSession(null);
+        if (mounted) setSession(null);
       } finally {
-        setBooting(false);
+        if (mounted) setBooting(false);
       }
     }
 
     hydrate();
+    
+    return () => {
+      mounted = false; // Prevent state updates after unmount
+    };
   }, []);
 
   const handleAuthenticated = useCallback(async (nextSession: AppSession) => {

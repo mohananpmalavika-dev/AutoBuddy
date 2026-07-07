@@ -6,6 +6,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { initializeApiClient, post, del, handleApiError } from './utils/apiClient';
 import { validateUser, type ValidatedUser } from './utils/userValidator';
 import { UserModeProvider } from './contexts/UserModeContext';
+// BUG-006 FIX: Import safe storage utilities
+import { safeGetItem, safeSetItem, safeRemoveItem } from './utils/safeStorage';
 
 // Auth screens
 import LoginScreen from './screens/auth/LoginScreen';
@@ -54,16 +56,28 @@ export default function App() {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const storedToken = await AsyncStorage.getItem('authToken');
-        if (storedToken) {
+        // BUG-006 FIX: Use safeGetItem instead of direct AsyncStorage access
+        const tokenResult = await safeGetItem<string>('authToken');
+        if (tokenResult.success && tokenResult.data) {
+          const storedToken = tokenResult.data;
+          
           // Reinitialize API client with stored token
           initializeApiClient(storedToken);
-          // Parse stored user data
-          const storedUserId = await AsyncStorage.getItem('userId');
-          const storedRole = await AsyncStorage.getItem('userRole');
-          const storedUserName = await AsyncStorage.getItem('userName');
-          const storedUserEmail = await AsyncStorage.getItem('userEmail');
-          const storedUserPhone = await AsyncStorage.getItem('userPhone');
+          
+          // Parse stored user data with safe storage
+          const [userIdResult, roleResult, nameResult, emailResult, phoneResult] = await Promise.all([
+            safeGetItem<string>('userId'),
+            safeGetItem<string>('userRole'),
+            safeGetItem<string>('userName'),
+            safeGetItem<string>('userEmail'),
+            safeGetItem<string>('userPhone'),
+          ]);
+
+          const storedUserId = userIdResult.data;
+          const storedRole = roleResult.data;
+          const storedUserName = nameResult.data;
+          const storedUserEmail = emailResult.data;
+          const storedUserPhone = phoneResult.data;
 
           if (storedUserId && storedRole && storedUserName && storedUserPhone) {
             setSession({
@@ -80,10 +94,19 @@ export default function App() {
             if (storedRole === 'passenger') {
               setPassengerOnboarded(true);
             }
+          } else {
+            // Incomplete session data, clear storage
+            console.warn('[App] Incomplete session data, clearing storage');
+            await safeRemoveItem('authToken');
           }
         }
       } catch (error) {
         console.error('Auth check failed:', error);
+        // BUG-006 FIX: Handle storage errors gracefully
+        Alert.alert(
+          'Storage Error',
+          'Failed to load session data. You may need to log in again.'
+        );
       } finally {
         setLoading(false);
       }
@@ -113,18 +136,23 @@ export default function App() {
         }
 
         // Store token and user data with error handling
-        try {
-          await AsyncStorage.setItem('authToken', access_token);
-          await AsyncStorage.setItem('userId', user.id);
-          await AsyncStorage.setItem('userRole', user.role);
-          await AsyncStorage.setItem('userName', user.name || user.phone);
-          await AsyncStorage.setItem('userEmail', user.email || '');
-          await AsyncStorage.setItem('userPhone', user.phone);
-        } catch (storageError) {
-          console.error('[Login] Failed to save session data:', storageError);
+        // BUG-006 FIX: Use safeSetItem for all storage operations
+        const storageResults = await Promise.all([
+          safeSetItem('authToken', access_token),
+          safeSetItem('userId', user.id),
+          safeSetItem('userRole', user.role),
+          safeSetItem('userName', user.name || user.phone),
+          safeSetItem('userEmail', user.email || ''),
+          safeSetItem('userPhone', user.phone),
+        ]);
+
+        // Check if any storage operation failed
+        const failedStorage = storageResults.find(result => !result.success);
+        if (failedStorage) {
+          console.error('[Login] Failed to save session data:', failedStorage.error);
           Alert.alert(
             'Storage Error',
-            'Failed to save login session. Please check device storage and try again.'
+            failedStorage.error || 'Failed to save login session. Please check device storage and try again.'
           );
           return;
         }
@@ -238,18 +266,27 @@ export default function App() {
         }
       }
 
-      // Clear stored token and user data
-      await AsyncStorage.removeItem('authToken');
-      await AsyncStorage.removeItem('userId');
-      await AsyncStorage.removeItem('userRole');
-      await AsyncStorage.removeItem('userName');
-      await AsyncStorage.removeItem('userEmail');
-      await AsyncStorage.removeItem('userPhone');
+      // BUG-006 FIX: Use safeRemoveItem for all storage operations
+      await Promise.all([
+        safeRemoveItem('authToken'),
+        safeRemoveItem('userId'),
+        safeRemoveItem('userRole'),
+        safeRemoveItem('userName'),
+        safeRemoveItem('userEmail'),
+        safeRemoveItem('userPhone'),
+      ]);
 
       setSession(null);
       setPassengerOnboarded(false);
     } catch (error) {
       console.error('Logout failed:', handleApiError(error));
+      // BUG-006 FIX: Show user-friendly error but still clear session
+      Alert.alert(
+        'Logout Notice',
+        'Session cleared locally. You may need to clear app data if issues persist.'
+      );
+      setSession(null);
+      setPassengerOnboarded(false);
     }
   };
 

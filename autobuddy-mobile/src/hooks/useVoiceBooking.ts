@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Platform, PermissionsAndroid } from 'react-native';
+import { Platform, PermissionsAndroid } from 'react-native';
 import { parseIntent, looksLikeBookingIntent } from '../lib/intent/intentParser';
 import { apiRequest } from '../lib/api';
 
@@ -81,6 +81,16 @@ const LANGUAGE_HINTS: Record<VoiceLanguage, string[]> = {
 
 const DEFAULT_LANG: VoiceLanguage = 'en-IN';
 
+function getVoiceBookingHelpMessage(language: VoiceLanguage): string {
+  if (language === 'ml-IN') {
+    return "ബുക്കിംഗ് അഭ്യർത്ഥന മനസ്സിലായില്ല. 'കൊല്ലം റെയിൽവേ സ്റ്റേഷനിലേക്ക് ഓട്ടോ ബുക്ക് ചെയ്യുക' പോലെ പറയുക.";
+  }
+  if (language === 'hi-IN') {
+    return "मुझे बुकिंग अनुरोध समझ नहीं आया। कुछ ऐसा कहें: 'कोल्लम रेलवे स्टेशन के लिए ऑटो बुक करें'।";
+  }
+  return "I didn't catch a booking request. Try saying something like 'Book an auto to Kollam railway station'.";
+}
+
 export function useVoiceBooking(callbacks: VoiceBookingCallbacks = {}, initialLanguage: VoiceLanguage = DEFAULT_LANG) {
   const [voiceState, setVoiceState] = useState<VoiceState>('idle');
   const [transcript, setTranscript] = useState('');
@@ -97,6 +107,8 @@ export function useVoiceBooking(callbacks: VoiceBookingCallbacks = {}, initialLa
 
   // Track whether we're in the middle of a listening session
   const listeningRef = useRef(false);
+  // BUG-010 FIX: Track whether we're in the middle of booking to prevent race condition
+  const bookingInProgressRef = useRef(false);
 
   // -----------------------------------------------------------------------
   // Check native voice availability
@@ -191,20 +203,20 @@ export function useVoiceBooking(callbacks: VoiceBookingCallbacks = {}, initialLa
     setTranscript(trimmed);
 
     // Check if it looks like a booking intent (language-aware)
-    if (!looksLikeBookingIntent(trimmed, currentLanguage)) {
+    if (!looksLikeBookingIntent(trimmed)) {
       const errorMsgs: Record<VoiceLanguage, string> = {
         'en-IN': "I didn't catch a booking request. Try saying something like 'Book an auto to Kollam railway station'.",
         'hi-IN': "मुझे बुकिंग रिक्वेस्ट नहीं समझ आई। 'कोल्लम रेलवे स्टेशन के लिए ऑटो बुक करें' जैसा कुछ कहने की कोशिश करें।",
         'ml-IN': "ഞാൻ ബുകിംഗ് അഭ്യർത്ഥന മനസ്സിലാക്കിയില്ല. 'കൊല്ലം റെയിൽവേ സ്റ്റേഷനിലേക്ക് ഓട്ടോ ബുക്ക് ചെയ്യുക' പോലത്തെ എന്തെങ്കിലും പറയാൻ ശ്രമിക്കുക.",
       };
-      setErrorMessage(errorMsgs[currentLanguage]);
+      setErrorMessage(getVoiceBookingHelpMessage(currentLanguage));
       updateState('error');
       return;
     }
 
     // Parse the intent (language-aware)
     updateState('processing');
-    const rawIntent = parseIntent(trimmed, currentLanguage);
+    const rawIntent = parseIntent(trimmed);
     const intent: VoiceBookingIntent = {
       ...rawIntent,
       rideProductPreference: rawIntent.rideProductPreference ?? null,
@@ -380,10 +392,18 @@ export function useVoiceBooking(callbacks: VoiceBookingCallbacks = {}, initialLa
 
   // -----------------------------------------------------------------------
   // Confirm booking — calls the backend booking API with parsed intent
+  // BUG-010 FIX: Add race condition protection
   // -----------------------------------------------------------------------
   const confirmAndBook = useCallback(async (token?: string) => {
     if (!lastIntent) {return;}
 
+    // BUG-010 FIX: Prevent duplicate bookings from multiple clicks/calls
+    if (bookingInProgressRef.current) {
+      console.log('[VoiceBooking] Booking already in progress, ignoring duplicate call');
+      return null;
+    }
+
+    bookingInProgressRef.current = true;
     updateState('booking');
 
     try {
@@ -411,6 +431,9 @@ export function useVoiceBooking(callbacks: VoiceBookingCallbacks = {}, initialLa
       updateState('error');
       callbacksRef.current.onError?.(msg);
       return null;
+    } finally {
+      // BUG-010 FIX: Always clear the booking flag
+      bookingInProgressRef.current = false;
     }
   }, [lastIntent, updateState, currentLanguage]);
 

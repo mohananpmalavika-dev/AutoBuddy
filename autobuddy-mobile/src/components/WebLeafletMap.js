@@ -1,7 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap, useMapEvents } from 'react-leaflet';
-import L from 'leaflet';
 
 const DEFAULT_ZOOM = 14;
 const MARKER_COLORS = {
@@ -17,17 +15,17 @@ const MARKER_Z_INDEX = {
 const OSM_TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 const OSM_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
-// Fix Leaflet default marker icon issue
-const DefaultIcon = L.icon({
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41],
-});
-L.Marker.prototype.options.icon = DefaultIcon;
+let L = null;
+let MapContainer = null;
+let TileLayer = null;
+let Marker = null;
+let Polyline = null;
+let Popup = null;
+let useMap = null;
+let useMapEvents = null;
+let PICKUP_ICON = null;
+let DROPOFF_ICON = null;
+let DRIVER_ICON = null;
 
 // Custom SVG marker icons
 function createMarkerIcon(color, label) {
@@ -47,9 +45,23 @@ function createMarkerIcon(color, label) {
   });
 }
 
-const PICKUP_ICON = createMarkerIcon(MARKER_COLORS.pickup, 'P');
-const DROPOFF_ICON = createMarkerIcon(MARKER_COLORS.dropoff, 'D');
-const DRIVER_ICON = createMarkerIcon(MARKER_COLORS.driver, 'R');
+function configureLeaflet(nextLeaflet) {
+  if (!nextLeaflet || L === nextLeaflet) return;
+  L = nextLeaflet;
+  const DefaultIcon = L.icon({
+    iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+    iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+    shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+    iconSize: [25, 41],
+    iconAnchor: [12, 41],
+    popupAnchor: [1, -34],
+    shadowSize: [41, 41],
+  });
+  L.Marker.prototype.options.icon = DefaultIcon;
+  PICKUP_ICON = createMarkerIcon(MARKER_COLORS.pickup, 'P');
+  DROPOFF_ICON = createMarkerIcon(MARKER_COLORS.dropoff, 'D');
+  DRIVER_ICON = createMarkerIcon(MARKER_COLORS.driver, 'R');
+}
 
 function normalizeCoords(location) {
   if (!location) return null;
@@ -163,6 +175,40 @@ export default function WebLeafletMap({
   onReportPress = null,
 }) {
   const [mapReady, setMapReady] = useState(false);
+  const [leafletReady, setLeafletReady] = useState(Boolean(MapContainer && L));
+
+  useEffect(() => {
+    let mounted = true;
+    if (typeof window === 'undefined') {
+      return () => {
+        mounted = false;
+      };
+    }
+
+    Promise.all([import('leaflet'), import('react-leaflet')])
+      .then(([leafletModule, reactLeafletModule]) => {
+        configureLeaflet(leafletModule.default || leafletModule);
+        MapContainer = reactLeafletModule.MapContainer;
+        TileLayer = reactLeafletModule.TileLayer;
+        Marker = reactLeafletModule.Marker;
+        Polyline = reactLeafletModule.Polyline;
+        Popup = reactLeafletModule.Popup;
+        useMap = reactLeafletModule.useMap;
+        useMapEvents = reactLeafletModule.useMapEvents;
+        if (mounted) {
+          setLeafletReady(true);
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setLeafletReady(false);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const defaultCenterPoint = useMemo(() => normalizeCoords(defaultCenter), [defaultCenter]);
   const pickupPoint = useMemo(() => normalizeCoords(pickupLocation), [pickupLocation]);
@@ -189,6 +235,15 @@ export default function WebLeafletMap({
       onMarkerDragEnd(markerKey, coord);
     }
   };
+
+  if (!leafletReady) {
+    return (
+      <View style={[mapStyle, styles.mapContainer, styles.mapLoadingShell]}>
+        <Text style={styles.mapLoadingTitle}>{title || 'Map'}</Text>
+        <Text style={styles.mapLoadingText}>Loading map...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={[mapStyle, styles.mapContainer]}>
@@ -377,6 +432,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#F5F5F5',
     zIndex: 1,
+  },
+  mapLoadingShell: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mapLoadingTitle: {
+    color: '#0F2F1E',
+    fontSize: 15,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  mapLoadingText: {
+    color: '#486453',
+    fontSize: 12,
+    fontWeight: '700',
   },
   loadingText: {
     fontSize: 13,

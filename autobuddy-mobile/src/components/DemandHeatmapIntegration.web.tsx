@@ -172,7 +172,6 @@ export default function DemandHeatmapIntegration({
         <View style={styles.mapContainer}>
           <WebLeafletMap
             title="Demand heatmap"
-            fallbackUrl={mapFallbackUrl}
             defaultCenter={mapCenter}
             mapStyle={styles.demandMap}
             showStatusOverlay={false}

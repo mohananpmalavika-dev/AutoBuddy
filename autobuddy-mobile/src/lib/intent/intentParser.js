@@ -44,13 +44,13 @@ function pickFirstMatched(text, candidates) {
  */
 function extractRidePreference(normalized) {
   // Ride-product-level hints
-  if (/(women|female driver|women only|ladies)/i.test(normalized)) {
+  if (/(women|female driver|women only|ladies|സ്ത്രീ|വനിത)/i.test(normalized)) {
     return { rideProduct: 'women_only' };
   }
-  if (/(pool|share)/i.test(normalized)) {
+  if (/(pool|share|ഷെയർ|പൂൾ)/i.test(normalized)) {
     return { rideProduct: 'pool' };
   }
-  if (/(airport)/i.test(normalized)) {
+  if (/(airport|എയർപോർട്ട്|വിമാനത്താവളം)/i.test(normalized)) {
     return { rideProduct: 'airport' };
   }
   if (/(intercity|outstation|to\s+another\s+city)/i.test(normalized)) {
@@ -64,10 +64,10 @@ function extractRidePreference(normalized) {
   }
 
   // Vehicle-type hints
-  if (/(auto|rickshaw|tuk)/i.test(normalized)) {
+  if (/(auto|rickshaw|tuk|ഓട്ടോ|റിക്ഷ)/i.test(normalized)) {
     return { preferredVehicleHint: 'auto' };
   }
-  if (/(cab|taxi|car)/i.test(normalized)) {
+  if (/(cab|taxi|car|ക്യാബ്|ടാക്സി|കാർ)/i.test(normalized)) {
     return { preferredVehicleHint: 'taxi' };
   }
   if (/(bus|mini bus)/i.test(normalized)) {
@@ -97,6 +97,7 @@ function extractDestinationFromText(normalized, fallback = '') {
   // Priority 1: explicit "to <destination>" at end of utterance
   const toPatterns = [
     /(?:to|towards|for|drop at|drop to|go to|book to|need to|heading to|reach)\s+(?:the\s+|a\s+|an\s+)?(.+)$/i,
+    /(.+?)(?:ലേക്ക്|ിലേക്ക്|വരെ|ക്ക്)(?:\s+.*)?$/i,
   ];
   for (const p of toPatterns) {
     const m = normalized.match(p);
@@ -133,12 +134,12 @@ function extractPickupFromText(normalized) {
 
 /** Classify the type of destination place */
 function classifyIntent(normalized) {
-  const officeHints = ['office', 'work', 'colleagues', 'company'];
-  const homeHints = ['home', 'house', 'household', 'my place'];
-  const airportHints = ['airport', 'air port', 't2', 't1', 'terminal'];
-  const railwayHints = ['railway station', 'railway', 'station', 'bus stand', 'bus station', 'terminal'];
-  const hospitalHints = ['hospital', 'clinic', 'doctor'];
-  const shoppingHints = ['shopping', 'mall', 'lulu', 'supermarket', 'market'];
+  const officeHints = ['office', 'work', 'colleagues', 'company', 'ഓഫീസ്', 'ജോലി'];
+  const homeHints = ['home', 'house', 'household', 'my place', 'വീട്'];
+  const airportHints = ['airport', 'air port', 't2', 't1', 'terminal', 'എയർപോർട്ട്', 'വിമാനത്താവളം'];
+  const railwayHints = ['railway station', 'railway', 'station', 'bus stand', 'bus station', 'terminal', 'റെയിൽവേ', 'സ്റ്റേഷൻ', 'ബസ് സ്റ്റാൻഡ്'];
+  const hospitalHints = ['hospital', 'clinic', 'doctor', 'ആശുപത്രി', 'ക്ലിനിക്', 'ഡോക്ടർ'];
+  const shoppingHints = ['shopping', 'mall', 'lulu', 'supermarket', 'market', 'മാൾ', 'മാർക്കറ്റ്'];
 
   const intent =
     pickFirstMatched(normalized, officeHints) ? 'office'
@@ -256,6 +257,8 @@ export function looksLikeBookingIntent(utterance) {
     'book', 'ride', 'auto', 'taxi', 'cab', 'car', 'go to', 'need',
     'pick me', 'drop', 'reach', 'travel', 'station', 'airport',
     'bus', 'take me', 'heading', 'to ',
+    'ബുക്ക്', 'റൈഡ്', 'ഓട്ടോ', 'ക്യാബ്', 'ടാക്സി', 'കാർ',
+    'പോകണം', 'വരെ', 'ലേക്ക്', 'സ്റ്റേഷൻ', 'എയർപോർട്ട്',
   ];
   return bookingKeywords.some((kw) => normalized.includes(kw));
 }

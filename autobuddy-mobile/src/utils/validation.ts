@@ -230,6 +230,7 @@ export interface DateValidationResult {
 
 /**
  * Validate date input
+ * BUG-020 FIX: Enhanced date parsing with edge case handling
  * @param dateInput - Date to validate (string, number, or Date)
  * @returns Validation result
  */
@@ -238,12 +239,45 @@ export function validateDate(dateInput: any): DateValidationResult {
     return { isValid: false, error: 'Date is required' };
   }
   
-  // Try to parse date
-  const date = new Date(dateInput);
+  // BUG-020 FIX: Handle edge cases in date parsing
+  let date: Date;
   
-  // Check if valid date
+  // Handle ISO string format
+  if (typeof dateInput === 'string') {
+    // Check for invalid formats
+    if (dateInput.trim() === '') {
+      return { isValid: false, error: 'Date string cannot be empty' };
+    }
+    
+    // Try to parse - handles ISO, common formats
+    date = new Date(dateInput);
+  } 
+  // Handle unix timestamp (milliseconds)
+  else if (typeof dateInput === 'number') {
+    // Validate timestamp range (reasonable years: 1970-2100)
+    if (dateInput < 0 || dateInput > 4102444800000) {
+      return { isValid: false, error: 'Timestamp out of valid range' };
+    }
+    date = new Date(dateInput);
+  } 
+  // Handle Date object
+  else if (dateInput instanceof Date) {
+    date = dateInput;
+  } 
+  // Unsupported type
+  else {
+    return { isValid: false, error: 'Invalid date type' };
+  }
+  
+  // Check if valid date (catches Invalid Date)
   if (isNaN(date.getTime())) {
     return { isValid: false, error: 'Invalid date format' };
+  }
+  
+  // BUG-020 FIX: Check for unreasonable dates
+  const year = date.getFullYear();
+  if (year < 1900 || year > 2100) {
+    return { isValid: false, error: 'Date year must be between 1900 and 2100' };
   }
   
   return {

@@ -29,10 +29,12 @@ import {
 import { COLORS, SHADOWS } from '../theme';
 import RevenueCard from '../components/RevenueCard';
 import { useVehicleTypes } from '../hooks/useVehicleTypes';
+import { useVoiceBooking } from '../hooks/useVoiceBooking';
 import RideProductsGrid from '../components/RideProductsGrid';
 import RideCommunicationCard from '../components/RideCommunicationCard';
 import VoiceTextInput from '../components/VoiceTextInput';
 import BookingConfirmationCard from '../components/BookingConfirmationCard';
+import VoiceBookingOverlay from '../components/VoiceBookingOverlay';
 import InteractiveMap from '../components/InteractiveMap';
 import ScheduledPickupPicker from '../components/ScheduledPickupPicker';
 import KeralaSafetyCard from '../components/KeralaSafetyCard';
@@ -96,11 +98,19 @@ const PASSENGER_MENU_SYMBOLS = {
   notes: { ios: 'note.text', android: 'note', web: 'note' },
   sharing: { ios: 'location.fill', android: 'location_on', web: 'location_on' },
   stats: { ios: 'chart.bar.fill', android: 'bar_chart', web: 'bar_chart' },
+  family: { ios: 'person.2.fill', android: 'family_restroom', web: 'family_restroom' },
+  travel: { ios: 'globe', android: 'language', web: 'language' },
+  corporate: { ios: 'building.2.fill', android: 'apartment', web: 'apartment' },
+  scheduled_rides: { ios: 'calendar.badge.clock', android: 'schedule', web: 'schedule' },
 };
 const PASSENGER_MENU_OPTIONS = [
   { key: 'ride', label: 'Ride Booking', symbol: PASSENGER_MENU_SYMBOLS.ride },
   { key: 'pooling', label: 'Pool Ride', symbol: PASSENGER_MENU_SYMBOLS.pooling },
   { key: 'live', label: 'Live Ride', symbol: PASSENGER_MENU_SYMBOLS.live },
+  { key: 'family', label: 'Family Booking', symbol: PASSENGER_MENU_SYMBOLS.family },
+  { key: 'corporate', label: 'Corporate Booking', symbol: PASSENGER_MENU_SYMBOLS.corporate },
+  { key: 'travel', label: 'Travel Packages', symbol: PASSENGER_MENU_SYMBOLS.travel },
+  { key: 'scheduled_rides', label: 'Schedule Ride', symbol: PASSENGER_MENU_SYMBOLS.scheduled_rides },
   { key: 'drivers', label: 'Drivers', symbol: PASSENGER_MENU_SYMBOLS.drivers },
   { key: 'favorites', label: 'Favorite Drivers', symbol: PASSENGER_MENU_SYMBOLS.favorites },
   { key: 'safety', label: 'Safety', symbol: PASSENGER_MENU_SYMBOLS.safety },
@@ -131,6 +141,7 @@ const buildPassengerMenuOptions = (keys) =>
   keys.map((key) => PASSENGER_MENU_OPTIONS.find((menu) => menu.key === key)).filter(Boolean);
 const PINNED_PASSENGER_MENU_OPTIONS = buildPassengerMenuOptions(['drivers', 'favorites']);
 const SECONDARY_PASSENGER_MENU_GROUPS = [
+  { key: 'booking', title: 'Booking Modes', keys: ['family', 'pooling', 'corporate', 'travel', 'scheduled_rides'] },
   { key: 'trip', title: 'Trip', keys: ['pooling', 'scheduled', 'history', 'stats', 'notes', 'ratings', 'receipts'] },
   { key: 'deals', title: 'Deals & Payment', keys: ['wallet', 'spin', 'promo', 'payment', 'subscription'] },
   { key: 'account', title: 'Account', keys: ['profile', 'kyc', 'documents', 'preferences', 'places', 'accessibility', 'sharing'] },
@@ -630,6 +641,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [rideProduct, setRideProduct] = useState('normal');
   const [selectedVehicleTypeId, setSelectedVehicleTypeId] = useState('');
   const [selectedVehicleModelId, setSelectedVehicleModelId] = useState('');
+  const { vehicleTypes: availableVehicleTypes, loading: vehicleTypesLoading } = useVehicleTypes();
   
   // Auto-select first vehicle type when available to ensure fare estimation works
   useEffect(() => {
@@ -712,6 +724,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [justCompletedBooking, setJustCompletedBooking] = useState(null);
   const [showBookingFlow, setShowBookingFlow] = useState(false);
   const [showRideDetailsModal, setShowRideDetailsModal] = useState(false);
+  const [showVoiceBooking, setShowVoiceBooking] = useState(false);
+  const [voiceLanguageCode, setVoiceLanguageCode] = useState('en');
   const [poolCreateRequest, setPoolCreateRequest] = useState({ key: 0, model: null });
   const passengerNotificationSettings = useMemo(
     () => ({
@@ -722,7 +736,37 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   );
   useNotificationManager(token, user?.id, passengerNotificationSettings);
   const { unreadCount } = useNotifications();
-  const { vehicleTypes: availableVehicleTypes, loading: vehicleTypesLoading } = useVehicleTypes();
+  const voiceLanguage = voiceLanguageCode === 'ml' ? 'ml-IN' : 'en-IN';
+  const voiceBooking = useVoiceBooking(
+    {
+      onIntentParsed: (intent) => {
+        if (intent?.pickupText) {
+          setPickupQuery(intent.pickupText);
+          setPickupLocation(null);
+        }
+        if (intent?.destinationText || intent?.destinationLabel) {
+          setDropoffQuery(intent.destinationLabel || intent.destinationText);
+          setDropoffLocation(null);
+        }
+        setActivePassengerMenu(PRIMARY_PASSENGER_MENU_KEY);
+        setMessage(intent?.displaySummary || 'Voice booking details filled.');
+        setError('');
+      },
+      onBookingComplete: (result) => {
+        const booking = result?.booking || result?.data?.booking || result?.data || result;
+        if (booking && typeof booking === 'object') {
+          setActiveBooking(booking);
+          setBookingJustCreated(true);
+        }
+        setMessage(voiceLanguageCode === 'ml' ? 'Voice ride request sent in Malayalam.' : 'Voice ride request sent.');
+        setShowVoiceBooking(false);
+      },
+      onError: (voiceError) => {
+        setError(voiceError);
+      },
+    },
+    voiceLanguage,
+  );
   const mapRef = useRef(null);
   const [driverLiveAddress, setDriverLiveAddress] = useState('');
   const pickupAddressRequestRef = useRef(0);
@@ -738,6 +782,14 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     return () => {
       subscription?.remove?.();
     };
+  }, []);
+
+  useEffect(() => {
+    voiceBooking.switchLanguage(voiceLanguage);
+  }, [voiceBooking.switchLanguage, voiceLanguage]);
+
+  const handleQuickLanguageChange = useCallback((nextLanguageCode) => {
+    setVoiceLanguageCode(nextLanguageCode === 'ml' ? 'ml' : 'en');
   }, []);
 
   const formatCoordinateAddress = (lat, lng) => `Lat ${Number(lat).toFixed(6)}, Lng ${Number(lng).toFixed(6)}`;
@@ -2444,6 +2496,26 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     setOptedOutDriverIds([]);
   };
 
+  const startVisibleBookingMode = useCallback(
+    (product, announcement, options = {}) => {
+      const nextProduct = String(product || 'normal').trim() || 'normal';
+      handleRideProductSelect(nextProduct);
+      setActivePassengerMenu(PRIMARY_PASSENGER_MENU_KEY);
+      setShowPassengerMenus(false);
+      if (options.passengerCount) {
+        setPassengerCountInput(String(options.passengerCount));
+      }
+      if (options.openRideDetails !== false) {
+        setShowRideDetailsModal(true);
+      }
+      if (announcement) {
+        setMessage(announcement);
+        triggerA11yFeedback(announcement);
+      }
+    },
+    [handleRideProductSelect, triggerA11yFeedback],
+  );
+
   const getMenuLabel = useCallback(
     (menu) => {
       if (menu?.key === 'notifications' && unreadCount > 0) {
@@ -2456,11 +2528,52 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
 
   const handleMenuSelection = useCallback(
     (menuKey, label) => {
+      if (menuKey === PRIMARY_PASSENGER_MENU_KEY) {
+        startVisibleBookingMode('normal', label ? `${label} opened` : 'Ride booking opened', {
+          openRideDetails: false,
+        });
+        return;
+      }
+
+      if (menuKey === 'pooling') {
+        setRideProduct('pool');
+        setShowRideDetailsModal(false);
+        setPoolCreateRequest((prev) => ({ key: prev.key + 1, model: 'SYSTEM_CREATED' }));
+        setActivePassengerMenu('pooling');
+        setShowPassengerMenus(false);
+        triggerA11yFeedback('Pool ride mode activated');
+        return;
+      }
+
+      if (menuKey === 'family') {
+        startVisibleBookingMode(
+          'normal',
+          'Family booking opened. Add pickup, destination, passenger count and notes.',
+          { passengerCount: passengerCountInput && passengerCountInput !== '1' ? passengerCountInput : '2' },
+        );
+        return;
+      }
+
+      if (menuKey === 'corporate') {
+        startVisibleBookingMode('corporate', 'Corporate booking opened. Enter company code, pickup and destination.');
+        return;
+      }
+
+      if (menuKey === 'travel') {
+        startVisibleBookingMode('tourism', 'Travel packages opened. Choose package, city, add-ons, pickup and destination.');
+        return;
+      }
+
+      if (menuKey === 'scheduled_rides') {
+        startVisibleBookingMode('scheduled', 'Scheduled ride opened. Pick route and future pickup time.');
+        return;
+      }
+
       setActivePassengerMenu(menuKey);
       setShowPassengerMenus(false);
       triggerA11yFeedback(`${label || 'Menu'} selected`);
     },
-    [triggerA11yFeedback],
+    [passengerCountInput, startVisibleBookingMode, triggerA11yFeedback],
   );
 
   const openPoolRideFlow = useCallback(
@@ -3438,6 +3551,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         <View style={styles.quickBookingTitleBlock}>
           <Text style={styles.quickGreeting}>Hi {user?.name || 'there'}</Text>
           <Text style={styles.quickTitle}>Where are you going?</Text>
+          <Text style={styles.quickSubtitle}>Speak in English or Malayalam, then confirm the ride.</Text>
         </View>
         <TouchableOpacity
           style={styles.quickMoreButton}
@@ -3448,6 +3562,45 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           <Text style={styles.quickMoreText}>{showPassengerMenus ? 'Hide' : 'Menu'}</Text>
         </TouchableOpacity>
       </View>
+
+      <View style={styles.quickLanguageToggle}>
+        {[
+          { code: 'en', label: 'English' },
+          { code: 'ml', label: 'Malayalam' },
+        ].map((option) => {
+          const selected = voiceLanguageCode === option.code;
+          return (
+            <TouchableOpacity
+              key={option.code}
+              style={[styles.quickLanguageChip, selected && styles.quickLanguageChipActive]}
+              onPress={() => handleQuickLanguageChange(option.code)}
+              accessibilityRole="button"
+              accessibilityState={{ selected }}>
+              <Text style={[styles.quickLanguageText, selected && styles.quickLanguageTextActive]}>
+                {option.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      <TouchableOpacity
+        style={[styles.quickVoiceCard, voiceBooking.voiceState === 'listening' && styles.quickVoiceCardListening]}
+        onPress={() => {
+          voiceBooking.reset();
+          setShowVoiceBooking(true);
+        }}
+        accessibilityRole="button"
+        accessibilityLabel="Book by voice">
+        <View style={[styles.quickVoiceIcon, voiceBooking.voiceState === 'listening' && styles.quickVoiceIconListening]}>
+          <Text style={styles.quickVoiceIconText}>{voiceBooking.voiceState === 'listening' ? '||' : 'mic'}</Text>
+        </View>
+        <View style={styles.quickVoiceCopy}>
+          <Text style={styles.quickVoiceTitle}>Book by voice</Text>
+          <Text style={styles.quickVoiceHint}>Try Malayalam or English. Example: Book an auto to Kollam railway station.</Text>
+        </View>
+        <Text style={styles.quickVoiceAction}>Speak</Text>
+      </TouchableOpacity>
 
       <View style={styles.quickStepRow}>
         {['Destination', 'Ride', 'Confirm'].map((label, index) => {
@@ -3498,6 +3651,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               placeholder="Search destination"
               placeholderTextColor="#7A8A80"
               returnKeyType="search"
+              voiceLang={voiceLanguage}
             />
           </View>
         </View>
@@ -4722,6 +4876,23 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             />
         </Modal>
 
+        <VoiceBookingOverlay
+          visible={showVoiceBooking}
+          voiceState={voiceBooking.voiceState}
+          transcript={voiceBooking.transcript}
+          lastIntent={voiceBooking.lastIntent}
+          errorMessage={voiceBooking.errorMessage}
+          isVoiceAvailable={voiceBooking.isVoiceAvailable}
+          onStartListening={voiceBooking.startListening}
+          onStopListening={voiceBooking.stopListening}
+          onConfirm={() => voiceBooking.confirmAndBook(token)}
+          onRetry={voiceBooking.reset}
+          onClose={() => {
+            voiceBooking.reset();
+            setShowVoiceBooking(false);
+          }}
+        />
+
         {/* Post-Ride Rating Modal */}
         {showRatingModal && justCompletedBooking && (
           <PostRideRatingModal
@@ -4850,6 +5021,13 @@ const styles = StyleSheet.create({
     lineHeight: 27,
     fontWeight: '900',
   },
+  quickSubtitle: {
+    color: '#66786D',
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
+    marginTop: 4,
+  },
   quickMoreButton: {
     borderWidth: 1,
     borderColor: '#C9D9CF',
@@ -4860,6 +5038,91 @@ const styles = StyleSheet.create({
   },
   quickMoreText: {
     color: COLORS.textMain,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  quickLanguageToggle: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 10,
+  },
+  quickLanguageChip: {
+    flex: 1,
+    minHeight: 40,
+    borderWidth: 1,
+    borderColor: '#D8E5DC',
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+  },
+  quickLanguageChipActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: '#E8F5EC',
+  },
+  quickLanguageText: {
+    color: '#456253',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  quickLanguageTextActive: {
+    color: COLORS.primaryDark,
+  },
+  quickVoiceCard: {
+    minHeight: 74,
+    borderWidth: 1,
+    borderColor: '#CFE0D4',
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    marginBottom: 10,
+  },
+  quickVoiceCardListening: {
+    borderColor: '#D88A1D',
+    backgroundColor: '#FFF8EC',
+  },
+  quickVoiceIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.primary,
+  },
+  quickVoiceIconListening: {
+    backgroundColor: '#D88A1D',
+  },
+  quickVoiceIconText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  quickVoiceCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  quickVoiceTitle: {
+    color: COLORS.textMain,
+    fontSize: 15,
+    fontWeight: '900',
+    lineHeight: 20,
+  },
+  quickVoiceHint: {
+    color: '#66786D',
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
+    marginTop: 2,
+  },
+  quickVoiceAction: {
+    color: '#0B6A32',
     fontSize: 12,
     fontWeight: '900',
   },
