@@ -11,8 +11,8 @@ router = APIRouter(prefix="/api/safepath", tags=["safepath"])
 
 
 class SafeRouteRequest(BaseModel):
-    origin: Dict
-    destination: Dict
+    origin: Optional[Dict] = None
+    destination: Optional[Dict] = None
     mode: Optional[str] = "walking"  # walking | cycling | driving
     alternatives: Optional[int] = 2
 

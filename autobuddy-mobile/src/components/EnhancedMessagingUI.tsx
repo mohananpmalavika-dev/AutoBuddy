@@ -185,7 +185,7 @@ export const EnhancedMessagingUI: React.FC<EnhancedMessagingUIProps> = ({
               />
             ) : searchQuery ? (
               <View style={styles.emptyState}>
-                <MaterialIcons name="search_off" size={48} color="#CCC" />
+                <MaterialIcons name="search-off" size={48} color="#CCC" />
                 <Text style={styles.emptyStateText}>No messages found</Text>
               </View>
             ) : null}
@@ -199,7 +199,7 @@ export const EnhancedMessagingUI: React.FC<EnhancedMessagingUIProps> = ({
               onPress={() => setShowBlockModal(true)}
               style={styles.blockUserButton}
             >
-              <MaterialIcons name="person_add" size={20} color="white" />
+              <MaterialIcons name="person-add" size={20} color="white" />
               <Text style={styles.blockUserButtonText}>Block User</Text>
             </Pressable>
 
@@ -230,7 +230,7 @@ export const EnhancedMessagingUI: React.FC<EnhancedMessagingUIProps> = ({
               />
             ) : (
               <View style={styles.emptyState}>
-                <MaterialIcons name="check_circle" size={48} color="#4CAF50" />
+                <MaterialIcons name="check-circle" size={48} color="#4CAF50" />
                 <Text style={styles.emptyStateText}>No blocked users</Text>
               </View>
             )}

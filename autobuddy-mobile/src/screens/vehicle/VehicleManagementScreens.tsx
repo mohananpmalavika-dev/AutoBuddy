@@ -13,7 +13,7 @@ import {
   Switch,
   Dimensions
 } from 'react-native';
-import { useVehicleManagement } from '../hooks/useVehicleManagement';
+import { useVehicleManagement } from '../../hooks/useVehicleManagement';
 
 const { width } = Dimensions.get('window');
 

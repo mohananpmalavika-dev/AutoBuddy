@@ -172,6 +172,8 @@ export const OperatorAnalyticsDashboard: React.FC<OperatorAnalyticsDashboardProp
             }}
             width={chartWidth}
             height={chartHeight}
+            yAxisLabel=""
+            yAxisSuffix=""
             chartConfig={{
               backgroundColor: '#fff',
               backgroundGradientFrom: '#fff',
@@ -251,6 +253,8 @@ export const OperatorAnalyticsDashboard: React.FC<OperatorAnalyticsDashboardProp
             }}
             width={chartWidth}
             height={chartHeight}
+            yAxisLabel=""
+            yAxisSuffix=""
             chartConfig={{
               backgroundColor: '#fff',
               backgroundGradientFrom: '#fff',

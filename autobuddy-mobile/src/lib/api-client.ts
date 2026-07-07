@@ -18,6 +18,22 @@ export interface ApiError extends Error {
   payload?: unknown;
 }
 
+export interface AuthResponse {
+  token: string;
+  refreshToken?: string;
+  user: {
+    id: string;
+    name: string;
+    phone: string;
+    email?: string;
+    role: 'passenger' | 'driver' | 'operator' | 'admin';
+    photo?: string;
+    rating?: number;
+    created_at?: string;
+  };
+  expiresAt?: number;
+}
+
 export async function apiRequest<TResponse = unknown, TBody = unknown>(
   path: string,
   options: ApiRequestOptions<TBody> = {},

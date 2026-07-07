@@ -12,18 +12,46 @@ export interface RoutePoint {
   location: Location;
   type: 'pickup' | 'dropoff' | 'waypoint';
   order: number;
+  address?: string;
+  passengerName?: string;
+  passengerPhone?: string;
+  status?: 'pending' | 'completed' | 'cancelled';
   eta?: number;
   distance?: number;
+}
+
+export type Stop = RoutePoint & {
+  address: string;
+  passengerName?: string;
+  passengerPhone?: string;
+  status: 'pending' | 'completed' | 'cancelled';
+};
+
+export interface NavigationStep {
+  instruction: string;
+  distance: number;
+  duration: number;
 }
 
 export interface OptimizedRoute {
   id: string;
   points: RoutePoint[];
+  stops: Stop[];
   totalDistance: number;
   totalTime: number;
+  estimatedDuration: number;
   estimatedFare: number;
   polylineString?: string;
   trafficLevel: 'low' | 'moderate' | 'heavy';
+  traffic: {
+    level: 'low' | 'moderate' | 'high';
+    delay: number;
+  };
+  optimization: {
+    originalDistance: number;
+    savedDistance: number;
+    percentageOptimized: number;
+  };
   carbonFootprint: number;
   savings: { timeMinutes: number; costPercentage: number };
   createdAt: number;
@@ -55,14 +83,18 @@ interface UseRouteOptimizationReturn {
   config: NavigationConfig;
   history: RouteHistory[];
   calculateOptimizedRoute: (points: RoutePoint[]) => Promise<OptimizedRoute>;
+  optimizeRoute: (stops: Stop[]) => Promise<OptimizedRoute>;
   updateRoute: (route: OptimizedRoute) => Promise<void>;
+  updateStopStatus: (routeId: string, stopId: string, status: Stop['status']) => Promise<boolean>;
   selectRoute: (route: OptimizedRoute) => Promise<void>;
   updateConfig: (config: Partial<NavigationConfig>) => Promise<void>;
   startNavigation: (route: OptimizedRoute) => Promise<void>;
   endNavigation: (distance: number, time: number, fare: number, feedback?: string) => Promise<void>;
+  getNavigationSteps: (routeId: string) => Promise<NavigationStep[]>;
   getRouteHistory: () => Promise<RouteHistory[]>;
   getEcoScore: (route: OptimizedRoute) => number;
   compareRoutes: (routes: OptimizedRoute[]) => Promise<OptimizedRoute>;
+  loading: boolean;
 }
 
 const DEFAULT_CONFIG: NavigationConfig = {
@@ -75,11 +107,13 @@ const DEFAULT_CONFIG: NavigationConfig = {
   notifyBothDriverAndPassenger: true,
 };
 
-export const useRouteOptimization = (userId: string): UseRouteOptimizationReturn => {
+export const useRouteOptimization = (userIdOrToken: string | null, maybeUserId?: string): UseRouteOptimizationReturn => {
+  const userId = maybeUserId || userIdOrToken || 'guest';
   const [currentRoute, setCurrentRoute] = useState<OptimizedRoute | null>(null);
   const [routes, setRoutes] = useState<OptimizedRoute[]>([]);
   const [config, setConfig] = useState<NavigationConfig>(DEFAULT_CONFIG);
   const [history, setHistory] = useState<RouteHistory[]>([]);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     initializeRouteData();
@@ -98,6 +132,7 @@ export const useRouteOptimization = (userId: string): UseRouteOptimizationReturn
 
   const calculateOptimizedRoute = useCallback(
     async (points: RoutePoint[]): Promise<OptimizedRoute> => {
+      setLoading(true);
       const sortedPoints = [...points].sort((a, b) => a.order - b.order);
       let totalDistance = 0;
       let totalTime = 0;
@@ -107,22 +142,47 @@ export const useRouteOptimization = (userId: string): UseRouteOptimizationReturn
         totalTime += (distance / 40) * 60;
       }
       const estimatedFare = 50 + totalDistance * 15;
+      const originalDistance = totalDistance * 1.12;
+      const savedDistance = Math.max(0, originalDistance - totalDistance);
+      const trafficLevel = Math.random() < 0.4 ? 'low' : Math.random() < 0.75 ? 'moderate' : 'heavy';
+      const stops: Stop[] = sortedPoints.map((point) => ({
+        ...point,
+        address: point.address || point.location.address,
+        passengerName: point.passengerName || 'Passenger',
+        passengerPhone: point.passengerPhone || '',
+        status: point.status || 'pending',
+      }));
       const optimizedRoute: OptimizedRoute = {
         id: `route_${Date.now()}`,
         points: sortedPoints,
+        stops,
         totalDistance,
         totalTime,
+        estimatedDuration: Math.round(totalTime * 60),
         estimatedFare,
-        trafficLevel: Math.random() < 0.4 ? 'low' : Math.random() < 0.75 ? 'moderate' : 'heavy',
+        trafficLevel,
+        traffic: {
+          level: trafficLevel === 'heavy' ? 'high' : trafficLevel,
+          delay: trafficLevel === 'heavy' ? 12 : trafficLevel === 'moderate' ? 6 : 1,
+        },
+        optimization: {
+          originalDistance,
+          savedDistance,
+          percentageOptimized: originalDistance > 0 ? (savedDistance / originalDistance) * 100 : 0,
+        },
         carbonFootprint: totalDistance * 0.21,
         savings: { timeMinutes: Math.round(Math.random() * 10), costPercentage: Math.round(Math.random() * 15) },
         createdAt: Date.now(),
       };
       setRoutes([...routes, optimizedRoute]);
+      setCurrentRoute(optimizedRoute);
+      setLoading(false);
       return optimizedRoute;
     },
     [routes],
   );
+
+  const optimizeRoute = useCallback((stops: Stop[]) => calculateOptimizedRoute(stops), [calculateOptimizedRoute]);
 
   const updateRoute = useCallback(async (route: OptimizedRoute) => {
     const updated = routes.map((r) => (r.id === route.id ? route : r));
@@ -134,6 +194,35 @@ export const useRouteOptimization = (userId: string): UseRouteOptimizationReturn
     setCurrentRoute(route);
     await AsyncStorage.setItem(`route_current_${userId}`, JSON.stringify(route));
   }, [userId]);
+
+  const updateStopStatus = useCallback(
+    async (routeId: string, stopId: string, status: Stop['status']) => {
+      const patchRoute = (route: OptimizedRoute): OptimizedRoute =>
+        route.id === routeId
+          ? {
+              ...route,
+              stops: route.stops.map((stop) => (stop.id === stopId ? { ...stop, status } : stop)),
+            }
+          : route;
+      setRoutes((prev) => prev.map(patchRoute));
+      setCurrentRoute((route) => (route ? patchRoute(route) : route));
+      return true;
+    },
+    [],
+  );
+
+  const getNavigationSteps = useCallback(
+    async (routeId: string): Promise<NavigationStep[]> => {
+      const route = routes.find((item) => item.id === routeId) || currentRoute;
+      const stops = route?.stops || [];
+      return stops.map((stop, index) => ({
+        instruction: `${index === 0 ? 'Start at' : 'Continue to'} ${stop.address}`,
+        distance: Math.round((stop.distance || 0.8) * 1000),
+        duration: Math.round((stop.eta || 4) * 60),
+      }));
+    },
+    [currentRoute, routes],
+  );
 
   const updateConfig = useCallback(async (newConfig: Partial<NavigationConfig>) => {
     const updated = { ...config, ...newConfig };
@@ -176,7 +265,7 @@ export const useRouteOptimization = (userId: string): UseRouteOptimizationReturn
     [config, getEcoScore],
   );
 
-  return { currentRoute, routes, config, history, calculateOptimizedRoute, updateRoute, selectRoute, updateConfig, startNavigation, endNavigation, getRouteHistory, getEcoScore, compareRoutes };
+  return { currentRoute, routes, config, history, calculateOptimizedRoute, optimizeRoute, updateRoute, updateStopStatus, selectRoute, updateConfig, startNavigation, endNavigation, getNavigationSteps, getRouteHistory, getEcoScore, compareRoutes, loading };
 };
 
 function calculateHaversineDistance(loc1: Location, loc2: Location): number {

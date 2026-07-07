@@ -21,6 +21,63 @@ type TrafficCondition = 'LIGHT' | 'MODERATE' | 'HEAVY';
 type AlertImpact = 'AVOID' | 'CONSIDER' | 'INFO';
 type ConnectionStatus = 'connected' | 'polling' | 'offline';
 
+interface TrafficAlert {
+  id: string;
+  type: string;
+  severity: AlertSeverity;
+  title: string;
+  description: string;
+  location: string;
+  delayTime: string;
+  impact: AlertImpact;
+  reportedTime: Date;
+  age?: string;
+  isCrowdsourced?: boolean;
+}
+
+interface TrafficRoute {
+  id: string;
+  name: string;
+  distance: number;
+  duration: string;
+  trafficCondition: TrafficCondition;
+  avgSpeed: number;
+  toll: number;
+  avoidedAlerts: string[];
+  isRecommended: boolean;
+}
+
+interface TrafficPayload {
+  alerts?: unknown[];
+  routes?: unknown[];
+  data?: unknown[] | {
+    alerts?: unknown[];
+    routes?: unknown[];
+  };
+}
+
+interface TrafficAlertsProps {
+  currentLocation?: Coordinate | null;
+  destinationLocation?: Coordinate | null;
+  driverId?: string;
+  routeId?: string;
+  onRouteChange?: (route: TrafficRoute) => void;
+  disabled?: boolean;
+}
+
+const calculateAlertAge = (reportedTime: Date) => {
+  const ageMs = Math.max(0, Date.now() - reportedTime.getTime());
+  const minutes = Math.floor(ageMs / 60000);
+  if (minutes < 1) {return 'just now';}
+  if (minutes < 60) {return `${minutes}m ago`;}
+  return `${Math.floor(minutes / 60)}h ago`;
+};
+
+const logAlert = (message: string, detail?: unknown) => {
+  if (__DEV__) {
+    console.log(`[TrafficAlerts] ${message}`, detail ?? '');
+  }
+};
 
 const deduplicateAlerts = (alerts: TrafficAlert[], threshold = 500): TrafficAlert[] => {
   const seen = new Set<string>();

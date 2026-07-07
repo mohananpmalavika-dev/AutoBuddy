@@ -87,7 +87,6 @@ MODERATE_ENDPOINT_PATHS = (
 )
 
 PASSENGER_REALTIME_ENDPOINT_PATHS = (
-    "/api/bookings/active",
     "/api/drivers/nearby",
     "/api/fare/estimate",
     "/api/passengers/blocked-drivers",
@@ -117,6 +116,7 @@ DRIVER_REALTIME_ENDPOINT_PATHS = (
 )
 
 NORMAL_ENDPOINT_PATHS = (
+    "/api/bookings/active",
     "/api/vehicle-types",
     "/api/vehicles/types",
 )

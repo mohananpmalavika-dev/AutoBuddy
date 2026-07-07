@@ -224,7 +224,7 @@ export default function AdminDashboard({
           <View style={styles.metricCard}>
             <MaterialIcons name="directions-car" size={24} color="#FF9800" />
             <Text style={styles.metricLabel}>Rides Today</Text>
-            <Text style={styles.metricValue}>{metrics?.totalRides ?? 0}</Text>
+            <Text style={styles.metricValue}>{metrics?.ridesToday ?? 0}</Text>
             <Text style={styles.metricTrend}>↑ 15%</Text>
           </View>
 

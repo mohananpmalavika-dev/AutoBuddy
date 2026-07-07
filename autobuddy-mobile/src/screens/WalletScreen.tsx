@@ -214,7 +214,7 @@ export const WalletScreen: React.FC<WalletScreenProps> = ({
                   );
                 }}
               >
-                <MaterialIcons name="flash" size={20} color="#fff" />
+                <MaterialIcons name="flash-on" size={20} color="#fff" />
                 <Text style={styles.actionButtonText}>Instant Payout</Text>
               </Pressable>
             </>
@@ -417,7 +417,7 @@ export const WalletScreen: React.FC<WalletScreenProps> = ({
                   onPress={handleInstantPayout}
                   disabled={!payoutAmount}
                 >
-                  <MaterialIcons name="flash" size={18} color="#fff" />
+                  <MaterialIcons name="flash-on" size={18} color="#fff" />
                   <Text style={styles.submitButtonText}>Instant Payout</Text>
                 </Pressable>
               </View>
@@ -856,7 +856,6 @@ const styles = StyleSheet.create({
   totalRow: {
     borderTopWidth: 1,
     borderTopColor: '#e0e0e0',
-    paddingTopMarginBottom: 0,
     marginBottom: 0,
     paddingTop: 8,
   },

@@ -270,7 +270,7 @@ export async function safeGetAllKeys(): Promise<StorageResult<string[]>> {
     
     return {
       success: true,
-      data: keys,
+      data: Array.from(keys),
     };
   } catch (error: any) {
     console.error('[SafeStorage] Error getting all keys:', error);

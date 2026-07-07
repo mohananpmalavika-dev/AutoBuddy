@@ -138,6 +138,8 @@ export const handleAxiosError = (error: any): AppError => {
   }
 };
 
+export const handleApiError = handleAxiosError;
+
 export const isRetryableError = (error: AppError): boolean => {
   return (
     error.code === ErrorCode.NETWORK_ERROR ||

@@ -4,6 +4,7 @@ Tests WebSocket integration, API endpoints, and real-time alert broadcasting
 """
 
 import pytest
+import pytest_asyncio
 import json
 import asyncio
 from datetime import datetime
@@ -14,7 +15,7 @@ from unittest.mock import Mock, AsyncMock, patch
 class TestTrafficAlertsE2E:
     """End-to-end tests for traffic alerts system"""
 
-    @pytest.fixture
+    @pytest_asyncio.fixture
     async def mock_sio_server(self):
         """Mock SocketIO server for testing"""
         from unittest.mock import MagicMock

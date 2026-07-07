@@ -98,7 +98,7 @@ export const FamilyMemberCard: React.FC<FamilyMemberCardProps> = ({
             onPress={onToggleEmergency}
           >
             <MaterialIcons
-              name={member.emergencyAccess ? 'emergency' : 'emergency_share'}
+              name={member.emergencyAccess ? 'emergency' : 'emergency-share'}
               size={16}
               color="#F44336"
             />

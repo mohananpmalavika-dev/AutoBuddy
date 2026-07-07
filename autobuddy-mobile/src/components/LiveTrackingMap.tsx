@@ -274,7 +274,7 @@ export const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({
               <Text style={styles.vehicleNumber}>{rideInfo.vehicle_info.number}</Text>
             </View>
           </View>
-          <View style={styles.vehicleColor} style={{ backgroundColor: rideInfo.vehicle_info.color }} />
+          <View style={[styles.vehicleColor, { backgroundColor: rideInfo.vehicle_info.color }]} />
         </View>
       )}
 
@@ -326,11 +326,11 @@ const DriverMarker: React.FC<{ name?: string; rating?: number }> = ({ name, rati
 
 const styles = StyleSheet.create({
   container: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     flex: 1,
   },
   map: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
   headerCard: {
     position: 'absolute',
@@ -493,7 +493,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   loadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(255, 255, 255, 0.8)',
     alignItems: 'center',
     justifyContent: 'center',

@@ -9,6 +9,7 @@ vehicles into the driver vehicle collection used by the driver app.
 from datetime import datetime
 from app.utils.time_helpers import get_ist_now
 from typing import Any, Dict, List, Optional
+import inspect
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -44,6 +45,25 @@ def _strip_mongo_id(document: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     return cleaned
 
 
+async def _maybe_await(value: Any) -> Any:
+    if inspect.isawaitable(value):
+        return await value
+    return value
+
+
+async def _find_one(collection: Any, query: Dict[str, Any], **kwargs: Any) -> Optional[Dict[str, Any]]:
+    result = await _maybe_await(collection.find_one(query, **kwargs))
+    return result if isinstance(result, dict) else None
+
+
+async def _to_list(cursor_or_awaitable: Any, limit: int, sort: Optional[tuple[str, int]] = None) -> List[Dict[str, Any]]:
+    cursor = await _maybe_await(cursor_or_awaitable)
+    if sort and hasattr(cursor, "sort"):
+        cursor = await _maybe_await(cursor.sort(sort[0], sort[1]))
+    items = await _maybe_await(cursor.to_list(limit))
+    return [item for item in (items or []) if isinstance(item, dict)]
+
+
 def _operator_profile_defaults(current_user: dict) -> Dict[str, Any]:
     operator_id = _user_id(current_user)
     return {
@@ -68,7 +88,7 @@ async def _ensure_operator_profile(db: AsyncIOMotorDatabase, current_user: dict)
         {"$setOnInsert": defaults},
         upsert=True,
     )
-    profile = await db[OPERATOR_PROFILES_COLLECTION].find_one({"operator_id": operator_id})
+    profile = await _find_one(db[OPERATOR_PROFILES_COLLECTION], {"operator_id": operator_id})
     return _strip_mongo_id(profile or defaults)
 
 
@@ -77,7 +97,7 @@ async def _canonical_vehicle(
     vehicle_type_id: str,
     vehicle_subtype_id: Optional[str] = None,
 ) -> tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
-    vehicle = await db[CANONICAL_VEHICLES_COLLECTION].find_one({
+    vehicle = await _find_one(db[CANONICAL_VEHICLES_COLLECTION], {
         "vehicle_type_id": vehicle_type_id,
         "active": True,
     })
@@ -107,7 +127,7 @@ async def _resolve_driver(db: AsyncIOMotorDatabase, payload: "AssignDriverPayloa
     if not query:
         raise HTTPException(status_code=400, detail="Provide driver id, email, or phone")
 
-    driver = await db.users.find_one(query)
+    driver = await _find_one(db.users, query)
     if not driver or str(driver.get("role") or "").strip().lower() != "driver":
         raise HTTPException(status_code=404, detail="Driver account not found")
     return driver
@@ -125,7 +145,11 @@ async def _record_assignment_history(
     event_type: str,
     details: Optional[Dict[str, Any]] = None,
 ) -> None:
-    await db[OPERATOR_ASSIGNMENT_HISTORY_COLLECTION].insert_one({
+    try:
+        collection = db[OPERATOR_ASSIGNMENT_HISTORY_COLLECTION]
+    except (KeyError, TypeError, AttributeError):
+        return
+    await _maybe_await(collection.insert_one({
         "id": str(uuid.uuid4()),
         "operator_id": operator_id,
         "vehicle_id": vehicle_id,
@@ -133,7 +157,7 @@ async def _record_assignment_history(
         "event_type": event_type,
         "details": details or {},
         "created_at": _now(),
-    })
+    }))
 
 
 async def _sync_assigned_driver_vehicle(
@@ -142,11 +166,11 @@ async def _sync_assigned_driver_vehicle(
     driver: Dict[str, Any],
 ) -> None:
     driver_id = str(driver.get("id") or "")
-    existing = await db.driver_vehicles.find_one({
+    existing = await _find_one(db.driver_vehicles, {
         "driver_id": driver_id,
         "operator_vehicle_id": vehicle["id"],
     })
-    has_active_vehicle = await db.driver_vehicles.find_one({
+    has_active_vehicle = await _find_one(db.driver_vehicles, {
         "driver_id": driver_id,
         "is_active": True,
         "operator_vehicle_id": {"$ne": vehicle["id"]},
@@ -241,7 +265,7 @@ async def _remove_assigned_driver_vehicle(
     if not resolved_driver_id:
         return
 
-    existing = await db.driver_vehicles.find_one({
+    existing = await _find_one(db.driver_vehicles, {
         "driver_id": resolved_driver_id,
         "operator_vehicle_id": vehicle["id"],
     })
@@ -250,7 +274,8 @@ async def _remove_assigned_driver_vehicle(
         "operator_vehicle_id": vehicle["id"],
     })
     if existing and existing.get("is_active"):
-        replacement = await db.driver_vehicles.find_one(
+        replacement = await _find_one(
+            db.driver_vehicles,
             {"driver_id": resolved_driver_id},
             sort=[("updated_at", -1)],
         )
@@ -260,7 +285,7 @@ async def _remove_assigned_driver_vehicle(
                 {"$set": {"is_active": False, "updated_at": _now()}},
             )
             await db.driver_vehicles.update_one(
-                {"driver_id": resolved_driver_id, "id": replacement["id"]},
+                {"driver_id": resolved_driver_id, "id": replacement.get("id")},
                 {"$set": {"is_active": True, "updated_at": _now()}},
             )
         else:
@@ -345,7 +370,7 @@ async def update_operator_profile(
         {"operator_id": operator_id},
         {"$set": update_data},
     )
-    profile = await db[OPERATOR_PROFILES_COLLECTION].find_one({"operator_id": operator_id})
+    profile = await _find_one(db[OPERATOR_PROFILES_COLLECTION], {"operator_id": operator_id})
     return {"profile": _strip_mongo_id(profile)}
 
 
@@ -356,19 +381,19 @@ async def get_operator_dashboard(
 ):
     operator_id = _user_id(current_user)
     await _ensure_operator_profile(db, current_user)
-    vehicles = await db[OPERATOR_FLEET_VEHICLES_COLLECTION].find({"operator_id": operator_id}).to_list(500)
+    vehicles = await _to_list(db[OPERATOR_FLEET_VEHICLES_COLLECTION].find({"operator_id": operator_id}), 500)
     assigned_driver_ids = sorted({
         str(vehicle.get("assigned_driver_id"))
         for vehicle in vehicles
         if vehicle.get("assigned_driver_id")
     })
-    completed_bookings = await db.bookings.find({
+    completed_bookings = await _to_list(db.bookings.find({
         "$or": [
             {"driver_id": {"$in": assigned_driver_ids}},
             {"accepted_driver_id": {"$in": assigned_driver_ids}},
         ],
         "status": {"$in": ["completed", "COMPLETED"]},
-    }).sort("created_at", -1).to_list(100)
+    }), 100, sort=("created_at", -1))
     gross_earnings = sum(
         float(booking.get("final_fare") or booking.get("estimated_fare") or 0)
         for booking in completed_bookings
@@ -395,7 +420,7 @@ async def list_operator_vehicles(
     query: Dict[str, Any] = {"operator_id": _user_id(current_user)}
     if active_only:
         query["active"] = True
-    vehicles = await db[OPERATOR_FLEET_VEHICLES_COLLECTION].find(query).sort("updated_at", -1).to_list(500)
+    vehicles = await _to_list(db[OPERATOR_FLEET_VEHICLES_COLLECTION].find(query), 500, sort=("updated_at", -1))
     return {"vehicles": [_vehicle_response(item) for item in vehicles]}
 
 
@@ -406,7 +431,7 @@ async def get_operator_vehicle(
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     operator_id = _user_id(current_user)
-    vehicle = await db[OPERATOR_FLEET_VEHICLES_COLLECTION].find_one({"operator_id": operator_id, "id": vehicle_id})
+    vehicle = await _find_one(db[OPERATOR_FLEET_VEHICLES_COLLECTION], {"operator_id": operator_id, "id": vehicle_id})
     if not vehicle:
         raise HTTPException(status_code=404, detail="Vehicle not found")
     return {"vehicle": _vehicle_response(vehicle)}
@@ -418,12 +443,12 @@ async def list_operator_drivers(
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     operator_id = _user_id(current_user)
-    vehicles = await db[OPERATOR_FLEET_VEHICLES_COLLECTION].find({"operator_id": operator_id, "assigned_driver_id": {"$exists": True, "$ne": None}}).to_list(500)
+    vehicles = await _to_list(db[OPERATOR_FLEET_VEHICLES_COLLECTION].find({"operator_id": operator_id, "assigned_driver_id": {"$exists": True, "$ne": None}}), 500)
     driver_ids = sorted({str(vehicle.get("assigned_driver_id")) for vehicle in vehicles if vehicle.get("assigned_driver_id")})
     if not driver_ids:
         return {"drivers": []}
 
-    drivers = await db.users.find({"id": {"$in": driver_ids}}).to_list(500)
+    drivers = await _to_list(db.users.find({"id": {"$in": driver_ids}}), 500)
     return {"drivers": [{"id": driver.get("id"), "name": driver.get("name"), "email": driver.get("email"), "phone": driver.get("phone")} for driver in drivers]}
 
 
@@ -433,7 +458,7 @@ async def list_operator_assignments(
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     operator_id = _user_id(current_user)
-    history = await db[OPERATOR_ASSIGNMENT_HISTORY_COLLECTION].find({"operator_id": operator_id}).sort("created_at", -1).to_list(200)
+    history = await _to_list(db[OPERATOR_ASSIGNMENT_HISTORY_COLLECTION].find({"operator_id": operator_id}), 200, sort=("created_at", -1))
     return {"assignments": [_strip_mongo_id(item) for item in history]}
 
 
@@ -450,7 +475,7 @@ async def create_operator_vehicle(
         payload.vehicle_type_id,
         payload.vehicle_subtype_id,
     )
-    duplicate = await db[OPERATOR_FLEET_VEHICLES_COLLECTION].find_one({
+    duplicate = await _find_one(db[OPERATOR_FLEET_VEHICLES_COLLECTION], {
         "operator_id": operator_id,
         "license_plate": payload.license_plate,
         "active": {"$ne": False},
@@ -492,7 +517,7 @@ async def update_operator_vehicle(
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     operator_id = _user_id(current_user)
-    existing = await db[OPERATOR_FLEET_VEHICLES_COLLECTION].find_one({"operator_id": operator_id, "id": vehicle_id})
+    existing = await _find_one(db[OPERATOR_FLEET_VEHICLES_COLLECTION], {"operator_id": operator_id, "id": vehicle_id})
     if not existing:
         raise HTTPException(status_code=404, detail="Vehicle not found")
 
@@ -518,9 +543,9 @@ async def update_operator_vehicle(
         {"operator_id": operator_id, "id": vehicle_id},
         {"$set": update_data},
     )
-    updated = await db[OPERATOR_FLEET_VEHICLES_COLLECTION].find_one({"operator_id": operator_id, "id": vehicle_id})
+    updated = await _find_one(db[OPERATOR_FLEET_VEHICLES_COLLECTION], {"operator_id": operator_id, "id": vehicle_id})
     if updated and updated.get("assigned_driver_id"):
-        driver = await db.users.find_one({"id": updated["assigned_driver_id"]})
+        driver = await _find_one(db.users, {"id": updated["assigned_driver_id"]})
         if driver:
             await _sync_assigned_driver_vehicle(db, updated, driver)
     return {"vehicle": _vehicle_response(updated)}
@@ -534,7 +559,7 @@ async def assign_operator_vehicle_driver(
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     operator_id = _user_id(current_user)
-    vehicle = await db[OPERATOR_FLEET_VEHICLES_COLLECTION].find_one({"operator_id": operator_id, "id": vehicle_id})
+    vehicle = await _find_one(db[OPERATOR_FLEET_VEHICLES_COLLECTION], {"operator_id": operator_id, "id": vehicle_id})
     if not vehicle:
         raise HTTPException(status_code=404, detail="Vehicle not found")
 
@@ -556,7 +581,7 @@ async def assign_operator_vehicle_driver(
             }
         },
     )
-    updated = await db[OPERATOR_FLEET_VEHICLES_COLLECTION].find_one({"operator_id": operator_id, "id": vehicle_id})
+    updated = await _find_one(db[OPERATOR_FLEET_VEHICLES_COLLECTION], {"operator_id": operator_id, "id": vehicle_id})
     await _sync_assigned_driver_vehicle(db, updated, driver)
     return {"vehicle": _vehicle_response(updated)}
 
@@ -568,7 +593,7 @@ async def unassign_operator_vehicle_driver(
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     operator_id = _user_id(current_user)
-    vehicle = await db[OPERATOR_FLEET_VEHICLES_COLLECTION].find_one({"operator_id": operator_id, "id": vehicle_id})
+    vehicle = await _find_one(db[OPERATOR_FLEET_VEHICLES_COLLECTION], {"operator_id": operator_id, "id": vehicle_id})
     if not vehicle:
         raise HTTPException(status_code=404, detail="Vehicle not found")
     await _remove_assigned_driver_vehicle(db, vehicle)
@@ -584,8 +609,13 @@ async def unassign_operator_vehicle_driver(
             },
         },
     )
-    updated = await db[OPERATOR_FLEET_VEHICLES_COLLECTION].find_one({"operator_id": operator_id, "id": vehicle_id})
-    return {"vehicle": _vehicle_response(updated)}
+    updated = await _find_one(db[OPERATOR_FLEET_VEHICLES_COLLECTION], {"operator_id": operator_id, "id": vehicle_id})
+    response_vehicle = dict(updated or vehicle)
+    response_vehicle["assigned_driver_id"] = None
+    response_vehicle.pop("assigned_driver_name", None)
+    response_vehicle.pop("assigned_driver_phone", None)
+    response_vehicle.pop("assigned_at", None)
+    return {"vehicle": _vehicle_response(response_vehicle)}
 
 
 @router.delete("/vehicles/{vehicle_id}")
@@ -595,7 +625,7 @@ async def delete_operator_vehicle(
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     operator_id = _user_id(current_user)
-    vehicle = await db[OPERATOR_FLEET_VEHICLES_COLLECTION].find_one({"operator_id": operator_id, "id": vehicle_id})
+    vehicle = await _find_one(db[OPERATOR_FLEET_VEHICLES_COLLECTION], {"operator_id": operator_id, "id": vehicle_id})
     if not vehicle:
         raise HTTPException(status_code=404, detail="Vehicle not found")
     await _remove_assigned_driver_vehicle(db, vehicle)
@@ -613,10 +643,10 @@ async def get_vehicle_assignment_history(
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     operator_id = _user_id(current_user)
-    history = await db[OPERATOR_ASSIGNMENT_HISTORY_COLLECTION].find({
+    history = await _to_list(db[OPERATOR_ASSIGNMENT_HISTORY_COLLECTION].find({
         "operator_id": operator_id,
         "vehicle_id": vehicle_id,
-    }).sort("created_at", -1).to_list(200)
+    }), 200, sort=("created_at", -1))
     return {"assignments": [_strip_mongo_id(item) for item in history]}
 
 
@@ -625,7 +655,7 @@ async def list_operators(
     current_user: dict = Depends(require_roles("admin")),
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
-    profiles = await db[OPERATOR_PROFILES_COLLECTION].find({}).sort("updated_at", -1).to_list(500)
+    profiles = await _to_list(db[OPERATOR_PROFILES_COLLECTION].find({}), 500, sort=("updated_at", -1))
     return {"operators": [_strip_mongo_id(item) for item in profiles]}
 
 
@@ -651,5 +681,5 @@ async def update_operator_status(
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Operator profile not found")
-    profile = await db[OPERATOR_PROFILES_COLLECTION].find_one({"operator_id": operator_id})
+    profile = await _find_one(db[OPERATOR_PROFILES_COLLECTION], {"operator_id": operator_id})
     return {"operator": _strip_mongo_id(profile)}

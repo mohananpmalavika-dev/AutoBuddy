@@ -1,20 +1,29 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, TextInput, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, TextInput } from 'react-native';
 import WebLeafletMap from '../components/WebLeafletMap';
 import SafePathReportModal from '../components/SafePathReportModal';
 import { apiRequest } from '../lib/api';
 
-export default function SafePathScreen({ onClose }) {
+type Coordinate = { latitude: number; longitude: number };
+type SafePathRoute = {
+  id: string;
+  name: string;
+  distance_km: number;
+  risk_score: number;
+  risk_level: string;
+};
+
+export default function SafePathScreen({ onClose }: { onClose?: () => void }) {
   const [mode, setMode] = useState<'walking'|'cycling'|'driving'>('walking');
   const [originLat, setOriginLat] = useState('13.0827');
   const [originLng, setOriginLng] = useState('80.2707');
   const [destLat, setDestLat] = useState('13.0850');
   const [destLng, setDestLng] = useState('80.2700');
-  const [routes, setRoutes] = useState<any[]>([]);
+  const [routes, setRoutes] = useState<SafePathRoute[]>([]);
   const [loading, setLoading] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
-  const [reportLocation, setReportLocation] = useState({ latitude: Number(originLat), longitude: Number(originLng) });
-  const [userId, setUserId] = useState('passenger_user'); // In real app, get from auth context
+  const [reportLocation, setReportLocation] = useState<Coordinate>({ latitude: Number(originLat), longitude: Number(originLng) });
+  const [userId] = useState('passenger_user'); // In real app, get from auth context
 
   const performRoute = async () => {
     const payload = {
@@ -26,7 +35,7 @@ export default function SafePathScreen({ onClose }) {
     try {
       setLoading(true);
       const res = await apiRequest('/api/safepath/route', { method: 'POST', body: JSON.stringify(payload) });
-      setRoutes(res.routes || []);
+      setRoutes((res as { routes?: SafePathRoute[] }).routes || []);
     } catch (e) {
       console.error('SafeRoute error', e);
       alert('Failed to compute safe routes');
@@ -35,7 +44,7 @@ export default function SafePathScreen({ onClose }) {
     }
   };
 
-  const hazardMarkers = [];
+  const hazardMarkers: Coordinate[] = [];
   // Optionally add route geometries as markers
   return (
     <View style={styles.container}>

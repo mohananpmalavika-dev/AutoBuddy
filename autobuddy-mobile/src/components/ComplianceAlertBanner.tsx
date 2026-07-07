@@ -46,7 +46,7 @@ export const ComplianceAlertBanner: React.FC<ComplianceAlertBannerProps> = ({
           </Text>
           <Text style={styles.message}>Requires your attention</Text>
         </View>
-        <MaterialIcons name="arrow_forward" size={20} color="#FF6F00" />
+        <MaterialIcons name="arrow-forward" size={20} color="#FF6F00" />
       </View>
     </Pressable>
   );
@@ -102,7 +102,7 @@ export const ComplianceInfoCard: React.FC<ComplianceInfoCardProps> = ({
             ? `${criticalNotifs.length} critical alert${criticalNotifs.length !== 1 ? 's' : ''}`
             : 'All compliance items up to date'}
         </Text>
-        <MaterialIcons name="chevron_right" size={20} color="#2196F3" />
+        <MaterialIcons name="chevron-right" size={20} color="#2196F3" />
       </View>
     </Pressable>
   );

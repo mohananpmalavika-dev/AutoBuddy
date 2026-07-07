@@ -120,7 +120,7 @@ export const RideComplianceRulesScreen: React.FC<RideComplianceRulesScreenProps>
       case 'info':
         return 'info';
       default:
-        return 'check_circle';
+        return 'check-circle';
     }
   };
 
@@ -139,7 +139,7 @@ export const RideComplianceRulesScreen: React.FC<RideComplianceRulesScreenProps>
       star_rate: 'star',
       description: 'description',
     };
-    return iconMap[icon] || 'check_circle';
+    return iconMap[icon] || 'check-circle';
   };
 
   const renderAlertCard = (alert: ComplianceAlert) => (
@@ -241,7 +241,7 @@ export const RideComplianceRulesScreen: React.FC<RideComplianceRulesScreenProps>
         {rule.description}
       </Text>
       <View style={styles.tapIndicator}>
-        <MaterialIcons name="arrow_forward" size={16} color="#2196F3" />
+        <MaterialIcons name="arrow-forward" size={16} color="#2196F3" />
       </View>
     </Pressable>
   );
@@ -259,7 +259,7 @@ export const RideComplianceRulesScreen: React.FC<RideComplianceRulesScreenProps>
       ]}
     >
       <View style={styles.guidelineHeader}>
-        <MaterialIcons name="check_circle" size={32} color="#4CAF50" />
+        <MaterialIcons name="check-circle" size={32} color="#4CAF50" />
         <View style={{ flex: 1, marginLeft: 12 }}>
           <Text style={styles.guidelineTitle}>{guideline.title}</Text>
           <Text style={styles.guidelineContent} numberOfLines={2}>
@@ -388,7 +388,7 @@ export const RideComplianceRulesScreen: React.FC<RideComplianceRulesScreenProps>
               alerts.map(renderAlertCard)
             ) : (
               <View style={styles.emptyState}>
-                <MaterialIcons name="check_circle" size={64} color="#4CAF50" />
+                <MaterialIcons name="check-circle" size={64} color="#4CAF50" />
                 <Text style={styles.emptyStateText}>No alerts</Text>
                 <Text style={styles.emptyStateSubtext}>
                   You're all set with compliance
@@ -550,7 +550,7 @@ export const RideComplianceRulesScreen: React.FC<RideComplianceRulesScreenProps>
             {selectedGuideline && (
               <>
                 <View style={styles.guidelineBanner}>
-                  <MaterialIcons name="check_circle" size={48} color="#4CAF50" />
+                  <MaterialIcons name="check-circle" size={48} color="#4CAF50" />
                   <Text style={styles.detailRuleTitle}>
                     {selectedGuideline.title}
                   </Text>

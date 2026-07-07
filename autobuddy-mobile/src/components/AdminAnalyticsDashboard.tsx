@@ -208,6 +208,8 @@ export const AdminAnalyticsDashboard: React.FC<AdminAnalyticsDashboardProps> = (
             }}
             width={chartWidth}
             height={chartHeight}
+            yAxisLabel=""
+            yAxisSuffix=""
             chartConfig={{
               backgroundColor: '#fff',
               backgroundGradientFrom: '#fff',
@@ -293,6 +295,8 @@ export const AdminAnalyticsDashboard: React.FC<AdminAnalyticsDashboardProps> = (
             }}
             width={chartWidth}
             height={chartHeight}
+            yAxisLabel=""
+            yAxisSuffix=""
             chartConfig={{
               backgroundColor: '#fff',
               backgroundGradientFrom: '#fff',
@@ -653,11 +657,11 @@ const styles = StyleSheet.create({
   operatorMetric: {
     alignItems: 'flex-end',
   },
-  metricLabel: {
+  operatorMetricLabel: {
     fontSize: 10,
     color: '#666',
   },
-  metricValue: {
+  operatorMetricValue: {
     fontSize: 12,
     fontWeight: '700',
     color: '#2196F3',

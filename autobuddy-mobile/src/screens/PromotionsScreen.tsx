@@ -117,7 +117,7 @@ export const PromotionsScreen: React.FC<PromoScreenProps> = ({
         {selectedCoupon && (
           <View style={styles.selectedCouponCard}>
             <View style={styles.selectedCouponHeader}>
-              <MaterialIcons name="check_circle" size={28} color="#4CAF50" />
+              <MaterialIcons name="check-circle" size={28} color="#4CAF50" />
               <Text style={styles.selectedCouponText}>Coupon Applied</Text>
               <Pressable onPress={() => setSelectedCoupon(null)}>
                 <MaterialIcons name="close" size={20} color="#999" />
@@ -301,7 +301,7 @@ export const PromotionsScreen: React.FC<PromoScreenProps> = ({
                     }}
                     style={styles.useButton}
                   >
-                    <MaterialIcons name="arrow_forward" size={20} color="#2196F3" />
+                    <MaterialIcons name="arrow-forward" size={20} color="#2196F3" />
                   </Pressable>
                 </View>
               )}

@@ -12,7 +12,7 @@ import {
   Alert,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useSuspensionAppeal, Appeal } from '../hooks/useSuspensionAppeal';
+import { useSuspensionAppeal, Appeal } from '../../hooks/useSuspensionAppeal';
 
 interface SuspensionAppealScreensProps {
   userId: string;

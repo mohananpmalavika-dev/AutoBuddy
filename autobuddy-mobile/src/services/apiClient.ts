@@ -243,7 +243,7 @@ rawAxiosInstance.interceptors.request.use(
       : await getValidToken();
     
     if (token) {
-      config.headers = config.headers || {};
+      config.headers = (config.headers || {}) as any;
       (config.headers as Record<string, string>).Authorization = `Bearer ${token}`;
     }
     return config;
@@ -396,8 +396,9 @@ rawAxiosInstance.interceptors.response.use(
     }
     
     // Handle all other errors (400, 409, 422, etc.)
-    const code = errorData && typeof errorData === 'object' 
-      ? errorData?.error?.code || 'UNKNOWN_ERROR'
+    const normalizedError = isRecord(errorData?.error) ? errorData.error : undefined;
+    const code = normalizedError
+      ? normalizedError.code || 'UNKNOWN_ERROR'
       : 'UNKNOWN_ERROR';
     
     return Promise.reject({
@@ -405,7 +406,7 @@ rawAxiosInstance.interceptors.response.use(
       userMessage: getErrorMessage(status, code),
       code,
       status: status || 0,
-      details: errorData && typeof errorData === 'object' ? errorData?.error?.details : undefined,
+      details: normalizedError?.details,
       originalError: error,
     });
   }
@@ -422,11 +423,12 @@ const withIdAlias = <T>(item: T): T => {
   if (!isRecord(item)) {
     return item;
   }
-  const id = item.id || item._id;
+  const record = item as AnyRecord;
+  const id = record.id || record._id;
   return {
-    ...item,
+    ...record,
     id,
-    _id: item._id || id,
+    _id: record._id || id,
   } as T;
 };
 

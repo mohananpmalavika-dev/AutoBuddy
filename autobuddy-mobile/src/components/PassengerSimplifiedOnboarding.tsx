@@ -98,7 +98,7 @@ export function SimplifiedOnboarding({
     }
   };
 
-  const getProgressPercent = (step / 4) * 100;
+  const getProgressPercent = (currentStep / 4) * 100;
 
   return (
     <KeyboardAvoidingView

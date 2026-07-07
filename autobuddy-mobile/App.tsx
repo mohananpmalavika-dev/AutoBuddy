@@ -1,8 +1,8 @@
 import React, { useEffect } from 'react';
 import { LogBox, AppState, AppStateStatus } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import AppShell from './AppShell';
-import { initializeAllSystems, cleanupSystems, checkSystemHealth } from './utils/setupIntegration';
+import AppShell from './src/AppShell';
+import { initializeAllSystems, cleanupSystems, checkSystemHealth } from './src/utils/setupIntegration';
 
 // Ignore specific warnings in development
 if (__DEV__) {

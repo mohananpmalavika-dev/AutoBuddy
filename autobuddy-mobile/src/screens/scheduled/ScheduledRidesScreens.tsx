@@ -10,12 +10,10 @@ import {
   Alert,
   Modal,
   TextInput,
-  Switch,
-  DatePickerAndroid,
-  TimePickerAndroid
+  Switch
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { useScheduledRides } from '../hooks/useScheduledRides';
+import { useScheduledRides } from '../../hooks/useScheduledRides';
 
 // ==================== SCHEDULE RIDE SCREEN ====================
 
@@ -88,7 +86,7 @@ export const ScheduleRideScreen: React.FC<{
         <View style={styles.locationBox}>
           <Text style={styles.label}>From:</Text>
           <Text style={styles.address}>{pickupLocation.address}</Text>
-          <Text style={styles.label} style={{ marginTop: 12 }}>
+          <Text style={[styles.label, { marginTop: 12 }]}>
             To:
           </Text>
           <Text style={styles.address}>{dropoffLocation.address}</Text>

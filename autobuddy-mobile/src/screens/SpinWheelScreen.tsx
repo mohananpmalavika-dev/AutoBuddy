@@ -12,7 +12,7 @@ import {
   FlatList,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useSpinAndWin } from '../hooks/useSpinAndWin';
+import { SpinReward, useSpinAndWin } from '../hooks/useSpinAndWin';
 
 type DateLike = string | number | Date | null | undefined;
 
@@ -46,7 +46,7 @@ export const SpinWheelScreen: React.FC<SpinWheelScreenProps> = ({
   } = useSpinAndWin(token, userId);
 
   const [isSpinning, setIsSpinning] = useState(false);
-  const [rewards, setRewards] = useState([]);
+  const [rewards, setRewards] = useState<SpinReward[]>([]);
   const [totalCredit, setTotalCredit] = useState(0);
   const [showRewardsModal, setShowRewardsModal] = useState(false);
   const [spinRotation, setSpinRotation] = useState(0);
@@ -114,19 +114,19 @@ export const SpinWheelScreen: React.FC<SpinWheelScreenProps> = ({
         {/* Header Stats */}
         <View style={styles.statsContainer}>
           <View style={styles.statCard}>
-            <MaterialIcons name="local_activity" size={32} color="#2196F3" />
+            <MaterialIcons name="local-activity" size={32} color="#2196F3" />
             <Text style={styles.statValue}>{getAvailableSpins()}</Text>
             <Text style={styles.statLabel}>Spins Left</Text>
           </View>
 
           <View style={styles.statCard}>
-            <MaterialIcons name="account_balance_wallet" size={32} color="#4CAF50" />
+            <MaterialIcons name="account-balance-wallet" size={32} color="#4CAF50" />
             <Text style={styles.statValue}>₹{totalCredit}</Text>
             <Text style={styles.statLabel}>Credits</Text>
           </View>
 
           <View style={styles.statCard}>
-            <MaterialIcons name="card_giftcard" size={32} color="#FF9800" />
+            <MaterialIcons name="card-giftcard" size={32} color="#FF9800" />
             <Text style={styles.statValue}>{rewards.length}</Text>
             <Text style={styles.statLabel}>Rewards</Text>
           </View>
@@ -170,7 +170,7 @@ export const SpinWheelScreen: React.FC<SpinWheelScreenProps> = ({
             </View>
 
             <View style={styles.wheelPointer}>
-              <MaterialIcons name="arrow_drop_down" size={32} color="#2196F3" />
+              <MaterialIcons name="arrow-drop-down" size={32} color="#2196F3" />
             </View>
           </View>
 
@@ -245,7 +245,7 @@ export const SpinWheelScreen: React.FC<SpinWheelScreenProps> = ({
             />
           ) : (
             <View style={styles.emptyState}>
-              <MaterialIcons name="card_giftcard" size={48} color="#CCC" />
+              <MaterialIcons name="card-giftcard" size={48} color="#CCC" />
               <Text style={styles.emptyText}>No active rewards</Text>
             </View>
           )}

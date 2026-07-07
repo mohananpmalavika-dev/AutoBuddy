@@ -8,7 +8,6 @@ from fastapi import FastAPI, Depends
 from sqlalchemy import create_engine, Column, String
 from sqlalchemy.orm import sessionmaker, Session
 from datetime import datetime, timedelta
-from app.utils.time_helpers import get_ist_now
 import uuid
 import sys
 from pathlib import Path
@@ -16,6 +15,7 @@ from pathlib import Path
 # Add parent directories to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from app.utils.time_helpers import get_ist_now
 from app.db.models_features import Base
 from app.db.database import get_db
 from app.core.auth import get_current_passenger

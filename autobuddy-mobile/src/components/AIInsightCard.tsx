@@ -10,7 +10,6 @@ import {
   Dimensions,
   ActivityIndicator,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 
 interface AIInsightCardProps {
@@ -83,6 +82,8 @@ export const AIInsightCard: React.FC<AIInsightCardProps> = ({
     }
   };
 
+  const insightColors = getInsightColor();
+
   return (
     <Animated.View
       style={[
@@ -93,17 +94,12 @@ export const AIInsightCard: React.FC<AIInsightCardProps> = ({
         },
       ]}
     >
-      <LinearGradient
-        colors={getInsightColor()}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.gradientContainer}
-      >
+      <View style={[styles.gradientContainer, { backgroundColor: insightColors[0] }]}>
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.titleSection}>
             <MaterialCommunityIcons
-              name={getInsightIcon()}
+              name={getInsightIcon() as any}
               size={24}
               color="#fff"
               style={styles.icon}
@@ -151,7 +147,7 @@ export const AIInsightCard: React.FC<AIInsightCardProps> = ({
         <View style={styles.aiBadge}>
           <Text style={styles.aiText}>🤖 AI</Text>
         </View>
-      </LinearGradient>
+      </View>
     </Animated.View>
   );
 };
@@ -278,7 +274,7 @@ export const AIAlertBanner: React.FC<AIAlertBannerProps> = ({
     >
       <View style={[styles.banner, { backgroundColor: getBannerColor() }]}>
         <MaterialCommunityIcons
-          name={icon || getIconName()}
+          name={(icon || getIconName()) as any}
           size={20}
           color="#fff"
           style={{ marginRight: 12 }}

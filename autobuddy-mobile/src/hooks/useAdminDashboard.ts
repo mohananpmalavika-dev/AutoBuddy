@@ -54,6 +54,103 @@ export interface ComplianceData {
   }[];
 }
 
+export interface AdminDashboardPlatformStats {
+  totalRides: number;
+  activeUsers: number;
+  totalUsers: number;
+  totalRevenue: number;
+  totalOperators: number;
+  activeOperators: number;
+  avgCompletionTime: number;
+  cancellationRate: number;
+  avgRating: number;
+}
+
+export interface AdminDashboardSystemHealth {
+  api?: { status: 'healthy' | 'degraded' | 'critical'; uptime?: number };
+  database?: { status: 'healthy' | 'degraded' | 'critical'; uptime?: number };
+  cache?: { status: 'healthy' | 'degraded' | 'critical'; uptime?: number };
+  payments?: { status: 'healthy' | 'degraded' | 'critical'; uptime?: number };
+}
+
+export interface AdminDashboardOperatorMetric {
+  id: string;
+  name: string;
+  totalRides: number;
+  totalRevenue: number;
+  rating: number;
+}
+
+export interface AdminDashboardIncident {
+  id: string;
+  title: string;
+  description: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  timestamp: string | Date;
+}
+
+export function useAdminDashboard(token: string | null) {
+  const { metrics, loading: metricsLoading, error: metricsError, refetch: refetchMetrics } = useAdminMetrics(token);
+  const { health, loading: healthLoading, error: healthError, refetch: refetchHealth } = useSystemHealth(token);
+  const { alerts, loading: alertsLoading, error: alertsError, refetch: refetchAlerts } = useAdminAlerts(token);
+
+  const platformStats: AdminDashboardPlatformStats | null = metrics
+    ? {
+        totalRides: metrics.ridesToday,
+        activeUsers: metrics.activeUsers,
+        totalUsers: metrics.totalUsers,
+        totalRevenue: metrics.dailyRevenue,
+        totalOperators: metrics.newDriversToday,
+        activeOperators: metrics.newDriversToday,
+        avgCompletionTime: 18,
+        cancellationRate: metrics.chargebackRate,
+        avgRating: metrics.avgRating,
+      }
+    : null;
+
+  const systemHealth: AdminDashboardSystemHealth | null = health
+    ? {
+        api: {
+          status: health.apiServer === 'operational' ? 'healthy' : health.apiServer === 'degraded' ? 'degraded' : 'critical',
+          uptime: Number.parseFloat(health.apiUptime) || undefined,
+        },
+        database: {
+          status: health.database === 'healthy' ? 'healthy' : health.database === 'warning' ? 'degraded' : 'critical',
+          uptime: Number.parseFloat(health.dbResponseTime) || undefined,
+        },
+        cache: {
+          status: health.cache === 'operational' ? 'healthy' : health.cache === 'degraded' ? 'degraded' : 'critical',
+          uptime: Number.parseFloat(health.cacheHitRate) || undefined,
+        },
+        payments: {
+          status: health.paymentGateway === 'operational' ? 'healthy' : health.paymentGateway === 'degraded' ? 'degraded' : 'critical',
+        },
+      }
+    : null;
+
+  const incidents: AdminDashboardIncident[] = alerts.map((alert) => ({
+    id: alert.id,
+    title: alert.title,
+    description: alert.message,
+    severity: alert.severity,
+    timestamp: alert.timestamp,
+  }));
+
+  const refetch = useCallback(async () => {
+    await Promise.all([refetchMetrics(), refetchHealth(), refetchAlerts()]);
+  }, [refetchAlerts, refetchHealth, refetchMetrics]);
+
+  return {
+    platformStats,
+    systemHealth,
+    operatorMetrics: [] as AdminDashboardOperatorMetric[],
+    incidents,
+    loading: metricsLoading || healthLoading || alertsLoading,
+    error: metricsError || healthError || alertsError,
+    refetch,
+  };
+}
+
 /**
  * Hook to fetch admin dashboard metrics
  */

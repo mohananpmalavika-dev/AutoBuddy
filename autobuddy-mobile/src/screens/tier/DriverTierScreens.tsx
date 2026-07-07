@@ -10,7 +10,7 @@ import {
   Dimensions,
   FlatList
 } from 'react-native';
-import { useDriverTier } from '../hooks/useDriverTier';
+import { useDriverTier } from '../../hooks/useDriverTier';
 
 const { width } = Dimensions.get('window');
 

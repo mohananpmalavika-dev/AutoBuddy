@@ -11,7 +11,7 @@ import {
   TextInput,
   Switch
 } from 'react-native';
-import { useWalletManagement } from '../hooks/useWalletManagement';
+import { useWalletManagement } from '../../hooks/useWalletManagement';
 
 // ==================== WALLET BALANCE SCREEN ====================
 

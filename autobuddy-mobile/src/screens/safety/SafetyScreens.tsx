@@ -13,7 +13,7 @@ import {
   Switch,
   Dimensions
 } from 'react-native';
-import { useSafety } from '../hooks/useSafety';
+import { useSafety } from '../../hooks/useSafety';
 
 const { width, height } = Dimensions.get('window');
 

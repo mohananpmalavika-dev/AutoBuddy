@@ -6,9 +6,6 @@ import {
   Pressable,
   ActivityIndicator,
   Alert,
-  ProgressBarAndroid,
-  ProgressViewIOS,
-  Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Document, DocumentUploadProgress } from '../hooks/useDocumentUpload';
@@ -99,17 +96,9 @@ export const DocumentUploadCard: React.FC<DocumentUploadCardProps> = ({
       {progress?.status === 'uploading' && (
         <View style={styles.progressSection}>
           <Text style={styles.progressLabel}>{progress.fileName}</Text>
-          {Platform.OS === 'android' ? (
-            <ProgressBarAndroid
-              styleAttr="Horizontal"
-              indeterminate={false}
-              progress={progress.progress / 100}
-              color="#2196F3"
-              style={styles.progressBar}
-            />
-          ) : (
-            <ProgressViewIOS progress={progress.progress / 100} style={styles.progressBar} />
-          )}
+          <View style={styles.progressTrack}>
+            <View style={[styles.progressFill, { width: `${Math.max(0, Math.min(100, progress.progress))}%` }]} />
+          </View>
           <Text style={styles.progressPercent}>{progress.progress}%</Text>
         </View>
       )}
@@ -238,9 +227,17 @@ const styles = StyleSheet.create({
     color: '#666',
     marginBottom: 8,
   },
-  progressBar: {
+  progressTrack: {
     height: 6,
     marginBottom: 8,
+    backgroundColor: '#E3F2FD',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#2196F3',
+    borderRadius: 3,
   },
   progressPercent: {
     fontSize: 12,

@@ -20,18 +20,18 @@ export const setupPerformanceMonitoring = async () => {
     const apiClient = getApiClient();
 
     apiClient.interceptors.request.use((config) => {
-      config.metadata = { startTime: Date.now() };
+      (config as any).metadata = { startTime: Date.now() };
       return config;
     });
 
     apiClient.interceptors.response.use(
       (response) => {
-        const duration = Date.now() - (response.config.metadata?.startTime || Date.now());
+        const duration = Date.now() - ((response.config as any).metadata?.startTime || Date.now());
         logApiPerformance(response.config.url || '', duration, response.status);
         return response;
       },
       (error) => {
-        const duration = Date.now() - (error.config?.metadata?.startTime || Date.now());
+        const duration = Date.now() - ((error.config as any)?.metadata?.startTime || Date.now());
         logApiPerformance(error.config?.url || '', duration, error.response?.status || 500);
         return Promise.reject(error);
       }

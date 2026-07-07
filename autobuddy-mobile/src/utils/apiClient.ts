@@ -158,7 +158,7 @@ export const handleApiError = (error: unknown): ApiErrorResponse => {
     return {
       code: axiosError.code || 'UNKNOWN_ERROR',
       message: axiosError.response?.data?.message || axiosError.message,
-      details: axiosError.response?.data?.details,
+      details: (axiosError.response?.data as any)?.details,
       statusCode: axiosError.response?.status || 500,
       timestamp: new Date(),
     };
