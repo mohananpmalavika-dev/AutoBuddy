@@ -19,6 +19,18 @@ from app.schemas.users import UserCreate
 from app.db.deps import get_db
 
 
+@pytest.fixture
+def setup_test_db():
+    """Module-visible mock database fixture for the legacy E2E runner."""
+    db = AsyncMock()
+    db.users = AsyncMock()
+    db.bookings = AsyncMock()
+    db.rides = AsyncMock()
+    db.payments = AsyncMock()
+    db.ratings = AsyncMock()
+    return db
+
+
 class E2EBookingTestSuite:
     """Complete booking flow test suite"""
     

@@ -1620,14 +1620,16 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   };
 
   const parseLocations = () => {
-    const missingPickup = !pickupLocation;
-    const missingDropoff = !dropoffLocation;
+    const activePickupLocation = pickupLocation || pickupLocationRef.current || routePreviewLocations.pickup;
+    const activeDropoffLocation = dropoffLocation || dropoffLocationRef.current || routePreviewLocations.dropoff;
+    const missingPickup = !activePickupLocation;
+    const missingDropoff = !activeDropoffLocation;
     setLocationValidation({ pickup: missingPickup, dropoff: missingDropoff });
     if (missingPickup || missingDropoff) {
       setError(t.selectPickupDropBoth);
       return null;
     }
-    return { pickup: pickupLocation, dropoff: dropoffLocation };
+    return { pickup: activePickupLocation, dropoff: activeDropoffLocation };
   };
 
   const setLocationForPoint = (point, location) => {
@@ -4024,19 +4026,21 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const quickPickupText = effectivePickupLocation?.address || pickupQuery || 'Use current location';
 
   const handleQuickConfirmRide = async () => {
-    if (!pickupLocation) {
+    const activePickupLocation = pickupLocation || pickupLocationRef.current || routePreviewLocations.pickup;
+    const activeDropoffLocation = dropoffLocation || dropoffLocationRef.current || routePreviewLocations.dropoff;
+    if (!activePickupLocation) {
       if (pickupQuery.trim()) {
         setLocationValidation((prev) => ({ ...prev, pickup: true }));
         setError('Select pickup from the search results or use current location.');
         return;
       }
       await autofillPickupFromCurrentLocation({ silent: false });
-      if (!dropoffLocation) {
+      if (!activeDropoffLocation) {
         setError('Select your destination to continue.');
       }
       return;
     }
-    if (!dropoffLocation) {
+    if (!activeDropoffLocation) {
       setLocationValidation((prev) => ({ ...prev, dropoff: true }));
       setError('Select your destination to continue.');
       return;

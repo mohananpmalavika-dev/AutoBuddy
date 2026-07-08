@@ -1313,8 +1313,10 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   );
 
   const validateBothLocations = () => {
-    const missingPickup = !pickupLocation;
-    const missingDropoff = !dropoffLocation;
+    const activePickupLocation = pickupLocation || pickupLocationRef.current || routePreviewLocations.pickup;
+    const activeDropoffLocation = dropoffLocation || dropoffLocationRef.current || routePreviewLocations.dropoff;
+    const missingPickup = !activePickupLocation;
+    const missingDropoff = !activeDropoffLocation;
     setLocationValidation({ pickup: missingPickup, dropoff: missingDropoff });
     if (missingPickup || missingDropoff) {
       setError('Select both pickup and drop from map or search.');
@@ -3244,14 +3246,16 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   }, [liveDriverLocation, passengerAccessibility?.reduce_motion]);
 
   const handleQuickConfirmRide = async () => {
-    if (!pickupLocation) {
+    const activePickupLocation = pickupLocation || pickupLocationRef.current || routePreviewLocations.pickup;
+    const activeDropoffLocation = dropoffLocation || dropoffLocationRef.current || routePreviewLocations.dropoff;
+    if (!activePickupLocation) {
       await autofillPickupFromCurrentLocation({ silent: false });
-      if (!dropoffLocation) {
+      if (!activeDropoffLocation) {
         setError('Select your destination to continue.');
       }
       return;
     }
-    if (!dropoffLocation) {
+    if (!activeDropoffLocation) {
       setLocationValidation((prev) => ({ ...prev, dropoff: true }));
       setError('Select your destination to continue.');
       return;
