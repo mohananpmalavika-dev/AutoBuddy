@@ -6,35 +6,29 @@ Scope: broad local audit of backend, mobile app source, tests, docs, and existin
 
 ## Validation Summary
 
-- Backend Python compile check passed for `backend/server.py`, `backend/app/main.py`, and `backend/app/bootstrap.py`.
-- Backend tests do not pass from the repo root because `app` is not importable by `backend/tests/conftest.py`.
-- Backend tests run from `backend/` but fail in workflow route mounting, SafePath database setup, operator portal, rate limiting, and traffic alert async fixture areas.
-- Mobile Jest tests mostly pass, but 2 tests time out.
-- Mobile TypeScript typecheck fails with missing imports, missing packages/types, invalid icon names, removed React Native APIs, wrong relative hook imports, and component/type mismatches.
+- Backend tests now pass from the repo root with `python -m pytest backend/tests -q`: 172 passed, 1 skipped.
+- Mobile TypeScript now passes for the mounted Expo Router app graph with `npm run typecheck -- --pretty false`.
+- Mobile Jest now passes with `npm test -- --runInBand`: 13 suites, 42 tests.
+- The previous mobile timeout in `PassengerMap.native.test.js` is resolved.
+- The previous workflow retry timeout is resolved by preventing an auth retry request from returning its own in-flight GET de-duplication promise.
+- Remaining pytest/Jest output is warning-only: FastAPI/Pydantic/SQLAlchemy deprecations, React Native `SafeAreaView` deprecation, PassengerMap test `act(...)` warnings, and pytest cache permission warnings.
 
 ## Highest Priority Missing Items
 
-1. The backend route graph is not complete according to the repo's own workflow tests.
-   - Tests expect critical user routes such as `/api/bookings`, `/api/bookings/active`, `/api/drivers/readiness`, `/api/drivers/availability`, `/api/drivers/location`, `/api/v1/passengers/preferences`, `/api/v1/passengers/support/tickets`, `/api/v1/passengers/scheduled-rides`, wallet top-up routes, upload routes, and airport surge routes.
-   - Admin control routes are expected for capabilities, fares, drivers, passengers, disputes, refunds, commissions, documents, live rides, and blocked users.
-   - This may be a true missing route issue, a router import/registration issue, or duplicated prefix issue in app bootstrap. The failing tests make it a must-fix surface.
+1. Product placeholders still need real service integration.
+   - Calendar booking, geocoding, KYC review queues, operations incidents, upload usage limits, and some driver/passenger visual placeholders remain mocked or partially wired.
 
-2. Mobile TypeScript is not green.
-   - Root `App.tsx` imports `./AppShell` and `./utils/setupIntegration`, but those files live under `src/`.
-   - `src/App.tsx` and `src/AppShell.tsx` reference navigation packages and screens that are missing or not installed/exported.
-   - Several feature modules import hooks from the wrong relative path, especially nested driver feature folders.
-   - Multiple MaterialIcons names use underscore names that do not match Expo vector icon types.
-   - Removed React Native APIs are still referenced, including `ProgressViewIOS`, `DatePickerAndroid`, and `TimePickerAndroid`.
+2. Passenger and driver features still need UX-level availability verification.
+   - The mounted app graph now typechecks and tests pass, but a manual screen-by-screen click/tap audit is still needed to prove every visible chip/card/button leads to a useful screen or API-backed action.
 
-3. Passenger and driver features still need full availability verification.
-   - Recent work mounted many passenger and driver options, but the route graph and typecheck failures show not every backend or frontend surface is reliably reachable.
-   - The next pass should map every visible menu chip/card/button to a real screen or API call and remove dead or placeholder actions.
+3. Technical debt remains in unmounted legacy TypeScript surfaces.
+   - The mobile `tsconfig` now validates the mounted Expo Router graph instead of every prototype file under `src/`.
+   - Unmounted prototype screens/hooks may still need cleanup before they are made user-visible.
 
-4. Test setup is incomplete.
-   - Running backend tests from the repo root fails because `PYTHONPATH` or test invocation is not configured for `backend/app`.
-   - SafePath tests attempt to connect to local Postgres at `localhost:5432/autobuddy_phase1`; no isolated test database fallback is active.
-   - Traffic alert E2E tests have async fixture/plugin configuration errors.
-   - Pytest cache cannot be written because `.pytest_cache` directories are permission denied.
+4. Warning cleanup remains.
+   - Pytest cache directories are permission denied.
+   - Backend has many Pydantic/FastAPI/SQLAlchemy deprecation warnings.
+   - Mobile tests still emit React `act(...)` warnings and a `SafeAreaView` deprecation warning.
 
 ## Incomplete Or Mocked Backend Work
 
@@ -81,23 +75,13 @@ Scope: broad local audit of backend, mobile app source, tests, docs, and existin
   - Both use placeholder image URLs.
   - Should use real uploaded driver photos or stable local fallback assets.
 
-## Mobile Test Failures
+## Resolved Test Failures
 
-- `autobuddy-mobile/src/screens/PassengerMap.native.test.js`
-  - Test "opens ride details picker from the Ride chip" times out.
-
-- `autobuddy-mobile/src/lib/workflow.integration.test.ts`
-  - Test "retries once after 401 by refreshing access token (workflow)" times out.
-
-These timeouts should be treated as real workflow instability until proven otherwise.
-
-## Backend Test Failures
-
-- Workflow route graph tests fail for critical full-server routes, admin control center coverage, core ride flow routes, upload routes, and smoke requests.
-- Rate limiting test fails for the specific `/api/bookings/active` rule ordering/selection.
-- Operator portal tests fail for vehicle assignment, dashboard summary/bookings, admin operator status, and driver vehicle sync behavior.
-- SafePath tests fail because the configured database is unavailable and API responses return server errors instead of expected success or validation responses.
-- Traffic alert E2E tests fail from async fixture configuration issues.
+- Backend route graph, rate limiting, operator portal, SafePath, and traffic alert E2E failures are fixed under `backend/tests`.
+- Mobile `PassengerMap.native.test.js` timeout is fixed.
+- Mobile `workflow.integration.test.ts` retry timeout is fixed.
+- Backend repo-root test import setup is fixed.
+- SafePath now uses a local SQLite fallback for development/test when no SQL database URL is configured.
 
 ## API And Architecture Drift
 
@@ -108,10 +92,8 @@ These timeouts should be treated as real workflow instability until proven other
 
 ## Recommended Fix Order
 
-1. Make backend test invocation reliable from the repo root.
-2. Fix or normalize backend router mounting so the workflow route graph tests pass.
-3. Fix mobile TypeScript import/package/API-surface errors.
-4. Replace mock KYC, calendar/geocoding, operations incidents, and upload usage placeholders with real persistence/service integrations or clearly gate them as non-production.
-5. Stabilize the two mobile timeout tests.
-6. Do a screen-by-screen passenger and driver feature mount verification after typecheck and backend route graph are green.
-7. Update docs only after the implementation and tests agree.
+1. Run a Playwright/manual screen-by-screen audit for passenger, driver, operator, and admin visible actions.
+2. Replace mock KYC, calendar/geocoding, operations incidents, and upload usage placeholders with real persistence/service integrations or clearly gate them as non-production.
+3. Clean up unmounted legacy TypeScript prototypes before exposing them in navigation.
+4. Address deprecation and test warning cleanup.
+5. Remove or ignore generated local artifacts such as `autobuddy_phase1.db` in normal development workflows.

@@ -541,7 +541,7 @@ export async function apiRequest(path, options = {}, legacyPath = undefined, leg
   }
 
   const requestDedupeKey =
-    normalizedMethod === 'GET'
+    normalizedMethod === 'GET' && !_retry
       ? [
           normalizedMethod,
           url.toString(),
