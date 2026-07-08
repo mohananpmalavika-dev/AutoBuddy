@@ -362,6 +362,71 @@ function normalizeDistanceKm(value) {
   return distance > 1000 ? distance / 1000 : distance;
 }
 
+function firstFiniteNumber(...values) {
+  for (const value of values) {
+    const number = Number(value);
+    if (Number.isFinite(number)) {
+      return number;
+    }
+  }
+  return null;
+}
+
+function readCoordinatePair(location) {
+  const coordinates =
+    (Array.isArray(location?.coordinates) && location.coordinates) ||
+    (Array.isArray(location?.coords) && location.coords) ||
+    (Array.isArray(location?.geometry?.coordinates) && location.geometry.coordinates) ||
+    null;
+  if (!coordinates || coordinates.length < 2) {
+    return { latitude: null, longitude: null };
+  }
+
+  const first = Number(coordinates[0]);
+  const second = Number(coordinates[1]);
+  if (!Number.isFinite(first) || !Number.isFinite(second)) {
+    return { latitude: null, longitude: null };
+  }
+
+  if (Math.abs(first) <= 90 && Math.abs(second) > 90) {
+    return { latitude: first, longitude: second };
+  }
+  return { latitude: second, longitude: first };
+}
+
+function readLocationLatitude(location) {
+  const pair = readCoordinatePair(location);
+  return firstFiniteNumber(
+    location?.latitude,
+    location?.lat,
+    location?.location?.latitude,
+    location?.location?.lat,
+    location?.coordinate?.latitude,
+    location?.coordinate?.lat,
+    location?.geometry?.location?.lat,
+    pair.latitude,
+  );
+}
+
+function readLocationLongitude(location) {
+  const pair = readCoordinatePair(location);
+  return firstFiniteNumber(
+    location?.longitude,
+    location?.lng,
+    location?.lon,
+    location?.long,
+    location?.location?.longitude,
+    location?.location?.lng,
+    location?.location?.lon,
+    location?.coordinate?.longitude,
+    location?.coordinate?.lng,
+    location?.coordinate?.lon,
+    location?.geometry?.location?.lng,
+    location?.geometry?.location?.lon,
+    pair.longitude,
+  );
+}
+
 function getFareDistanceKm(fareEstimate) {
   if (!fareEstimate) {
     return 0;
@@ -371,12 +436,20 @@ function getFareDistanceKm(fareEstimate) {
     fareEstimate.estimated_distance_km,
     fareEstimate.distance,
     fareEstimate.estimated_distance,
+    fareEstimate.distanceKm,
+    fareEstimate.estimatedDistanceKm,
     fareEstimate.route?.distance_km,
+    fareEstimate.route?.distanceKm,
+    fareEstimate.breakdown?.distance_km,
+    fareEstimate.breakdown?.distanceKm,
     fareEstimate.route?.distance ? Number(fareEstimate.route.distance) / 1000 : undefined,
     fareEstimate.distance_m ? Number(fareEstimate.distance_m) / 1000 : undefined,
+    fareEstimate.distance_meters ? Number(fareEstimate.distance_meters) / 1000 : undefined,
     fareEstimate.distanceMeters ? Number(fareEstimate.distanceMeters) / 1000 : undefined,
+    fareEstimate.estimated_distance_meters ? Number(fareEstimate.estimated_distance_meters) / 1000 : undefined,
     fareEstimate.route?.distance_meters ? Number(fareEstimate.route.distance_meters) / 1000 : undefined,
     fareEstimate.route?.distanceMeters ? Number(fareEstimate.route.distanceMeters) / 1000 : undefined,
+    fareEstimate.breakdown?.distance_meters ? Number(fareEstimate.breakdown.distance_meters) / 1000 : undefined,
   ];
   for (const candidate of candidates) {
     const distanceKm = normalizeDistanceKm(candidate);
@@ -388,10 +461,10 @@ function getFareDistanceKm(fareEstimate) {
 }
 
 function calculateDirectDistanceKm(origin, destination) {
-  const originLatitude = Number(origin?.latitude ?? origin?.lat);
-  const originLongitude = Number(origin?.longitude ?? origin?.lng);
-  const destinationLatitude = Number(destination?.latitude ?? destination?.lat);
-  const destinationLongitude = Number(destination?.longitude ?? destination?.lng);
+  const originLatitude = readLocationLatitude(origin);
+  const originLongitude = readLocationLongitude(origin);
+  const destinationLatitude = readLocationLatitude(destination);
+  const destinationLongitude = readLocationLongitude(destination);
   if (
     !Number.isFinite(originLatitude) ||
     !Number.isFinite(originLongitude) ||
@@ -665,6 +738,8 @@ function getTourismFarePreview(packageItem, vehicleTypeId, passengerCount, addOn
 }
 
 export function PassengerMapContent({ token, user, onLogout, onProfilePress = undefined }) {
+  "use no memo";
+
   const autoPickupInitializedRef = useRef(false);
   const bookingStatusRef = useRef({ bookingId: null, status: null });
   const pickupSearchRequestRef = useRef(0);
@@ -696,6 +771,19 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   
   const [pickupLocation, setPickupLocation] = useState(null);
   const [dropoffLocation, setDropoffLocation] = useState(null);
+  const [routePreviewLocations, setRoutePreviewLocations] = useState({ pickup: null, dropoff: null });
+  const [routePreviewDistanceKm, setRoutePreviewDistanceKm] = useState(0);
+  const pickupLocationRef = useRef(null);
+  const dropoffLocationRef = useRef(null);
+  const refreshDriverDiscoveryRef = useRef(null);
+
+  useEffect(() => {
+    pickupLocationRef.current = pickupLocation;
+  }, [pickupLocation]);
+
+  useEffect(() => {
+    dropoffLocationRef.current = dropoffLocation;
+  }, [dropoffLocation]);
   
   const [activeBooking, setActiveBooking] = useState(null);
   const [passengerBookings, setPassengerBookings] = useState([]);
@@ -1129,8 +1217,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     if (!location) {
       return null;
     }
-    const latitude = Number(location.latitude ?? location.lat);
-    const longitude = Number(location.longitude ?? location.lng);
+    const latitude = readLocationLatitude(location);
+    const longitude = readLocationLongitude(location);
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
       return null;
     }
@@ -1543,15 +1631,19 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   };
 
   const setLocationForPoint = (point, location) => {
-    const nextPickupLocation = point === 'pickup' ? location : pickupLocation;
-    const nextDropoffLocation = point === 'dropoff' ? location : dropoffLocation;
+    const currentPickupLocation = pickupLocationRef.current || pickupLocation;
+    const currentDropoffLocation = dropoffLocationRef.current || dropoffLocation;
+    const nextPickupLocation = point === 'pickup' ? location : currentPickupLocation;
+    const nextDropoffLocation = point === 'dropoff' ? location : currentDropoffLocation;
 
     if (point === 'pickup') {
+      pickupLocationRef.current = location;
       setPickupLocation(location);
       setPickupQuery(location.address || '');
       setPickupSuggestions([]);
       setLocationValidation((prev) => ({ ...prev, pickup: false }));
     } else {
+      dropoffLocationRef.current = location;
       setDropoffLocation(location);
       setDropoffQuery(location.address || '');
       setDropoffSuggestions([]);
@@ -1561,14 +1653,19 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     setNearbyDrivers([]);
     setOptedOutDriverIds([]);
     setSelectedDriverId('');
+    setRoutePreviewLocations({
+      pickup: nextPickupLocation || null,
+      dropoff: nextDropoffLocation || null,
+    });
+    setRoutePreviewDistanceKm(calculateDirectDistanceKm(nextPickupLocation, nextDropoffLocation));
     driverDiscoveryRequestRef.current = { signature: '', request: null, completedAt: 0 };
     driverDiscoveryCooldownUntilRef.current = 0;
 
     if (nextPickupLocation && nextDropoffLocation) {
       setTimeout(() => {
         try {
-          if (typeof refreshDriverDiscovery === 'function') {
-            refreshDriverDiscovery({ silent: false, force: true }).catch(() => null);
+          if (typeof refreshDriverDiscoveryRef.current === 'function') {
+            refreshDriverDiscoveryRef.current({ silent: false, force: true }).catch(() => null);
           }
         } catch (e) {
           // ignore
@@ -2309,6 +2406,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       setLocationValidation((prev) => ({ ...prev, pickup: false }));
       if (pickupLocation && normalized.trim() !== String(pickupLocation.address || '').trim()) {
         setPickupLocation(null);
+        pickupLocationRef.current = null;
+        setRoutePreviewLocations((prev) => ({ ...prev, pickup: null }));
+        setRoutePreviewDistanceKm(0);
         setFare(null);
         setNearbyDrivers([]);
         setOptedOutDriverIds([]);
@@ -2321,6 +2421,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       setLocationValidation((prev) => ({ ...prev, dropoff: false }));
       if (dropoffLocation && normalized.trim() !== String(dropoffLocation.address || '').trim()) {
         setDropoffLocation(null);
+        dropoffLocationRef.current = null;
+        setRoutePreviewLocations((prev) => ({ ...prev, dropoff: null }));
+        setRoutePreviewDistanceKm(0);
         setFare(null);
         setNearbyDrivers([]);
         setOptedOutDriverIds([]);
@@ -2373,7 +2476,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     }
   };
 
-  const handleSelectSuggestion = useCallback(async (point, suggestion) => {
+  const handleSelectSuggestion = async (point, suggestion) => {
     try {
       setError('');
       if (!placesConfigured) {
@@ -2398,7 +2501,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         setSearchingDropoff(false);
       }
     }
-  }, [getPlaceLocation, placesConfigured, t]);
+  };
 
   // Interactive map handlers - match native implementation for feature parity
   const handleMapPress = useCallback((coordinate) => {
@@ -3183,7 +3286,10 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   ]);
 
   const refreshDriverDiscovery = useCallback(async ({ silent = false, force = false } = {}) => {
-    if (!pickupLocation || !dropoffLocation) {
+    const activePickupLocation = pickupLocation || pickupLocationRef.current;
+    const activeDropoffLocation = dropoffLocation || dropoffLocationRef.current;
+
+    if (!activePickupLocation || !activeDropoffLocation) {
       setFare(null);
       setNearbyDrivers([]);
       setSelectedDriverId('');
@@ -3193,8 +3299,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
 
     const vehicleSubtypeId = resolveEffectiveVehicleModelId();
     const signature = [
-      getDiscoveryLocationSignature(pickupLocation),
-      getDiscoveryLocationSignature(dropoffLocation),
+      getDiscoveryLocationSignature(activePickupLocation),
+      getDiscoveryLocationSignature(activeDropoffLocation),
       effectiveSelectedVehicleTypeId || 'auto',
       vehicleSubtypeId || 'model',
       effectiveRideProduct || 'normal',
@@ -3230,8 +3336,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           apiRequest('/fare/estimate', {
             method: 'POST',
             body: {
-              pickup_location: pickupLocation,
-              drop_location: dropoffLocation,
+              pickup_location: activePickupLocation,
+              drop_location: activeDropoffLocation,
               vehicle_type_id: effectiveSelectedVehicleTypeId || undefined,
               vehicle_subtype_id: vehicleSubtypeId || undefined,
               ride_type: effectiveRideProduct || undefined,
@@ -3240,10 +3346,10 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           apiRequest('/drivers/nearby', {
             token,
             query: {
-              latitude: pickupLocation.latitude,
-              longitude: pickupLocation.longitude,
-              drop_latitude: dropoffLocation.latitude,
-              drop_longitude: dropoffLocation.longitude,
+              latitude: activePickupLocation.latitude,
+              longitude: activePickupLocation.longitude,
+              drop_latitude: activeDropoffLocation.latitude,
+              drop_longitude: activeDropoffLocation.longitude,
               radius_km: 2,
               vehicle_type_id: effectiveSelectedVehicleTypeId || undefined,
               vehicle_subtype_id: vehicleSubtypeId || undefined,
@@ -3253,8 +3359,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           apiRequest('/passengers/favorite-drivers', {
             token,
             query: {
-              latitude: pickupLocation.latitude,
-              longitude: pickupLocation.longitude,
+              latitude: activePickupLocation.latitude,
+              longitude: activePickupLocation.longitude,
               include_availability: true,
             },
           }).catch(() => []),
@@ -3267,6 +3373,14 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         driverDiscoveryRequestRef.current = { signature, request: null, completedAt: Date.now() };
         return merged;
       } catch (err) {
+        const fallbackDistanceKm = calculateDirectDistanceKm(activePickupLocation, activeDropoffLocation);
+        if (fallbackDistanceKm > 0) {
+          setFare((currentFare) => currentFare || {
+            distance_km: Number(fallbackDistanceKm.toFixed(2)),
+            total_fare: 0,
+            source: 'local_distance_fallback',
+          });
+        }
         const cooldownMs = getDriverDiscoveryBackoffMs(err);
         if (cooldownMs > 0) {
           driverDiscoveryCooldownUntilRef.current = Date.now() + cooldownMs;
@@ -3304,6 +3418,10 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     t.couldNotAutoCalculate,
     token,
   ]);
+
+  useEffect(() => {
+    refreshDriverDiscoveryRef.current = refreshDriverDiscovery;
+  }, [refreshDriverDiscovery]);
 
   useEffect(() => {
     if (!pickupLocation || !dropoffLocation) {
@@ -3888,15 +4006,19 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const quickFareLabel =
     quickDriverFareRange || (quickFareValue > 0 ? `Rs. ${quickFareValue.toFixed(0)}` : 'Fare ready soon');
 
-  const effectivePickupLocation = pickupLocation || selectedPickupLocation;
-  const effectiveDropoffLocation = dropoffLocation || selectedDropoffLocation;
+  const effectivePickupLocation = pickupLocation || routePreviewLocations.pickup || pickupLocationRef.current || selectedPickupLocation;
+  const effectiveDropoffLocation = dropoffLocation || routePreviewLocations.dropoff || dropoffLocationRef.current || selectedDropoffLocation;
   const directTripDistanceKm = calculateDirectDistanceKm(effectivePickupLocation, effectiveDropoffLocation);
   const fareDistanceKm = getFareDistanceKm(fare);
-  const resolvedTripDistanceKm = fareDistanceKm || directTripDistanceKm;
+  const resolvedTripDistanceKm = fareDistanceKm || directTripDistanceKm || routePreviewDistanceKm;
   const quickDistanceLabel =
     resolvedTripDistanceKm > 0 ? `${resolvedTripDistanceKm.toFixed(1)} km` : 'Distance calculating';
   const quickEtaLabel = visibleDrivers.length > 0 ? `${Math.min(visibleDrivers.length, 5)} within 2 km` : autoFetchingTripData ? 'Finding drivers' : 'Driver search live';
-  const quickBookingReady = Boolean(effectivePickupLocation && effectiveDropoffLocation);
+  const quickBookingReady = Boolean(
+    (effectivePickupLocation && effectiveDropoffLocation) ||
+      routePreviewDistanceKm > 0 ||
+      (String(pickupQuery || '').trim() && String(dropoffQuery || '').trim()),
+  );
   const quickBookingStep = !effectiveDropoffLocation ? 1 : quickBookingReady && !fare && autoFetchingTripData ? 2 : 3;
   const quickDestinationText = effectiveDropoffLocation?.address || dropoffQuery || '';
   const quickPickupText = effectivePickupLocation?.address || pickupQuery || 'Use current location';

@@ -50,13 +50,68 @@ function toFiniteNumber(value) {
   return Number.isFinite(number) ? number : null;
 }
 
+function readCoordinatePair(item) {
+  const coordinates =
+    (Array.isArray(item?.coordinates) && item.coordinates) ||
+    (Array.isArray(item?.coords) && item.coords) ||
+    (Array.isArray(item?.geometry?.coordinates) && item.geometry.coordinates) ||
+    null;
+  if (!coordinates || coordinates.length < 2) {
+    return { latitude: null, longitude: null };
+  }
+
+  const first = toFiniteNumber(coordinates[0]);
+  const second = toFiniteNumber(coordinates[1]);
+  if (first === null || second === null) {
+    return { latitude: null, longitude: null };
+  }
+
+  if (Math.abs(first) <= 90 && Math.abs(second) > 90) {
+    return { latitude: first, longitude: second };
+  }
+  return { latitude: second, longitude: first };
+}
+
+function readPlaceLatitude(item) {
+  const pair = readCoordinatePair(item);
+  return toFiniteNumber(
+    item?.latitude ??
+      item?.lat ??
+      item?.location?.latitude ??
+      item?.location?.lat ??
+      item?.coordinate?.latitude ??
+      item?.coordinate?.lat ??
+      item?.geometry?.location?.lat ??
+      pair.latitude,
+  );
+}
+
+function readPlaceLongitude(item) {
+  const pair = readCoordinatePair(item);
+  return toFiniteNumber(
+    item?.longitude ??
+      item?.lng ??
+      item?.lon ??
+      item?.long ??
+      item?.location?.longitude ??
+      item?.location?.lng ??
+      item?.location?.lon ??
+      item?.coordinate?.longitude ??
+      item?.coordinate?.lng ??
+      item?.coordinate?.lon ??
+      item?.geometry?.location?.lng ??
+      item?.geometry?.location?.lon ??
+      pair.longitude,
+  );
+}
+
 function normalizePlaceResult(item, fallbackAddress = 'Selected place') {
   if (!item || typeof item !== 'object') {
     return null;
   }
 
-  const latitude = toFiniteNumber(item.latitude ?? item.lat);
-  const longitude = toFiniteNumber(item.longitude ?? item.lng ?? item.lon);
+  const latitude = readPlaceLatitude(item);
+  const longitude = readPlaceLongitude(item);
   const address = getDisplayText(
     item.address || item.description || item.formatted_address || item.name || item.title,
     fallbackAddress,

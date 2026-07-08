@@ -65,8 +65,44 @@ function configureLeaflet(nextLeaflet) {
 
 function normalizeCoords(location) {
   if (!location) return null;
-  const latitude = Number(location.latitude ?? location.lat);
-  const longitude = Number(location.longitude ?? location.lng);
+  const coordinates =
+    (Array.isArray(location.coordinates) && location.coordinates) ||
+    (Array.isArray(location.coords) && location.coords) ||
+    (Array.isArray(location.geometry?.coordinates) && location.geometry.coordinates) ||
+    null;
+  const firstCoordinate = Number(coordinates?.[0]);
+  const secondCoordinate = Number(coordinates?.[1]);
+  const coordinatePair =
+    Number.isFinite(firstCoordinate) && Number.isFinite(secondCoordinate)
+      ? Math.abs(firstCoordinate) <= 90 && Math.abs(secondCoordinate) > 90
+        ? { latitude: firstCoordinate, longitude: secondCoordinate }
+        : { latitude: secondCoordinate, longitude: firstCoordinate }
+      : { latitude: undefined, longitude: undefined };
+  const latitude = Number(
+    location.latitude ??
+      location.lat ??
+      location.location?.latitude ??
+      location.location?.lat ??
+      location.coordinate?.latitude ??
+      location.coordinate?.lat ??
+      location.geometry?.location?.lat ??
+      coordinatePair.latitude,
+  );
+  const longitude = Number(
+    location.longitude ??
+      location.lng ??
+      location.lon ??
+      location.long ??
+      location.location?.longitude ??
+      location.location?.lng ??
+      location.location?.lon ??
+      location.coordinate?.longitude ??
+      location.coordinate?.lng ??
+      location.coordinate?.lon ??
+      location.geometry?.location?.lng ??
+      location.geometry?.location?.lon ??
+      coordinatePair.longitude,
+  );
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
   return { latitude, longitude };
 }
