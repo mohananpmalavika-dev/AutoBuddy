@@ -763,6 +763,22 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   }, []);
   
   // Initialize notifications
+  const [languageCode, setLanguageCode] = useState(() => {
+    if (typeof window === 'undefined') {
+      return 'en';
+    }
+    return normalizeLanguageCode(window.localStorage.getItem('autobuddy_lang') || 'en');
+  });
+  const t = useMemo(() => resolvePassengerLocale(languageCode), [languageCode]);
+  const voiceLanguage = useMemo(() => {
+    if (languageCode === 'ml') {
+      return 'ml-IN';
+    }
+    if (languageCode === 'hi') {
+      return 'hi-IN';
+    }
+    return 'en-IN';
+  }, [languageCode]);
   const passengerNotificationSettings = useMemo(
     () => ({
       ...(passengerPreferences || {}),
@@ -916,24 +932,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [spinWinStatus, setSpinWinStatus] = useState(null);
   const [spinWinLoading, setSpinWinLoading] = useState(false);
   const [spinningNow, setSpinningNow] = useState(false);
-  const [languageCode, setLanguageCode] = useState(() => {
-    if (typeof window === 'undefined') {
-      return 'en';
-    }
-    return normalizeLanguageCode(window.localStorage.getItem('autobuddy_lang') || 'en');
-  });
   const placesConfigured = isPlacesConfigured();
   const liveTrackStatuses = useMemo(() => LIVE_DRIVER_TRACKING_STATUSES, []);
-  const t = useMemo(() => resolvePassengerLocale(languageCode), [languageCode]);
-  const voiceLanguage = useMemo(() => {
-    if (languageCode === 'ml') {
-      return 'ml-IN';
-    }
-    if (languageCode === 'hi') {
-      return 'hi-IN';
-    }
-    return 'en-IN';
-  }, [languageCode]);
   const quickCopy = useMemo(
     () => (
       languageCode === 'ml'

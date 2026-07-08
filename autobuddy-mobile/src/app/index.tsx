@@ -1,5 +1,5 @@
 import type { ReactElement, ReactNode } from 'react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Component, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 
@@ -30,6 +30,60 @@ type StoredSessionCandidate = Partial<AppSession> & {
   accessToken?: string;
   refreshToken?: string;
 };
+
+type RoleScreenBoundaryProps = {
+  children: ReactNode;
+  onLogout: () => Promise<void>;
+  resetKey: string;
+};
+
+type RoleScreenBoundaryState = {
+  error: Error | null;
+};
+
+class RoleScreenBoundary extends Component<RoleScreenBoundaryProps, RoleScreenBoundaryState> {
+  state: RoleScreenBoundaryState = { error: null };
+
+  static getDerivedStateFromError(error: Error): RoleScreenBoundaryState {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: { componentStack?: string }) {
+    Sentry.captureException(error, {
+      contexts: {
+        react: {
+          componentStack: errorInfo.componentStack || '',
+        },
+      },
+    });
+  }
+
+  componentDidUpdate(previousProps: RoleScreenBoundaryProps) {
+    if (previousProps.resetKey !== this.props.resetKey && this.state.error) {
+      this.setState({ error: null });
+    }
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <View style={styles.roleCrashViewport}>
+          <View style={styles.roleCrashPanel}>
+            <Text style={styles.roleCrashTitle}>Could not open this dashboard</Text>
+            <Text style={styles.roleCrashText}>
+              AutoBuddy hit a screen error. Sign in again or return home after the latest update is deployed.
+            </Text>
+            <Pressable accessibilityRole="button" onPress={this.props.onLogout} style={styles.roleCrashButton}>
+              <Text style={styles.roleCrashButtonText}>Sign in again</Text>
+            </Pressable>
+          </View>
+        </View>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 const WEB_INSTALL_DISMISSED_KEY = 'autobuddy_web_install_dismissed_v1';
 const WEB_ALERTS_ENABLED_KEY = 'autobuddy_web_alerts_enabled_v1';
@@ -718,7 +772,9 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.appShell}>
-      {activeRoleScreen}
+      <RoleScreenBoundary resetKey={`${homeResetKey}:${session.user.role}`} onLogout={handleLogout}>
+        {activeRoleScreen}
+      </RoleScreenBoundary>
       <View pointerEvents="box-none" style={[styles.homeButtonWrap, isCompactWeb && styles.homeButtonWrapCompact]}>
         <Pressable
           accessibilityLabel="Go to home"
@@ -737,6 +793,47 @@ const styles = StyleSheet.create({
   appShell: {
     flex: 1,
     backgroundColor: COLORS.bg,
+  },
+  roleCrashViewport: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.bg,
+    padding: 20,
+  },
+  roleCrashPanel: {
+    width: '100%',
+    maxWidth: 420,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#DCE7DF',
+    backgroundColor: '#FFFFFF',
+    padding: 20,
+  },
+  roleCrashTitle: {
+    color: COLORS.text,
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  roleCrashText: {
+    color: COLORS.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 16,
+  },
+  roleCrashButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  roleCrashButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
   },
   launchScroll: {
     flex: 1,
