@@ -1167,32 +1167,10 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   }, [selectedRideChoiceLabel, selectedVehicleTypeId, selectedVehicleModelId, rideProduct, effectiveSelectedVehicleTypeId, effectiveSelectedVehicleModelId, effectiveRideProduct]);
 
   const closeRideDetailsModal = useCallback(() => {
-    // Force state update to persist modal selections
-    // Even if values haven't changed, re-triggering ensures React recognizes the update
-    const typeId = String(effectiveSelectedVehicleTypeId || '').trim() || getVehicleTypeId(availableVehicleTypes?.[0]) || '';
-    const modelId = String(effectiveSelectedVehicleModelId || '').trim();
-    const product = String(effectiveRideProduct || 'normal').trim() || 'normal';
-    
-    // DEBUG: Log the state being committed
-    console.log('[RIDE_DETAILS_MODAL_CLOSE] Persisting selections:', {
-      vehicleTypeId: typeId,
-      vehicleModelId: modelId,
-      rideProduct: product,
-      effective: {
-        typeId: effectiveSelectedVehicleTypeId,
-        modelId: effectiveSelectedVehicleModelId,
-        product: effectiveRideProduct,
-      }
-    });
-    
-    // Commit selections to state (trigger re-render)
-    setSelectedVehicleTypeId(typeId);
-    setSelectedVehicleModelId(modelId);
-    setRideProduct(product);
-    
-    // Close modal after state is committed
+    // Vehicle and ride-product selections are committed on tap. Rewriting them here can
+    // restore a stale Auto fallback if Done is pressed before the latest render lands.
     setShowRideDetailsModal(false);
-  }, [effectiveSelectedVehicleTypeId, effectiveSelectedVehicleModelId, effectiveRideProduct, availableVehicleTypes]);
+  }, []);
   const recentDestinationOptions = useMemo(() => {
     const seen = new Set();
     return (passengerBookings || [])
@@ -1610,7 +1588,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         const suggestions = await searchPlaces(String(place.address).trim(), pickupLocation || dropoffLocation || DEFAULT_REGION).catch(() => []);
         const best = Array.isArray(suggestions) ? suggestions[0] : null;
         if (best?.placeId) {
-          resolvedLocation = await getPlaceLocation(best.placeId).catch(() => null);
+          resolvedLocation = await getPlaceLocation(best).catch(() => null);
         }
       }
 
@@ -2198,7 +2176,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         setSearchingDropoff(true);
       }
 
-      const location = await getPlaceLocation(suggestion.placeId);
+      const location = await getPlaceLocation(suggestion);
       setLocationForPoint(point, location);
       animateMapToLocation(location);
 
@@ -3679,12 +3657,13 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
 
       <View style={styles.quickChoiceRow}>
         <TouchableOpacity
+          key={`ride-choice-${selectedRideChoiceLabel || 'default'}`}
           style={styles.quickChoiceChip}
           onPress={() => setShowRideDetailsModal(true)}
           accessibilityLabel="Select ride details"
           accessibilityRole="button">
           <Text style={styles.quickChoiceLabel}>Ride</Text>
-          <Text style={styles.quickChoiceValue} numberOfLines={1}>
+          <Text key={`ride-choice-value-${selectedRideChoiceLabel || 'default'}`} style={styles.quickChoiceValue} numberOfLines={1}>
             {selectedRideChoiceLabel || 'Auto / Standard / Normal'}
           </Text>
         </TouchableOpacity>

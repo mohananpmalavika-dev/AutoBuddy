@@ -231,6 +231,7 @@ const DEFAULT_CITY_LOCATION = {
   longitude: 80.2707,
 };
 const SHOW_LEGACY_ONE_PAGE_BOOKING_FLOW = false;
+const SHOW_QUICK_BOOKING_MODE_SHORTCUTS = false;
 const PASSENGER_POLL_UNCHANGED = Symbol('passenger-poll-unchanged');
 const PASSENGER_POLL_INTERVAL_MS = 30000;
 const PASSENGER_POLL_RATE_LIMIT_COOLDOWN_MS = 30000;
@@ -2282,7 +2283,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         const suggestions = await searchPlaces(String(place.address).trim(), searchBias).catch(() => []);
         const bestSuggestion = Array.isArray(suggestions) ? suggestions[0] : null;
         if (bestSuggestion?.placeId) {
-          resolvedLocation = await getPlaceLocation(bestSuggestion.placeId).catch(() => null);
+          resolvedLocation = await getPlaceLocation(bestSuggestion).catch(() => null);
         }
       }
 
@@ -2385,7 +2386,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         setSearchingDropoff(true);
       }
 
-      const location = await getPlaceLocation(suggestion.placeId);
+      const location = await getPlaceLocation(suggestion);
       setLocationForPoint(point, location);
       setMessage(point === 'pickup' ? t.pickupSelectedChooseDrop : t.dropSelected);
     } catch (err) {
@@ -3846,56 +3847,10 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   }, [selectedRideChoiceLabel, selectedVehicleTypeId, selectedVehicleModelId, rideProduct, effectiveSelectedVehicleTypeId, effectiveSelectedVehicleModelId, effectiveRideProduct, selectedVehicleDisplayName, selectedVehicleModelDisplayName]);
 
   const closeRideDetailsModal = useCallback(() => {
-    // Force state update to persist modal selections
-    // Even if values haven't changed, re-triggering ensures React recognizes the update
-    console.log('[RIDE_DETAILS_MODAL_CLOSE_START]', {
-      currentSelectedVehicleTypeId: selectedVehicleTypeId,
-      currentSelectedVehicleModelId: selectedVehicleModelId,
-      currentRideProduct: rideProduct,
-      effectiveSelectedVehicleTypeId,
-      effectiveSelectedVehicleModelId,
-      effectiveRideProduct,
-      availableVehicleTypesCount: availableVehicleTypes?.length,
-      timestamp: new Date().toISOString()
-    });
-
-    const typeId = String(effectiveSelectedVehicleTypeId || '').trim() || getVehicleTypeId(availableVehicleTypes?.[0]) || '';
-    const modelId = String(effectiveSelectedVehicleModelId || '').trim();
-    const product = String(effectiveRideProduct || 'normal').trim() || 'normal';
-    
-    console.log('[RIDE_DETAILS_MODAL_CLOSE_COMPUTED_VALUES]', {
-      computedTypeId: typeId,
-      computedModelId: modelId,
-      computedProduct: product,
-      usedEffectiveTypeId: !!effectiveSelectedVehicleTypeId,
-      usedEffectiveModelId: !!effectiveSelectedVehicleModelId,
-      usedEffectiveProduct: !!effectiveRideProduct,
-      timestamp: new Date().toISOString()
-    });
-    
-    console.log('[RIDE_DETAILS_MODAL_CLOSE_STATE_ABOUT_TO_SET]', {
-      vehicleTypeId: typeId,
-      vehicleModelId: modelId,
-      rideProduct: product,
-      timestamp: new Date().toISOString()
-    });
-    
-    // Commit selections to state (trigger re-render)
-    setSelectedVehicleTypeId(typeId);
-    setSelectedVehicleModelId(modelId);
-    setRideProduct(product);
-    
-    console.log('[RIDE_DETAILS_MODAL_CLOSE_STATE_SET]', {
-      vehicleTypeId: typeId,
-      vehicleModelId: modelId,
-      rideProduct: product,
-      timestamp: new Date().toISOString()
-    });
-    
-    // Close modal after state is committed
+    // Vehicle and ride-product selections are committed on tap. Rewriting them here can
+    // restore a stale Auto fallback if Done is pressed before the latest render lands.
     setShowRideDetailsModal(false);
-    console.log('[RIDE_DETAILS_MODAL_CLOSE_END]', { timestamp: new Date().toISOString() });
-  }, [effectiveSelectedVehicleTypeId, effectiveSelectedVehicleModelId, effectiveRideProduct, availableVehicleTypes, selectedVehicleTypeId, selectedVehicleModelId, rideProduct]);
+  }, []);
   const recentDestinationOptions = useMemo(() => {
     const seen = new Set();
     return (passengerBookings || [])
@@ -4428,7 +4383,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       if (!best?.placeId) {
         return null;
       }
-      const loc = await getPlaceLocation(best.placeId).catch(() => null);
+      const loc = await getPlaceLocation(best).catch(() => null);
       if (!loc) return null;
       return {
         latitude: Number(loc.latitude),
@@ -4616,6 +4571,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         </View>
       )}
 
+      {SHOW_QUICK_BOOKING_MODE_SHORTCUTS && (
       <View style={styles.quickModeSection}>
         <View style={styles.quickModeHeaderRow}>
           <Text style={styles.quickSectionLabel}>{quickCopy.rideModes}</Text>
@@ -4652,6 +4608,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           })}
         </ScrollView>
       </View>
+      )}
 
       {(() => {
         const displayLabel = selectedRideChoiceLabel || 'Auto / Standard / Normal';
@@ -4671,6 +4628,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         return (
           <View style={styles.quickChoiceRow}>
             <TouchableOpacity
+              key={`ride-choice-${displayLabel}`}
               style={styles.quickChoiceChip}
               onPress={() => {
                 console.log('[USER_TAPPED_RIDE_CHOICE]', { timestamp: new Date().toISOString() });
@@ -4679,7 +4637,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               accessibilityLabel="Select ride details"
               accessibilityRole="button">
               <Text style={styles.quickChoiceLabel}>{quickCopy.ride}</Text>
-              <Text style={styles.quickChoiceValue} numberOfLines={1}>
+              <Text key={`ride-choice-value-${displayLabel}`} style={styles.quickChoiceValue} numberOfLines={1}>
                 {displayLabel}
               </Text>
             </TouchableOpacity>
@@ -4726,7 +4684,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             setActivePassengerMenu(PRIMARY_PASSENGER_MENU_KEY);
           }}>
           <Text style={styles.quickSecondaryText}>
-            {quickCopy.modeLabel}: {bookingMode === 'single' ? 'Single' : bookingMode === 'family' ? 'Family' : bookingMode === 'pooling' ? 'Pool' : bookingMode === 'corporate' ? 'Corporate' : bookingMode === 'travel' ? 'Travel' : bookingMode === 'scheduled' ? 'Scheduled' : 'Booking'}
+            {quickCopy.allServices}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
