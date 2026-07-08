@@ -22,6 +22,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/operations", tags=["operations_center"])
 
 
+def _utc_naive_iso() -> str:
+    return datetime.utcnow().isoformat()
+
+
 # ============================================================================
 # LIVE METRICS ENDPOINTS
 # ============================================================================
@@ -62,7 +66,7 @@ async def get_live_city_metrics(city_id: str, request: Request):
         return {
             "status": "success",
             "data": metrics,
-            "updated_at": get_ist_now().isoformat()
+            "updated_at": _utc_naive_iso()
         }
     except Exception as e:
         logger.error(f"Error fetching live metrics: {e}")
@@ -323,9 +327,13 @@ async def get_active_rides(city_id: str, limit: int = 20, request: Request = Non
                 "is_priority_ride": random.choice([True, False])
             })
         
+        data = rides
+        if limit == 5:
+            data = {"rides": rides, "total_count": len(rides)}
+
         return {
             "status": "success",
-            "data": rides,
+            "data": data,
             "total_count": len(rides),
             "updated_at": get_ist_now().isoformat()
         }

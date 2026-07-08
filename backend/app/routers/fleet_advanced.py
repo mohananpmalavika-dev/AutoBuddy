@@ -14,7 +14,7 @@ Endpoints for:
 10. Compliance Management
 """
 
-from fastapi import APIRouter, HTTPException, Request, BackgroundTasks, Depends
+from fastapi import APIRouter, HTTPException, Request, BackgroundTasks, Depends, Body
 from datetime import datetime, timedelta
 from app.utils.time_helpers import get_ist_now
 from typing import List, Dict, Any, Optional
@@ -221,6 +221,7 @@ async def get_fleet_kpis(
             "total_rides_today": total_rides_today,
             "total_earnings_today": total_earnings_today,
             "total_earnings_month": total_earnings_month,
+            "total_revenue": total_earnings_month,
             "monthly_revenue": total_earnings_month,
             "avg_acceptance_rate": avg_acceptance_rate,
             "avg_completion_rate": avg_completion_rate,
@@ -233,7 +234,8 @@ async def get_fleet_kpis(
         
         return {
             "status": "success",
-            "data": kpis
+            "data": kpis,
+            "updated_at": kpis["updated_at"]
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -259,6 +261,7 @@ async def get_fleet_health_history(fleet_id: str, days: int = 30, request: Reque
         return {
             "status": "success",
             "fleet_id": fleet_id,
+            "data": history,
             "history": history
         }
     except Exception as e:
@@ -276,7 +279,9 @@ async def get_fleet_wallet(fleet_id: str, request: Request):
         wallet = {
             "fleet_id": fleet_id,
             "total_earnings": 2450000.0,
+            "total_balance": 2450000.0,
             "pending_amount": 325000.0,
+            "pending_balance": 325000.0,
             "available_balance": 2125000.0,
             "total_commission_paid": 245000.0,
             "total_driver_payouts": 1890000.0,
@@ -308,6 +313,7 @@ async def get_fleet_settlements(fleet_id: str, month: Optional[str] = None, requ
                 "platform_commission": 4560.0 * (i + 1),
                 "commission_percentage": 10.0,
                 "net_earnings": 41040.0 * (i + 1),
+                "net_settlement": 41040.0 * (i + 1),
                 "maintenance_deduction": 2000.0 * (i + 1),
                 "insurance_deduction": 1000.0 * (i + 1),
                 "other_deductions": 500.0 * (i + 1),
@@ -324,6 +330,7 @@ async def get_fleet_settlements(fleet_id: str, month: Optional[str] = None, requ
         return {
             "status": "success",
             "fleet_id": fleet_id,
+            "data": settlements,
             "settlements": settlements
         }
     except Exception as e:
@@ -331,17 +338,33 @@ async def get_fleet_settlements(fleet_id: str, month: Optional[str] = None, requ
 
 
 @router.post("/withdraw/{fleet_id}")
-async def request_withdrawal(fleet_id: str, amount: float, method: str, request: Request):
+async def request_withdrawal(
+    fleet_id: str,
+    request: Request,
+    amount: Optional[float] = None,
+    method: Optional[str] = None,
+    payload: Optional[dict] = Body(default=None),
+):
     """Request withdrawal from fleet wallet"""
     try:
+        payload = payload or {}
+        amount = amount if amount is not None else float(payload.get("amount") or 0)
+        method = method or payload.get("method") or payload.get("bank_account") or "bank_transfer"
         withdrawal_id = f"WITHDRAW_{fleet_id}_{int(get_ist_now().timestamp())}"
-        
-        return {
-            "status": "success",
+        withdrawal = {
             "withdrawal_id": withdrawal_id,
             "fleet_id": fleet_id,
             "amount": amount,
             "method": method,
+            "status": "pending",
+            "requested_at": get_ist_now().isoformat(),
+        }
+        
+        return {
+            "status": "success",
+            "data": withdrawal,
+            **withdrawal,
+            "status": "success",
             "status_code": "pending",
             "requested_at": get_ist_now().isoformat(),
             "message": f"Withdrawal request of ₹{amount} submitted. Will be processed within 24-48 hours."
@@ -379,6 +402,7 @@ async def get_driver_payouts(fleet_id: str, period: str = "current", request: Re
             "status": "success",
             "fleet_id": fleet_id,
             "period": period,
+            "data": payouts,
             "payouts": payouts
         }
     except Exception as e:
@@ -521,11 +545,24 @@ async def get_driver_assignment_resources(
 
 
 @router.post("/driver-assignment/assign")
-async def assign_driver_to_vehicle(fleet_id: str, driver_id: str, vehicle_id: str, 
-                                   shift: str, request: Request,
-                                   db: AsyncIOMotorDatabase = Depends(get_db)):
+async def assign_driver_to_vehicle(
+    request: Request,
+    fleet_id: Optional[str] = None,
+    driver_id: Optional[str] = None,
+    vehicle_id: Optional[str] = None,
+    shift: Optional[str] = None,
+    payload: Optional[dict] = Body(default=None),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
     """Assign driver to vehicle"""
     try:
+        payload = payload or {}
+        fleet_id = fleet_id or payload.get("fleet_id")
+        driver_id = driver_id or payload.get("driver_id")
+        vehicle_id = vehicle_id or payload.get("vehicle_id")
+        shift = shift or payload.get("shift") or payload.get("assignment_type") or "day"
+        if not fleet_id or not driver_id or not vehicle_id:
+            raise HTTPException(status_code=422, detail="fleet_id, driver_id, and vehicle_id are required")
         assignment_id = f"ASSIGN_{fleet_id}_{driver_id}_{int(get_ist_now().timestamp())}"
         now = get_ist_now()
         scope = _fleet_scope_query(fleet_id)
@@ -553,8 +590,7 @@ async def assign_driver_to_vehicle(fleet_id: str, driver_id: str, vehicle_id: st
             }
         )
         
-        return {
-            "status": "success",
+        assignment = {
             "assignment_id": assignment_id,
             "fleet_id": fleet_id,
             "driver_id": driver_id,
@@ -562,6 +598,12 @@ async def assign_driver_to_vehicle(fleet_id: str, driver_id: str, vehicle_id: st
             "shift": shift,
             "assignment_date": get_ist_now().isoformat(),
             "status_code": "active",
+            "assignment_status": "active",
+        }
+        return {
+            "status": "success",
+            "data": assignment,
+            **assignment,
             "message": f"Driver {driver_id} assigned to vehicle {vehicle_id} for {shift} shift"
         }
     except Exception as e:
@@ -569,19 +611,38 @@ async def assign_driver_to_vehicle(fleet_id: str, driver_id: str, vehicle_id: st
 
 
 @router.post("/driver-assignment/reassign")
-async def reassign_driver(fleet_id: str, driver_id: str, new_vehicle_id: str, 
-                         reason: str, request: Request):
+async def reassign_driver(
+    request: Request,
+    fleet_id: Optional[str] = None,
+    driver_id: Optional[str] = None,
+    new_vehicle_id: Optional[str] = None,
+    reason: Optional[str] = None,
+    payload: Optional[dict] = Body(default=None),
+):
     """Reassign driver to different vehicle"""
     try:
+        payload = payload or {}
+        fleet_id = fleet_id or payload.get("fleet_id")
+        driver_id = driver_id or payload.get("driver_id")
+        new_vehicle_id = new_vehicle_id or payload.get("new_vehicle_id")
+        reason = reason or payload.get("reason") or "Reassignment requested"
+        if not fleet_id or not driver_id or not new_vehicle_id:
+            raise HTTPException(status_code=422, detail="fleet_id, driver_id, and new_vehicle_id are required")
         request_id = f"REASSIGN_{fleet_id}_{driver_id}_{int(get_ist_now().timestamp())}"
-        
-        return {
-            "status": "success",
+        reassignment = {
             "request_id": request_id,
             "driver_id": driver_id,
             "new_vehicle_id": new_vehicle_id,
             "reason": reason,
+            "status": "pending",
             "status_code": "pending",
+        }
+        
+        return {
+            "status": "success",
+            "data": reassignment,
+            **reassignment,
+            "status": "success",
             "message": "Reassignment request submitted for approval"
         }
     except Exception as e:
@@ -637,6 +698,7 @@ async def get_assignment_history(fleet_id: str, driver_id: Optional[str] = None,
             "status": "success",
             "fleet_id": fleet_id,
             "driver_id": driver_id,
+            "data": history,
             "history": history
         }
     except Exception as e:
@@ -676,6 +738,7 @@ async def get_fleet_attendance(fleet_id: str, date: Optional[str] = None, reques
             "status": "success",
             "fleet_id": fleet_id,
             "date": date or get_ist_now().strftime("%Y-%m-%d"),
+            "data": records,
             "records": records
         }
     except Exception as e:
@@ -698,6 +761,7 @@ async def get_driver_rankings(fleet_id: str, period: str = "monthly", request: R
                 "completion_rate": 98.0 - (rank * 0.3),
                 "cancellation_rate": 1.0 + (rank * 0.02),
                 "revenue_score": score,
+                "performance_score": score,
                 "rides_completed": 100 - rank,
                 "performance_badge": "gold" if rank <= 10 else "silver" if rank <= 25 else "bronze"
             })
@@ -706,6 +770,7 @@ async def get_driver_rankings(fleet_id: str, period: str = "monthly", request: R
             "status": "success",
             "fleet_id": fleet_id,
             "period": period,
+            "data": rankings,
             "top_performer": rankings[0],
             "rankings": rankings
         }
@@ -740,6 +805,7 @@ async def get_driver_monthly_performance(fleet_id: str, driver_id: str,
         
         return {
             "status": "success",
+            "data": performance,
             "performance": performance
         }
     except Exception as e:
@@ -751,21 +817,48 @@ async def get_driver_monthly_performance(fleet_id: str, driver_id: str,
 # ============================================================================
 
 @router.post("/incentives/create")
-async def create_driver_incentive(fleet_id: str, driver_id: str, incentive_type: str,
-                                 amount: float, condition: str, start_date: str,
-                                 end_date: str, request: Request):
+async def create_driver_incentive(
+    request: Request,
+    fleet_id: Optional[str] = None,
+    driver_id: Optional[str] = None,
+    incentive_type: Optional[str] = None,
+    amount: Optional[float] = None,
+    condition: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    payload: Optional[dict] = Body(default=None),
+):
     """Create incentive for driver"""
     try:
+        payload = payload or {}
+        fleet_id = fleet_id or payload.get("fleet_id")
+        driver_id = driver_id or payload.get("driver_id")
+        incentive_type = incentive_type or payload.get("incentive_type")
+        amount = amount if amount is not None else float(payload.get("amount") or 0)
+        condition = condition or payload.get("condition") or payload.get("description") or "performance target"
+        start_date = start_date or payload.get("start_date") or get_ist_now().date().isoformat()
+        end_date = end_date or payload.get("end_date") or (get_ist_now() + timedelta(days=30)).date().isoformat()
+        if not fleet_id or not driver_id or not incentive_type:
+            raise HTTPException(status_code=422, detail="fleet_id, driver_id, and incentive_type are required")
         incentive_id = f"INCENTIVE_{fleet_id}_{driver_id}_{int(get_ist_now().timestamp())}"
-        
-        return {
-            "status": "success",
+        incentive = {
             "incentive_id": incentive_id,
+            "fleet_id": fleet_id,
             "driver_id": driver_id,
             "incentive_type": incentive_type,
             "amount": amount,
             "condition": condition,
+            "start_date": start_date,
+            "end_date": end_date,
+            "status": "active",
             "status_code": "active",
+        }
+        
+        return {
+            "status": "success",
+            "data": incentive,
+            **incentive,
+            "status": "success",
             "message": f"Incentive of ₹{amount} created for {incentive_type}"
         }
     except Exception as e:
@@ -793,6 +886,7 @@ async def get_fleet_incentives(fleet_id: str, status: str = "active", request: R
         return {
             "status": "success",
             "fleet_id": fleet_id,
+            "data": [inc for inc in incentives if inc["status"] == status],
             "incentives": [inc for inc in incentives if inc["status"] == status]
         }
     except Exception as e:
@@ -890,16 +984,19 @@ async def get_live_fleet_map(fleet_id: str, request: Request = None):
                 "bearing": random.uniform(0, 360)
             })
         
-        return {
-            "status": "success",
-            "fleet_id": fleet_id,
-            "vehicles": vehicles,
-            "summary": {
+        summary = {
                 "active_vehicles": sum(1 for v in vehicles if v["status"] == "active"),
                 "idle_vehicles": sum(1 for v in vehicles if v["status"] == "idle"),
                 "offline_vehicles": sum(1 for v in vehicles if v["status"] == "offline"),
                 "active_rides": sum(1 for v in vehicles if v["is_on_ride"])
-            },
+            }
+        data = {"fleet_id": fleet_id, "vehicles": vehicles, "summary": summary}
+        return {
+            "status": "success",
+            "data": data,
+            "fleet_id": fleet_id,
+            "vehicles": vehicles,
+            "summary": summary,
             "updated_at": get_ist_now().isoformat()
         }
     except Exception as e:
@@ -932,6 +1029,7 @@ async def get_demand_heatmap(fleet_id: str, zone: Optional[str] = None, request:
         return {
             "status": "success",
             "fleet_id": fleet_id,
+            "data": {"fleet_id": fleet_id, "grid_cells": cells, "heatmap_cells": cells},
             "heatmap_cells": cells,
             "high_demand_zones": sum(1 for c in cells if c["demand_level"] in ["high", "very_high"]),
             "recommendations": [
@@ -967,6 +1065,7 @@ async def get_zone_demand(fleet_id: str, zone_name: str, request: Request = None
         
         return {
             "status": "success",
+            "data": zone,
             "zone": zone
         }
     except Exception as e:
@@ -1001,6 +1100,7 @@ async def get_revenue_forecast(fleet_id: str, days: int = 7, request: Request = 
         return {
             "status": "success",
             "fleet_id": fleet_id,
+            "data": {"fleet_id": fleet_id, "forecast_data": forecasts, "forecasts": forecasts},
             "forecasts": forecasts
         }
     except Exception as e:
@@ -1084,6 +1184,7 @@ async def get_ai_recommendations(fleet_id: str, request: Request = None):
         return {
             "status": "success",
             "fleet_id": fleet_id,
+            "data": {"fleet_id": fleet_id, "recommendations": recommendations},
             "recommendations": recommendations,
             "total_potential_revenue_increase": sum(r["expected_impact"]["revenue_increase"] for r in recommendations)
         }
@@ -1179,6 +1280,7 @@ async def get_compliance_report(fleet_id: str, request: Request = None):
         
         return {
             "status": "success",
+            "data": report,
             "report": report
         }
     except Exception as e:
@@ -1220,6 +1322,7 @@ async def get_maintenance_alerts(fleet_id: str, request: Request = None):
         return {
             "status": "success",
             "fleet_id": fleet_id,
+            "data": alerts,
             "alerts": alerts
         }
     except Exception as e:
@@ -1310,3 +1413,89 @@ async def assign_role(fleet_id: str, user_id: str, role: str, request: Request):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# LEGACY CLIENT PATH ALIASES
+# ============================================================================
+
+@router.get("/wallet/settlements/{fleet_id}")
+async def get_fleet_wallet_settlements(fleet_id: str, month: Optional[str] = None, request: Request = None):
+    return await get_fleet_settlements(fleet_id=fleet_id, month=month, request=request)
+
+
+@router.post("/wallet/withdraw")
+async def request_wallet_withdrawal(request: Request, payload: dict = Body(default_factory=dict)):
+    fleet_id = payload.get("fleet_id")
+    if not fleet_id:
+        raise HTTPException(status_code=422, detail="fleet_id is required")
+    return await request_withdrawal(fleet_id=fleet_id, request=request, payload=payload)
+
+
+@router.post("/assignment/assign")
+async def assign_driver_to_vehicle_legacy(
+    request: Request,
+    payload: dict = Body(default_factory=dict),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    return await assign_driver_to_vehicle(request=request, payload=payload, db=db)
+
+
+@router.post("/assignment/reassign")
+async def reassign_driver_legacy(request: Request, payload: dict = Body(default_factory=dict)):
+    return await reassign_driver(request=request, payload=payload)
+
+
+@router.get("/assignment/history/{fleet_id}")
+async def get_assignment_history_legacy(fleet_id: str, driver_id: Optional[str] = None, request: Request = None):
+    return await get_assignment_history(fleet_id=fleet_id, driver_id=driver_id, request=request)
+
+
+@router.get("/performance/attendance/{fleet_id}")
+async def get_fleet_attendance_legacy(fleet_id: str, date: Optional[str] = None, request: Request = None):
+    return await get_fleet_attendance(fleet_id=fleet_id, date=date, request=request)
+
+
+@router.get("/performance/monthly/{fleet_id}")
+async def get_fleet_monthly_performance_legacy(fleet_id: str, month: Optional[str] = None, request: Request = None):
+    response = await get_driver_monthly_performance(
+        fleet_id=fleet_id,
+        driver_id="all",
+        month=month,
+        request=request,
+    )
+    return {
+        "status": "success",
+        "data": [response["data"]],
+        "performance": response["data"],
+    }
+
+
+@router.get("/map/live/{fleet_id}")
+async def get_live_fleet_map_legacy(fleet_id: str, request: Request = None):
+    return await get_live_fleet_map(fleet_id=fleet_id, request=request)
+
+
+@router.get("/map/heatmap/{fleet_id}")
+async def get_demand_heatmap_legacy(fleet_id: str, zone: Optional[str] = None, request: Request = None):
+    return await get_demand_heatmap(fleet_id=fleet_id, zone=zone, request=request)
+
+
+@router.get("/map/zone-details/{fleet_id}")
+async def get_zone_details_legacy(fleet_id: str, zone_name: str = "all", request: Request = None):
+    return await get_zone_demand(fleet_id=fleet_id, zone_name=zone_name, request=request)
+
+
+@router.get("/incentives/list/{fleet_id}")
+async def get_fleet_incentives_legacy(fleet_id: str, status: str = "active", request: Request = None):
+    return await get_fleet_incentives(fleet_id=fleet_id, status=status, request=request)
+
+
+@router.get("/forecast/revenue/{fleet_id}")
+async def get_revenue_forecast_legacy(fleet_id: str, days: int = 7, request: Request = None):
+    return await get_revenue_forecast(fleet_id=fleet_id, days=days, request=request)
+
+
+@router.get("/ai/recommendations/{fleet_id}")
+async def get_ai_recommendations_legacy(fleet_id: str, request: Request = None):
+    return await get_ai_recommendations(fleet_id=fleet_id, request=request)

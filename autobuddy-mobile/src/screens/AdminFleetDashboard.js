@@ -19,6 +19,7 @@ import {
   FlatList,
   RefreshControl,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SHADOWS } from '../theme';
 import { apiRequest } from '../lib/api';
 import { formatToIST } from '../utils/time';
@@ -33,6 +34,75 @@ import {
   IncentiveManagementPanel,
 } from '../components/FleetAdvancedFeatures';
 
+const FLEET_TABS = [
+  {
+    key: 'overview',
+    component: FleetDashboardAdvanced,
+    label: 'Dashboard',
+    description: 'Fleet KPIs and health',
+    icon: 'speedometer-outline',
+    accent: '#2563EB',
+  },
+  {
+    key: 'wallet',
+    component: FleetWalletPanel,
+    label: 'Wallet',
+    description: 'Earnings and settlements',
+    icon: 'wallet-outline',
+    accent: '#059669',
+  },
+  {
+    key: 'assignments',
+    component: DriverAssignmentPanel,
+    label: 'Assignments',
+    description: 'Drivers and vehicles',
+    icon: 'git-merge-outline',
+    accent: '#7C3AED',
+  },
+  {
+    key: 'performance',
+    component: PerformanceRankingsPanel,
+    label: 'Performance',
+    description: 'Rankings and quality',
+    icon: 'podium-outline',
+    accent: '#D97706',
+  },
+  {
+    key: 'map',
+    component: LiveFleetMapPanel,
+    label: 'Live Map',
+    description: 'Vehicle locations',
+    icon: 'map-outline',
+    accent: '#0891B2',
+  },
+  {
+    key: 'incentives',
+    component: IncentiveManagementPanel,
+    label: 'Incentives',
+    description: 'Bonus programs',
+    icon: 'gift-outline',
+    accent: '#DB2777',
+  },
+  {
+    key: 'compliance',
+    component: FleetComplianceSummary,
+    label: 'Compliance',
+    description: 'Docs and readiness',
+    icon: 'shield-checkmark-outline',
+    accent: '#16A34A',
+  },
+];
+
+const FLEET_TAB_MAP = FLEET_TABS.reduce((acc, tab) => ({ ...acc, [tab.key]: tab }), {});
+
+const formatCurrencyShort = (value) => {
+  const amount = Number(value || 0);
+  if (amount >= 10000000) return `Rs ${(amount / 10000000).toFixed(1)}Cr`;
+  if (amount >= 100000) return `Rs ${(amount / 100000).toFixed(1)}L`;
+  if (amount >= 1000) return `Rs ${(amount / 1000).toFixed(1)}K`;
+  return `Rs ${amount.toFixed(0)}`;
+};
+
 const AdminFleetDashboard = ({ route, navigation }) => {
   const { adminToken } = route.params || {};
   
@@ -42,40 +112,6 @@ const AdminFleetDashboard = ({ route, navigation }) => {
   const [fleets, setFleets] = useState([]);
   const [selectedFleet, setSelectedFleet] = useState(null);
   const [stats, setStats] = useState(null);
-
-  // Fleet tabs available
-  const FLEET_TABS = {
-    overview: {
-      component: FleetDashboardAdvanced,
-      label: '📊 Dashboard',
-      description: 'Fleet KPIs and health score',
-    },
-    wallet: {
-      component: FleetWalletPanel,
-      label: '💰 Wallet',
-      description: 'Earnings and settlements',
-    },
-    assignments: {
-      component: DriverAssignmentPanel,
-      label: '👥 Assignments',
-      description: 'Driver to vehicle assignments',
-    },
-    performance: {
-      component: PerformanceRankingsPanel,
-      label: '⭐ Performance',
-      description: 'Driver rankings and metrics',
-    },
-    map: {
-      component: LiveFleetMapPanel,
-      label: '🗺️ Live Map',
-      description: 'Real-time vehicle tracking',
-    },
-    incentives: {
-      component: IncentiveManagementPanel,
-      label: '🎁 Incentives',
-      description: 'Incentive programs and tracking',
-    },
-  };
 
   const loadFleets = useCallback(async () => {
     try {
@@ -172,7 +208,7 @@ const AdminFleetDashboard = ({ route, navigation }) => {
       );
     }
 
-    const tabConfig = FLEET_TABS[activeTab];
+    const tabConfig = FLEET_TAB_MAP[activeTab] || FLEET_TAB_MAP.overview;
     const TabComponent = tabConfig.component;
 
     return (
@@ -180,6 +216,7 @@ const AdminFleetDashboard = ({ route, navigation }) => {
         token={adminToken}
         fleetId={selectedFleet.fleet_id}
         onTabChange={setActiveTab}
+        fleet={selectedFleet}
       />
     );
   };
@@ -199,8 +236,13 @@ const AdminFleetDashboard = ({ route, navigation }) => {
     >
       {/* HEADER */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>🏢 Fleet Admin Dashboard</Text>
-        <Text style={styles.headerSubtitle}>Manage all fleet operations</Text>
+        <View style={styles.headerIcon}>
+          <Ionicons name="business-outline" size={24} color="#0F5132" />
+        </View>
+        <View style={styles.headerCopy}>
+          <Text style={styles.headerTitle}>Owner & Operator Console</Text>
+          <Text style={styles.headerSubtitle}>Fleet control, earnings, assignments, and live readiness</Text>
+        </View>
       </View>
 
       {/* OVERVIEW STATS */}
@@ -210,32 +252,35 @@ const AdminFleetDashboard = ({ route, navigation }) => {
             label="Total Fleets"
             value={stats.total_fleets}
             color="#3B82F6"
-            icon="🏢"
+            icon="business-outline"
           />
           <StatCard
             label="Active Vehicles"
             value={stats.active_vehicles}
             color="#10B981"
-            icon="🚗"
+            icon="car-sport-outline"
           />
           <StatCard
             label="Active Drivers"
             value={stats.active_drivers}
             color="#F59E0B"
-            icon="👤"
+            icon="people-outline"
           />
           <StatCard
             label="Monthly Revenue"
-            value={`₹${(stats.total_revenue / 1000000).toFixed(1)}M`}
+            value={formatCurrencyShort(stats.total_revenue)}
             color="#8B5CF6"
-            icon="💰"
+            icon="cash-outline"
           />
         </View>
       )}
 
       {/* FLEET SELECTOR */}
       <View style={styles.fleetSelector}>
-        <Text style={styles.fleetSelectorTitle}>Select Fleet</Text>
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.fleetSelectorTitle}>Operator / Owner Fleets</Text>
+          <Text style={styles.sectionCount}>{fleets.length} total</Text>
+        </View>
         <FlatList
           data={fleets}
           horizontal
@@ -249,9 +294,17 @@ const AdminFleetDashboard = ({ route, navigation }) => {
               ]}
               onPress={() => setSelectedFleet(item)}
             >
-              <Text style={styles.fleetName}>{item.fleet_name.split(' ')[0]}</Text>
-              <Text style={styles.fleetDetail}>{item.total_vehicles} vehicles</Text>
-              <View style={styles.healthBadge}>
+              <View style={styles.fleetCardIcon}>
+                <Ionicons name="trail-sign-outline" size={18} color={COLORS.primary} />
+              </View>
+              <Text style={styles.fleetName} numberOfLines={1}>{item.fleet_name}</Text>
+              <Text style={styles.fleetDetail} numberOfLines={1}>{item.owner_name}</Text>
+              <Text style={styles.fleetDetail}>{item.active_vehicles}/{item.total_vehicles} vehicles live</Text>
+              <View style={[
+                styles.healthBadge,
+                item.health_score >= 90 && styles.healthBadgeGood,
+                item.health_score < 75 && styles.healthBadgeRisk,
+              ]}>
                 <Text style={styles.healthScore}>{item.health_score}</Text>
               </View>
             </TouchableOpacity>
@@ -267,8 +320,16 @@ const AdminFleetDashboard = ({ route, navigation }) => {
               <Text style={styles.fleetInfoName}>{selectedFleet.fleet_name}</Text>
               <Text style={styles.fleetInfoOwner}>Owner: {selectedFleet.owner_name}</Text>
             </View>
-            <View style={[styles.statusBadge, { backgroundColor: '#10B98180' }]}>
-              <Text style={styles.statusText}>Active</Text>
+            <View style={[
+              styles.statusBadge,
+              selectedFleet.status === 'inactive' ? styles.statusBadgeInactive : styles.statusBadgeActive,
+            ]}>
+              <Text style={[
+                styles.statusText,
+                selectedFleet.status === 'inactive' && styles.statusTextInactive,
+              ]}>
+                {selectedFleet.status === 'inactive' ? 'Inactive' : 'Active'}
+              </Text>
             </View>
           </View>
 
@@ -287,7 +348,7 @@ const AdminFleetDashboard = ({ route, navigation }) => {
             />
             <QuickStat
               label="Revenue (Monthly)"
-              value={`₹${(selectedFleet.monthly_revenue / 100000).toFixed(0)}L`}
+              value={formatCurrencyShort(selectedFleet.monthly_revenue)}
             />
           </View>
         </View>
@@ -295,25 +356,14 @@ const AdminFleetDashboard = ({ route, navigation }) => {
 
       {/* TAB NAVIGATION */}
       <View style={styles.tabNavigation}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          {Object.entries(FLEET_TABS).map(([key, tab]) => (
-            <TouchableOpacity
-              key={key}
-              style={[
-                styles.tabButton,
-                activeTab === key && styles.tabButtonActive,
-              ]}
-              onPress={() => setActiveTab(key)}
-            >
-              <Text
-                style={[
-                  styles.tabButtonText,
-                  activeTab === key && styles.tabButtonTextActive,
-                ]}
-              >
-                {tab.label}
-              </Text>
-            </TouchableOpacity>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabScrollContent}>
+          {FLEET_TABS.map((tab) => (
+            <FleetTabButton
+              key={tab.key}
+              tab={tab}
+              active={activeTab === tab.key}
+              onPress={() => setActiveTab(tab.key)}
+            />
           ))}
         </ScrollView>
       </View>
@@ -325,26 +375,26 @@ const AdminFleetDashboard = ({ route, navigation }) => {
 
       {/* QUICK ACTIONS */}
       <View style={styles.quickActionsContainer}>
-        <Text style={styles.quickActionsTitle}>⚡ Quick Actions</Text>
+        <Text style={styles.quickActionsTitle}>Quick Actions</Text>
         <View style={styles.quickActionsGrid}>
           <QuickActionButton
             label="Generate Report"
-            icon="📋"
+            icon="document-text-outline"
             onPress={() => navigation.navigate('GenerateReport', { fleetId: selectedFleet?.fleet_id })}
           />
           <QuickActionButton
             label="Message Owner"
-            icon="💬"
+            icon="chatbubble-ellipses-outline"
             onPress={() => navigation.navigate('MessageFleetOwner', { fleetId: selectedFleet?.fleet_id })}
           />
           <QuickActionButton
             label="View Compliance"
-            icon="✅"
+            icon="shield-checkmark-outline"
             onPress={() => setActiveTab('compliance')}
           />
           <QuickActionButton
             label="Settings"
-            icon="⚙️"
+            icon="settings-outline"
             onPress={() => navigation.navigate('FleetSettings', { fleetId: selectedFleet?.fleet_id })}
           />
         </View>
@@ -352,7 +402,7 @@ const AdminFleetDashboard = ({ route, navigation }) => {
 
       {/* ALL FLEETS TABLE */}
       <View style={styles.allFleetsContainer}>
-        <Text style={styles.allFleetsTitle}>📊 All Fleets Overview</Text>
+        <Text style={styles.allFleetsTitle}>All Fleets Overview</Text>
         <FlatList
           data={fleets}
           scrollEnabled={false}
@@ -399,9 +449,35 @@ const AdminFleetDashboard = ({ route, navigation }) => {
 // SUB-COMPONENTS
 // ============================================================================
 
+const FleetTabButton = ({ tab, active, onPress }) => (
+  <TouchableOpacity
+    style={[
+      styles.tabButton,
+      active && [styles.tabButtonActive, { borderColor: tab.accent }],
+    ]}
+    onPress={onPress}
+    accessibilityRole="tab"
+    accessibilityState={{ selected: active }}
+  >
+    <View style={[styles.tabIconBadge, { backgroundColor: active ? tab.accent : '#EEF2F7' }]}>
+      <Ionicons name={tab.icon} size={18} color={active ? '#FFF' : '#4B5563'} />
+    </View>
+    <View style={styles.tabTextBlock}>
+      <Text style={[styles.tabButtonText, active && { color: tab.accent }]} numberOfLines={1}>
+        {tab.label}
+      </Text>
+      <Text style={styles.tabButtonSubtext} numberOfLines={1}>
+        {tab.description}
+      </Text>
+    </View>
+  </TouchableOpacity>
+);
+
 const StatCard = ({ label, value, color, icon }) => (
   <View style={[styles.statCard, { borderTopColor: color }]}>
-    <Text style={styles.statIcon}>{icon}</Text>
+    <View style={[styles.statIconBadge, { backgroundColor: `${color}16` }]}>
+      <Ionicons name={icon} size={22} color={color} />
+    </View>
     <Text style={styles.statLabel}>{label}</Text>
     <Text style={[styles.statValue, { color }]}>{value}</Text>
   </View>
@@ -416,10 +492,61 @@ const QuickStat = ({ label, value }) => (
 
 const QuickActionButton = ({ label, icon, onPress }) => (
   <TouchableOpacity style={styles.quickActionButton} onPress={onPress}>
-    <Text style={styles.quickActionIcon}>{icon}</Text>
+    <View style={styles.quickActionIconBadge}>
+      <Ionicons name={icon} size={22} color={COLORS.primary} />
+    </View>
     <Text style={styles.quickActionLabel}>{label}</Text>
   </TouchableOpacity>
 );
+
+function FleetComplianceSummary({ fleet }) {
+  const healthScore = Number(fleet?.health_score || 0);
+  const isReady = healthScore >= 75;
+
+  return (
+    <View style={styles.compliancePanel}>
+      <View style={styles.complianceHero}>
+        <View style={[
+          styles.complianceIcon,
+          isReady ? styles.complianceIconReady : styles.complianceIconWatch,
+        ]}>
+          <Ionicons
+            name={isReady ? 'shield-checkmark-outline' : 'warning-outline'}
+            size={30}
+            color={isReady ? '#047857' : '#B45309'}
+          />
+        </View>
+        <View style={styles.complianceCopy}>
+          <Text style={styles.complianceTitle}>
+            {isReady ? 'Fleet ready for operations' : 'Fleet needs attention'}
+          </Text>
+          <Text style={styles.complianceText}>
+            Review documents, vehicle readiness, driver verification, and pending operational actions for this owner fleet.
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.complianceGrid}>
+        <ComplianceMetric label="Vehicle docs" value={isReady ? 'Clear' : 'Review'} tone={isReady ? 'good' : 'watch'} />
+        <ComplianceMetric label="Driver KYC" value={isReady ? 'Ready' : 'Pending'} tone={isReady ? 'good' : 'watch'} />
+        <ComplianceMetric label="Insurance" value="Tracked" tone="neutral" />
+        <ComplianceMetric label="Health score" value={`${healthScore}%`} tone={isReady ? 'good' : 'watch'} />
+      </View>
+    </View>
+  );
+}
+
+const ComplianceMetric = ({ label, value, tone }) => {
+  const toneStyle = tone === 'good' ? styles.complianceMetricGood : tone === 'watch' ? styles.complianceMetricWatch : styles.complianceMetricNeutral;
+  const textStyle = tone === 'good' ? styles.complianceMetricGoodText : tone === 'watch' ? styles.complianceMetricWatchText : styles.complianceMetricNeutralText;
+
+  return (
+    <View style={[styles.complianceMetric, toneStyle]}>
+      <Text style={[styles.complianceMetricValue, textStyle]}>{value}</Text>
+      <Text style={styles.complianceMetricLabel}>{label}</Text>
+    </View>
+  );
+};
 
 // ============================================================================
 // STYLES
@@ -439,20 +566,37 @@ const styles = StyleSheet.create({
   
   // Header
   header: {
-    backgroundColor: COLORS.primary,
-    padding: 20,
+    backgroundColor: '#F8FBF7',
+    padding: 18,
     paddingTop: 40,
-    paddingBottom: 30,
+    paddingBottom: 22,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#DDECE2',
+  },
+  headerIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: '#E6F4EA',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  headerCopy: {
+    flex: 1,
   },
   headerTitle: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '800',
-    color: '#FFF',
+    color: '#0F172A',
     marginBottom: 4,
   },
   headerSubtitle: {
     fontSize: 14,
-    color: '#E0E7FF',
+    color: '#52665C',
+    lineHeight: 19,
   },
 
   // Stats Container
@@ -466,14 +610,18 @@ const styles = StyleSheet.create({
   statCard: {
     width: '48%',
     backgroundColor: '#FFF',
-    borderRadius: 12,
+    borderRadius: 10,
     padding: 16,
     borderTopWidth: 4,
     alignItems: 'center',
     ...SHADOWS.light,
   },
-  statIcon: {
-    fontSize: 32,
+  statIconBadge: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 8,
   },
   statLabel: {
@@ -496,26 +644,44 @@ const styles = StyleSheet.create({
   fleetSelectorTitle: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#4B5563',
+    color: '#1F2937',
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 12,
+  },
+  sectionCount: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '700',
   },
   fleetCard: {
     backgroundColor: '#FFF',
-    borderRadius: 12,
+    borderRadius: 10,
     padding: 12,
     marginRight: 12,
-    width: 120,
+    width: 156,
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    alignItems: 'center',
   },
   fleetCardSelected: {
     borderColor: COLORS.primary,
     borderWidth: 2,
-    backgroundColor: '#E0F2FE',
+    backgroundColor: '#F0FDF4',
+  },
+  fleetCardIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E6F4EA',
+    marginBottom: 10,
   },
   fleetName: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
     color: '#1F2937',
     marginBottom: 4,
@@ -527,9 +693,16 @@ const styles = StyleSheet.create({
   },
   healthBadge: {
     backgroundColor: COLORS.primary,
-    borderRadius: 6,
+    borderRadius: 999,
     paddingHorizontal: 8,
     paddingVertical: 4,
+    alignSelf: 'flex-start',
+  },
+  healthBadgeGood: {
+    backgroundColor: '#059669',
+  },
+  healthBadgeRisk: {
+    backgroundColor: '#DC2626',
   },
   healthScore: {
     color: '#FFF',
@@ -564,12 +737,21 @@ const styles = StyleSheet.create({
   statusBadge: {
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 6,
+    borderRadius: 999,
+  },
+  statusBadgeActive: {
+    backgroundColor: '#D1FAE5',
+  },
+  statusBadgeInactive: {
+    backgroundColor: '#FEE2E2',
   },
   statusText: {
     color: '#059669',
     fontSize: 12,
     fontWeight: '600',
+  },
+  statusTextInactive: {
+    color: '#B91C1C',
   },
   fleetQuickStats: {
     flexDirection: 'row',
@@ -593,26 +775,52 @@ const styles = StyleSheet.create({
 
   // Tab Navigation
   tabNavigation: {
-    backgroundColor: '#FFF',
+    backgroundColor: '#F9FAFB',
+    paddingVertical: 10,
+    borderTopWidth: 1,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderColor: '#E5E7EB',
+  },
+  tabScrollContent: {
+    paddingHorizontal: 12,
+    gap: 10,
   },
   tabButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
+    width: 172,
+    minHeight: 68,
+    backgroundColor: '#FFF',
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    flexDirection: 'row',
+    alignItems: 'center',
+    ...SHADOWS.light,
   },
   tabButtonActive: {
-    borderBottomColor: COLORS.primary,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 2,
+  },
+  tabIconBadge: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  tabTextBlock: {
+    flex: 1,
   },
   tabButtonText: {
     fontSize: 13,
-    color: '#6B7280',
-    fontWeight: '600',
+    color: '#111827',
+    fontWeight: '800',
   },
-  tabButtonTextActive: {
-    color: COLORS.primary,
+  tabButtonSubtext: {
+    fontSize: 10,
+    color: '#6B7280',
+    marginTop: 3,
   },
 
   // Tab Content
@@ -640,19 +848,24 @@ const styles = StyleSheet.create({
   quickActionButton: {
     width: '48%',
     backgroundColor: '#FFF',
-    borderRadius: 12,
+    borderRadius: 10,
     padding: 12,
-    alignItems: 'center',
+    alignItems: 'flex-start',
     ...SHADOWS.light,
   },
-  quickActionIcon: {
-    fontSize: 28,
-    marginBottom: 4,
+  quickActionIconBadge: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: '#E6F4EA',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
   },
   quickActionLabel: {
-    fontSize: 11,
-    color: '#4B5563',
-    textAlign: 'center',
+    fontSize: 12,
+    color: '#1F2937',
+    fontWeight: '700',
   },
 
   // All Fleets Table
@@ -710,6 +923,90 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 11,
     fontWeight: '700',
+  },
+
+  // Compliance
+  compliancePanel: {
+    padding: 16,
+  },
+  complianceHero: {
+    backgroundColor: '#FFF',
+    borderRadius: 10,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    ...SHADOWS.light,
+  },
+  complianceIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  complianceIconReady: {
+    backgroundColor: '#D1FAE5',
+  },
+  complianceIconWatch: {
+    backgroundColor: '#FEF3C7',
+  },
+  complianceCopy: {
+    flex: 1,
+  },
+  complianceTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  complianceText: {
+    fontSize: 12,
+    color: '#6B7280',
+    lineHeight: 18,
+  },
+  complianceGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  complianceMetric: {
+    width: '48%',
+    borderRadius: 10,
+    padding: 14,
+    borderWidth: 1,
+  },
+  complianceMetricGood: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+  },
+  complianceMetricWatch: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#FDE68A',
+  },
+  complianceMetricNeutral: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#E2E8F0',
+  },
+  complianceMetricValue: {
+    fontSize: 15,
+    fontWeight: '800',
+    marginBottom: 3,
+  },
+  complianceMetricGoodText: {
+    color: '#047857',
+  },
+  complianceMetricWatchText: {
+    color: '#B45309',
+  },
+  complianceMetricNeutralText: {
+    color: '#334155',
+  },
+  complianceMetricLabel: {
+    fontSize: 11,
+    color: '#64748B',
+    fontWeight: '600',
   },
 
   // No Fleet

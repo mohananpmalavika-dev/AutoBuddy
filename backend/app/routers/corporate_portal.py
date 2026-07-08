@@ -372,6 +372,20 @@ def _ride_request_view(row: Dict[str, Any], employee: Optional[Dict[str, Any]] =
     return view
 
 
+def _ride_action_payload(result: Dict[str, Any]) -> Dict[str, Any]:
+    ride_request = result.get("ride_request") or {}
+    payload = {
+        **ride_request,
+        "ride_request": ride_request,
+        "booking": result.get("booking"),
+    }
+    if payload.get("status") == "booking_created":
+        payload["status"] = payload.get("approval_status") or "approved"
+    if "approval_status" not in payload and ride_request.get("status"):
+        payload["approval_status"] = ride_request["status"]
+    return payload
+
+
 @router.post("/company/register")
 async def register_corporate_company(
     payload: dict,
@@ -724,7 +738,7 @@ async def request_corporate_ride(
                 }
             )
 
-        return _response({"ride_request": ride_request, "booking": booking})
+        return _response(_ride_action_payload({"ride_request": ride_request, "booking": booking}))
     except HTTPException:
         raise
     except Exception as exc:
@@ -838,7 +852,7 @@ async def approve_ride_request(
             approved=True,
             note=payload.get("manager_note"),
         )
-    return _response(result)
+    return _response(_ride_action_payload(result))
 
 
 @router.post("/ride-requests/{request_id}/reject")
@@ -857,7 +871,7 @@ async def reject_ride_request(
         approved=False,
         note=payload.get("reason") or payload.get("manager_note"),
     )
-    return _response(result)
+    return _response(_ride_action_payload(result))
 
 
 @router.post("/ride-requests/{request_id}/create-booking")

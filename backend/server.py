@@ -17108,6 +17108,7 @@ async def get_admin_dashboard(current_user: dict = Depends(get_current_user)):
         total_drivers,
         total_passengers,
         total_operators,
+        total_admins,
         driver_profiles,
         passenger_profiles,
         total_bookings,
@@ -17119,6 +17120,7 @@ async def get_admin_dashboard(current_user: dict = Depends(get_current_user)):
         db.users.count_documents(_role_query(UserRole.DRIVER)),
         db.users.count_documents(_role_query(UserRole.PASSENGER, "user")),
         db.users.count_documents(_role_query(UserRole.OPERATOR)),
+        db.users.count_documents(_role_query(UserRole.ADMIN)),
         db.drivers.count_documents({}),
         db.passengers.count_documents({}),
         db.bookings.count_documents({}),
@@ -17132,7 +17134,7 @@ async def get_admin_dashboard(current_user: dict = Depends(get_current_user)):
     )
     total_drivers = max(total_drivers, driver_profiles)
     total_passengers = max(total_passengers, passenger_profiles)
-    total_users = max(total_users, total_drivers + total_passengers + total_operators)
+    total_users = max(total_users, total_drivers + total_passengers + total_operators + total_admins)
     total_revenue = revenue_result[0]["total"] if revenue_result else 0
     
     dashboard_stats = {
@@ -17140,6 +17142,7 @@ async def get_admin_dashboard(current_user: dict = Depends(get_current_user)):
         "total_drivers": total_drivers,
         "total_passengers": total_passengers,
         "total_operators": total_operators,
+        "total_admins": total_admins,
         "total_bookings": total_bookings,
         "completed_bookings": completed_bookings,
         "active_bookings": active_bookings,
@@ -17150,6 +17153,7 @@ async def get_admin_dashboard(current_user: dict = Depends(get_current_user)):
         "totalDrivers": dashboard_stats["total_drivers"],
         "totalPassengers": dashboard_stats["total_passengers"],
         "totalOperators": dashboard_stats["total_operators"],
+        "totalAdmins": dashboard_stats["total_admins"],
         "totalBookings": dashboard_stats["total_bookings"],
         "completedBookings": dashboard_stats["completed_bookings"],
         "activeBookings": dashboard_stats["active_bookings"],
@@ -17202,19 +17206,20 @@ async def search_admin_users(
 
 @api_router.get("/admin/users/role-report")
 async def get_admin_users_role_report(current_user: dict = Depends(get_current_user)):
-    """Role-wise user report for passenger, driver, and operator accounts."""
+    """User-wise role report for passenger, driver, operator/owner, and admin accounts."""
     if current_user["role"] != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    role_keys = ["passenger", "driver", "operator"]
+    role_keys = ["passenger", "driver", "operator", "admin"]
     role_buckets: Dict[str, List[Dict[str, Any]]] = {
         "passengers": [],
         "drivers": [],
         "operators": [],
+        "admins": [],
     }
 
     users = await db.users.find(
-        _role_query(UserRole.PASSENGER, UserRole.DRIVER, UserRole.OPERATOR, "user"),
+        _role_query(UserRole.PASSENGER, UserRole.DRIVER, UserRole.OPERATOR, UserRole.ADMIN, "user"),
         {
             "_id": 0,
             "id": 1,
@@ -17256,12 +17261,13 @@ async def get_admin_users_role_report(current_user: dict = Depends(get_current_u
         "passengers": len(role_buckets["passengers"]),
         "drivers": len(role_buckets["drivers"]),
         "operators": len(role_buckets["operators"]),
+        "admins": len(role_buckets["admins"]),
     }
     return {
         **role_buckets,
         "counts": {
             **counts,
-            "total": counts["passengers"] + counts["drivers"] + counts["operators"],
+            "total": counts["passengers"] + counts["drivers"] + counts["operators"] + counts["admins"],
         },
         "generated_at": get_ist_now(),
     }

@@ -10,6 +10,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 import { apiRequest } from '../lib/api';
 import { adminAPI } from '../services/apiClient';
@@ -77,31 +78,43 @@ const KERALA_DISTRICTS = [
 ];
 const AIRPORT_ALLOWED_DISTRICTS = ['Thiruvananthapuram', 'Ernakulam', 'Kozhikode'];
 const ADMIN_MENU_OPTIONS = [
-  { key: 'analytics', label: 'Overview' },
-  { key: 'control_center', label: 'Control Center' },
-  { key: 'trips', label: 'Ongoing Trips' },
-  { key: 'users', label: 'Users & Live' },
-  { key: 'role_report', label: 'Role Report' },
-  { key: 'launch_visits', label: 'Launch Visitors' },
-  { key: 'spin', label: 'Spin & Win' },
-  { key: 'subscriptions', label: 'Subscriptions' },
-  { key: 'phone', label: 'Phone Requests' },
-  { key: 'account_deletions', label: 'Account Deletions' },
-  { key: 'ride_products', label: 'Ride Products' },
-  { key: 'vehicle_types', label: 'Vehicle Types' },
-  { key: 'pricing', label: 'Pricing & Fare' },
-  { key: 'fares', label: 'Fare Configuration' },
-  { key: 'fare_proposals', label: 'Driver Fare Proposals' },
-  { key: 'registration', label: 'Registration' },
-  { key: 'wallet', label: 'Wallet Top-ups' },
-  { key: 'kyc', label: 'KYC' },
-  { key: 'rate_limits', label: 'Rate Limits' },
-  { key: 'documents', label: 'Documents' },
+  { key: 'analytics', label: 'Overview', description: 'Live platform snapshot', icon: 'speedometer-outline', accent: '#2563EB', group: 'Command' },
+  { key: 'control_center', label: 'Control Center', description: 'Approvals, blocks, refunds', icon: 'grid-outline', accent: '#0F766E', group: 'Command' },
+  { key: 'trips', label: 'Ongoing Trips', description: 'Monitor and cancel live rides', icon: 'navigate-circle-outline', accent: '#0891B2', group: 'Command' },
+  { key: 'users', label: 'Users & Live', description: 'Passengers, drivers, operators', icon: 'people-outline', accent: '#7C3AED', group: 'People' },
+  { key: 'role_report', label: 'Role Report', description: 'Role-wise user audit', icon: 'albums-outline', accent: '#6D28D9', group: 'People' },
+  { key: 'kyc', label: 'KYC', description: 'Document verification queue', icon: 'id-card-outline', accent: '#16A34A', group: 'People' },
+  { key: 'documents', label: 'Documents', description: 'Requirement rules', icon: 'document-attach-outline', accent: '#15803D', group: 'People' },
+  { key: 'pricing', label: 'Pricing & Fare', description: 'Trip pricing and radius', icon: 'cash-outline', accent: '#D97706', group: 'Money' },
+  { key: 'fares', label: 'Fare Configuration', description: 'Fare tables and overrides', icon: 'calculator-outline', accent: '#B45309', group: 'Money' },
+  { key: 'fare_proposals', label: 'Driver Fare Proposals', description: 'Driver fare requests', icon: 'receipt-outline', accent: '#CA8A04', group: 'Money' },
+  { key: 'registration', label: 'Registration', description: 'Fees and payment review', icon: 'person-add-outline', accent: '#EA580C', group: 'Money' },
+  { key: 'wallet', label: 'Wallet Top-ups', description: 'Pending wallet deposits', icon: 'wallet-outline', accent: '#059669', group: 'Money' },
+  { key: 'subscriptions', label: 'Subscriptions', description: 'Plans and activations', icon: 'card-outline', accent: '#DB2777', group: 'Programs' },
+  { key: 'spin', label: 'Spin & Win', description: 'Campaign setup and winners', icon: 'gift-outline', accent: '#E11D48', group: 'Programs' },
+  { key: 'launch_visits', label: 'Launch Visitors', description: 'Launch traffic reports', icon: 'pulse-outline', accent: '#4F46E5', group: 'Programs' },
+  { key: 'ride_products', label: 'Ride Products', description: 'District product access', icon: 'layers-outline', accent: '#0284C7', group: 'Catalog' },
+  { key: 'vehicle_types', label: 'Vehicle Types', description: 'Vehicle catalog control', icon: 'car-sport-outline', accent: '#0D9488', group: 'Catalog' },
+  { key: 'phone', label: 'Phone Requests', description: 'Phone change approvals', icon: 'call-outline', accent: '#475569', group: 'Security' },
+  { key: 'account_deletions', label: 'Account Deletions', description: 'Deletion request review', icon: 'trash-outline', accent: '#DC2626', group: 'Security' },
+  { key: 'rate_limits', label: 'Rate Limits', description: 'API abuse protection', icon: 'shield-checkmark-outline', accent: '#334155', group: 'Security' },
 ];
 const PRIMARY_ADMIN_MENU_KEY = 'analytics';
-const SECONDARY_ADMIN_MENU_OPTIONS = ADMIN_MENU_OPTIONS.filter(
-  (menu) => menu.key !== PRIMARY_ADMIN_MENU_KEY,
-);
+const ADMIN_MENU_BY_KEY = ADMIN_MENU_OPTIONS.reduce((acc, menu) => ({ ...acc, [menu.key]: menu }), {});
+const ADMIN_MENU_GROUPS = [
+  { title: 'Command', keys: ['control_center', 'trips'] },
+  { title: 'People', keys: ['users', 'role_report', 'kyc', 'documents'] },
+  { title: 'Money', keys: ['pricing', 'fares', 'fare_proposals', 'registration', 'wallet'] },
+  { title: 'Programs', keys: ['subscriptions', 'spin', 'launch_visits'] },
+  { title: 'Catalog', keys: ['ride_products', 'vehicle_types'] },
+  { title: 'Security', keys: ['phone', 'account_deletions', 'rate_limits'] },
+];
+const ROLE_REPORT_SECTIONS = [
+  { key: 'passenger', bucket: 'passengers', title: 'Passengers', label: 'Passenger', icon: 'person-outline', accent: '#2563EB' },
+  { key: 'driver', bucket: 'drivers', title: 'Drivers', label: 'Driver', icon: 'car-outline', accent: '#16A34A' },
+  { key: 'operator', bucket: 'operators', title: 'Owners / Operators', label: 'Owner', icon: 'business-outline', accent: '#D97706' },
+  { key: 'admin', bucket: 'admins', title: 'Admins', label: 'Admin', icon: 'shield-checkmark-outline', accent: '#6D28D9' },
+];
 
 function emptyRoleSubscriptionConfig() {
   return {
@@ -201,10 +214,12 @@ function defaultRolewiseUserReportState() {
     passengers: [],
     drivers: [],
     operators: [],
+    admins: [],
     counts: {
       passengers: 0,
       drivers: 0,
       operators: 0,
+      admins: 0,
       total: 0,
     },
     generated_at: null,
@@ -217,10 +232,6 @@ function parseOverviewNumber(value) {
   }
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
-}
-
-function toOverviewNumber(value) {
-  return parseOverviewNumber(value) ?? 0;
 }
 
 function collectAdminDashboardSources(payload) {
@@ -299,6 +310,15 @@ function normalizeAdminDashboardStats(payload) {
       'operator_count',
       'operatorCount',
       'operators',
+    ]),
+    total_admins: firstOverviewNumber(sources, [
+      'total_admins',
+      'totalAdmins',
+      'admins_total',
+      'adminsTotal',
+      'admin_count',
+      'adminCount',
+      'admins',
     ]),
     total_bookings: firstOverviewNumber(sources, [
       'total_bookings',
@@ -633,6 +653,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
     total_drivers: 0,
     total_passengers: 0,
     total_operators: 0,
+    total_admins: 0,
     active_bookings: 0,
     total_revenue: 0,
   });
@@ -712,6 +733,8 @@ export default function AdminDashboard({ token, user, onLogout }) {
   const [usersPageSize, setUsersPageSize] = useState(50);
   const [usersSearchTerm, setUsersSearchTerm] = useState('');
   const [usersFilterRole, setUsersFilterRole] = useState('all');
+  const [roleReportSearchTerm, setRoleReportSearchTerm] = useState('');
+  const [roleReportFilterRole, setRoleReportFilterRole] = useState('all');
 
   // KYC pagination & search
   const [kycPage, setKycPage] = useState(1);
@@ -946,12 +969,18 @@ export default function AdminDashboard({ token, user, onLogout }) {
         liveOperators,
         'operator',
       );
-      const reportTotal = reportPassengers.length + reportDrivers.length + reportOperators.length;
+      const reportAdmins = normalizeRoleReportRows(
+        normalizeListResponse(roleReport?.admins),
+        [],
+        'admin',
+      );
+      const reportTotal = reportPassengers.length + reportDrivers.length + reportOperators.length + reportAdmins.length;
       const overviewStats = {
         ...dashboardStats,
         total_passengers: dashboardStats.total_passengers || reportPassengers.length,
         total_drivers: dashboardStats.total_drivers || reportDrivers.length,
         total_operators: dashboardStats.total_operators || reportOperators.length,
+        total_admins: dashboardStats.total_admins || reportAdmins.length,
         total_users: dashboardStats.total_users || reportTotal,
       };
       if (dashboard || reportTotal > 0) {
@@ -961,10 +990,12 @@ export default function AdminDashboard({ token, user, onLogout }) {
         passengers: reportPassengers,
         drivers: reportDrivers,
         operators: reportOperators,
+        admins: reportAdmins,
         counts: {
           passengers: reportPassengers.length,
           drivers: reportDrivers.length,
           operators: reportOperators.length,
+          admins: reportAdmins.length,
           total: reportTotal,
         },
         generated_at: roleReport?.generated_at || usersLiveStatus?.generated_at || new Date().toISOString(),
@@ -1105,15 +1136,14 @@ export default function AdminDashboard({ token, user, onLogout }) {
   }, [filterAndPaginateUsers, usersPage, usersPageSize]);
 
   const filteredRoleReportSections = useMemo(() => {
-    const search = usersSearchTerm.toLowerCase().trim();
-    const sections = [
-      { key: 'passenger', title: 'Passengers', rows: rolewiseUserReport.passengers || [] },
-      { key: 'driver', title: 'Drivers', rows: rolewiseUserReport.drivers || [] },
-      { key: 'operator', title: 'Operators', rows: rolewiseUserReport.operators || [] },
-    ];
+    const search = roleReportSearchTerm.toLowerCase().trim();
+    const sections = ROLE_REPORT_SECTIONS.map((section) => ({
+      ...section,
+      rows: rolewiseUserReport[section.bucket] || [],
+    }));
 
     return sections
-      .filter((section) => usersFilterRole === 'all' || usersFilterRole === section.key)
+      .filter((section) => roleReportFilterRole === 'all' || roleReportFilterRole === section.key)
       .map((section) => ({
         ...section,
         rows: section.rows.filter((user) => {
@@ -1125,7 +1155,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
             .some((value) => String(value).toLowerCase().includes(search));
         }),
       }));
-  }, [rolewiseUserReport, usersFilterRole, usersSearchTerm]);
+  }, [roleReportFilterRole, roleReportSearchTerm, rolewiseUserReport]);
 
   // Filter KYC (without pagination)
   const filterAndPaginateKyc = useCallback(() => {
@@ -2243,25 +2273,65 @@ export default function AdminDashboard({ token, user, onLogout }) {
     }
   };
 
+  const activeMenuMeta = ADMIN_MENU_BY_KEY[activeAdminMenu] || ADMIN_MENU_BY_KEY[PRIMARY_ADMIN_MENU_KEY];
+
+  const renderAdminMenuCard = (menu) => {
+    const selected = activeAdminMenu === menu.key;
+    return (
+      <TouchableOpacity
+        key={menu.key}
+        style={[
+          styles.adminMenuCard,
+          isCompactWeb && styles.adminMenuCardCompact,
+          selected && [styles.adminMenuCardActive, { borderColor: menu.accent }],
+        ]}
+        onPress={() => {
+          setActiveAdminMenu(menu.key);
+          setShowAdminMenus(false);
+        }}
+        accessibilityRole="button"
+        accessibilityState={{ selected }}>
+        <View style={[styles.adminMenuIcon, { backgroundColor: selected ? menu.accent : '#EEF2F7' }]}>
+          <Ionicons name={menu.icon} size={18} color={selected ? '#FFFFFF' : '#475569'} />
+        </View>
+        <View style={styles.adminMenuTextBlock}>
+          <Text style={[styles.adminMenuLabel, selected && { color: menu.accent }]} numberOfLines={1}>
+            {menu.label}
+          </Text>
+          <Text style={styles.adminMenuDescription} numberOfLines={2}>
+            {menu.description}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView style={[styles.container, isCompactWeb && styles.containerCompact]} showsVerticalScrollIndicator={false}>
         <WebCommandBar />
         <View style={[styles.header, isCompactWeb && styles.headerCompact]}>
-          <View style={isCompactWeb && styles.headerCopyCompact}>
-            <Text style={[styles.headerTitle, isCompactWeb && styles.headerTitleCompact]}>Admin Control</Text>
-            <Text style={[styles.headerSub, isCompactWeb && styles.headerSubCompact]}>
-              Welcome, {user?.name || 'Admin'}
-            </Text>
+          <View style={[styles.headerIdentity, isCompactWeb && styles.headerCopyCompact]}>
+            <View style={styles.headerIconBadge}>
+              <Ionicons name="shield-checkmark-outline" size={24} color="#0F5132" />
+            </View>
+            <View style={styles.headerCopy}>
+              <Text style={[styles.headerTitle, isCompactWeb && styles.headerTitleCompact]}>Admin Command Center</Text>
+              <Text style={[styles.headerSub, isCompactWeb && styles.headerSubCompact]}>
+                Welcome, {user?.name || 'Admin'}
+              </Text>
+            </View>
           </View>
           <View style={[styles.headerActions, isCompactWeb && styles.headerActionsCompact]}>
             <TouchableOpacity
               style={[styles.headerBtn, isCompactWeb && styles.headerBtnCompact]}
               onPress={refreshAdminData}
               disabled={loading}>
+              <Ionicons name="refresh-outline" size={16} color={COLORS.textMain} />
               <Text style={styles.headerBtnText}>Refresh</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[styles.headerBtn, isCompactWeb && styles.headerBtnCompact]} onPress={onLogout}>
+              <Ionicons name="log-out-outline" size={16} color={COLORS.textMain} />
               <Text style={styles.headerBtnText}>Logout</Text>
             </TouchableOpacity>
           </View>
@@ -2271,60 +2341,64 @@ export default function AdminDashboard({ token, user, onLogout }) {
         {!!message && <Text style={styles.message}>{message}</Text>}
         {loading && <ActivityIndicator color={COLORS.primary} style={styles.loader} />}
 
-        <View style={[styles.dashboardTopRow, isCompactWeb && styles.dashboardTopRowCompact]}>
+        <View style={[styles.adminMenuHero, isCompactWeb && styles.adminMenuHeroCompact]}>
           <TouchableOpacity
             style={[
-              styles.primaryMenuButton,
-              activeAdminMenu === PRIMARY_ADMIN_MENU_KEY && styles.primaryMenuButtonActive,
-              isCompactWeb && styles.primaryMenuButtonCompact,
+              styles.overviewMenuCard,
+              activeAdminMenu === PRIMARY_ADMIN_MENU_KEY && styles.overviewMenuCardActive,
             ]}
             onPress={() => {
               setActiveAdminMenu(PRIMARY_ADMIN_MENU_KEY);
               setShowAdminMenus(false);
             }}>
-            <Text style={styles.primaryMenuButtonText}>Overview</Text>
+            <View style={styles.overviewMenuIcon}>
+              <Ionicons name={ADMIN_MENU_BY_KEY.analytics.icon} size={22} color="#FFFFFF" />
+            </View>
+            <View style={styles.adminMenuTextBlock}>
+              <Text style={styles.overviewMenuTitle}>Overview</Text>
+              <Text style={styles.overviewMenuDescription}>Live metrics, alerts, and analytics</Text>
+            </View>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.menuToggleButton, isCompactWeb && styles.menuToggleButtonCompact]}
             onPress={() => setShowAdminMenus((prev) => !prev)}>
-            <Text style={styles.menuToggleButtonText}>{showAdminMenus ? 'Hide Menus' : 'Other Menus'}</Text>
+            <Ionicons name={showAdminMenus ? 'chevron-up-outline' : 'apps-outline'} size={17} color="#355243" />
+            <Text style={styles.menuToggleButtonText}>{showAdminMenus ? 'Hide Menu' : 'Open Menu'}</Text>
           </TouchableOpacity>
         </View>
 
         {showAdminMenus && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.menuBar}
-            contentContainerStyle={styles.menuBarContent}>
-            {SECONDARY_ADMIN_MENU_OPTIONS.map((menu) => (
-              <TouchableOpacity
-                key={menu.key}
-                style={[styles.menuChip, activeAdminMenu === menu.key && styles.menuChipActive]}
-                onPress={() => {
-                  setActiveAdminMenu(menu.key);
-                  setShowAdminMenus(false);
-                }}>
-                <Text style={[styles.menuChipText, activeAdminMenu === menu.key && styles.menuChipTextActive]}>
-                  {menu.label}
-                </Text>
-              </TouchableOpacity>
+          <View style={styles.adminMenuPanel}>
+            {ADMIN_MENU_GROUPS.map((group) => (
+              <View key={group.title} style={styles.adminMenuGroup}>
+                <Text style={styles.adminMenuGroupTitle}>{group.title}</Text>
+                <View style={[styles.adminMenuGrid, isCompactWeb && styles.adminMenuGridCompact]}>
+                  {group.keys.map((key) => renderAdminMenuCard(ADMIN_MENU_BY_KEY[key])).filter(Boolean)}
+                </View>
+              </View>
             ))}
-          </ScrollView>
+          </View>
         )}
 
         {activeAdminMenu !== PRIMARY_ADMIN_MENU_KEY && (
           <View style={[styles.activeMenuInfoRow, isCompactWeb && styles.activeMenuInfoRowCompact]}>
-            <Text style={styles.activeMenuInfoText}>
-              {ADMIN_MENU_OPTIONS.find((menu) => menu.key === activeAdminMenu)?.label || 'Menu'}
-            </Text>
+            <View style={styles.activeMenuInfoCopy}>
+              <View style={[styles.activeMenuInfoIcon, { backgroundColor: activeMenuMeta.accent }]}>
+                <Ionicons name={activeMenuMeta.icon} size={16} color="#FFFFFF" />
+              </View>
+              <View style={styles.adminMenuTextBlock}>
+                <Text style={styles.activeMenuInfoText}>{activeMenuMeta.label}</Text>
+                <Text style={styles.activeMenuInfoDescription}>{activeMenuMeta.description}</Text>
+              </View>
+            </View>
             <TouchableOpacity
               style={[styles.menuToggleButton, isCompactWeb && styles.menuToggleButtonCompact]}
               onPress={() => {
                 setActiveAdminMenu(PRIMARY_ADMIN_MENU_KEY);
                 setShowAdminMenus(false);
               }}>
-              <Text style={styles.menuToggleButtonText}>Back to Overview</Text>
+              <Ionicons name="arrow-back-outline" size={16} color="#355243" />
+              <Text style={styles.menuToggleButtonText}>Overview</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -2544,9 +2618,9 @@ export default function AdminDashboard({ token, user, onLogout }) {
         </View>
 
         <View style={[styles.section, activeAdminMenu !== 'role_report' && styles.hiddenSection]}>
-          <Text style={styles.sectionTitle}>Role-wise User Report</Text>
+          <Text style={styles.sectionTitle}>User-wise Role Report</Text>
           <Text style={styles.kycDate}>
-            Passenger, driver, and operator accounts with name, email, phone, and joining date.
+            Passenger, driver, owner/operator, and admin accounts with name, email, phone, joining date, status, and user ID.
           </Text>
           <Text style={styles.kycDate}>Generated: {formatDateTime(rolewiseUserReport.generated_at)}</Text>
 
@@ -2560,8 +2634,12 @@ export default function AdminDashboard({ token, user, onLogout }) {
               <Text style={styles.statValue}>{rolewiseUserReport.counts.drivers}</Text>
             </View>
             <View style={styles.statCard}>
-              <Text style={styles.statLabel}>Operators</Text>
+              <Text style={styles.statLabel}>Owners</Text>
               <Text style={styles.statValue}>{rolewiseUserReport.counts.operators}</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statLabel}>Admins</Text>
+              <Text style={styles.statValue}>{rolewiseUserReport.counts.admins}</Text>
             </View>
             <View style={[styles.statCard, styles.fullWidthCard]}>
               <Text style={styles.statLabel}>Total Report Users</Text>
@@ -2571,16 +2649,17 @@ export default function AdminDashboard({ token, user, onLogout }) {
 
           <AdminSearchBar
             placeholder="Search report by name, email, phone, or ID..."
-            value={usersSearchTerm}
-            onSearch={setUsersSearchTerm}
+            value={roleReportSearchTerm}
+            onSearch={setRoleReportSearchTerm}
             filterOptions={[
               { label: 'All Roles', value: 'all' },
               { label: 'Drivers', value: 'driver' },
               { label: 'Passengers', value: 'passenger' },
-              { label: 'Operators', value: 'operator' },
+              { label: 'Owners', value: 'operator' },
+              { label: 'Admins', value: 'admin' },
             ]}
-            selectedFilter={usersFilterRole}
-            onFilterChange={setUsersFilterRole}
+            selectedFilter={roleReportFilterRole}
+            onFilterChange={setRoleReportFilterRole}
           />
 
           {filteredRoleReportSections.every((section) => section.rows.length === 0) ? (
@@ -2589,16 +2668,32 @@ export default function AdminDashboard({ token, user, onLogout }) {
             </View>
           ) : (
             filteredRoleReportSections.map((section) => (
-              <View key={section.key} style={styles.kycCard}>
-                <Text style={styles.sectionSubtitle}>
-                  {section.title} ({section.rows.length})
-                </Text>
+              <View key={section.key} style={styles.roleReportCard}>
+                <View style={styles.roleReportSectionHeader}>
+                  <View style={[styles.roleReportSectionIcon, { backgroundColor: section.accent }]}>
+                    <Ionicons name={section.icon} size={18} color="#FFFFFF" />
+                  </View>
+                  <View style={styles.adminMenuTextBlock}>
+                    <Text style={styles.sectionSubtitle}>
+                      {section.title} ({section.rows.length})
+                    </Text>
+                    <Text style={styles.kycDate}>User-wise account list</Text>
+                  </View>
+                </View>
                 {section.rows.length === 0 ? (
                   <Text style={styles.kycDate}>No {section.title.toLowerCase()} found.</Text>
                 ) : (
                   section.rows.map((reportUser) => (
                     <View key={reportUser.id || `${section.key}-${reportUser.email}`} style={styles.roleReportRow}>
-                      <Text style={styles.driverName}>{reportUser.name || 'Unknown User'}</Text>
+                      <View style={styles.userRowHeader}>
+                        <View style={styles.adminMenuTextBlock}>
+                          <Text style={styles.driverName}>{reportUser.name || 'Unknown User'}</Text>
+                          <Text style={styles.kycDate}>{section.label}</Text>
+                        </View>
+                        <Text style={[styles.roleReportStatusBadge, reportUser.account_status === 'blocked' && styles.roleReportStatusBlocked]}>
+                          {reportUser.account_status || 'active'}
+                        </Text>
+                      </View>
                       <Text style={styles.kycDate}>Email: {reportUser.email || 'N/A'}</Text>
                       <Text style={styles.kycDate}>Phone: {reportUser.phone || 'N/A'}</Text>
                       <Text style={styles.kycDate}>Joining Date: {formatDateTime(reportUser.joining_date || reportUser.created_at)}</Text>
@@ -3947,6 +4042,22 @@ const styles = StyleSheet.create({
     alignItems: 'stretch',
     marginBottom: 12,
   },
+  headerIdentity: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    minWidth: 0,
+  },
+  headerIconBadge: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: '#E6F4EA',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  headerCopy: { flex: 1, minWidth: 0 },
   headerCopyCompact: { width: '100%' },
   headerTitle: { fontSize: 30, fontWeight: '900', color: COLORS.textMain },
   headerTitleCompact: { fontSize: 24, lineHeight: 29 },
@@ -3955,6 +4066,9 @@ const styles = StyleSheet.create({
   headerActions: { flexDirection: 'row', gap: 8 },
   headerActionsCompact: { width: '100%' },
   headerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     alignSelf: 'flex-start',
     backgroundColor: '#F8FBF9',
     borderWidth: 1,
@@ -3980,26 +4094,36 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     gap: 10,
   },
-  menuBar: { marginBottom: 14 },
-  menuBarContent: { gap: 8, paddingRight: 10 },
-  dashboardTopRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
-  dashboardTopRowCompact: { flexDirection: 'column' },
-  primaryMenuButton: {
+  adminMenuHero: { flexDirection: 'row', gap: 10, marginBottom: 12, alignItems: 'stretch' },
+  adminMenuHeroCompact: { flexDirection: 'column' },
+  overviewMenuCard: {
     flex: 1,
+    minHeight: 72,
     borderWidth: 1,
-    borderColor: '#2E7D32',
-    borderRadius: 12,
-    backgroundColor: '#E8F5E9',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    borderColor: '#BFD8C7',
+    borderRadius: 14,
+    backgroundColor: '#F7FCF8',
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
     ...SHADOWS.soft,
   },
-  primaryMenuButtonCompact: { width: '100%' },
-  primaryMenuButtonActive: {
+  overviewMenuCardActive: {
     borderColor: '#1B5E20',
-    backgroundColor: '#D5ECD8',
+    backgroundColor: '#E9F7EE',
   },
-  primaryMenuButtonText: { color: '#1B5E20', fontWeight: '800', textAlign: 'center' },
+  overviewMenuIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: '#1B5E20',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  overviewMenuTitle: { color: '#153D25', fontWeight: '900', fontSize: 16 },
+  overviewMenuDescription: { color: '#557063', fontSize: 12, marginTop: 3 },
+  adminMenuTextBlock: { flex: 1, minWidth: 0 },
   menuToggleButton: {
     borderWidth: 1,
     borderColor: '#CBD9D0',
@@ -4007,6 +4131,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#F6FAF7',
     paddingHorizontal: 14,
     paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
   },
   menuToggleButtonCompact: {
     alignItems: 'center',
@@ -4019,26 +4147,78 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     marginBottom: 12,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#DFEAE3',
+    borderRadius: 14,
+    padding: 12,
+    ...SHADOWS.soft,
   },
   activeMenuInfoRowCompact: {
     flexDirection: 'column',
     alignItems: 'stretch',
   },
-  activeMenuInfoText: { color: '#1E3126', fontWeight: '800', fontSize: 14 },
-  menuChip: {
+  activeMenuInfoCopy: { flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 },
+  activeMenuInfoIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  activeMenuInfoText: { color: '#1E3126', fontWeight: '900', fontSize: 14 },
+  activeMenuInfoDescription: { color: '#64746A', fontSize: 12, marginTop: 2 },
+  adminMenuPanel: {
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#CBD9D0',
-    borderRadius: 18,
-    backgroundColor: '#F6FAF7',
-    paddingHorizontal: 14,
-    paddingVertical: 9,
+    borderColor: '#E2ECE5',
+    borderRadius: 16,
+    padding: 12,
+    marginBottom: 14,
+    ...SHADOWS.soft,
   },
-  menuChipActive: {
-    borderColor: '#2E7D32',
-    backgroundColor: '#E7F3EC',
+  adminMenuGroup: { marginBottom: 12 },
+  adminMenuGroupTitle: {
+    color: '#1E3126',
+    fontSize: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    marginBottom: 8,
   },
-  menuChipText: { color: '#355243', fontWeight: '700' },
-  menuChipTextActive: { color: '#2E7D32' },
+  adminMenuGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  adminMenuGridCompact: { flexDirection: 'column' },
+  adminMenuCard: {
+    width: '31.8%',
+    minWidth: 190,
+    minHeight: 78,
+    borderWidth: 1,
+    borderColor: '#E1E8E3',
+    borderRadius: 14,
+    backgroundColor: '#FBFDFB',
+    padding: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  adminMenuCardCompact: { width: '100%', minWidth: 0 },
+  adminMenuCardActive: {
+    borderWidth: 2,
+    backgroundColor: '#FFFFFF',
+  },
+  adminMenuIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  adminMenuLabel: { color: '#1F2937', fontWeight: '900', fontSize: 13 },
+  adminMenuDescription: { color: '#6B7280', fontSize: 11, lineHeight: 15, marginTop: 3 },
   districtChipRow: { gap: 8, paddingRight: 8, marginBottom: 12 },
   districtChip: {
     borderWidth: 1,
@@ -4175,6 +4355,42 @@ const styles = StyleSheet.create({
     borderTopColor: '#E7EEE9',
     paddingTop: 12,
     marginTop: 12,
+  },
+  roleReportCard: {
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    borderRadius: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#D7E2DA',
+    ...SHADOWS.card,
+  },
+  roleReportSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 4,
+  },
+  roleReportSectionIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  roleReportStatusBadge: {
+    color: '#0F5132',
+    backgroundColor: '#E6F4EA',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    fontWeight: '800',
+    textTransform: 'capitalize',
+    overflow: 'hidden',
+  },
+  roleReportStatusBlocked: {
+    color: '#8A1F11',
+    backgroundColor: '#FDECEA',
   },
   subscriptionPlanCard: {
     borderWidth: 1,
