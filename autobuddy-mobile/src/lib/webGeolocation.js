@@ -5,6 +5,7 @@ const DEFAULT_POSITION_OPTIONS = {
 };
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
+const PERMISSION_QUERY_TIMEOUT_MS = 2500;
 
 export function isWebGeolocationAvailable() {
   return typeof navigator !== 'undefined' && Boolean(navigator.geolocation);
@@ -29,7 +30,12 @@ export async function getWebGeolocationPermissionState() {
   }
 
   try {
-    const status = await navigator.permissions.query({ name: 'geolocation' });
+    const status = await Promise.race([
+      navigator.permissions.query({ name: 'geolocation' }),
+      new Promise((resolve) => {
+        setTimeout(() => resolve({ state: 'prompt' }), PERMISSION_QUERY_TIMEOUT_MS);
+      }),
+    ]);
     return status?.state || 'prompt';
   } catch {
     return 'prompt';
@@ -71,9 +77,32 @@ export async function requestWebCurrentPosition(options = {}) {
   }
 
   return new Promise((resolve, reject) => {
-    navigator.geolocation.getCurrentPosition(resolve, reject, {
+    const positionOptions = {
       ...DEFAULT_POSITION_OPTIONS,
       ...options,
-    });
+    };
+    const timeoutMs = Math.max(1000, Number(positionOptions.timeout || DEFAULT_POSITION_OPTIONS.timeout));
+    let settled = false;
+
+    const finish = (callback, value) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeoutId);
+      callback(value);
+    };
+
+    const timeoutId = setTimeout(() => {
+      const error = new Error('Location request timed out.');
+      error.code = 3;
+      finish(reject, error);
+    }, timeoutMs + 1000);
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => finish(resolve, position),
+      (error) => finish(reject, error),
+      positionOptions,
+    );
   });
 }

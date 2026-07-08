@@ -239,6 +239,7 @@ const PASSENGER_POLL_AUTH_RETRY_COOLDOWN_MS = 60000;
 const PASSENGER_POLL_AUTH_EXPIRED_COOLDOWN_MS = 5 * 60 * 1000;
 const DRIVER_DISCOVERY_DEDUPE_MS = 15000;
 const DRIVER_DISCOVERY_RATE_LIMIT_COOLDOWN_MS = 30000;
+const CURRENT_LOCATION_REVERSE_GEOCODE_TIMEOUT_MS = 8000;
 const RIDE_PRODUCT_LABEL_FALLBACKS = {
   normal: 'Normal',
   pool: 'Pool Ride',
@@ -480,6 +481,15 @@ function getDriverDiscoveryBackoffMs(error) {
     return getApiRetryAfterMs(error, PASSENGER_POLL_BACKEND_COOLDOWN_MS);
   }
   return 0;
+}
+
+async function reverseGeocodeWithTimeout(latitude, longitude) {
+  return Promise.race([
+    reverseGeocodeLocation(latitude, longitude),
+    new Promise((resolve) => {
+      setTimeout(() => resolve(null), CURRENT_LOCATION_REVERSE_GEOCODE_TIMEOUT_MS);
+    }),
+  ]);
 }
 
 function titleFromId(value, fallback = 'Option') {
@@ -2438,16 +2448,33 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     }
 
     try {
-      setLocatingPickup(true);
-      setError('');
       const beforePermission = await getWebGeolocationPermissionState();
       setLocationPermissionState(beforePermission);
+      if (silent && beforePermission !== 'granted') {
+        return;
+      }
 
-      const position = await requestWebCurrentPosition({
-        enableHighAccuracy: true,
-        timeout: 15000,
-        maximumAge: 60000,
-      });
+      setLocatingPickup(true);
+      setError('');
+
+      let position;
+      try {
+        position = await requestWebCurrentPosition({
+          enableHighAccuracy: true,
+          timeout: 12000,
+          maximumAge: 60000,
+        });
+      } catch (positionError) {
+        const code = Number(positionError?.code);
+        if (code !== 2 && code !== 3) {
+          throw positionError;
+        }
+        position = await requestWebCurrentPosition({
+          enableHighAccuracy: false,
+          timeout: 8000,
+          maximumAge: 5 * 60 * 1000,
+        });
+      }
       setLocationPermissionState('granted');
 
       const latitude = Number(position.coords.latitude.toFixed(6));
@@ -2456,7 +2483,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
 
       if (placesConfigured) {
         try {
-          const resolved = await reverseGeocodeLocation(latitude, longitude);
+          const resolved = await reverseGeocodeWithTimeout(latitude, longitude);
           if (resolved) {
             address = resolved;
           }
