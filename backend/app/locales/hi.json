@@ -1,0 +1,94 @@
+{
+  "app": {
+    "name": "ऑटोबडी",
+    "tagline": "आपका स्मार्ट राइड साथी"
+  },
+  "common": {
+    "ok": "ठीक है",
+    "cancel": "रद्द करें",
+    "confirm": "पुष्टि करें",
+    "save": "सहेजें",
+    "delete": "हटाएं",
+    "edit": "संपादित करें",
+    "close": "बंद करें",
+    "back": "वापस",
+    "next": "अगला",
+    "done": "पूर्ण",
+    "loading": "लोड हो रहा है...",
+    "error": "त्रुटि",
+    "success": "सफलता",
+    "warning": "चेतावनी",
+    "info": "जानकारी"
+  },
+  "auth": {
+    "login": "लॉगिन",
+    "logout": "लॉगआउट",
+    "signup": "साइन अप",
+    "email": "ईमेल",
+    "password": "पासवर्ड",
+    "forgot_password": "पासवर्ड भूल गए?",
+    "reset_password": "पासवर्ड रीसेट करें",
+    "welcome_back": "वापसी पर स्वागत है!",
+    "create_account": "खाता बनाएं"
+  },
+  "rides": {
+    "book_ride": "राइड बुक करें",
+    "my_rides": "मेरी राइड्स",
+    "ride_history": "राइड इतिहास",
+    "active_ride": "सक्रिय राइड",
+    "pickup_location": "पिकअप स्थान",
+    "dropoff_location": "ड्रॉपऑफ स्थान",
+    "ride_type": "राइड प्रकार",
+    "fare": "किराया",
+    "distance": "दूरी",
+    "duration": "अवधि",
+    "driver": "चालक",
+    "rating": "रेटिंग",
+    "cancel_ride": "राइड रद्द करें",
+    "confirm_ride": "राइड की पुष्टि करें"
+  },
+  "subscription": {
+    "plans": "सदस्यता योजनाएं",
+    "current_plan": "वर्तमान योजना",
+    "upgrade": "अपग्रेड",
+    "downgrade": "डाउनग्रेड",
+    "cancel": "सदस्यता रद्द करें",
+    "manage": "सदस्यता प्रबंधित करें",
+    "trial": "{days} दिन मुफ्त परीक्षण",
+    "simple": "सिंपल",
+    "smart": "स्मार्ट",
+    "pro": "प्रो",
+    "per_month": "प्रति माह",
+    "per_year": "प्रति वर्ष",
+    "unlimited_rides": "असीमित राइड्स",
+    "rides_per_month": "{count} राइड्स प्रति माह"
+  },
+  "errors": {
+    "network_error": "नेटवर्क त्रुटि। कृपया अपना कनेक्शन जांचें।",
+    "server_error": "सर्वर त्रुटि। कृपया बाद में पुनः प्रयास करें।",
+    "invalid_credentials": "अमान्य ईमेल या पासवर्ड",
+    "validation_error": "कृपया अपना इनपुट जांचें",
+    "not_found": "नहीं मिला",
+    "unauthorized": "अनधिकृत पहुंच",
+    "forbidden": "पहुंच वर्जित",
+    "timeout": "अनुरोध समय समाप्त"
+  },
+  "notifications": {
+    "ride_accepted": "चालक ने आपकी राइड स्वीकार कर ली है!",
+    "driver_arriving": "चालक आ रहा है",
+    "ride_started": "आपकी राइड शुरू हो गई है",
+    "ride_completed": "राइड पूरी हुई। राइड करने के लिए धन्यवाद!",
+    "payment_successful": "भुगतान सफल",
+    "payment_failed": "भुगतान विफल। कृपया पुनः प्रयास करें।"
+  },
+  "privacy": {
+    "data_export": "मेरा डेटा निर्यात करें",
+    "delete_account": "खाता हटाएं",
+    "privacy_policy": "गोपनीयता नीति",
+    "terms_of_service": "सेवा की शर्तें",
+    "consent_marketing": "विपणन संचार",
+    "consent_analytics": "विश्लेषण और प्रदर्शन",
+    "export_requested": "डेटा निर्यात का अनुरोध किया गया। आपको ईमेल के माध्यम से डाउनलोड लिंक प्राप्त होगा।",
+    "deletion_scheduled": "{date} के लिए खाता हटाना निर्धारित है। आप तब तक पुनर्प्राप्त कर सकते हैं।"
+  }
+}

@@ -1,0 +1,94 @@
+{
+  "app": {
+    "name": "AutoBuddy",
+    "tagline": "Your Smart Ride Companion"
+  },
+  "common": {
+    "ok": "OK",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "save": "Save",
+    "delete": "Delete",
+    "edit": "Edit",
+    "close": "Close",
+    "back": "Back",
+    "next": "Next",
+    "done": "Done",
+    "loading": "Loading...",
+    "error": "Error",
+    "success": "Success",
+    "warning": "Warning",
+    "info": "Information"
+  },
+  "auth": {
+    "login": "Login",
+    "logout": "Logout",
+    "signup": "Sign Up",
+    "email": "Email",
+    "password": "Password",
+    "forgot_password": "Forgot Password?",
+    "reset_password": "Reset Password",
+    "welcome_back": "Welcome Back!",
+    "create_account": "Create an Account"
+  },
+  "rides": {
+    "book_ride": "Book a Ride",
+    "my_rides": "My Rides",
+    "ride_history": "Ride History",
+    "active_ride": "Active Ride",
+    "pickup_location": "Pickup Location",
+    "dropoff_location": "Dropoff Location",
+    "ride_type": "Ride Type",
+    "fare": "Fare",
+    "distance": "Distance",
+    "duration": "Duration",
+    "driver": "Driver",
+    "rating": "Rating",
+    "cancel_ride": "Cancel Ride",
+    "confirm_ride": "Confirm Ride"
+  },
+  "subscription": {
+    "plans": "Subscription Plans",
+    "current_plan": "Current Plan",
+    "upgrade": "Upgrade",
+    "downgrade": "Downgrade",
+    "cancel": "Cancel Subscription",
+    "manage": "Manage Subscription",
+    "trial": "{days} Days Free Trial",
+    "simple": "Simple",
+    "smart": "Smart",
+    "pro": "Pro",
+    "per_month": "per month",
+    "per_year": "per year",
+    "unlimited_rides": "Unlimited Rides",
+    "rides_per_month": "{count} rides per month"
+  },
+  "errors": {
+    "network_error": "Network error. Please check your connection.",
+    "server_error": "Server error. Please try again later.",
+    "invalid_credentials": "Invalid email or password",
+    "validation_error": "Please check your input",
+    "not_found": "Not found",
+    "unauthorized": "Unauthorized access",
+    "forbidden": "Access forbidden",
+    "timeout": "Request timeout"
+  },
+  "notifications": {
+    "ride_accepted": "Driver has accepted your ride!",
+    "driver_arriving": "Driver is arriving",
+    "ride_started": "Your ride has started",
+    "ride_completed": "Ride completed. Thanks for riding!",
+    "payment_successful": "Payment successful",
+    "payment_failed": "Payment failed. Please try again."
+  },
+  "privacy": {
+    "data_export": "Export My Data",
+    "delete_account": "Delete Account",
+    "privacy_policy": "Privacy Policy",
+    "terms_of_service": "Terms of Service",
+    "consent_marketing": "Marketing Communications",
+    "consent_analytics": "Analytics & Performance",
+    "export_requested": "Data export requested. You'll receive a download link via email.",
+    "deletion_scheduled": "Account deletion scheduled for {date}. You can recover until then."
+  }
+}

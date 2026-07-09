@@ -1,0 +1,94 @@
+{
+  "app": {
+    "name": "AutoBuddy",
+    "tagline": "Tu Compañero Inteligente de Viajes"
+  },
+  "common": {
+    "ok": "OK",
+    "cancel": "Cancelar",
+    "confirm": "Confirmar",
+    "save": "Guardar",
+    "delete": "Eliminar",
+    "edit": "Editar",
+    "close": "Cerrar",
+    "back": "Atrás",
+    "next": "Siguiente",
+    "done": "Hecho",
+    "loading": "Cargando...",
+    "error": "Error",
+    "success": "Éxito",
+    "warning": "Advertencia",
+    "info": "Información"
+  },
+  "auth": {
+    "login": "Iniciar Sesión",
+    "logout": "Cerrar Sesión",
+    "signup": "Registrarse",
+    "email": "Correo Electrónico",
+    "password": "Contraseña",
+    "forgot_password": "¿Olvidaste tu Contraseña?",
+    "reset_password": "Restablecer Contraseña",
+    "welcome_back": "¡Bienvenido de Nuevo!",
+    "create_account": "Crear una Cuenta"
+  },
+  "rides": {
+    "book_ride": "Reservar un Viaje",
+    "my_rides": "Mis Viajes",
+    "ride_history": "Historial de Viajes",
+    "active_ride": "Viaje Activo",
+    "pickup_location": "Ubicación de Recogida",
+    "dropoff_location": "Ubicación de Destino",
+    "ride_type": "Tipo de Viaje",
+    "fare": "Tarifa",
+    "distance": "Distancia",
+    "duration": "Duración",
+    "driver": "Conductor",
+    "rating": "Calificación",
+    "cancel_ride": "Cancelar Viaje",
+    "confirm_ride": "Confirmar Viaje"
+  },
+  "subscription": {
+    "plans": "Planes de Suscripción",
+    "current_plan": "Plan Actual",
+    "upgrade": "Mejorar",
+    "downgrade": "Degradar",
+    "cancel": "Cancelar Suscripción",
+    "manage": "Gestionar Suscripción",
+    "trial": "{days} Días de Prueba Gratis",
+    "simple": "Simple",
+    "smart": "Smart",
+    "pro": "Pro",
+    "per_month": "por mes",
+    "per_year": "por año",
+    "unlimited_rides": "Viajes Ilimitados",
+    "rides_per_month": "{count} viajes por mes"
+  },
+  "errors": {
+    "network_error": "Error de red. Por favor verifica tu conexión.",
+    "server_error": "Error del servidor. Por favor intenta más tarde.",
+    "invalid_credentials": "Correo electrónico o contraseña inválidos",
+    "validation_error": "Por favor verifica tu entrada",
+    "not_found": "No encontrado",
+    "unauthorized": "Acceso no autorizado",
+    "forbidden": "Acceso prohibido",
+    "timeout": "Tiempo de espera agotado"
+  },
+  "notifications": {
+    "ride_accepted": "¡El conductor ha aceptado tu viaje!",
+    "driver_arriving": "El conductor está llegando",
+    "ride_started": "Tu viaje ha comenzado",
+    "ride_completed": "Viaje completado. ¡Gracias por viajar!",
+    "payment_successful": "Pago exitoso",
+    "payment_failed": "Pago fallido. Por favor intenta nuevamente."
+  },
+  "privacy": {
+    "data_export": "Exportar Mis Datos",
+    "delete_account": "Eliminar Cuenta",
+    "privacy_policy": "Política de Privacidad",
+    "terms_of_service": "Términos de Servicio",
+    "consent_marketing": "Comunicaciones de Marketing",
+    "consent_analytics": "Análisis y Rendimiento",
+    "export_requested": "Exportación de datos solicitada. Recibirás un enlace de descarga por correo electrónico.",
+    "deletion_scheduled": "Eliminación de cuenta programada para {date}. Puedes recuperarla hasta entonces."
+  }
+}

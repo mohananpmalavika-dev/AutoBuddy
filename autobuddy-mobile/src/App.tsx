@@ -18,7 +18,7 @@ import PassengerDashboard from './screens/PassengerDashboard';
 import { SimplifiedOnboarding } from './components/PassengerSimplifiedOnboarding';
 
 // Driver screens
-import DriverDashboard from './screens/DriverDashboardSimplified';
+import MinimalDriverScreen from './screens/driver/MinimalDriverScreen';
 
 // Operator screens
 import OperatorDashboard from './screens/OperatorDashboard';
@@ -387,7 +387,7 @@ export default function App() {
               <Stack.Screen
                 name="DriverApp"
                 children={() => (
-                  <DriverDashboard
+                  <MinimalDriverScreen
                     token={session.token}
                     user={session.user}
                     onLogout={handleLogout}

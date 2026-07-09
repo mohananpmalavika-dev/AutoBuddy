@@ -140,6 +140,10 @@ class Settings:
     bootstrap_admin_name: Optional[str]
     bootstrap_admin_phone: Optional[str]
     bootstrap_admin_password: Optional[str]
+    # Stripe configuration
+    stripe_secret_key: Optional[str]
+    stripe_publishable_key: Optional[str]
+    stripe_webhook_secret: Optional[str]
 
 
 @lru_cache
@@ -206,4 +210,7 @@ def get_settings() -> Settings:
         bootstrap_admin_name=_get_optional_env("BOOTSTRAP_ADMIN_NAME"),
         bootstrap_admin_phone=_get_optional_env("BOOTSTRAP_ADMIN_PHONE"),
         bootstrap_admin_password=_get_secret("BOOTSTRAP_ADMIN_PASSWORD") or None,
+        stripe_secret_key=_get_secret("STRIPE_SECRET_KEY") or None,
+        stripe_publishable_key=_get_optional_env("STRIPE_PUBLISHABLE_KEY"),
+        stripe_webhook_secret=_get_secret("STRIPE_WEBHOOK_SECRET") or None,
     )

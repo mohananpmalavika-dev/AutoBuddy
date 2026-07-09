@@ -1,0 +1,118 @@
+{
+  "dashboard": {
+    "title": "AutoBuddy API Metrics",
+    "tags": ["autobuddy", "api", "backend"],
+    "timezone": "utc",
+    "schemaVersion": 16,
+    "version": 1,
+    "refresh": "30s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Request Rate (req/sec)",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(http_requests_total[5m])",
+            "legendFormat": "{{method}} {{endpoint}}"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Request Duration (p95)",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "{{method}} {{endpoint}}"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Error Rate (%)",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(http_requests_total{status=~\"5..\"}[5m]) / rate(http_requests_total[5m]) * 100",
+            "legendFormat": "5xx Error Rate"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Active Rides",
+        "type": "stat",
+        "gridPos": {"x": 12, "y": 8, "w": 6, "h": 4},
+        "targets": [
+          {
+            "expr": "active_rides_total"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Available Drivers",
+        "type": "stat",
+        "gridPos": {"x": 18, "y": 8, "w": 6, "h": 4},
+        "targets": [
+          {
+            "expr": "available_drivers_total"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Database Operations (ops/sec)",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(database_operations_total[5m])",
+            "legendFormat": "{{operation}} {{collection}}"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Database Query Duration (p95)",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(database_operation_duration_seconds_bucket[5m]))",
+            "legendFormat": "{{operation}} {{collection}}"
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Payment Transactions",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 24, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(payment_transactions_total[5m])",
+            "legendFormat": "{{method}} {{status}}"
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "External API Calls",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 24, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(external_api_calls_total[5m])",
+            "legendFormat": "{{service}}"
+          }
+        ]
+      }
+    ]
+  }
+}
