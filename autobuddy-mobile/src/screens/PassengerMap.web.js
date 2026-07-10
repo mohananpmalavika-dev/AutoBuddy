@@ -1038,13 +1038,13 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       languageCode === 'ml'
         ? {
             greeting: `ഹായ് ${user?.name || 'സുഹൃത്തേ'}`,
-            title: 'പറഞ്ഞ് ബുക്ക് ചെയ്യുക',
-            subtitle: 'പിക്കപ്പ് സ്വയം നിറയ്ക്കാം. ലക്ഷ്യസ്ഥാനം പറഞ്ഞാൽ മതി.',
+            title: 'എവിടേക്കാണ് പോകേണ്ടത്?',
+            subtitle: 'പിക്കപ്പ് തയ്യാറാണ്. ലക്ഷ്യസ്ഥാനം ചേർത്ത് ബുക്ക് ചെയ്യൂ.',
             english: 'English',
             malayalam: 'മലയാളം',
-            voiceTitle: 'മൈക്കിൽ പറഞ്ഞ് റൈഡ് ബുക്ക് ചെയ്യുക',
-            voiceHint: 'ഉദാ: കൊല്ലം റെയിൽവേ സ്റ്റേഷനിലേക്ക് ഓട്ടോ ബുക്ക് ചെയ്യുക',
-            voiceButton: 'സംസാരിക്കുക',
+            voiceTitle: 'AutoBuddy-യോട് പറയൂ',
+            voiceHint: 'ഉദാ: കൊല്ലം റെയിൽവേ സ്റ്റേഷനിലേക്ക് ഓട്ടോ',
+            voiceButton: 'പറയൂ',
             pickup: 'പിക്കപ്പ്',
             destination: 'ലക്ഷ്യസ്ഥാനം',
             useCurrent: locatingPickup ? 'കണ്ടെത്തുന്നു' : 'നിലവിലെ സ്ഥലം',
@@ -1074,13 +1074,13 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             profile: 'പ്രൊഫൈൽ',
           }
         : {
-            greeting: `Hi ${user?.name || 'there'}`,
-            title: 'Speak or type one thing',
-            subtitle: 'Use current pickup, say the destination, and confirm.',
+            greeting: `Hi, ${user?.name || 'there'}`,
+            title: 'Where to today?',
+            subtitle: 'Use your current pickup, add a destination, then book.',
             english: 'English',
             malayalam: 'മലയാളം',
-            voiceTitle: 'Book by voice',
-            voiceHint: 'Try: Book an auto to Kollam railway station',
+            voiceTitle: 'Tell AutoBuddy',
+            voiceHint: 'Say: Auto to Kollam railway station',
             voiceButton: 'Speak',
             pickup: 'Pickup',
             destination: 'Destination',
@@ -1101,7 +1101,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             tripPreview: 'Trip preview',
             calculating: 'Calculating...',
             requesting: 'Requesting ride...',
-            confirm: 'Confirm Ride',
+            confirm: 'Book ride',
             selectDestination: 'Select destination',
             locationPromptTitle: locatingPickup ? 'Getting your location...' : 'Allow current location',
             locationPromptText: 'Pickup fills automatically after permission.',
@@ -1262,6 +1262,19 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     ),
     [hasLiveRide],
   );
+  const quickMenuOptions = useMemo(() => {
+    const keys = [
+      ...(hasLiveRide ? ['live'] : []),
+      'drivers',
+      'favorites',
+      'safety',
+      'payment',
+      'history',
+      'support',
+      'profile',
+    ];
+    return keys.map((key) => PASSENGER_MENU_BY_KEY[key]).filter(Boolean);
+  }, [hasLiveRide]);
   const liveEtaLabel = useMemo(() => {
     const map = {
       pending: '6 min',
@@ -3901,9 +3914,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     locationPermissionState !== 'granted' &&
     locationPermissionState !== 'unsupported';
   const shouldShowPassengerMenuRails =
-    !isMobileWeb ||
-    activePassengerMenu !== PRIMARY_PASSENGER_MENU_KEY ||
-    showPassengerMenus;
+    activePassengerMenu !== PRIMARY_PASSENGER_MENU_KEY;
   const selectedVehicleType = useMemo(
     () =>
       (availableVehicleTypes || []).find((type) => getVehicleTypeId(type) === effectiveSelectedVehicleTypeId) ||
@@ -4598,6 +4609,45 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         })}
       </View>
 
+      {showPassengerMenus && activePassengerMenu === PRIMARY_PASSENGER_MENU_KEY && (
+        <View style={styles.quickMenuDrawer}>
+          <View style={styles.quickMenuDrawerHeader}>
+            <Text style={styles.quickMenuDrawerTitle}>Quick menu</Text>
+            <TouchableOpacity
+              style={styles.quickMenuCloseButton}
+              onPress={() => setShowPassengerMenus(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Close passenger menu">
+              <Text style={styles.quickMenuCloseText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.quickMenuGrid}>
+            {quickMenuOptions.map((menu) => {
+              const label = getMenuLabel(menu);
+              return (
+                <TouchableOpacity
+                  key={`quick-menu-${menu.key}`}
+                  style={styles.quickMenuChip}
+                  onPress={() => handleMenuSelection(menu.key, label)}
+                  accessibilityRole="button"
+                  accessibilityLabel={label}>
+                  <PassengerMenuIcon symbol={menu.symbol} selected={false} />
+                  <Text style={styles.quickMenuChipText} numberOfLines={1}>{label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+            <TouchableOpacity
+              style={[styles.quickMenuChip, styles.quickMenuLogoutChip]}
+              onPress={onLogout}
+              accessibilityRole="button"
+              accessibilityLabel={t.logout}>
+              <Text style={styles.quickMenuChipIcon}>x</Text>
+              <Text style={styles.quickMenuChipText} numberOfLines={1}>{t.logout}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
       <TouchableOpacity
         style={[styles.quickVoiceCard, voiceBooking.voiceState === 'listening' && styles.quickVoiceCardListening]}
         onPress={() => {
@@ -4900,6 +4950,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             style={[
               styles.headerRow,
               isMobileWeb && styles.headerRowMobile,
+              activePassengerMenu === PRIMARY_PASSENGER_MENU_KEY && styles.headerRowBooking,
               isMobileWeb && activePassengerMenu === PRIMARY_PASSENGER_MENU_KEY && styles.headerRowBookingMobile,
             ]}>
             <View style={[styles.headerUserBlock, isMobileWeb && styles.headerUserBlockMobile]}>
@@ -6487,6 +6538,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     gap: 6,
     marginBottom: 2,
   },
+  headerRowBooking: {
+    display: 'none',
+  },
   headerRowBookingMobile: {
     display: 'none',
   },
@@ -6584,10 +6638,10 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   },
   quickBookingSheet: {
     borderWidth: 1,
-    borderColor: '#D7E2DA',
-    borderRadius: 16,
-    backgroundColor: '#FFFFFF',
-    padding: 14,
+    borderColor: '#CFE2D5',
+    borderRadius: 18,
+    backgroundColor: '#FEFFFE',
+    padding: 18,
     marginBottom: 12,
     ...SHADOWS.card,
   },
@@ -6603,18 +6657,18 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   },
   quickSheetHandle: {
     alignSelf: 'center',
-    width: 38,
+    width: 44,
     height: 4,
     borderRadius: 2,
     backgroundColor: '#C8D8CE',
-    marginBottom: 12,
+    marginBottom: 14,
   },
   quickBookingHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: 10,
-    marginBottom: 12,
+    marginBottom: 14,
   },
   quickBookingTitleBlock: {
     flex: 1,
@@ -6623,12 +6677,12 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     color: '#66786D',
     fontSize: 12,
     fontWeight: '800',
-    marginBottom: 2,
+    marginBottom: 3,
   },
   quickTitle: {
     color: COLORS.textMain,
-    fontSize: 25,
-    lineHeight: 30,
+    fontSize: 27,
+    lineHeight: 32,
     fontWeight: '900',
   },
   quickTitleMobile: {
@@ -6670,14 +6724,14 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   quickLanguageToggle: {
     flexDirection: 'row',
     gap: 8,
-    marginBottom: 10,
+    marginBottom: 12,
   },
   quickLanguageChip: {
     flex: 1,
-    minHeight: 40,
+    minHeight: 38,
     borderWidth: 1,
     borderColor: '#D8E5DC',
-    borderRadius: 8,
+    borderRadius: 12,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
@@ -6696,27 +6750,94 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   quickLanguageTextActive: {
     color: COLORS.primaryDark,
   },
-  quickVoiceCard: {
-    minHeight: 74,
+  quickMenuDrawer: {
     borderWidth: 1,
-    borderColor: '#CFE0D4',
-    borderRadius: 8,
+    borderColor: '#D4E4D9',
+    borderRadius: 16,
+    backgroundColor: '#F8FCF9',
+    padding: 12,
+    marginBottom: 12,
+  },
+  quickMenuDrawerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginBottom: 10,
+  },
+  quickMenuDrawerTitle: {
+    color: COLORS.textMain,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  quickMenuCloseButton: {
+    borderRadius: 999,
+    backgroundColor: '#EAF6ED',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  quickMenuCloseText: {
+    color: COLORS.primaryDark,
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  quickMenuGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  quickMenuChip: {
+    minWidth: 118,
+    flexGrow: 1,
+    flexBasis: '30%',
+    minHeight: 42,
+    borderWidth: 1,
+    borderColor: '#D2E2D7',
+    borderRadius: 12,
     backgroundColor: '#FFFFFF',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  quickMenuLogoutChip: {
+    backgroundColor: '#FFF8F6',
+    borderColor: '#E8CEC8',
+  },
+  quickMenuChipIcon: {
+    color: '#8F3B2F',
+    fontSize: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  quickMenuChipText: {
+    flex: 1,
+    color: COLORS.textMain,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  quickVoiceCard: {
+    minHeight: 66,
+    borderWidth: 1,
+    borderColor: '#C8DFC8',
+    borderRadius: 14,
+    backgroundColor: '#F5FBF6',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     paddingHorizontal: 12,
-    paddingVertical: 11,
-    marginBottom: 10,
+    paddingVertical: 10,
+    marginBottom: 12,
   },
   quickVoiceCardListening: {
     borderColor: '#D88A1D',
     backgroundColor: '#FFF8EC',
   },
   quickVoiceIcon: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: COLORS.primary,
@@ -6817,12 +6938,12 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   },
   quickRouteBox: {
     borderWidth: 1,
-    borderColor: '#D8E5DC',
-    borderRadius: 14,
-    backgroundColor: '#FBFDFB',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 10,
+    borderColor: '#CEE2D4',
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 12,
   },
   quickRouteLine: {
     flexDirection: 'row',
@@ -6888,11 +7009,11 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     borderWidth: 0,
     borderRadius: 0,
     paddingHorizontal: 0,
-    paddingVertical: 4,
+    paddingVertical: 5,
     marginBottom: 0,
     backgroundColor: 'transparent',
     color: COLORS.textMain,
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '900',
   },
   quickDestinationInputError: {
@@ -6910,7 +7031,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     gap: 9,
     borderWidth: 1,
     borderColor: '#D8E5DC',
-    borderRadius: 12,
+    borderRadius: 14,
     backgroundColor: '#FFFFFF',
     paddingHorizontal: 11,
     paddingVertical: 10,
@@ -7025,9 +7146,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     justifyContent: 'space-between',
     gap: 10,
     borderWidth: 1,
-    borderColor: '#D8E5DC',
-    borderRadius: 14,
-    backgroundColor: '#F2F8F4',
+    borderColor: '#CFE2D5',
+    borderRadius: 16,
+    backgroundColor: '#F4FAF5',
     paddingHorizontal: 12,
     paddingVertical: 11,
     marginBottom: 9,
@@ -7063,7 +7184,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     minWidth: 0,
     borderWidth: 1,
     borderColor: '#D8E5DC',
-    borderRadius: 12,
+    borderRadius: 14,
     backgroundColor: '#FFFFFF',
     paddingHorizontal: 10,
     paddingVertical: 9,
