@@ -9,6 +9,7 @@ import { UserModeProvider } from './contexts/UserModeContext';
 // BUG-006 FIX: Import safe storage utilities
 import { safeGetItem, safeSetItem, safeRemoveItem } from './utils/safeStorage';
 
+
 // Auth screens
 import LoginScreen from './screens/auth/LoginScreen';
 import SignupScreen from './screens/auth/SignupScreen';
