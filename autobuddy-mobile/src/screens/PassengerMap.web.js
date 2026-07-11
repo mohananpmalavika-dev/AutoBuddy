@@ -485,6 +485,91 @@ function calculateDirectDistanceKm(origin, destination) {
   return 6371.0088 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function getFareTotalAmount(fareEstimate) {
+  const candidates = [
+    fareEstimate?.total_fare,
+    fareEstimate?.estimated_fare,
+    fareEstimate?.fare,
+    fareEstimate?.totalFare,
+    fareEstimate?.estimatedTotalFare,
+    fareEstimate?.estimated_total_fare,
+    fareEstimate?.breakdown?.total_fare,
+    fareEstimate?.breakdown?.estimated_fare,
+    fareEstimate?.breakdown?.total,
+  ];
+  for (const candidate of candidates) {
+    const amount = Number(candidate);
+    if (Number.isFinite(amount) && amount > 0) {
+      return amount;
+    }
+  }
+  return 0;
+}
+
+function getLocalFareMultiplier(value, fallback = 1) {
+  const key = String(value || '').toLowerCase();
+  if (!key) {
+    return fallback;
+  }
+  if (key.includes('xl') || key.includes('suv')) {
+    return 1.35;
+  }
+  if (key.includes('traveller') || key.includes('tempo')) {
+    return 1.65;
+  }
+  if (key.includes('bus')) {
+    return 2;
+  }
+  if (key.includes('truck')) {
+    return 1.5;
+  }
+  if (key.includes('taxi') || key.includes('sedan')) {
+    return 1.15;
+  }
+  if (key.includes('pool')) {
+    return 0.8;
+  }
+  if (key.includes('corporate') || key.includes('scheduled') || key.includes('travel') || key.includes('tour')) {
+    return 1.1;
+  }
+  return fallback;
+}
+
+function createLocalFareEstimate(distanceKm, vehicleTypeId, rideType) {
+  const normalizedDistance = normalizeDistanceKm(distanceKm);
+  if (normalizedDistance <= 0) {
+    return null;
+  }
+
+  const baseFare = 25;
+  const perKmRate = 12;
+  const minimumFare = 30;
+  const vehicleMultiplier = getLocalFareMultiplier(vehicleTypeId);
+  const rideTypeMultiplier = getLocalFareMultiplier(rideType);
+  const distanceFare = normalizedDistance * perKmRate;
+  const totalFare = Math.max(minimumFare, (baseFare + distanceFare) * vehicleMultiplier * rideTypeMultiplier);
+
+  return {
+    base_fare: baseFare,
+    distance_km: Number(normalizedDistance.toFixed(2)),
+    distance_fare: Number(distanceFare.toFixed(2)),
+    surge_multiplier: 1,
+    total_fare: Number(totalFare.toFixed(2)),
+    source: 'local_distance_fallback',
+    breakdown: {
+      base_fare: baseFare,
+      distance_km: Number(normalizedDistance.toFixed(2)),
+      per_km_rate: perKmRate,
+      minimum_fare: minimumFare,
+      vehicle_type_id: vehicleTypeId || undefined,
+      vehicle_multiplier: vehicleMultiplier,
+      ride_type: rideType || 'normal',
+      ride_type_multiplier: rideTypeMultiplier,
+      source: 'local_distance_fallback',
+    },
+  };
+}
+
 function setPassengerPollCooldown(ref, cooldownMs) {
   ref.current = Date.now() + Math.max(0, Number(cooldownMs || 0));
 }
@@ -1467,7 +1552,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       if (Number.isFinite(projectedFare) && projectedFare > 0) {
         return projectedFare;
       }
-      const baseTripFare = Number(fare?.total_fare || 0);
+      const baseTripFare = getFareTotalAmount(fare);
       const multiplier = Number(driver?.fare_multiplier || 1);
       const pickupSurcharge = Number(driver?.pickup_surcharge || 0);
       if (!Number.isFinite(baseTripFare) || baseTripFare <= 0) {
@@ -1477,7 +1562,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       const surcharge = Number.isFinite(pickupSurcharge) ? pickupSurcharge : 0;
       return Number((baseTripFare * effectiveMultiplier + surcharge).toFixed(2));
     },
-    [fare?.total_fare],
+    [fare],
   );
 
   const visibleDrivers = useMemo(() => {
@@ -3382,19 +3467,34 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           apiRequest('/passengers/blocked-drivers', { token }).catch(() => ({ driver_ids: [] })),
         ]);
         const normalizedEstimate = Array.isArray(estimate) ? (estimate[0] || null) : estimate || null;
-        setFare(normalizedEstimate);
+        const estimatedDistanceKm =
+          getFareDistanceKm(normalizedEstimate) ||
+          calculateDirectDistanceKm(activePickupLocation, activeDropoffLocation);
+        const localEstimate = createLocalFareEstimate(
+          estimatedDistanceKm,
+          effectiveSelectedVehicleTypeId,
+          effectiveRideProduct,
+        );
+        setFare(
+          getFareTotalAmount(normalizedEstimate) > 0
+            ? {
+                ...normalizedEstimate,
+                distance_km: getFareDistanceKm(normalizedEstimate) || localEstimate?.distance_km || undefined,
+              }
+            : localEstimate,
+        );
         const merged = applyNearbyDrivers(drivers, favorites, blocked);
         driverDiscoveryCooldownUntilRef.current = 0;
         driverDiscoveryRequestRef.current = { signature, request: null, completedAt: Date.now() };
         return merged;
       } catch (err) {
-        const fallbackDistanceKm = calculateDirectDistanceKm(activePickupLocation, activeDropoffLocation);
-        if (fallbackDistanceKm > 0) {
-          setFare((currentFare) => currentFare || {
-            distance_km: Number(fallbackDistanceKm.toFixed(2)),
-            total_fare: 0,
-            source: 'local_distance_fallback',
-          });
+        const fallbackEstimate = createLocalFareEstimate(
+          calculateDirectDistanceKm(activePickupLocation, activeDropoffLocation),
+          effectiveSelectedVehicleTypeId,
+          effectiveRideProduct,
+        );
+        if (fallbackEstimate) {
+          setFare((currentFare) => (getFareTotalAmount(currentFare) > 0 ? currentFare : fallbackEstimate));
         }
         const cooldownMs = getDriverDiscoveryBackoffMs(err);
         if (cooldownMs > 0) {
@@ -4003,7 +4103,17 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       .filter(Boolean)
       .slice(0, 3);
   }, [normalizeLocation, passengerBookings]);
-  const quickFareValue = Number(fare?.total_fare || 0);
+  const effectivePickupLocation = pickupLocation || routePreviewLocations.pickup || pickupLocationRef.current || selectedPickupLocation;
+  const effectiveDropoffLocation = dropoffLocation || routePreviewLocations.dropoff || dropoffLocationRef.current || selectedDropoffLocation;
+  const directTripDistanceKm = calculateDirectDistanceKm(effectivePickupLocation, effectiveDropoffLocation);
+  const fareDistanceKm = getFareDistanceKm(fare);
+  const resolvedTripDistanceKm = fareDistanceKm || directTripDistanceKm || routePreviewDistanceKm;
+  const localQuickFareEstimate = createLocalFareEstimate(
+    resolvedTripDistanceKm,
+    effectiveSelectedVehicleTypeId,
+    effectiveRideProduct,
+  );
+  const quickFareValue = getFareTotalAmount(fare) || getFareTotalAmount(localQuickFareEstimate);
   const visibleDriverFareValues = visibleDrivers
     .slice(0, 5)
     .map((driver) => estimateDriverFare(driver))
@@ -4018,12 +4128,6 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       : '';
   const quickFareLabel =
     quickDriverFareRange || (quickFareValue > 0 ? `Rs. ${quickFareValue.toFixed(0)}` : 'Fare ready soon');
-
-  const effectivePickupLocation = pickupLocation || routePreviewLocations.pickup || pickupLocationRef.current || selectedPickupLocation;
-  const effectiveDropoffLocation = dropoffLocation || routePreviewLocations.dropoff || dropoffLocationRef.current || selectedDropoffLocation;
-  const directTripDistanceKm = calculateDirectDistanceKm(effectivePickupLocation, effectiveDropoffLocation);
-  const fareDistanceKm = getFareDistanceKm(fare);
-  const resolvedTripDistanceKm = fareDistanceKm || directTripDistanceKm || routePreviewDistanceKm;
   const quickDistanceLabel =
     resolvedTripDistanceKm > 0 ? `${resolvedTripDistanceKm.toFixed(1)} km` : 'Distance calculating';
   const quickEtaLabel = visibleDrivers.length > 0 ? `${Math.min(visibleDrivers.length, 5)} within 2 km` : autoFetchingTripData ? 'Finding drivers' : 'Driver search live';

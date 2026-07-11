@@ -20,6 +20,48 @@ router = APIRouter(prefix="/api", tags=["core-flows"])
 
 # ==================== Helper Functions ====================
 
+def _clean_voice_text(value: Any, default: str = "") -> str:
+    """Normalize optional voice payload values without crashing on null/non-string input."""
+    if value is None:
+        return default
+    if isinstance(value, str):
+        cleaned = value.strip()
+    else:
+        cleaned = str(value).strip()
+    return cleaned or default
+
+
+def _normalize_voice_ride_type(value: Any, vehicle_hint: str = "") -> str:
+    normalized = _clean_voice_text(value).lower().replace("-", "_").replace(" ", "_")
+    hint = _clean_voice_text(vehicle_hint).lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "": "economy",
+        "normal": "economy",
+        "standard": "economy",
+        "single": "economy",
+        "auto": "economy",
+        "taxi": "economy",
+        "cab": "economy",
+        "sedan": "economy",
+        "economy": "economy",
+        "premium": "premium",
+        "safe": "premium",
+        "safe_route": "premium",
+        "xl": "xl",
+        "suv": "xl",
+        "traveller": "xl",
+        "bus": "xl",
+        "bike": "bike",
+        "pool": "economy",
+        "shared": "economy",
+        "corporate": "premium",
+        "travel": "premium",
+        "tourism": "premium",
+        "scheduled": "economy",
+    }
+    return aliases.get(normalized) or aliases.get(hint) or "economy"
+
+
 def calculate_haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """
     Calculate distance between two coordinates using Haversine formula
@@ -198,13 +240,18 @@ async def voice_book_ride(
     if current_user.get("role") != "passenger":
         raise HTTPException(status_code=403, detail="Only passengers can book rides")
 
-    # Extract and validate voice booking data
-    destination_text = voice_booking_data.get("destination_text", "").strip()
-    pickup_text = voice_booking_data.get("pickup_text", "").strip()
-    raw_utterance = voice_booking_data.get("raw_utterance", "").strip()
-    preferred_vehicle_hint = voice_booking_data.get("preferred_vehicle_hint", "").strip()
-    preferred_ride_product = voice_booking_data.get("preferred_ride_product", "economy").strip().lower()
-    intent_type = voice_booking_data.get("intent_type", "booking").strip()
+    # Extract and validate voice booking data. The web parser can intentionally send
+    # null for fields it did not hear, so never call string methods directly on the
+    # raw payload.
+    destination_text = _clean_voice_text(voice_booking_data.get("destination_text"))
+    pickup_text = _clean_voice_text(voice_booking_data.get("pickup_text"))
+    raw_utterance = _clean_voice_text(voice_booking_data.get("raw_utterance"))
+    preferred_vehicle_hint = _clean_voice_text(voice_booking_data.get("preferred_vehicle_hint"))
+    preferred_ride_product = _normalize_voice_ride_type(
+        voice_booking_data.get("preferred_ride_product"),
+        preferred_vehicle_hint,
+    )
+    intent_type = _clean_voice_text(voice_booking_data.get("intent_type"), "booking")
     
     if not destination_text:
         raise HTTPException(
@@ -212,16 +259,15 @@ async def voice_book_ride(
             detail="Destination text is required for voice booking"
         )
     
-    # Normalize ride product to valid type
-    valid_ride_types = ["bike", "economy", "premium", "xl"]
-    if preferred_ride_product not in valid_ride_types:
-        preferred_ride_product = "economy"
+    passenger_id = _clean_voice_text(current_user.get("id") or current_user.get("_id"))
+    if not passenger_id:
+        raise HTTPException(status_code=401, detail="Invalid passenger session")
     
     # Create ride record with voice booking metadata
     rides = db.get_collection("rides")
     ride = {
         "_id": str(__import__("uuid").uuid4()),
-        "passenger_id": current_user["id"],
+        "passenger_id": passenger_id,
         "pickup": pickup_text or "Current Location",
         "dropoff": destination_text,
         "ride_type": preferred_ride_product,
