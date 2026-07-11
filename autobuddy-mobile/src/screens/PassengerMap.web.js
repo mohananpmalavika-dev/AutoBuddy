@@ -832,6 +832,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const driverAddressCacheRef = useRef(new Map());
   const pickupAddressRequestRef = useRef(0);
   const dropAddressRequestRef = useRef(0);
+  const routeAutoResolveRequestRef = useRef(0);
   const socketRef = useRef(null);
   const refreshPassengerBookingsRef = useRef(null);
   const passengerPollInFlightRef = useRef(false);
@@ -1732,7 +1733,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     return { pickup: safePickupLocation, dropoff: safeDropoffLocation };
   };
 
-  const setLocationForPoint = (point, location) => {
+  const setLocationForPoint = useCallback((point, location) => {
     const safeLocation = normalizeLocation(location);
     if (!safeLocation) {
       setError(t.couldNotSelectPlace || 'Could not select this place.');
@@ -1779,7 +1780,80 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         }
       }, 120);
     }
-  };
+  }, [normalizeLocation, t.couldNotSelectPlace]);
+
+  const resolveLocationFromQuery = useCallback(
+    async (point, text) => {
+      const query = String(text || '').trim();
+      if (!placesConfigured || query.length < 3) {
+        return null;
+      }
+      const suggestions = await searchPlaces(query, {
+        latitude: Number(searchBias.latitude),
+        longitude: Number(searchBias.longitude),
+        countryCode: 'in',
+      }).catch(() => []);
+      const bestSuggestion = Array.isArray(suggestions) ? suggestions[0] : null;
+      if (!bestSuggestion?.placeId) {
+        return null;
+      }
+      const resolved = await getPlaceLocation(bestSuggestion).catch(() => null);
+      const safeLocation = normalizeLocation({
+        ...resolved,
+        address: resolved?.address || bestSuggestion.description || bestSuggestion.name || query,
+      });
+      if (!safeLocation) {
+        return null;
+      }
+      setLocationForPoint(point, safeLocation);
+      return safeLocation;
+    },
+    [getPlaceLocation, normalizeLocation, placesConfigured, searchBias.latitude, searchBias.longitude, searchPlaces, setLocationForPoint],
+  );
+
+  useEffect(() => {
+    const pickupText = String(pickupQuery || '').trim();
+    const dropoffText = String(dropoffQuery || '').trim();
+    const needsPickup =
+      pickupText.length >= 3 &&
+      !normalizeLocation(pickupLocation || pickupLocationRef.current || routePreviewLocations.pickup);
+    const needsDropoff =
+      dropoffText.length >= 3 &&
+      !normalizeLocation(dropoffLocation || dropoffLocationRef.current || routePreviewLocations.dropoff);
+
+    if (!placesConfigured || (!needsPickup && !needsDropoff)) {
+      return undefined;
+    }
+
+    const requestId = routeAutoResolveRequestRef.current + 1;
+    routeAutoResolveRequestRef.current = requestId;
+    const timer = setTimeout(async () => {
+      if (routeAutoResolveRequestRef.current !== requestId) {
+        return;
+      }
+      if (needsPickup) {
+        await resolveLocationFromQuery('pickup', pickupText);
+      }
+      if (routeAutoResolveRequestRef.current !== requestId) {
+        return;
+      }
+      if (needsDropoff) {
+        await resolveLocationFromQuery('dropoff', dropoffText);
+      }
+    }, 650);
+
+    return () => clearTimeout(timer);
+  }, [
+    dropoffLocation,
+    dropoffQuery,
+    normalizeLocation,
+    pickupLocation,
+    pickupQuery,
+    placesConfigured,
+    resolveLocationFromQuery,
+    routePreviewLocations.dropoff,
+    routePreviewLocations.pickup,
+  ]);
 
   const clearRideSelectionResults = useCallback(() => {
     setFare(null);
@@ -3654,8 +3728,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     }
   };
 
-  const createBooking = async () => {
-    const locations = parseLocations();
+  const createBooking = async (locationOverride = null) => {
+    const locations = locationOverride || parseLocations();
     if (!locations) {
       return;
     }
@@ -4149,26 +4223,33 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const quickPickupText = effectivePickupLocation?.address || pickupQuery || 'Use current location';
 
   const handleQuickConfirmRide = async () => {
-    const activePickupLocation = pickupLocation || pickupLocationRef.current || routePreviewLocations.pickup;
-    const activeDropoffLocation = dropoffLocation || dropoffLocationRef.current || routePreviewLocations.dropoff;
+    let activePickupLocation = normalizeLocation(pickupLocation || pickupLocationRef.current || routePreviewLocations.pickup);
+    let activeDropoffLocation = normalizeLocation(dropoffLocation || dropoffLocationRef.current || routePreviewLocations.dropoff);
     if (!activePickupLocation) {
       if (pickupQuery.trim()) {
+        activePickupLocation = await resolveLocationFromQuery('pickup', pickupQuery);
+      }
+      if (!activePickupLocation) {
+        await autofillPickupFromCurrentLocation({ silent: false });
+        activePickupLocation = normalizeLocation(pickupLocationRef.current || pickupLocation || routePreviewLocations.pickup);
+      }
+      if (!activePickupLocation) {
         setLocationValidation((prev) => ({ ...prev, pickup: true }));
         setError('Select pickup from the search results or use current location.');
         return;
       }
-      await autofillPickupFromCurrentLocation({ silent: false });
-      if (!activeDropoffLocation) {
-        setError('Select your destination to continue.');
-      }
-      return;
     }
     if (!activeDropoffLocation) {
-      setLocationValidation((prev) => ({ ...prev, dropoff: true }));
-      setError('Select your destination to continue.');
-      return;
+      if (dropoffQuery.trim()) {
+        activeDropoffLocation = await resolveLocationFromQuery('dropoff', dropoffQuery);
+      }
+      if (!activeDropoffLocation) {
+        setLocationValidation((prev) => ({ ...prev, dropoff: true }));
+        setError('Select your destination to continue.');
+        return;
+      }
     }
-    await createBooking();
+    await createBooking({ pickup: activePickupLocation, dropoff: activeDropoffLocation });
   };
 
   const selectRecentDestination = (item) => {
