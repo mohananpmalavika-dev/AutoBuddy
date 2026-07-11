@@ -201,7 +201,13 @@ def get_settings() -> Settings:
         api_rate_limit_max_requests=_get_env_int("API_RATE_LIMIT_MAX_REQUESTS", 320, 10, 10000),
         google_oauth_client_id=os.environ.get(
             "GOOGLE_OAUTH_CLIENT_ID",
-            os.environ.get("GOOGLE_CLIENT_ID", ""),
+            os.environ.get(
+                "GOOGLE_CLIENT_ID",
+                os.environ.get(
+                    "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID",
+                    os.environ.get("EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID", ""),
+                ),
+            ),
         ).strip(),
         mongo_server_selection_timeout_ms=_get_env_int("MONGO_SERVER_SELECTION_TIMEOUT_MS", 5000, 1000, 60000),
         mongo_connect_timeout_ms=_get_env_int("MONGO_CONNECT_TIMEOUT_MS", 5000, 1000, 60000),

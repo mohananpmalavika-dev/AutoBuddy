@@ -11,3 +11,5 @@ services:
         sync: false
       - key: FEATURE_DATABASE_URL
         sync: false
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false

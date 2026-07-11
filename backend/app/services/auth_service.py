@@ -227,6 +227,16 @@ def _normalize_user_id(raw_user_id: Any) -> str:
     return user_id
 
 
+def _google_oauth_audiences(settings: Settings) -> Any:
+    raw_client_ids = str(settings.google_oauth_client_id or "").strip()
+    if not raw_client_ids:
+        return None
+    audiences = [item.strip() for item in raw_client_ids.replace(";", ",").split(",") if item.strip()]
+    if not audiences:
+        return None
+    return audiences[0] if len(audiences) == 1 else audiences
+
+
 def _auth_response_for_user(
     user: Dict[str, Any],
     settings: Settings,
@@ -736,7 +746,7 @@ async def google_login(
             idinfo = google_id_token.verify_oauth2_token(
                 payload.google_id_token,
                 GoogleAuthRequest(),
-                settings.google_oauth_client_id or None,
+                _google_oauth_audiences(settings),
             )
             profile_email = str(idinfo.get("email") or "").lower()
             profile_name = str(idinfo.get("name") or "").strip()

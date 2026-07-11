@@ -239,6 +239,56 @@ describe('apiRequest integration', () => {
     });
   });
 
+  it('does not refresh the app session when Google auth returns 401', async () => {
+    const fetchMock = (global as unknown as { fetch: jest.Mock }).fetch;
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      headers: { get: jest.fn() },
+      text: async () => JSON.stringify({ detail: 'Invalid Google login token' }),
+    });
+
+    const clearPersistentSession = jest.fn(async () => undefined);
+    const clearLegacySession = jest.fn(async () => undefined);
+
+    jest.doMock('expo-constants', () => ({
+      __esModule: true,
+      default: {},
+    }));
+    jest.doMock('react-native', () => ({
+      Platform: { OS: 'web' },
+    }));
+    jest.doMock('./session', () => ({
+      loadSession: jest.fn(async () => ({ token: 'old-token', refresh_token: 'old-refresh' })),
+      saveSession: jest.fn(async () => undefined),
+      clearSession: clearLegacySession,
+    }));
+    jest.doMock('./persistentSessionManager', () => ({
+      loadSession: jest.fn(async () => ({ token: 'old-token', refresh_token: 'old-refresh' })),
+      saveSession: jest.fn(async () => undefined),
+      clearSession: clearPersistentSession,
+      extendSessionExpiry: jest.fn(async () => undefined),
+      isSessionValid: jest.fn(async () => true),
+    }));
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { apiRequest } = require('./api') as typeof import('./api');
+
+    await expect(
+      apiRequest('/auth/google', {
+        method: 'POST',
+        body: { google_id_token: 'bad-google-token', mode: 'register' },
+      }),
+    ).rejects.toMatchObject({
+      message: 'Invalid Google login token',
+      status: 401,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(clearPersistentSession).not.toHaveBeenCalled();
+    expect(clearLegacySession).not.toHaveBeenCalled();
+  });
+
   it('refreshes an expired JWT before sending protected requests', async () => {
     const fetchMock = (global as unknown as { fetch: jest.Mock }).fetch;
     const expiredToken = makeJwt(Math.floor(Date.now() / 1000) - 60);

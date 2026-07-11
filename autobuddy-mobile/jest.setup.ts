@@ -11,21 +11,37 @@ jest.mock('@react-native-async-storage/async-storage', () =>
 // Mock React Native modules
 jest.mock('react-native', () => {
   const RN = jest.requireActual('react-native');
-  return {
-    ...RN,
+  const mock = Object.create(RN);
+  Object.defineProperties(mock, {
     Platform: {
-      ...RN.Platform,
-      OS: 'ios',
-      select: jest.fn((obj) => obj.ios || obj.default),
+      configurable: true,
+      enumerable: true,
+      writable: true,
+      value: {
+        ...RN.Platform,
+        OS: 'ios',
+        select: jest.fn((obj) => obj.ios || obj.default),
+      },
     },
     Alert: {
-      alert: jest.fn(),
+      configurable: true,
+      enumerable: true,
+      writable: true,
+      value: {
+        alert: jest.fn(),
+      },
     },
     Linking: {
-      openURL: jest.fn(),
-      canOpenURL: jest.fn(() => Promise.resolve(true)),
+      configurable: true,
+      enumerable: true,
+      writable: true,
+      value: {
+        openURL: jest.fn(),
+        canOpenURL: jest.fn(() => Promise.resolve(true)),
+      },
     },
-  };
+  });
+  return mock;
 });
 
 // Mock Expo modules

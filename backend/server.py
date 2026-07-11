@@ -254,7 +254,13 @@ PASSENGER_KYC_REQUIRED_FOR_BOOKING = (
 )
 GOOGLE_OAUTH_CLIENT_ID = os.environ.get(
     "GOOGLE_OAUTH_CLIENT_ID",
-    os.environ.get("GOOGLE_CLIENT_ID", ""),
+    os.environ.get(
+        "GOOGLE_CLIENT_ID",
+        os.environ.get(
+            "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID",
+            os.environ.get("EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID", ""),
+        ),
+    ),
 ).strip()
 GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", os.environ.get("EXPO_PUBLIC_GOOGLE_MAPS_API_KEY", "")).strip()
 AUTO_ASSIGN_RETRY_INTERVAL_SECONDS = int(os.environ.get("AUTO_ASSIGN_RETRY_INTERVAL_SECONDS", "15"))
@@ -7414,6 +7420,15 @@ async def login(credentials: UserLogin, request: Request):
     await store_refresh_token(user["id"], refresh_token, request)
     return auth_response_for_user(user, refresh_token=refresh_token)
 
+
+def get_google_oauth_audiences() -> Any:
+    if not GOOGLE_OAUTH_CLIENT_ID:
+        return None
+    audiences = [item.strip() for item in GOOGLE_OAUTH_CLIENT_ID.replace(";", ",").split(",") if item.strip()]
+    if not audiences:
+        return None
+    return audiences[0] if len(audiences) == 1 else audiences
+
 @api_router.post("/auth/_legacy/google", response_model=AuthResponse)
 async def google_login(payload: GoogleAuthRequestModel, request: Request):
     profile_email: Optional[str] = None
@@ -7426,7 +7441,7 @@ async def google_login(payload: GoogleAuthRequestModel, request: Request):
             idinfo = google_id_token.verify_oauth2_token(
                 payload.google_id_token,
                 GoogleAuthRequest(),
-                GOOGLE_OAUTH_CLIENT_ID or None,
+                get_google_oauth_audiences(),
             )
             profile_email = str(idinfo.get("email") or "").lower()
             profile_name = str(idinfo.get("name") or "").strip()
@@ -13605,9 +13620,16 @@ async def update_booking_status(booking_id: str, status_update: BookingStatusUpd
     current_status = booking_status_value(booking.get("status"))
     target_status = booking_status_value(status_update.status)
     was_already_completed = current_status == BookingStatus.COMPLETED.value
+    passenger_id = str(
+        booking.get("passenger_id")
+        or booking.get("user_id")
+        or booking.get("customer_id")
+        or ""
+    ).strip()
+    driver_id = str(booking.get("driver_id") or "").strip()
 
     if current_user["role"] != UserRole.ADMIN:
-        if current_user["role"] != UserRole.DRIVER or booking.get("driver_id") != current_user["id"]:
+        if current_user["role"] != UserRole.DRIVER or driver_id != current_user["id"]:
             raise HTTPException(status_code=403, detail="Only assigned driver can update ride status")
     validate_booking_status_transition(current_status, target_status, current_user["role"])
     
@@ -13820,36 +13842,45 @@ async def update_booking_status(booking_id: str, status_update: BookingStatusUpd
             update_data["payment_status"] = "pending"
         
         # Update driver stats
-        if booking.get("driver_id"):
+        if driver_id:
             await db.drivers.update_one(
-                {"user_id": booking["driver_id"]},
+                {"user_id": driver_id},
                 {
                     "$set": {"is_available": True},
                     "$inc": {"total_rides": 1}
                 }
             )
         if not was_already_completed:
-            await apply_per_trip_subscription_charge(
-                user_id=booking["passenger_id"],
-                role=UserRole.PASSENGER,
-                booking_id=booking_id,
-                completed_at=now_utc,
-            )
-            if booking.get("driver_id"):
-                await apply_per_trip_subscription_charge(
-                    user_id=booking["driver_id"],
-                    role=UserRole.DRIVER,
-                    booking_id=booking_id,
-                    completed_at=now_utc,
-                )
+            if passenger_id:
+                try:
+                    await apply_per_trip_subscription_charge(
+                        user_id=passenger_id,
+                        role=UserRole.PASSENGER,
+                        booking_id=booking_id,
+                        completed_at=now_utc,
+                    )
+                except Exception:
+                    logger.exception("Passenger per-trip subscription charge failed for booking_id=%s", booking_id)
+            else:
+                logger.warning("Skipping passenger subscription charge; booking_id=%s has no passenger_id", booking_id)
+            if driver_id:
+                try:
+                    await apply_per_trip_subscription_charge(
+                        user_id=driver_id,
+                        role=UserRole.DRIVER,
+                        booking_id=booking_id,
+                        completed_at=now_utc,
+                    )
+                except Exception:
+                    logger.exception("Driver per-trip subscription charge failed for booking_id=%s", booking_id)
     
     # If cancelled, make driver available again
     if target_status == BookingStatus.CANCELLED.value:
         update_data["ride_start_otp"] = None
         update_data["ride_end_otp"] = None
-        if booking.get("driver_id"):
+        if driver_id:
             await db.drivers.update_one(
-                {"user_id": booking["driver_id"]},
+                {"user_id": driver_id},
                 {"$set": {"is_available": True}}
             )
     
@@ -13921,9 +13952,9 @@ async def update_booking_status(booking_id: str, status_update: BookingStatusUpd
         target_status,
         set_fields=sidecar_set_fields,
     )
-    if booking.get("driver_id"):
-        await cache_delete(f"driver_profile:{booking['driver_id']}")
-    await clear_active_ride_cache(booking.get("driver_id"), booking.get("passenger_id"))
+    if driver_id:
+        await cache_delete(f"driver_profile:{driver_id}")
+    await clear_active_ride_cache(driver_id, passenger_id)
     await clear_driver_pending_request_cache(booking.get("candidate_driver_ids") or [])
     if target_status != BookingStatus.PENDING.value:
         await remove_ride_from_queue(booking_id)
@@ -13949,34 +13980,47 @@ async def update_booking_status(booking_id: str, status_update: BookingStatusUpd
         "status": target_status,
         "timestamp": get_ist_now().isoformat(),
     }
-    await emit_to_user(booking["passenger_id"], "booking_status_changed", status_payload)
-    if booking.get("driver_id"):
-        await emit_to_user(booking["driver_id"], "booking_status_changed", status_payload)
+    if passenger_id:
+        try:
+            await emit_to_user(passenger_id, "booking_status_changed", status_payload)
+        except Exception:
+            logger.exception("Passenger status emit failed for booking_id=%s", booking_id)
+    else:
+        logger.warning("Skipping passenger status emit; booking_id=%s has no passenger_id", booking_id)
+    if driver_id:
+        try:
+            await emit_to_user(driver_id, "booking_status_changed", status_payload)
+        except Exception:
+            logger.exception("Driver status emit failed for booking_id=%s", booking_id)
 
-    if target_status == BookingStatus.DRIVER_ARRIVED.value:
-        passenger_otp = str(update_data.get("ride_start_otp") or "")
-        await notify_user(
-            booking["passenger_id"],
-            title="Driver Arrived",
-            body=f"Share OTP {passenger_otp} with your driver to start the ride.",
-            data={"booking_id": booking_id, "status": target_status, "ride_start_otp": passenger_otp},
-        )
-    elif target_status == BookingStatus.IN_PROGRESS.value:
-        completion_otp = str(update_data.get("ride_end_otp") or "")
-        await notify_user(
-            booking["passenger_id"],
-            title="Trip Started",
-            body=f"Ride started. Share completion OTP {completion_otp} when you reach destination.",
-            data={"booking_id": booking_id, "status": target_status, "ride_end_otp": completion_otp},
-        )
-    elif target_status == BookingStatus.COMPLETED.value:
-        status_label = target_status.replace("_", " ").title()
-        await notify_user(
-            booking["passenger_id"],
-            title="Ride Update",
-            body=f"Ride status changed: {status_label}.",
-            data={"booking_id": booking_id, "status": target_status},
-        )
+    if passenger_id:
+        try:
+            if target_status == BookingStatus.DRIVER_ARRIVED.value:
+                passenger_otp = str(update_data.get("ride_start_otp") or "")
+                await notify_user(
+                    passenger_id,
+                    title="Driver Arrived",
+                    body=f"Share OTP {passenger_otp} with your driver to start the ride.",
+                    data={"booking_id": booking_id, "status": target_status, "ride_start_otp": passenger_otp},
+                )
+            elif target_status == BookingStatus.IN_PROGRESS.value:
+                completion_otp = str(update_data.get("ride_end_otp") or "")
+                await notify_user(
+                    passenger_id,
+                    title="Trip Started",
+                    body=f"Ride started. Share completion OTP {completion_otp} when you reach destination.",
+                    data={"booking_id": booking_id, "status": target_status, "ride_end_otp": completion_otp},
+                )
+            elif target_status == BookingStatus.COMPLETED.value:
+                status_label = target_status.replace("_", " ").title()
+                await notify_user(
+                    passenger_id,
+                    title="Ride Update",
+                    body=f"Ride status changed: {status_label}.",
+                    data={"booking_id": booking_id, "status": target_status},
+                )
+        except Exception:
+            logger.exception("Passenger notification failed for booking_id=%s status=%s", booking_id, target_status)
 
     response_payload: Dict[str, Any] = {"message": "Status updated", "status": target_status}
     if target_status == BookingStatus.COMPLETED.value:

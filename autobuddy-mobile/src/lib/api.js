@@ -621,12 +621,7 @@ export async function apiRequest(path, options = {}, legacyPath = undefined, leg
             _legacyTried: true,
           });
         }
-        if (
-          response.status === 401 &&
-          !_retry &&
-          !normalizedPath.includes('/auth/login') &&
-          !normalizedPath.includes('/auth/refresh')
-        ) {
+        if (response.status === 401 && !_retry && !isAuthPath) {
           const newToken = await refreshAccessToken();
           return apiRequest(normalizedPath, {
             ...options,

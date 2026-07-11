@@ -385,6 +385,10 @@ function normalizeListResponse(payload, keys = []) {
   return [];
 }
 
+function asAdminArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
 function defaultAdminControlCenterState() {
   return {
     capabilities: {},
@@ -510,7 +514,9 @@ function getAdminKycPreviewDocuments(kyc) {
 }
 
 function normalizeRoleReportRows(primaryRows, fallbackRows, role) {
-  const rows = primaryRows.length > 0 ? primaryRows : fallbackRows;
+  const primary = asAdminArray(primaryRows);
+  const fallback = asAdminArray(fallbackRows);
+  const rows = primary.length > 0 ? primary : fallback;
   return rows.map((user) => {
     const joiningDate = user.joining_date || user.created_at || user.joined_at || user.createdAt || null;
     return {
@@ -1072,7 +1078,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
   // PHASE 1: FILTERING & PAGINATION FUNCTIONS
   // Filter trips (without pagination)
   const filterAndPaginateTrips = useCallback(() => {
-    const filtered = (ongoingTrips || []).filter((trip) => {
+    const filtered = asAdminArray(ongoingTrips).filter((trip) => {
       // Search filter
       if (tripsSearchTerm.trim()) {
         const search = tripsSearchTerm.toLowerCase();
@@ -1103,9 +1109,9 @@ export default function AdminDashboard({ token, user, onLogout }) {
   // Filter users (without pagination)
   const filterAndPaginateUsers = useCallback(() => {
     const allUsers = [
-      ...(driverUsers || []).map((u) => ({ ...u, role: 'driver' })),
-      ...(passengerUsers || []).map((u) => ({ ...u, role: 'passenger' })),
-      ...(operatorUsers || []).map((u) => ({ ...u, role: 'operator' })),
+      ...asAdminArray(driverUsers).map((u) => ({ ...u, role: 'driver' })),
+      ...asAdminArray(passengerUsers).map((u) => ({ ...u, role: 'passenger' })),
+      ...asAdminArray(operatorUsers).map((u) => ({ ...u, role: 'operator' })),
     ];
 
     const search = usersSearchTerm.toLowerCase();
@@ -1139,14 +1145,14 @@ export default function AdminDashboard({ token, user, onLogout }) {
     const search = roleReportSearchTerm.toLowerCase().trim();
     const sections = ROLE_REPORT_SECTIONS.map((section) => ({
       ...section,
-      rows: rolewiseUserReport[section.bucket] || [],
+      rows: asAdminArray(rolewiseUserReport?.[section.bucket]),
     }));
 
     return sections
       .filter((section) => roleReportFilterRole === 'all' || roleReportFilterRole === section.key)
       .map((section) => ({
         ...section,
-        rows: section.rows.filter((user) => {
+        rows: asAdminArray(section.rows).filter((user) => {
           if (!search) {
             return true;
           }
@@ -1160,7 +1166,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
   // Filter KYC (without pagination)
   const filterAndPaginateKyc = useCallback(() => {
     const search = kycSearchTerm.toLowerCase();
-    const filtered = (kycRequests || []).filter((kyc) => {
+    const filtered = asAdminArray(kycRequests).filter((kyc) => {
       // Search filter
       if (search.trim()) {
         const matchesSearch = [
@@ -1202,7 +1208,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
 
   const findKycReviewRow = useCallback((kycId, subjectType) => {
     const id = String(kycId || '');
-    return (kycRequests || []).find((kyc) => {
+    return asAdminArray(kycRequests).find((kyc) => {
       if (subjectType && kyc.subject_type !== subjectType) {
         return false;
       }
@@ -1222,7 +1228,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
   // PHASE 2: FILTERING FUNCTIONS FOR REMAINING SECTIONS
   // Filter phone change requests
   const filterAndPaginatePhone = useCallback(() => {
-    const filtered = (pendingPhoneChangeRequests || []).filter((item) => {
+    const filtered = asAdminArray(pendingPhoneChangeRequests).filter((item) => {
       if (phoneSearchTerm.trim()) {
         const search = phoneSearchTerm.toLowerCase();
         const matchesSearch =
@@ -1247,7 +1253,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
 
   // Filter account deletion requests
   const filterAndPaginateDeletion = useCallback(() => {
-    const filtered = (pendingAccountDeletionRequests || []).filter((item) => {
+    const filtered = asAdminArray(pendingAccountDeletionRequests).filter((item) => {
       if (deletionSearchTerm.trim()) {
         const search = deletionSearchTerm.toLowerCase();
         const matchesSearch =
@@ -1272,7 +1278,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
 
   // Filter wallet top-ups
   const filterAndPaginateWallet = useCallback(() => {
-    const filtered = (pendingWalletTopups || []).filter((item) => {
+    const filtered = asAdminArray(pendingWalletTopups).filter((item) => {
       if (walletSearchTerm.trim()) {
         const search = walletSearchTerm.toLowerCase();
         const matchesSearch =
@@ -1297,7 +1303,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
 
   // Filter subscriptions
   const filterAndPaginateSubscription = useCallback(() => {
-    const filtered = (pendingSubscriptionActivations || []).filter((item) => {
+    const filtered = asAdminArray(pendingSubscriptionActivations).filter((item) => {
       if (subscriptionSearchTerm.trim()) {
         const search = subscriptionSearchTerm.toLowerCase();
         const matchesSearch =
@@ -1443,7 +1449,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
   const handlePhoneChangeApproval = async (userId, status) => {
     setAuditLogging(true);
     try {
-      const user = (pendingPhoneChangeRequests || []).find((item) => item.user_id === userId);
+      const user = asAdminArray(pendingPhoneChangeRequests).find((item) => item.user_id === userId);
       await AdminAuditLogger.logAction(ACTION_TYPES.PHONE_CHANGE_APPROVED, {
         user_id: userId,
         user_name: user?.name,
@@ -1463,7 +1469,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
   const handleAccountDeletionApproval = async (requestId, status) => {
     setAuditLogging(true);
     try {
-      const request = (pendingAccountDeletionRequests || []).find((item) => item.id === requestId);
+      const request = asAdminArray(pendingAccountDeletionRequests).find((item) => item.id === requestId);
       await AdminAuditLogger.logAction(ACTION_TYPES.ACCOUNT_DELETION_APPROVED, {
         deletion_request_id: requestId,
         user_id: request?.user_id,
@@ -1483,7 +1489,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
   const handleWalletTopupApproval = async (orderId, status) => {
     setAuditLogging(true);
     try {
-      const item = (pendingWalletTopups || []).find((w) => w.order_id === orderId);
+      const item = asAdminArray(pendingWalletTopups).find((w) => w.order_id === orderId);
       await AdminAuditLogger.logAction(ACTION_TYPES.WALLET_TOP_UP_APPROVED, {
         order_id: orderId,
         user_id: item?.user_id,
@@ -1504,7 +1510,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
   const handleSubscriptionApproval = async (subscriptionId, status) => {
     setAuditLogging(true);
     try {
-      const sub = (pendingSubscriptionActivations || []).find((s) => s.id === subscriptionId);
+      const sub = asAdminArray(pendingSubscriptionActivations).find((s) => s.id === subscriptionId);
       await AdminAuditLogger.logAction(ACTION_TYPES.SUBSCRIPTION_UPDATED, {
         subscription_id: subscriptionId,
         user_id: sub?.user_id,
@@ -1856,13 +1862,16 @@ export default function AdminDashboard({ token, user, onLogout }) {
   };
 
   const updateSpinWinField = (field, value) => {
-    setSpinWinConfig((prev) => ({ ...prev, [field]: value }));
+    setSpinWinConfig((prev) => ({
+      ...prev,
+      [field]: field === 'eligible_roles' || field === 'prizes' ? asAdminArray(value) : value,
+    }));
   };
 
   const updateSpinWinPrizeField = (index, field, value) => {
     setSpinWinConfig((prev) => ({
       ...prev,
-      prizes: prev.prizes.map((prize, prizeIndex) =>
+      prizes: asAdminArray(prev.prizes).map((prize, prizeIndex) =>
         prizeIndex === index ? { ...prize, [field]: value } : prize,
       ),
     }));
@@ -1871,13 +1880,13 @@ export default function AdminDashboard({ token, user, onLogout }) {
   const addSpinWinPrize = () => {
     setSpinWinConfig((prev) => ({
       ...prev,
-      prizes: [...prev.prizes, defaultSpinWinPrizeState()],
+      prizes: [...asAdminArray(prev.prizes), defaultSpinWinPrizeState()],
     }));
   };
 
   const removeSpinWinPrize = (index) => {
     setSpinWinConfig((prev) => {
-      const nextPrizes = prev.prizes.filter((_, prizeIndex) => prizeIndex !== index);
+      const nextPrizes = asAdminArray(prev.prizes).filter((_, prizeIndex) => prizeIndex !== index);
       return {
         ...prev,
         prizes: nextPrizes.length > 0 ? nextPrizes : [defaultSpinWinPrizeState()],
@@ -1900,9 +1909,8 @@ export default function AdminDashboard({ token, user, onLogout }) {
         .filter(Boolean);
 
     const allowedRoles = ['passenger', 'driver', 'operator'];
-    const selectedRoles = Array.isArray(spinWinConfig.eligible_roles)
-      ? spinWinConfig.eligible_roles.filter((role) => allowedRoles.includes(String(role).toLowerCase()))
-      : [];
+    const selectedRoles = asAdminArray(spinWinConfig.eligible_roles)
+      .filter((role) => allowedRoles.includes(String(role).toLowerCase()));
     const dailyLimit = Number(spinWinConfig.daily_spin_limit || 0);
     if (Number.isNaN(dailyLimit) || dailyLimit < 0) {
       setError('Daily spin limit must be a valid non-negative number.');
@@ -1925,7 +1933,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
     }
 
     const allowedRewardTypes = ['cash', 'coupon', 'points', 'gift', 'none'];
-    const parsedPrizes = spinWinConfig.prizes
+    const parsedPrizes = asAdminArray(spinWinConfig.prizes)
       .map((prize) => {
         const label = String(prize.label || '').trim();
         const rewardValue = Number(prize.reward_value || 0);
@@ -2000,7 +2008,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
     }
     const currentRulesMap = parseDistrictRulesText(rideProductDistrictConfig.district_rules_text);
     const current = currentRulesMap[districtKey] || { district, products: [] };
-    const nextProducts = Array.from(new Set((updater(current.products) || []).filter((key) => RIDE_PRODUCT_KEYS.includes(key))));
+    const nextProducts = Array.from(new Set(asAdminArray(updater(asAdminArray(current.products))).filter((key) => RIDE_PRODUCT_KEYS.includes(key))));
     if (nextProducts.length === 0) {
       delete currentRulesMap[districtKey];
     } else {
@@ -2017,9 +2025,9 @@ export default function AdminDashboard({ token, user, onLogout }) {
 
   const toggleDistrictProduct = (district, productKey) => {
     updateSelectedDistrictProducts(district, (currentProducts) => (
-      currentProducts.includes(productKey)
-        ? currentProducts.filter((key) => key !== productKey)
-        : [...currentProducts, productKey]
+      asAdminArray(currentProducts).includes(productKey)
+        ? asAdminArray(currentProducts).filter((key) => key !== productKey)
+        : [...asAdminArray(currentProducts), productKey]
     ));
   };
 
@@ -2195,8 +2203,15 @@ export default function AdminDashboard({ token, user, onLogout }) {
     const statusOf = (row) => String(row?.status || row?.verification_status || '').toLowerCase();
     const countStatus = (rows, statuses) => {
       const wanted = new Set(statuses);
-      return (rows || []).filter((row) => wanted.has(statusOf(row))).length;
+      return asAdminArray(rows).filter((row) => wanted.has(statusOf(row))).length;
     };
+    const controlDrivers = asAdminArray(adminControlCenter.drivers);
+    const controlPassengers = asAdminArray(adminControlCenter.passengers);
+    const controlDisputes = asAdminArray(adminControlCenter.disputes);
+    const controlRefunds = asAdminArray(adminControlCenter.refunds);
+    const controlDocuments = asAdminArray(adminControlCenter.documents);
+    const controlLiveRides = asAdminArray(adminControlCenter.liveRides);
+    const controlBlockedUsers = asAdminArray(adminControlCenter.blockedUsers);
     return [
       {
         key: 'fares',
@@ -2207,30 +2222,30 @@ export default function AdminDashboard({ token, user, onLogout }) {
       {
         key: 'drivers',
         label: 'Drivers',
-        value: adminControlCenter.drivers.length,
-        meta: `${countStatus(adminControlCenter.drivers, ['active'])} active | ${countStatus(adminControlCenter.drivers, ['blocked', 'banned', 'suspended'])} blocked`,
-        rows: adminControlCenter.drivers.slice(0, 3).map((row) => `${adminControlSubjectLabel(row)} - ${row.status || 'active'}`),
+        value: controlDrivers.length,
+        meta: `${countStatus(controlDrivers, ['active'])} active | ${countStatus(controlDrivers, ['blocked', 'banned', 'suspended'])} blocked`,
+        rows: controlDrivers.slice(0, 3).map((row) => `${adminControlSubjectLabel(row)} - ${row.status || 'active'}`),
       },
       {
         key: 'passengers',
         label: 'Passengers',
-        value: adminControlCenter.passengers.length,
-        meta: `${countStatus(adminControlCenter.passengers, ['active'])} active | ${countStatus(adminControlCenter.passengers, ['blocked', 'banned', 'suspended'])} blocked`,
-        rows: adminControlCenter.passengers.slice(0, 3).map((row) => `${adminControlSubjectLabel(row)} - ${row.status || 'active'}`),
+        value: controlPassengers.length,
+        meta: `${countStatus(controlPassengers, ['active'])} active | ${countStatus(controlPassengers, ['blocked', 'banned', 'suspended'])} blocked`,
+        rows: controlPassengers.slice(0, 3).map((row) => `${adminControlSubjectLabel(row)} - ${row.status || 'active'}`),
       },
       {
         key: 'disputes',
         label: 'Disputes',
-        value: adminControlCenter.disputes.length,
-        meta: `${countStatus(adminControlCenter.disputes, ['open', 'assigned', 'investigating'])} open | ${countStatus(adminControlCenter.disputes, ['resolved'])} resolved`,
-        rows: adminControlCenter.disputes.slice(0, 3).map((row) => `${adminControlSubjectLabel(row)} - ${row.status || 'open'}`),
+        value: controlDisputes.length,
+        meta: `${countStatus(controlDisputes, ['open', 'assigned', 'investigating'])} open | ${countStatus(controlDisputes, ['resolved'])} resolved`,
+        rows: controlDisputes.slice(0, 3).map((row) => `${adminControlSubjectLabel(row)} - ${row.status || 'open'}`),
       },
       {
         key: 'refunds',
         label: 'Refunds',
-        value: adminControlCenter.refunds.length,
-        meta: `${countStatus(adminControlCenter.refunds, ['paid'])} paid | ${countStatus(adminControlCenter.refunds, ['approved'])} approved`,
-        rows: adminControlCenter.refunds.slice(0, 3).map((row) => `${adminControlSubjectLabel(row)} - Rs ${Number(row.amount || 0).toFixed(2)}`),
+        value: controlRefunds.length,
+        meta: `${countStatus(controlRefunds, ['paid'])} paid | ${countStatus(controlRefunds, ['approved'])} approved`,
+        rows: controlRefunds.slice(0, 3).map((row) => `${adminControlSubjectLabel(row)} - Rs ${Number(row.amount || 0).toFixed(2)}`),
       },
       {
         key: 'commissions',
@@ -2241,23 +2256,23 @@ export default function AdminDashboard({ token, user, onLogout }) {
       {
         key: 'documents',
         label: 'Documents',
-        value: adminControlCenter.documents.length,
-        meta: `${countStatus(adminControlCenter.documents, ['pending', 'needs_resubmission'])} pending | ${countStatus(adminControlCenter.documents, ['approved'])} approved`,
-        rows: adminControlCenter.documents.slice(0, 3).map((row) => `${row.collection || 'document'} - ${row.status || row.verification_status || 'pending'}`),
+        value: controlDocuments.length,
+        meta: `${countStatus(controlDocuments, ['pending', 'needs_resubmission'])} pending | ${countStatus(controlDocuments, ['approved'])} approved`,
+        rows: controlDocuments.slice(0, 3).map((row) => `${row.collection || 'document'} - ${row.status || row.verification_status || 'pending'}`),
       },
       {
         key: 'live_rides',
         label: 'Live Rides',
-        value: adminControlCenter.liveRides.length,
-        meta: `${countStatus(adminControlCenter.liveRides, ['in_progress'])} in progress | ${countStatus(adminControlCenter.liveRides, ['accepted', 'driver_arrived'])} assigned`,
-        rows: adminControlCenter.liveRides.slice(0, 3).map((row) => `${row.id || row.booking_id || 'Ride'} - ${row.status || 'active'}`),
+        value: controlLiveRides.length,
+        meta: `${countStatus(controlLiveRides, ['in_progress'])} in progress | ${countStatus(controlLiveRides, ['accepted', 'driver_arrived'])} assigned`,
+        rows: controlLiveRides.slice(0, 3).map((row) => `${row.id || row.booking_id || 'Ride'} - ${row.status || 'active'}`),
       },
       {
         key: 'blocked_users',
         label: 'Blocked Users',
-        value: adminControlCenter.blockedUsers.length,
-        meta: `${adminControlCenter.blockedUsers.length} blocked, banned or suspended`,
-        rows: adminControlCenter.blockedUsers.slice(0, 3).map((row) => `${adminControlSubjectLabel(row)} - ${row.status || 'blocked'}`),
+        value: controlBlockedUsers.length,
+        meta: `${controlBlockedUsers.length} blocked, banned or suspended`,
+        rows: controlBlockedUsers.slice(0, 3).map((row) => `${adminControlSubjectLabel(row)} - ${row.status || 'blocked'}`),
       },
     ];
   }, [adminControlCenter]);
@@ -2829,7 +2844,8 @@ export default function AdminDashboard({ token, user, onLogout }) {
             <Text style={styles.inputLabel}>Eligible Roles</Text>
             <View style={styles.optionRow}>
               {['passenger', 'driver', 'operator'].map((role) => {
-                const enabled = spinWinConfig.eligible_roles.includes(role);
+                const eligibleRoles = asAdminArray(spinWinConfig.eligible_roles);
+                const enabled = eligibleRoles.includes(role);
                 return (
                   <TouchableOpacity
                     key={role}
@@ -2838,8 +2854,8 @@ export default function AdminDashboard({ token, user, onLogout }) {
                       updateSpinWinField(
                         'eligible_roles',
                         enabled
-                          ? spinWinConfig.eligible_roles.filter((item) => item !== role)
-                          : [...spinWinConfig.eligible_roles, role],
+                          ? eligibleRoles.filter((item) => item !== role)
+                          : [...eligibleRoles, role],
                       );
                     }}>
                     <Text style={[styles.optionChipText, enabled && styles.optionChipTextActive]}>
@@ -2885,7 +2901,7 @@ export default function AdminDashboard({ token, user, onLogout }) {
             />
 
             <Text style={styles.sectionSubtitle}>Prize Rules</Text>
-            {spinWinConfig.prizes.map((prize, index) => (
+            {asAdminArray(spinWinConfig.prizes).map((prize, index) => (
               <View key={`spin-prize-${index}`} style={styles.subscriptionPlanCard}>
                 <Text style={styles.inputLabel}>Prize Label</Text>
                 <VoiceTextInput
