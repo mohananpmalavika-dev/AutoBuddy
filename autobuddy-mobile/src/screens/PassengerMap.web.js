@@ -1720,32 +1720,39 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const parseLocations = () => {
     const activePickupLocation = pickupLocation || pickupLocationRef.current || routePreviewLocations.pickup;
     const activeDropoffLocation = dropoffLocation || dropoffLocationRef.current || routePreviewLocations.dropoff;
-    const missingPickup = !activePickupLocation;
-    const missingDropoff = !activeDropoffLocation;
+    const safePickupLocation = normalizeLocation(activePickupLocation);
+    const safeDropoffLocation = normalizeLocation(activeDropoffLocation);
+    const missingPickup = !safePickupLocation;
+    const missingDropoff = !safeDropoffLocation;
     setLocationValidation({ pickup: missingPickup, dropoff: missingDropoff });
     if (missingPickup || missingDropoff) {
       setError(t.selectPickupDropBoth);
       return null;
     }
-    return { pickup: activePickupLocation, dropoff: activeDropoffLocation };
+    return { pickup: safePickupLocation, dropoff: safeDropoffLocation };
   };
 
   const setLocationForPoint = (point, location) => {
+    const safeLocation = normalizeLocation(location);
+    if (!safeLocation) {
+      setError(t.couldNotSelectPlace || 'Could not select this place.');
+      return;
+    }
     const currentPickupLocation = pickupLocationRef.current || pickupLocation;
     const currentDropoffLocation = dropoffLocationRef.current || dropoffLocation;
-    const nextPickupLocation = point === 'pickup' ? location : currentPickupLocation;
-    const nextDropoffLocation = point === 'dropoff' ? location : currentDropoffLocation;
+    const nextPickupLocation = point === 'pickup' ? safeLocation : normalizeLocation(currentPickupLocation);
+    const nextDropoffLocation = point === 'dropoff' ? safeLocation : normalizeLocation(currentDropoffLocation);
 
     if (point === 'pickup') {
-      pickupLocationRef.current = location;
-      setPickupLocation(location);
-      setPickupQuery(location.address || '');
+      pickupLocationRef.current = safeLocation;
+      setPickupLocation(safeLocation);
+      setPickupQuery(safeLocation.address || '');
       setPickupSuggestions([]);
       setLocationValidation((prev) => ({ ...prev, pickup: false }));
     } else {
-      dropoffLocationRef.current = location;
-      setDropoffLocation(location);
-      setDropoffQuery(location.address || '');
+      dropoffLocationRef.current = safeLocation;
+      setDropoffLocation(safeLocation);
+      setDropoffQuery(safeLocation.address || '');
       setDropoffSuggestions([]);
       setLocationValidation((prev) => ({ ...prev, dropoff: false }));
     }
@@ -3386,8 +3393,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   ]);
 
   const refreshDriverDiscovery = useCallback(async ({ silent = false, force = false } = {}) => {
-    const activePickupLocation = pickupLocation || pickupLocationRef.current;
-    const activeDropoffLocation = dropoffLocation || dropoffLocationRef.current;
+    const activePickupLocation = normalizeLocation(pickupLocation || pickupLocationRef.current);
+    const activeDropoffLocation = normalizeLocation(dropoffLocation || dropoffLocationRef.current);
 
     if (!activePickupLocation || !activeDropoffLocation) {
       setFare(null);
@@ -3528,6 +3535,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     dropoffLocation,
     effectiveRideProduct,
     effectiveSelectedVehicleTypeId,
+    normalizeLocation,
     pickupLocation,
     resolveEffectiveVehicleModelId,
     t.couldNotAutoCalculate,
