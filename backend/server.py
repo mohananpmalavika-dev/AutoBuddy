@@ -19484,12 +19484,12 @@ async def add_security_headers(request: Request, call_next):
             message="Internal server error",
             code="internal_error",
         )
-    response.headers["Cross-Origin-Opener-Policy"] = "same-origin-allow-popups"
-    response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
+    response.headers["Cross-Origin-Opener-Policy"] = "unsafe-none"
+    response.headers["Cross-Origin-Embedder-Policy"] = "unsafe-none"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Cross-Origin-Resource-Policy"] = "same-site"
+    response.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(self)"
     response.headers["X-XSS-Protection"] = "0"
     if request.url.path.startswith("/api"):
