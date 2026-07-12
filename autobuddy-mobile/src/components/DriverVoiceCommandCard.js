@@ -37,6 +37,7 @@ export default function DriverVoiceCommandCard({
   onCommand,
   compact = false,
   disabled = false,
+  quickCommands = QUICK_COMMANDS,
 }) {
   const isListening = voice.voiceState === 'listening';
 
@@ -100,7 +101,7 @@ export default function DriverVoiceCommandCard({
       </View>
 
       <View style={styles.quickRow}>
-        {QUICK_COMMANDS.map((command) => (
+        {quickCommands.map((command) => (
           <TouchableOpacity
             key={command.label}
             style={[styles.quickButton, command.danger && styles.quickButtonDanger, disabled && styles.disabled]}

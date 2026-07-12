@@ -95,6 +95,11 @@ const EMPTY_UPCOMING = {
 const REFRESH_INTERVAL_MS = 60000;
 const DRIVER_COMMAND_RATE_LIMIT_COOLDOWN_MS = 60000;
 const DRIVER_ACTION_REFRESH_PAUSE_MS = 8000;
+const RIDE_FOCUSED_DRIVER_COMMANDS = [
+  { label: 'Online', action: { type: 'go_online' } },
+  { label: 'Ride', action: { type: 'resume_active_ride' } },
+  { label: 'Map', action: { type: 'navigate_active_ride' } },
+];
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
@@ -580,7 +585,6 @@ export default function DriverCommandPage({
   token,
   user,
   onLogout,
-  onProfilePress = undefined,
 }) {
   const { width } = useWindowDimensions();
   const socketRef = useRef(null);
@@ -592,6 +596,7 @@ export default function DriverCommandPage({
   const lastRateLimitNoticeAtRef = useRef(0);
   const lastLocationPauseNoticeAtRef = useRef(0);
   const [activeTab, setActiveTab] = useState('requests');
+  const [showDriverMenu, setShowDriverMenu] = useState(false);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
@@ -1382,6 +1387,16 @@ export default function DriverCommandPage({
     ],
   );
 
+  const handleDriverTabChange = useCallback((nextTab) => {
+    setActiveTab(nextTab);
+    setShowDriverMenu(false);
+  }, []);
+
+  const openRideFlow = useCallback(() => {
+    setActiveTab('requests');
+    setShowDriverMenu(false);
+  }, []);
+
   const handleDriverVoiceCommand = useCallback(
     (action) => {
       if (!action || typeof action !== 'object') {
@@ -2026,9 +2041,13 @@ export default function DriverCommandPage({
                 <Text style={styles.topActionText}>{refreshing ? '...' : 'Refresh'}</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.topActionButton, compactLayout && styles.topActionButtonCompact]}
-                onPress={onProfilePress || (() => setActiveTab('profile'))}>
-                <Text style={styles.topActionText}>Profile</Text>
+                style={[
+                  styles.topActionButton,
+                  showDriverMenu && styles.topActionButtonActive,
+                  compactLayout && styles.topActionButtonCompact,
+                ]}
+                onPress={() => setShowDriverMenu((current) => !current)}>
+                <Text style={[styles.topActionText, showDriverMenu && styles.topActionTextActive]}>Menu</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.topActionButton, compactLayout && styles.topActionButtonCompact]}
@@ -2058,23 +2077,93 @@ export default function DriverCommandPage({
             onCommand={handleDriverVoiceCommand}
             compact={compactLayout}
             disabled={loading || availabilityLoading}
+            quickCommands={RIDE_FOCUSED_DRIVER_COMMANDS}
           />
 
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
           {message && !error ? <Text style={styles.messageText}>{message}</Text> : null}
           {(loading || refreshing) && <ActivityIndicator color={COLORS.primary} style={styles.loader} />}
 
-          <DriverTabBar
-            activeTab={activeTab}
-            onTabChange={setActiveTab}
-            requestCount={pendingRequests.length}
-            upcomingCount={getUpcomingCount(upcomingRides)}
-            notificationCount={0}
-            menuBadges={menuBadges}
-            isOnline={displayIsAccepting}
-            statusLabel={displayIsAccepting ? 'ACCEPTING RIDES' : 'PAUSED'}
-            statusSyncing={availabilityLoading}
-          />
+          <View style={[styles.driverHomeNav, compactLayout && styles.driverHomeNavCompact]}>
+            <TouchableOpacity
+              style={[
+                styles.driverHomeNavButton,
+                activeTab === 'requests' && !showDriverMenu && styles.driverHomeNavButtonActive,
+              ]}
+              onPress={openRideFlow}
+              accessibilityRole="button"
+              accessibilityState={{ selected: activeTab === 'requests' && !showDriverMenu }}>
+              <Text
+                style={[
+                  styles.driverHomeNavText,
+                  activeTab === 'requests' && !showDriverMenu && styles.driverHomeNavTextActive,
+                ]}>
+                Ride Flow
+              </Text>
+              <Text
+                style={[
+                  styles.driverHomeNavHint,
+                  activeTab === 'requests' && !showDriverMenu && styles.driverHomeNavHintActive,
+                ]}>
+                Requests and active trip
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.driverHomeNavButton, showDriverMenu && styles.driverHomeNavButtonActive]}
+              onPress={() => setShowDriverMenu((current) => !current)}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: showDriverMenu }}>
+              <Text style={[styles.driverHomeNavText, showDriverMenu && styles.driverHomeNavTextActive]}>
+                Menu
+              </Text>
+              <Text style={[styles.driverHomeNavHint, showDriverMenu && styles.driverHomeNavHintActive]}>
+                Account, money, safety, tools
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {activeTab !== 'requests' && !showDriverMenu ? (
+            <View style={styles.activeToolNotice}>
+              <View style={styles.activeToolCopy}>
+                <Text style={styles.activeToolEyebrow}>Opened from menu</Text>
+                <Text style={styles.activeToolTitle}>{formatStatus(activeTab)}</Text>
+              </View>
+              <View style={styles.activeToolActions}>
+                <TouchableOpacity style={styles.secondaryAction} onPress={openRideFlow}>
+                  <Text style={styles.secondaryActionText}>Ride Flow</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.secondaryAction} onPress={() => setShowDriverMenu(true)}>
+                  <Text style={styles.secondaryActionText}>Menu</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : null}
+
+          {showDriverMenu ? (
+            <View style={styles.driverMenuPanel}>
+              <View style={styles.driverMenuHeader}>
+                <View>
+                  <Text style={styles.driverMenuEyebrow}>Driver Menu</Text>
+                  <Text style={styles.driverMenuTitle}>All tools</Text>
+                </View>
+                <TouchableOpacity style={styles.driverMenuCloseButton} onPress={() => setShowDriverMenu(false)}>
+                  <Text style={styles.driverMenuCloseText}>Close</Text>
+                </TouchableOpacity>
+              </View>
+              <DriverTabBar
+                activeTab={activeTab}
+                onTabChange={handleDriverTabChange}
+                requestCount={pendingRequests.length}
+                upcomingCount={getUpcomingCount(upcomingRides)}
+                notificationCount={0}
+                menuBadges={menuBadges}
+                isOnline={displayIsAccepting}
+                statusLabel={displayIsAccepting ? 'ACCEPTING RIDES' : 'PAUSED'}
+                statusSyncing={availabilityLoading}
+                compact={compactLayout}
+              />
+            </View>
+          ) : null}
 
           <View style={[styles.tabPanel, compactLayout && styles.tabPanelCompact]}>{renderTabContent()}</View>
         </View>
@@ -2190,6 +2279,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: COLORS.surface,
   },
+  topActionButtonActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: '#E8F5E9',
+  },
   topActionButtonCompact: {
     flex: 1,
     minWidth: 0,
@@ -2199,6 +2292,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '900',
     color: COLORS.textMain,
+  },
+  topActionTextActive: {
+    color: COLORS.primary,
   },
   statusPill: {
     minHeight: 72,
@@ -2325,6 +2421,122 @@ const styles = StyleSheet.create({
   },
   loader: {
     alignSelf: 'flex-start',
+  },
+  driverHomeNav: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  driverHomeNavCompact: {
+    flexDirection: 'column',
+    gap: 8,
+  },
+  driverHomeNavButton: {
+    flex: 1,
+    minHeight: 58,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surface,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    justifyContent: 'center',
+  },
+  driverHomeNavButtonActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: '#E8F5E9',
+  },
+  driverHomeNavText: {
+    color: COLORS.textMain,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  driverHomeNavTextActive: {
+    color: COLORS.primary,
+  },
+  driverHomeNavHint: {
+    marginTop: 3,
+    color: COLORS.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  driverHomeNavHintActive: {
+    color: '#1F6F3A',
+  },
+  activeToolNotice: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: '#F7FCF8',
+    padding: 12,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  activeToolCopy: {
+    flex: 1,
+    minWidth: 180,
+  },
+  activeToolEyebrow: {
+    color: COLORS.textMuted,
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  activeToolTitle: {
+    marginTop: 3,
+    color: COLORS.textMain,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  activeToolActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  driverMenuPanel: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: '#FFFFFF',
+    overflow: 'hidden',
+  },
+  driverMenuHeader: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  driverMenuEyebrow: {
+    color: COLORS.primary,
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  driverMenuTitle: {
+    color: COLORS.textMain,
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  driverMenuCloseButton: {
+    minHeight: 36,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.surface,
+  },
+  driverMenuCloseText: {
+    color: COLORS.textMain,
+    fontSize: 12,
+    fontWeight: '900',
   },
   tabPanel: {
     minHeight: 280,
