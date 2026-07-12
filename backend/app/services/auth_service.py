@@ -764,8 +764,6 @@ async def google_login(
 
     user = await db.users.find_one({"email": profile_email})
     created_new_user = False
-    if user and payload.mode == "register":
-        raise HTTPException(status_code=400, detail="Email already registered. Please login with Google.")
 
     if not user:
         if payload.mode != "register":
@@ -820,7 +818,7 @@ async def google_login(
         referral = await revenue_service.create_referral_if_missing(db, user)
         user["referral_code"] = referral.get("code")
         incoming_referral_code = str(payload.referral_code or "").strip().upper()
-        if payload.mode == "register" and incoming_referral_code:
+        if created_new_user and payload.mode == "register" and incoming_referral_code:
             applied = await revenue_service.apply_referral_signup(db, user, incoming_referral_code)
             if not applied:
                 raise HTTPException(status_code=400, detail="Invalid or already used referral code")
