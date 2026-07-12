@@ -3493,6 +3493,21 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       return;
     }
 
+    // Distance and fare must not wait for slower driver-discovery requests.
+    const immediateDistanceKm = calculateDirectDistanceKm(activePickupLocation, activeDropoffLocation);
+    const immediateFareEstimate = createLocalFareEstimate(
+      immediateDistanceKm,
+      effectiveSelectedVehicleTypeId,
+      effectiveRideProduct,
+    );
+    if (immediateDistanceKm > 0) {
+      setRoutePreviewDistanceKm(immediateDistanceKm);
+    }
+    if (immediateFareEstimate) {
+      setFare((currentFare) =>
+        getFareTotalAmount(currentFare) > 0 ? currentFare : immediateFareEstimate,
+      );
+    }
     const vehicleSubtypeId = resolveEffectiveVehicleModelId();
     const signature = [
       getDiscoveryLocationSignature(activePickupLocation),
@@ -5069,7 +5084,11 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         <View>
           <Text style={styles.quickFareLabel}>{quickBookingReady ? quickCopy.estimatedFare : quickCopy.tripPreview}</Text>
           <Text style={styles.quickFareValue}>
-            {autoFetchingTripData ? quickCopy.calculating : quickFareLabel === 'Fare ready soon' ? quickCopy.fareReadySoon : quickFareLabel}
+            {quickFareLabel !== 'Fare ready soon'
+              ? quickFareLabel
+              : autoFetchingTripData
+                ? quickCopy.calculating
+                : quickCopy.fareReadySoon}
           </Text>
         </View>
         <View style={styles.quickFareMeta}>

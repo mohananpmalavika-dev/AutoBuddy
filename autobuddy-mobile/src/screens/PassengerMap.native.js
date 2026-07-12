@@ -3809,7 +3809,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       <View style={styles.quickFareCard}>
         <View>
           <Text style={styles.quickFareLabel}>{quickBookingReady ? 'Estimated fare' : 'Trip preview'}</Text>
-          <Text style={styles.quickFareValue}>{autoFetchingTripData ? 'Calculating...' : quickFareLabel}</Text>
+          <Text style={styles.quickFareValue}>
+            {quickFareValue > 0 ? quickFareLabel : autoFetchingTripData ? 'Calculating...' : quickFareLabel}
+          </Text>
         </View>
         <View style={styles.quickFareMeta}>
           <Text style={styles.quickFareMetaText}>{quickDistanceLabel}</Text>
