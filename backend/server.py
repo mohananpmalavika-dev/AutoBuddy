@@ -2684,20 +2684,54 @@ async def consume_phone_otp(phone: str, otp_code: str):
 async def consume_email_otp(email: str, otp_code: str):
     await runtime_state.consume_email_otp(email, otp_code)
 
+def user_id_from_record(user: Dict[str, Any]) -> str:
+    user_id = str(user.get("id") or "").strip()
+    if user_id:
+        return user_id
+    return str(user.get("_id") or "").strip()
+
+async def ensure_user_record_id(user: Dict[str, Any]) -> str:
+    user_id = user_id_from_record(user)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid account data. Please contact support.")
+    if not str(user.get("id") or "").strip():
+        selector = None
+        if user.get("_id") is not None:
+            selector = {"_id": user.get("_id")}
+        elif user.get("email"):
+            selector = {"email": user.get("email")}
+        if selector:
+            await db.users.update_one(selector, {"$set": {"id": user_id}})
+        user["id"] = user_id
+    return user_id
+
 def auth_response_for_user(user: Dict[str, Any], refresh_token: Optional[str] = None) -> AuthResponse:
-    token = create_access_token_for_user(user["id"], user["role"])
+    user_id = user_id_from_record(user)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid account data. Please contact support.")
+    role = _normalize_role_text(user.get("role")) or UserRole.PASSENGER.value
+    gender = str(user.get("gender") or "").strip().lower()
+    if "." in gender:
+        gender = gender.split(".")[-1]
+    if gender not in {"male", "female", "other"}:
+        gender = None
+    created_at = user.get("created_at")
+    if not isinstance(created_at, datetime):
+        created_at = get_ist_now()
+
+    token = create_access_token_for_user(user_id, role)
     return AuthResponse(
         access_token=token,
         refresh_token=refresh_token,
         user=UserResponse(
-            id=user["id"],
-            email=user["email"],
-            name=user["name"],
-            phone=user["phone"],
-            role=user["role"],
-            gender=user.get("gender"),
+            id=user_id,
+            email=str(user.get("email") or ""),
+            name=str(user.get("name") or "User"),
+            phone=str(user.get("phone") or ""),
+            role=role,
+            gender=gender,
             referral_code=str(user.get("referral_code") or "").strip().upper() or None,
-            created_at=user["created_at"],
+            created_at=created_at,
         ),
     )
 
@@ -7505,6 +7539,7 @@ async def google_login(payload: GoogleAuthRequestModel, request: Request):
                 },
             )
             user = await db.users.find_one({"id": user["id"]})
+    user_id = await ensure_user_record_id(user)
     referral = await create_referral_if_missing(db, user)
     user["referral_code"] = referral.get("code")
     incoming_referral_code = str(payload.referral_code or "").strip().upper()
@@ -7512,20 +7547,20 @@ async def google_login(payload: GoogleAuthRequestModel, request: Request):
         applied = await apply_referral_signup(db, user, incoming_referral_code)
         if not applied:
             if created_new_user:
-                await db.users.delete_one({"id": user["id"]})
-                await db.drivers.delete_one({"user_id": user["id"]})
-                await db.operator_profiles.delete_one({"operator_id": user["id"]})
-                await db.referrals.delete_one({"user_id": user["id"]})
+                await db.users.delete_one({"id": user_id})
+                await db.drivers.delete_one({"user_id": user_id})
+                await db.operator_profiles.delete_one({"operator_id": user_id})
+                await db.referrals.delete_one({"user_id": user_id})
             raise HTTPException(status_code=400, detail="Invalid or already used referral code")
 
     if user.get("registration_payment_required") and user.get("registration_payment_status") != "verified":
         raise HTTPException(status_code=403, detail="Registration payment verification is in progress")
 
     if str(user.get("role") or "").strip().lower() == UserRole.OPERATOR.value:
-        await ensure_operator_profile(str(user.get("id") or ""), user)
+        await ensure_operator_profile(user_id, user)
 
-    refresh_token = create_refresh_token_for_user(user["id"], user["role"])
-    await store_refresh_token(user["id"], refresh_token, request)
+    refresh_token = create_refresh_token_for_user(user_id, _normalize_role_text(user.get("role")) or UserRole.PASSENGER.value)
+    await store_refresh_token(user_id, refresh_token, request)
     return auth_response_for_user(user, refresh_token=refresh_token)
 
 @api_router.post("/auth/_legacy/otp/send", response_model=OtpSendResponse)

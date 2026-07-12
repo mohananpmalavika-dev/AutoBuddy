@@ -47,6 +47,7 @@ except Exception:  # pragma: no cover
 
 logger = logging.getLogger("autobuddy.auth_service")
 VALID_USER_ROLES = {"passenger", "driver", "operator", "admin"}
+VALID_USER_GENDERS = {"male", "female", "other"}
 
 
 async def _audit_auth_event(
@@ -180,8 +181,16 @@ def _role_value(raw_role: Any) -> str:
     return normalized
 
 
-def _build_user_response(user: Dict[str, Any]) -> UserResponse:
+def _user_id_from_record(user: Dict[str, Any]) -> str:
     user_id = str(user.get("id") or "").strip()
+    if user_id:
+        return user_id
+    mongo_id = user.get("_id")
+    return str(mongo_id or "").strip()
+
+
+def _build_user_response(user: Dict[str, Any]) -> UserResponse:
+    user_id = _user_id_from_record(user)
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid account data. Please contact support.")
 
@@ -194,6 +203,12 @@ def _build_user_response(user: Dict[str, Any]) -> UserResponse:
     if not isinstance(created_at, datetime):
         created_at = get_ist_now()
 
+    gender = str(user.get("gender") or "").strip().lower()
+    if "." in gender:
+        gender = gender.split(".")[-1]
+    if gender not in VALID_USER_GENDERS:
+        gender = None
+
     try:
         return UserResponse.model_validate(
             {
@@ -202,7 +217,7 @@ def _build_user_response(user: Dict[str, Any]) -> UserResponse:
                 "name": str(user.get("name") or "User"),
                 "phone": str(user.get("phone") or ""),
                 "role": role,
-                "gender": str(user.get("gender") or "").strip().lower() or None,
+                "gender": gender,
                 "referral_code": str(user.get("referral_code") or "").strip().upper() or None,
                 "created_at": created_at,
             }
@@ -227,6 +242,22 @@ def _normalize_user_id(raw_user_id: Any) -> str:
     return user_id
 
 
+async def _ensure_user_record_id(db: AsyncIOMotorDatabase, user: Dict[str, Any]) -> str:
+    user_id = _user_id_from_record(user)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid account data. Please contact support.")
+    if not str(user.get("id") or "").strip():
+        selector = None
+        if user.get("_id") is not None:
+            selector = {"_id": user.get("_id")}
+        elif user.get("email"):
+            selector = {"email": user.get("email")}
+        if selector:
+            await db.users.update_one(selector, {"$set": {"id": user_id}})
+        user["id"] = user_id
+    return user_id
+
+
 def _google_oauth_audiences(settings: Settings) -> Any:
     raw_client_ids = str(settings.google_oauth_client_id or "").strip()
     if not raw_client_ids:
@@ -243,7 +274,7 @@ def _auth_response_for_user(
     *,
     refresh_token: Optional[str] = None,
 ) -> AuthResponse:
-    user_id = _normalize_user_id(user.get("id"))
+    user_id = _normalize_user_id(_user_id_from_record(user))
 
     role = _role_value(user.get("role"))
     if role not in VALID_USER_ROLES:
@@ -622,7 +653,7 @@ async def _login_primary(
     if user.get("registration_payment_required") and user.get("registration_payment_status") != "verified":
         raise HTTPException(status_code=403, detail="Registration payment verification is in progress")
 
-    user_id = _normalize_user_id(user.get("id"))
+    user_id = await _ensure_user_record_id(db, user)
     normalized_role = _normalize_user_role(user.get("role"))
     if normalized_role == "driver":
         await driver_trust_service.verify_driver_not_blacklisted(
@@ -701,7 +732,7 @@ async def _login_compatibility_fallback(
     if not password_ok:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    user_id = _normalize_user_id(user.get("id"))
+    user_id = await _ensure_user_record_id(db, user)
     role = _normalize_user_role(user.get("role"))
     if role == "driver":
         await driver_trust_service.verify_driver_not_blacklisted(
@@ -814,6 +845,8 @@ async def google_login(
             )
             user = await db.users.find_one({"id": user["id"]})
 
+    user_id = await _ensure_user_record_id(db, user)
+
     try:
         referral = await revenue_service.create_referral_if_missing(db, user)
         user["referral_code"] = referral.get("code")
@@ -833,7 +866,6 @@ async def google_login(
     if user.get("registration_payment_required") and user.get("registration_payment_status") != "verified":
         raise HTTPException(status_code=403, detail="Registration payment verification is in progress")
 
-    user_id = _normalize_user_id(user.get("id"))
     if _normalize_user_role(user.get("role")) == "operator":
         await ensure_operator_profile(db, user_id, user)
     refresh_token = create_refresh_token(user_id, _normalize_user_role(user.get("role")), str(uuid.uuid4()), settings)
@@ -917,7 +949,7 @@ async def verify_otp(
         )
     referral = await revenue_service.create_referral_if_missing(db, user)
     user["referral_code"] = referral.get("code")
-    user_id = _normalize_user_id(user.get("id"))
+    user_id = await _ensure_user_record_id(db, user)
     refresh_token = create_refresh_token(user_id, _normalize_user_role(user.get("role")), str(uuid.uuid4()), settings)
     await _store_refresh_token(
         db=db,
@@ -1030,7 +1062,7 @@ async def refresh_access_token(
             metadata={"reason": "user_not_found"},
         )
         raise HTTPException(status_code=401, detail="User not found")
-    user_id = _normalize_user_id(user.get("id"))
+    user_id = await _ensure_user_record_id(db, user)
     role = _normalize_user_role(user.get("role"))
     await db.refresh_tokens.update_one(
         {"token_hash": token_hash},
