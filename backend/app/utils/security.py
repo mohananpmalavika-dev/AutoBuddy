@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import os
 from datetime import datetime, timedelta
 from app.utils.time_helpers import get_ist_now
 from typing import Any, Dict
@@ -12,7 +13,7 @@ from fastapi import HTTPException
 from app.core.config import Settings
 
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
-REFRESH_TOKEN_EXPIRE_DAYS = 30
+REFRESH_TOKEN_EXPIRE_DAYS = int(os.environ.get("REFRESH_TOKEN_EXPIRE_DAYS", "3650"))
 
 
 def hash_password(password: str) -> str:

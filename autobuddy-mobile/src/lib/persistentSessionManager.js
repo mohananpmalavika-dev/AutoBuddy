@@ -14,9 +14,6 @@ const SESSION_LAST_ACTIVITY_KEY = 'autobuddy_session_last_activity_v1';
 const BACKGROUND_TASK_NAME = 'autobuddy-background-sync';
 const NOTIFICATION_QUEUE_KEY = 'autobuddy_notification_queue_v1';
 
-// Session validity: 30 days
-const SESSION_VALIDITY_MS = 30 * 24 * 60 * 60 * 1000;
-
 const sessionListeners = new Set();
 let backgroundTaskRegistered = false;
 
@@ -45,17 +42,7 @@ export async function loadSession() {
     }
 
     const session = JSON.parse(raw);
-    const expiryRaw = await AsyncStorage.getItem(SESSION_EXPIRY_KEY);
-    
-    if (expiryRaw) {
-      const expiry = parseInt(expiryRaw, 10);
-      if (Date.now() > expiry) {
-        // Session expired, clear it
-        await clearSession();
-        return null;
-      }
-    }
-
+    await AsyncStorage.removeItem(SESSION_EXPIRY_KEY);
     return session;
   } catch (error) {
     console.error('Error loading session:', error);
@@ -76,10 +63,9 @@ export async function saveSession(session) {
 
     await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(session));
     
-    // Set sliding expiry timestamp from the latest authenticated activity.
+    // Keep activity metadata, but never use browser/app close as logout.
     const now = Date.now();
-    const expiry = now + SESSION_VALIDITY_MS;
-    await AsyncStorage.setItem(SESSION_EXPIRY_KEY, String(expiry));
+    await AsyncStorage.removeItem(SESSION_EXPIRY_KEY);
     await AsyncStorage.setItem(SESSION_LAST_ACTIVITY_KEY, String(now));
     
     notifySessionListeners(session);
@@ -207,12 +193,6 @@ export async function isSessionValid() {
       return false;
     }
 
-    const expiryRaw = await AsyncStorage.getItem(SESSION_EXPIRY_KEY);
-    if (expiryRaw) {
-      const expiry = parseInt(expiryRaw, 10);
-      return Date.now() < expiry;
-    }
-
     return true;
   } catch (error) {
     console.error('Error checking session validity:', error);
@@ -225,10 +205,8 @@ export async function isSessionValid() {
  */
 export async function extendSessionExpiry() {
   try {
-    const now = Date.now();
-    const expiry = now + SESSION_VALIDITY_MS;
-    await AsyncStorage.setItem(SESSION_EXPIRY_KEY, String(expiry));
-    await AsyncStorage.setItem(SESSION_LAST_ACTIVITY_KEY, String(now));
+    await AsyncStorage.removeItem(SESSION_EXPIRY_KEY);
+    await AsyncStorage.setItem(SESSION_LAST_ACTIVITY_KEY, String(Date.now()));
   } catch (error) {
     console.error('Error extending session expiry:', error);
   }
