@@ -1799,7 +1799,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         countryCode: 'in',
       }).catch(() => []);
       const bestSuggestion = Array.isArray(suggestions) ? suggestions[0] : null;
-      if (!bestSuggestion?.placeId) {
+      if (!bestSuggestion) {
         return null;
       }
       const resolved = await getPlaceLocation(bestSuggestion).catch(() => null);

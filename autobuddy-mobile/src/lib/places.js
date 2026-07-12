@@ -46,6 +46,9 @@ export function isPlacesConfigured() {
 }
 
 function toFiniteNumber(value) {
+  if (value === null || value === undefined || (typeof value === 'string' && value.trim() === '')) {
+    return null;
+  }
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 }
