@@ -1824,6 +1824,55 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     [getPlaceLocation, normalizeLocation, placesConfigured, searchBias.latitude, searchBias.longitude, searchPlaces, setLocationForPoint],
   );
 
+  const handleDestinationBlur = useCallback(async () => {
+    const query = String(dropoffQuery || '').trim();
+    if (query.length < 3) {
+      return;
+    }
+
+    let resolvedDestination = normalizeLocation(dropoffLocationRef.current || dropoffLocation);
+    const resolvedAddress = String(resolvedDestination?.address || '').trim();
+    if (!resolvedDestination || resolvedAddress.toLowerCase() !== query.toLowerCase()) {
+      resolvedDestination = await resolveLocationFromQuery('dropoff', query);
+    }
+    if (!resolvedDestination) {
+      setError('Could not locate that destination in India. Please select a search result.');
+      return;
+    }
+
+    const resolvedPickup = normalizeLocation(pickupLocationRef.current || pickupLocation);
+    if (!resolvedPickup) {
+      setError('Select a pickup location before calculating the trip.');
+      return;
+    }
+
+    const distanceKm = calculateDirectDistanceKm(resolvedPickup, resolvedDestination);
+    if (!(distanceKm > 0)) {
+      setError('Could not calculate distance for the selected locations.');
+      return;
+    }
+
+    setRoutePreviewLocations({ pickup: resolvedPickup, dropoff: resolvedDestination });
+    setRoutePreviewDistanceKm(distanceKm);
+    const immediateFare = createLocalFareEstimate(
+      distanceKm,
+      effectiveSelectedVehicleTypeId,
+      effectiveRideProduct,
+    );
+    if (immediateFare) {
+      setFare(immediateFare);
+    }
+    setError('');
+    refreshDriverDiscoveryRef.current?.({ silent: false, force: true }).catch(() => null);
+  }, [
+    dropoffLocation,
+    dropoffQuery,
+    effectiveRideProduct,
+    effectiveSelectedVehicleTypeId,
+    normalizeLocation,
+    pickupLocation,
+    resolveLocationFromQuery,
+  ]);
   useEffect(() => {
     voiceIntentResolverRef.current = async ({ pickupText, destinationText }) => {
       if (pickupText) {
@@ -4990,6 +5039,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
               value={dropoffQuery}
               onFocus={() => setSelectingPoint('dropoff')}
               onChangeText={(text) => handleSearchTextChange('dropoff', text)}
+              onBlur={handleDestinationBlur}
+              onSubmitEditing={handleDestinationBlur}
               placeholder={quickCopy.destinationPlaceholder}
               placeholderTextColor="#7A8A80"
               returnKeyType="search"
@@ -5552,6 +5603,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                     style={[styles.input, isMobileWeb && styles.inputMobile]}
                     value={dropoffQuery}
                     onChangeText={(text) => handleSearchTextChange('dropoff', text)}
+                    onBlur={handleDestinationBlur}
+                    onSubmitEditing={handleDestinationBlur}
                     placeholder={t.dropPlaceholder}
                     placeholderTextColor={COLORS.textMuted}
                   />
@@ -5678,6 +5731,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                     style={styles.input}
                     value={dropoffQuery}
                     onChangeText={(text) => handleSearchTextChange('dropoff', text)}
+                    onBlur={handleDestinationBlur}
+                    onSubmitEditing={handleDestinationBlur}
                     placeholder={t.dropPlaceholder}
                     placeholderTextColor={COLORS.textMuted}
                   />
