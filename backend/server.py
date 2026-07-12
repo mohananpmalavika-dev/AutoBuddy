@@ -4043,10 +4043,11 @@ def build_trip_distance_tracking_update(
 
 
 def calculate_actual_trip_duration_minutes(booking: Dict[str, Any], completed_at: datetime) -> float:
-    started_at = booking.get("trip_started_at")
-    if not isinstance(started_at, datetime):
+    started_at = as_utc_naive(booking.get("trip_started_at"))
+    completed_at_utc = as_utc_naive(completed_at)
+    if not started_at or not completed_at_utc:
         return 0.0
-    return max(0.0, (completed_at - started_at).total_seconds() / 60.0)
+    return max(0.0, (completed_at_utc - started_at).total_seconds() / 60.0)
 
 
 def calculate_waiting_charge(
