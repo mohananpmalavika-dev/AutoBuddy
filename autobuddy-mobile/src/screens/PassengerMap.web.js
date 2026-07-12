@@ -1873,6 +1873,19 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     pickupLocation,
     resolveLocationFromQuery,
   ]);
+  // Destination text can be populated by voice without focusing the input,
+  // so blur alone is not sufficient. Resolve and calculate after text settles.
+  useEffect(() => {
+    const query = String(dropoffQuery || '').trim();
+    const activePickup = normalizeLocation(pickupLocationRef.current || pickupLocation);
+    if (query.length < 3 || !activePickup) {
+      return undefined;
+    }
+    const timer = setTimeout(() => {
+      handleDestinationBlur().catch(() => null);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [dropoffQuery, handleDestinationBlur, normalizeLocation, pickupLocation]);
   useEffect(() => {
     voiceIntentResolverRef.current = async ({ pickupText, destinationText }) => {
       if (pickupText) {
