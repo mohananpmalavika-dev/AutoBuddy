@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Linking,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
-import { apiRequest } from '../lib/api';
+import { apiDownloadBlob, apiRequest } from '../lib/api';
 import {
   appendPickerAssetToFormData,
   getPickerAssetSize,
@@ -151,6 +151,7 @@ export default function DocumentUploadPanel({ token, loading: parentLoading = fa
   const [loading, setLoading] = useState(false);
   const [uploadingDocType, setUploadingDocType] = useState(null);
   const [deletingDocType, setDeletingDocType] = useState(null);
+  const [viewingDocType, setViewingDocType] = useState(null);
   const [selectedDocType, setSelectedDocType] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailDocument, setDetailDocument] = useState(null);
@@ -348,16 +349,55 @@ export default function DocumentUploadPanel({ token, loading: parentLoading = fa
   );
 
   const openDownload = useCallback(async (document) => {
-    if (!document?.download_url) {
+    const docType = document?.doc_type || document?.type;
+    const downloadPath = document?.download_url || (docType ? `/drivers/documents/${encodeURIComponent(docType)}/download` : '');
+
+    if (!downloadPath) {
       Alert.alert('Document Unavailable', 'This document does not have a downloadable file yet.');
       return;
     }
-    try {
-      await Linking.openURL(document.download_url);
-    } catch (err) {
-      Alert.alert('Open Failed', err.message || 'Could not open document');
+
+    if (Platform.OS !== 'web') {
+      Alert.alert('Open on Web', 'Document preview uses secure browser download. Please open this page on web to view the file.');
+      return;
     }
-  }, []);
+
+    let previewWindow = null;
+    if (typeof window !== 'undefined' && typeof window.open === 'function') {
+      previewWindow = window.open('', '_blank');
+      if (previewWindow) {
+        previewWindow.opener = null;
+        previewWindow.document.title = document.filename || 'Document preview';
+        previewWindow.document.body.innerHTML = '<p style="font: 16px sans-serif; padding: 24px;">Opening document...</p>';
+      }
+    }
+
+    try {
+      setViewingDocType(docType || document.id || document.filename || 'document');
+      setError('');
+      const file = await apiDownloadBlob(downloadPath, { token });
+      const objectUrl = URL.createObjectURL(file.blob);
+
+      if (previewWindow && !previewWindow.closed) {
+        previewWindow.location.href = objectUrl;
+      } else if (typeof window !== 'undefined' && typeof window.open === 'function') {
+        const opened = window.open(objectUrl, '_blank', 'noopener,noreferrer');
+        if (!opened) {
+          URL.revokeObjectURL(objectUrl);
+          throw new Error('Popup blocked. Please allow pop-ups for AutoBuddy and try again.');
+        }
+      }
+
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+    } catch (err) {
+      if (previewWindow && !previewWindow.closed) {
+        previewWindow.close();
+      }
+      Alert.alert('Open Failed', err.message || 'Could not open document');
+    } finally {
+      setViewingDocType(null);
+    }
+  }, [token]);
 
   const verificationSummary = useMemo(() => {
     const values = Object.values(documents);
@@ -382,7 +422,8 @@ export default function DocumentUploadPanel({ token, loading: parentLoading = fa
   const renderDetail = (docType) => {
     const document = detailDocument?.doc_type === docType ? detailDocument : documents[docType];
     const isUploaded = Boolean(document.filename || document.uploaded_at);
-    const isBusy = uploadingDocType === docType || deletingDocType === docType || detailLoading;
+    const isViewing = viewingDocType === docType;
+    const isBusy = uploadingDocType === docType || deletingDocType === docType || isViewing || detailLoading;
 
     return (
       <View style={styles.detailPanel}>
@@ -429,7 +470,7 @@ export default function DocumentUploadPanel({ token, loading: parentLoading = fa
                 onPress={() => openDownload(document)}
                 disabled={!isUploaded || isBusy}
               >
-                <Text style={styles.secondaryButtonText}>View file</Text>
+                <Text style={styles.secondaryButtonText}>{isViewing ? 'Opening...' : 'View file'}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.secondaryButton, (!isUploaded || isBusy) && styles.buttonDisabled]}

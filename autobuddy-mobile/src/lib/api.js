@@ -329,6 +329,51 @@ function getRetryAfterCooldownMs(response) {
   return RATE_LIMIT_COOLDOWN_MS;
 }
 
+function getFilenameFromContentDisposition(value) {
+  const header = String(value || '');
+  if (!header) {
+    return '';
+  }
+
+  const utf8Match = header.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1].replace(/^"|"$/g, ''));
+    } catch {
+      return utf8Match[1].replace(/^"|"$/g, '');
+    }
+  }
+
+  const filenameMatch = header.match(/filename="?([^";]+)"?/i);
+  return filenameMatch?.[1]?.trim() || '';
+}
+
+function buildApiUrl(path, query) {
+  let normalizedPath = String(path || '');
+  let url;
+
+  if (/^https?:\/\//i.test(normalizedPath)) {
+    url = new URL(normalizedPath);
+  } else {
+    if (normalizedPath === '/api') {
+      normalizedPath = '';
+    } else if (normalizedPath.startsWith('/api/')) {
+      normalizedPath = normalizedPath.slice(4);
+    }
+    url = new URL(`${API_BASE_URL}${normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`}`);
+  }
+
+  if (query) {
+    Object.entries(query).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        url.searchParams.set(key, String(value));
+      }
+    });
+  }
+
+  return url;
+}
+
 function createRateLimitCooldownError(cooldownUntilMs) {
   const seconds = Math.max(1, Math.ceil((cooldownUntilMs - Date.now()) / 1000));
   const error = new Error(`Too many requests. Pausing this request for ${seconds}s.`);
@@ -454,6 +499,80 @@ export async function getFreshAccessToken(preferredToken = '', options = {}) {
   return refreshAccessToken();
 }
 
+export async function apiDownloadBlob(path, options = {}) {
+  const { token, query, timeoutMs = 60000, _retry = false } = options;
+  const url = buildApiUrl(path, query);
+  let effectiveToken = token ? String(token).trim() : '';
+
+  try {
+    const latestSession = await loadBestSession();
+    const latestToken = String(latestSession?.token || '').trim();
+    if (latestToken) {
+      effectiveToken = latestToken;
+    }
+  } catch {
+    // Ignore session read errors and continue with the caller-provided token.
+  }
+
+  if (effectiveToken && !_retry && isAccessTokenExpiringSoon(effectiveToken)) {
+    effectiveToken = await getFreshAccessToken(effectiveToken);
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      signal: controller.signal,
+      cache: 'no-store',
+      headers: {
+        Accept: '*/*',
+        'Cache-Control': 'no-store',
+        Pragma: 'no-cache',
+        ...(effectiveToken ? { Authorization: `Bearer ${effectiveToken}` } : {}),
+      },
+    });
+
+    if (!response.ok) {
+      const payload = await readResponsePayload(response);
+      if (response.status === 401 && !_retry) {
+        const newToken = await refreshAccessToken();
+        return apiDownloadBlob(path, {
+          ...options,
+          token: newToken,
+          _retry: true,
+        });
+      }
+
+      const message = extractErrorMessage(payload, response.status);
+      const error = new Error(message);
+      error.status = response.status;
+      error.payload = payload;
+      throw error;
+    }
+
+    if (effectiveToken) {
+      await safelyCall(extendSessionExpiry);
+    }
+
+    const blob = await response.blob();
+    return {
+      blob,
+      contentType: response.headers?.get?.('Content-Type') || blob.type || 'application/octet-stream',
+      filename: getFilenameFromContentDisposition(response.headers?.get?.('Content-Disposition')),
+      url: url.toString(),
+    };
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new Error('Document download timed out. Please check connection.');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function apiRequest(path, options = {}, legacyPath = undefined, legacyBody = undefined) {
   const requestArgs = Array.from(arguments);
   let shouldWrapLegacyResponse = false;
@@ -506,14 +625,7 @@ export async function apiRequest(path, options = {}, legacyPath = undefined, leg
     throw createBackendOutageError(backendOutageUntilMs);
   }
 
-  const url = new URL(`${API_BASE_URL}${normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`}`);
-  if (query) {
-    Object.entries(query).forEach(([key, value]) => {
-      if (value !== undefined && value !== null && value !== '') {
-        url.searchParams.set(key, String(value));
-      }
-    });
-  }
+  const url = buildApiUrl(normalizedPath, query);
 
   const isAuthPath =
     normalizedPath.includes('/auth/login') ||

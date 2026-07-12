@@ -12,4 +12,4 @@ services:
       - key: FEATURE_DATABASE_URL
         sync: false
       - key: GOOGLE_OAUTH_CLIENT_ID
-        sync: false
+        value: 475485627719-lgd8c3sgr1d5unie68d2qjcifjoolt5f.apps.googleusercontent.com

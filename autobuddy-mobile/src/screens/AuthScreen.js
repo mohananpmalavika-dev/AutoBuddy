@@ -111,11 +111,16 @@ function shouldRetryGoogleAsLogin(error) {
   const status = Number(error?.status || 0);
   const message = String(error?.message || '').toLowerCase();
   return (
-    message.includes('already registered') ||
     message.includes('database temporarily unavailable') ||
     message.includes('temporarily unavailable') ||
     status === 503
   );
+}
+
+function isGoogleAccountAlreadyRegistered(error) {
+  const status = Number(error?.status || 0);
+  const message = String(error?.message || '').toLowerCase();
+  return status === 400 && message.includes('already registered');
 }
 
 function isRegistrationPendingVerification(error) {
@@ -557,6 +562,14 @@ export default function AuthScreen({ onAuthenticated }) {
         try {
           await submitGoogleIdToken(idToken, registerPayload);
         } catch (registerError) {
+          if (isGoogleAccountAlreadyRegistered(registerError)) {
+            resetFeedback();
+            setMode('login');
+            setAuthMethod('google');
+            setSuccess('This Gmail account is already registered. Tap Continue with Google to sign in.');
+            return;
+          }
+
           if (isRegistrationPendingVerification(registerError)) {
             resetFeedback();
             setMode('login');

@@ -1719,8 +1719,10 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   };
 
   const parseLocations = () => {
-    const activePickupLocation = pickupLocation || pickupLocationRef.current || routePreviewLocations.pickup;
-    const activeDropoffLocation = dropoffLocation || dropoffLocationRef.current || routePreviewLocations.dropoff;
+    const activePickupLocation =
+      pickupLocation || pickupLocationRef.current || routePreviewLocations.pickup || selectedPickupLocation;
+    const activeDropoffLocation =
+      dropoffLocation || dropoffLocationRef.current || routePreviewLocations.dropoff || selectedDropoffLocation;
     const safePickupLocation = normalizeLocation(activePickupLocation);
     const safeDropoffLocation = normalizeLocation(activeDropoffLocation);
     const missingPickup = !safePickupLocation;
@@ -3404,6 +3406,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
 
   const refreshNearbyDriversForMenu = useCallback(async ({ silent = false } = {}) => {
     const lookupLocation = await resolveNearbyDriverLookupLocation();
+    const activeDropoffLocation = normalizeLocation(
+      dropoffLocation || dropoffLocationRef.current || routePreviewLocations.dropoff || selectedDropoffLocation,
+    );
     if (!lookupLocation) {
       setNearbyDrivers([]);
       setSelectedDriverId('');
@@ -3424,9 +3429,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         vehicle_subtype_id: vehicleSubtypeId || undefined,
         ride_type: effectiveRideProduct || undefined,
       };
-      if (dropoffLocation) {
-        query.drop_latitude = dropoffLocation.latitude;
-        query.drop_longitude = dropoffLocation.longitude;
+      if (activeDropoffLocation) {
+        query.drop_latitude = activeDropoffLocation.latitude;
+        query.drop_longitude = activeDropoffLocation.longitude;
       }
 
       const [drivers, favorites, blocked] = await Promise.all([
@@ -3459,16 +3464,23 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     dropoffLocation,
     effectiveRideProduct,
     effectiveSelectedVehicleTypeId,
+    normalizeLocation,
     resolveEffectiveVehicleModelId,
     resolveNearbyDriverLookupLocation,
+    routePreviewLocations.dropoff,
+    selectedDropoffLocation,
     t.couldNotAutoCalculate,
     t.couldNotFetchCurrentLocation,
     token,
   ]);
 
   const refreshDriverDiscovery = useCallback(async ({ silent = false, force = false } = {}) => {
-    const activePickupLocation = normalizeLocation(pickupLocation || pickupLocationRef.current);
-    const activeDropoffLocation = normalizeLocation(dropoffLocation || dropoffLocationRef.current);
+    const activePickupLocation = normalizeLocation(
+      pickupLocation || pickupLocationRef.current || routePreviewLocations.pickup || selectedPickupLocation,
+    );
+    const activeDropoffLocation = normalizeLocation(
+      dropoffLocation || dropoffLocationRef.current || routePreviewLocations.dropoff || selectedDropoffLocation,
+    );
 
     if (!activePickupLocation || !activeDropoffLocation) {
       setFare(null);
@@ -3612,6 +3624,10 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     normalizeLocation,
     pickupLocation,
     resolveEffectiveVehicleModelId,
+    routePreviewLocations.dropoff,
+    routePreviewLocations.pickup,
+    selectedDropoffLocation,
+    selectedPickupLocation,
     t.couldNotAutoCalculate,
     token,
   ]);
@@ -3621,7 +3637,13 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   }, [refreshDriverDiscovery]);
 
   useEffect(() => {
-    if (!pickupLocation || !dropoffLocation) {
+    const activePickupLocation = normalizeLocation(
+      pickupLocation || pickupLocationRef.current || routePreviewLocations.pickup || selectedPickupLocation,
+    );
+    const activeDropoffLocation = normalizeLocation(
+      dropoffLocation || dropoffLocationRef.current || routePreviewLocations.dropoff || selectedDropoffLocation,
+    );
+    if (!activePickupLocation || !activeDropoffLocation) {
       return undefined;
     }
     const timer = setTimeout(() => {
@@ -3630,7 +3652,18 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     return () => {
       clearTimeout(timer);
     };
-  }, [dropoffLocation, pickupLocation, refreshDriverDiscovery, effectiveSelectedVehicleTypeId, effectiveRideProduct]);
+  }, [
+    dropoffLocation,
+    effectiveRideProduct,
+    effectiveSelectedVehicleTypeId,
+    normalizeLocation,
+    pickupLocation,
+    refreshDriverDiscovery,
+    routePreviewLocations.dropoff,
+    routePreviewLocations.pickup,
+    selectedDropoffLocation,
+    selectedPickupLocation,
+  ]);
 
   useEffect(() => {
     if (activePassengerMenu !== 'drivers') {
@@ -4213,25 +4246,34 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const quickDistanceLabel =
     resolvedTripDistanceKm > 0 ? `${resolvedTripDistanceKm.toFixed(1)} km` : 'Distance calculating';
   const quickEtaLabel = visibleDrivers.length > 0 ? `${Math.min(visibleDrivers.length, 5)} within 2 km` : autoFetchingTripData ? 'Finding drivers' : 'Driver search live';
+  const quickPickupIntentText = String(pickupQuery || '').trim();
+  const quickDropoffIntentText = String(dropoffQuery || '').trim();
+  const quickHasPickupIntent = Boolean(effectivePickupLocation || quickPickupIntentText);
+  const quickHasDropoffIntent = Boolean(effectiveDropoffLocation || quickDropoffIntentText);
   const quickBookingReady = Boolean(
-    (effectivePickupLocation && effectiveDropoffLocation) ||
-      routePreviewDistanceKm > 0 ||
-      (String(pickupQuery || '').trim() && String(dropoffQuery || '').trim()),
+    (quickHasPickupIntent && quickHasDropoffIntent) ||
+      (effectivePickupLocation && routePreviewDistanceKm > 0),
   );
-  const quickBookingStep = !effectiveDropoffLocation ? 1 : quickBookingReady && !fare && autoFetchingTripData ? 2 : 3;
+  const quickBookingStep = !quickHasDropoffIntent ? 1 : quickBookingReady && !fare && autoFetchingTripData ? 2 : 3;
   const quickDestinationText = effectiveDropoffLocation?.address || dropoffQuery || '';
   const quickPickupText = effectivePickupLocation?.address || pickupQuery || 'Use current location';
 
   const handleQuickConfirmRide = async () => {
-    let activePickupLocation = normalizeLocation(pickupLocation || pickupLocationRef.current || routePreviewLocations.pickup);
-    let activeDropoffLocation = normalizeLocation(dropoffLocation || dropoffLocationRef.current || routePreviewLocations.dropoff);
+    let activePickupLocation = normalizeLocation(
+      pickupLocation || pickupLocationRef.current || routePreviewLocations.pickup || selectedPickupLocation,
+    );
+    let activeDropoffLocation = normalizeLocation(
+      dropoffLocation || dropoffLocationRef.current || routePreviewLocations.dropoff || selectedDropoffLocation,
+    );
     if (!activePickupLocation) {
       if (pickupQuery.trim()) {
         activePickupLocation = await resolveLocationFromQuery('pickup', pickupQuery);
       }
       if (!activePickupLocation) {
         await autofillPickupFromCurrentLocation({ silent: false });
-        activePickupLocation = normalizeLocation(pickupLocationRef.current || pickupLocation || routePreviewLocations.pickup);
+        activePickupLocation = normalizeLocation(
+          pickupLocationRef.current || pickupLocation || routePreviewLocations.pickup || selectedPickupLocation,
+        );
       }
       if (!activePickupLocation) {
         setLocationValidation((prev) => ({ ...prev, pickup: true }));
