@@ -364,6 +364,9 @@ function normalizeDistanceKm(value) {
 
 function firstFiniteNumber(...values) {
   for (const value of values) {
+    if (value === null || value === undefined || (typeof value === 'string' && value.trim() === '')) {
+      continue;
+    }
     const number = Number(value);
     if (Number.isFinite(number)) {
       return number;
