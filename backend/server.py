@@ -11064,6 +11064,9 @@ async def places_autocomplete(
         "limit": 20,
     }
     
+    normalized_country_code = str(country_code or "").strip().lower()
+    if normalized_country_code:
+        params["countrycodes"] = normalized_country_code
     # Add proximity bias if coordinates provided
     if latitude is not None and longitude is not None:
         params["viewbox"] = f"{longitude - 0.5},{latitude - 0.5},{longitude + 0.5},{latitude + 0.5}"

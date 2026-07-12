@@ -148,9 +148,14 @@ export async function searchPlaces(query, options = {}) {
     longitude: options.longitude,
     radius: options.radius || 50000,
   });
-  return Array.isArray(results)
+  const normalizedResults = Array.isArray(results)
     ? results.map((item) => normalizePlaceResult(item, 'Place')).filter(Boolean)
     : [];
+  const countryCode = String(options.countryCode || '').trim().toLowerCase();
+  if (countryCode === 'in') {
+    return normalizedResults.filter((item) => /(?:^|,\s*)india\s*$/i.test(String(item.address || item.description || '')));
+  }
+  return normalizedResults;
 }
 
 export async function getPlaceLocation(placeIdOrSuggestion) {

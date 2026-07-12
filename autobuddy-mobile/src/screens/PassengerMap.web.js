@@ -836,6 +836,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const pickupAddressRequestRef = useRef(0);
   const dropAddressRequestRef = useRef(0);
   const routeAutoResolveRequestRef = useRef(0);
+  const voiceIntentResolverRef = useRef(null);
   const socketRef = useRef(null);
   const refreshPassengerBookingsRef = useRef(null);
   const passengerPollInFlightRef = useRef(false);
@@ -984,8 +985,15 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           setPickupLocation(null);
         }
         if (intent?.destinationText || intent?.destinationLabel) {
-          setDropoffQuery(intent.destinationLabel || intent.destinationText);
+          const destinationText = intent.destinationText || intent.destinationLabel;
+          setDropoffQuery(destinationText);
           setDropoffLocation(null);
+          setTimeout(() => {
+            voiceIntentResolverRef.current?.({
+              pickupText: intent.pickupText || '',
+              destinationText,
+            });
+          }, 0);
         }
         setActivePassengerMenu(PRIMARY_PASSENGER_MENU_KEY);
         setMessage(intent?.displaySummary || '');
@@ -1816,6 +1824,20 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     [getPlaceLocation, normalizeLocation, placesConfigured, searchBias.latitude, searchBias.longitude, searchPlaces, setLocationForPoint],
   );
 
+  useEffect(() => {
+    voiceIntentResolverRef.current = async ({ pickupText, destinationText }) => {
+      if (pickupText) {
+        await resolveLocationFromQuery('pickup', pickupText);
+      }
+      const resolvedDestination = await resolveLocationFromQuery('dropoff', destinationText);
+      if (!resolvedDestination) {
+        setError('Could not locate that destination in India. Please select a search result.');
+      }
+    };
+    return () => {
+      voiceIntentResolverRef.current = null;
+    };
+  }, [resolveLocationFromQuery]);
   useEffect(() => {
     const pickupText = String(pickupQuery || '').trim();
     const dropoffText = String(dropoffQuery || '').trim();
