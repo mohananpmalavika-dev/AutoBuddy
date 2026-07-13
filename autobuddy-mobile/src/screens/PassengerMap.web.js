@@ -1813,13 +1813,24 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
 
     if (nextPickupLocation && nextDropoffLocation) {
       // Immediate trigger for driver/fare discovery to update button state faster
+      console.log('[TRIGGERING_DRIVER_DISCOVERY]', {
+        hasPickup: !!nextPickupLocation,
+        hasDropoff: !!nextDropoffLocation,
+        refIsFunction: typeof refreshDriverDiscoveryRef.current === 'function',
+        timestamp: new Date().toISOString()
+      });
       setTimeout(() => {
         try {
           if (typeof refreshDriverDiscoveryRef.current === 'function') {
-            refreshDriverDiscoveryRef.current({ silent: false, force: true }).catch(() => null);
+            console.log('[CALLING_DRIVER_DISCOVERY]', { timestamp: new Date().toISOString() });
+            refreshDriverDiscoveryRef.current({ silent: false, force: true }).catch((err) => {
+              console.error('[DRIVER_DISCOVERY_ERROR]', err);
+            });
+          } else {
+            console.warn('[DRIVER_DISCOVERY_REF_NOT_READY]', { timestamp: new Date().toISOString() });
           }
         } catch (e) {
-          // ignore
+          console.error('[DRIVER_DISCOVERY_CATCH_ERROR]', e);
         }
       }, 50); // Reduced from 120ms to 50ms for faster response
     }
