@@ -5197,12 +5197,6 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
                 {displayLabel}
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.quickChoiceChip}
-              onPress={() => handleMenuSelection('payment', t.payment || 'Payment')}>
-              <Text style={styles.quickChoiceLabel}>{quickCopy.payment}</Text>
-              <Text style={styles.quickChoiceValue}>{selectedPaymentMethod === 'online' ? quickCopy.online : quickCopy.cash}</Text>
-            </TouchableOpacity>
           </View>
         );
       })()}

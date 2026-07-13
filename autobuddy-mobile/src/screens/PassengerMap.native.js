@@ -3798,12 +3798,6 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
             {selectedRideChoiceLabel || 'Auto / Standard / Normal'}
           </Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.quickChoiceChip}
-          onPress={() => handleMenuSelection('payment', 'Payment')}>
-          <Text style={styles.quickChoiceLabel}>Payment</Text>
-          <Text style={styles.quickChoiceValue}>{selectedPaymentMethod === 'online' ? 'Online' : 'Cash'}</Text>
-        </TouchableOpacity>
       </View>
 
       <View style={styles.quickFareCard}>
