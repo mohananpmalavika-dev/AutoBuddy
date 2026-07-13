@@ -5250,7 +5250,18 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         onPress={handleQuickConfirmRide}
         disabled={loading || !quickBookingReady}>
         <Text style={styles.quickConfirmText}>
-          {loading ? quickCopy.requesting : quickBookingReady ? quickCopy.confirm : quickCopy.selectDestination}
+          {(() => {
+            const buttonText = loading ? quickCopy.requesting : quickBookingReady ? quickCopy.confirm : quickCopy.selectDestination;
+            console.log('[BUTTON_TEXT_ACTUAL_RENDER]', {
+              loading,
+              quickBookingReady,
+              quickCopyConfirm: quickCopy.confirm,
+              quickCopySelectDestination: quickCopy.selectDestination,
+              buttonText,
+              timestamp: new Date().toISOString()
+            });
+            return buttonText;
+          })()}
         </Text>
       </TouchableOpacity>
 
