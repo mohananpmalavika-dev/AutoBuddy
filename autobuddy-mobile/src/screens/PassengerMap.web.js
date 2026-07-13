@@ -4394,11 +4394,13 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const quickDropoffIntentText = String(dropoffQuery || '').trim();
   const quickHasDropoffIntent = Boolean(effectiveDropoffLocation || quickDropoffIntentText);
   
-  // FIX: Consider booking ready if we have both locations AND distance (even without fare loaded yet)
+  // CRITICAL FIX: Consider booking ready if we have both locations (distance will update momentarily)
+  // The issue was that after selecting a location, fare is cleared causing fareDistanceKm to be 0,
+  // and if directTripDistanceKm or routePreviewDistanceKm haven't updated yet, resolvedTripDistanceKm stays 0
+  // But we should still show "Confirm Ride" if both locations are selected
   const quickBookingReady = Boolean(
     effectivePickupLocation &&
-      effectiveDropoffLocation &&
-      resolvedTripDistanceKm > 0,
+      effectiveDropoffLocation
   );
   
   // FIX: Improved step calculation - step 3 (ready) if both locations exist with distance
