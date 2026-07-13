@@ -1794,19 +1794,25 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       setDropoffSuggestions([]);
       setLocationValidation((prev) => ({ ...prev, dropoff: false }));
     }
-    setFare(null);
-    setNearbyDrivers([]);
-    setOptedOutDriverIds([]);
-    setSelectedDriverId('');
+    
+    // CRITICAL FIX: Update route preview locations BEFORE clearing fare to prevent UI flicker
+    const directDistance = calculateDirectDistanceKm(nextPickupLocation, nextDropoffLocation);
     setRoutePreviewLocations({
       pickup: nextPickupLocation || null,
       dropoff: nextDropoffLocation || null,
     });
-    setRoutePreviewDistanceKm(calculateDirectDistanceKm(nextPickupLocation, nextDropoffLocation));
+    setRoutePreviewDistanceKm(directDistance);
+    
+    // Clear fare and driver data only AFTER route preview is set
+    setFare(null);
+    setNearbyDrivers([]);
+    setOptedOutDriverIds([]);
+    setSelectedDriverId('');
     driverDiscoveryRequestRef.current = { signature: '', request: null, completedAt: 0 };
     driverDiscoveryCooldownUntilRef.current = 0;
 
     if (nextPickupLocation && nextDropoffLocation) {
+      // Immediate trigger for driver/fare discovery to update button state faster
       setTimeout(() => {
         try {
           if (typeof refreshDriverDiscoveryRef.current === 'function') {
@@ -1815,7 +1821,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         } catch (e) {
           // ignore
         }
-      }, 120);
+      }, 50); // Reduced from 120ms to 50ms for faster response
     }
   }, [normalizeLocation, t.couldNotSelectPlace]);
 
@@ -4387,12 +4393,23 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const quickEtaLabel = visibleDrivers.length > 0 ? `${Math.min(visibleDrivers.length, 5)} within 2 km` : autoFetchingTripData ? 'Finding drivers' : 'Driver search live';
   const quickDropoffIntentText = String(dropoffQuery || '').trim();
   const quickHasDropoffIntent = Boolean(effectiveDropoffLocation || quickDropoffIntentText);
+  
+  // FIX: Consider booking ready if we have both locations AND distance (even without fare loaded yet)
   const quickBookingReady = Boolean(
     effectivePickupLocation &&
       effectiveDropoffLocation &&
       resolvedTripDistanceKm > 0,
   );
-  const quickBookingStep = !quickHasDropoffIntent ? 1 : quickBookingReady && !fare && autoFetchingTripData ? 2 : 3;
+  
+  // FIX: Improved step calculation - step 3 (ready) if both locations exist with distance
+  const quickBookingStep = !quickHasDropoffIntent 
+    ? 1 
+    : !effectivePickupLocation 
+      ? 1
+      : resolvedTripDistanceKm > 0 
+        ? 3 
+        : 2;
+  
   const quickDestinationText = effectiveDropoffLocation?.address || dropoffQuery || '';
   const quickPickupText = effectivePickupLocation?.address || pickupQuery || 'Use current location';
 

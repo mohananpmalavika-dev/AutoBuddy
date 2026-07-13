@@ -84,10 +84,16 @@ setTimeout(() => {
   - Line ~1129: `quickBookingStep` calculation - simplified logic
   - Line ~1139: `quickBookingReady` determination - clearer comments
 
+- `autobuddy-mobile/src/screens/PassengerMap.web.js`
+  - Line ~1772: `setLocationForPoint()` function - reordered state updates
+  - Line ~4396: `quickBookingStep` calculation - simplified logic
+  - Line ~4401: `quickBookingReady` determination - clearer comments
+
 ## Impact
 - **User Experience**: Button now shows correct state immediately after destination selection
 - **Performance**: Slightly faster response (50ms vs 120ms timeout)
 - **Reliability**: State updates are synchronized properly, preventing UI flicker
+- **Platform Coverage**: Fix applied to both mobile native and web versions for consistency
 
 ## Technical Notes
 The fix ensures that:
