@@ -5243,13 +5243,16 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       </View>
 
       <TouchableOpacity
+        key={`confirm-btn-${quickBookingReady}-${loading}`}
         style={[
           styles.quickConfirmButton,
           (!quickBookingReady || loading) && styles.quickConfirmButtonDisabled,
         ]}
         onPress={handleQuickConfirmRide}
         disabled={loading || !quickBookingReady}>
-        <Text style={styles.quickConfirmText}>
+        <Text 
+          style={styles.quickConfirmText}
+          key={`button-${quickBookingReady}-${loading}`}>
           {(() => {
             const buttonText = loading ? quickCopy.requesting : quickBookingReady ? quickCopy.confirm : quickCopy.selectDestination;
             console.log('[BUTTON_TEXT_ACTUAL_RENDER]', {
