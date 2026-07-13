@@ -4379,6 +4379,18 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const directTripDistanceKm = calculateDirectDistanceKm(effectivePickupLocation, effectiveDropoffLocation);
   const fareDistanceKm = getFareDistanceKm(fare);
   const resolvedTripDistanceKm = fareDistanceKm || directTripDistanceKm || routePreviewDistanceKm;
+  
+  // DEBUG: Log distance calculation
+  console.log('[DISTANCE_CALCULATION]', {
+    effectivePickupLocation: effectivePickupLocation ? `${effectivePickupLocation.address?.substring(0, 30)}...` : 'NULL',
+    effectiveDropoffLocation: effectiveDropoffLocation ? `${effectiveDropoffLocation.address?.substring(0, 30)}...` : 'NULL',
+    directTripDistanceKm,
+    fareDistanceKm,
+    routePreviewDistanceKm,
+    resolvedTripDistanceKm,
+    timestamp: new Date().toISOString()
+  });
+  
   const localQuickFareEstimate = createLocalFareEstimate(
     resolvedTripDistanceKm,
     effectiveSelectedVehicleTypeId,
