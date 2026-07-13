@@ -463,6 +463,27 @@ function getFareDistanceKm(fareEstimate) {
   return 0;
 }
 
+function parseCoordinateLocationText(value) {
+  const text = String(value || '').trim();
+  const match = text.match(/(?:location at|lat)?\s*(-?\d{1,2}(?:\.\d+)?)\s*,\s*(?:lng)?\s*(-?\d{1,3}(?:\.\d+)?)/i);
+  if (!match) {
+    return null;
+  }
+  const latitude = Number(match[1]);
+  const longitude = Number(match[2]);
+  if (
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude) ||
+    latitude < -90 ||
+    latitude > 90 ||
+    longitude < -180 ||
+    longitude > 180
+  ) {
+    return null;
+  }
+  return { latitude, longitude, address: text };
+}
+
 function calculateDirectDistanceKm(origin, destination) {
   const originLatitude = readLocationLatitude(origin);
   const originLongitude = readLocationLongitude(origin);
@@ -4322,7 +4343,14 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       .filter(Boolean)
       .slice(0, 3);
   }, [normalizeLocation, passengerBookings]);
-  const effectivePickupLocation = pickupLocation || routePreviewLocations.pickup || pickupLocationRef.current || selectedPickupLocation;
+  const coordinatePickupLocation = parseCoordinateLocationText(pickupQuery);
+  const coordinateDropoffLocation = parseCoordinateLocationText(dropoffQuery);
+  const effectivePickupLocation =
+    pickupLocation ||
+    routePreviewLocations.pickup ||
+    pickupLocationRef.current ||
+    coordinatePickupLocation ||
+    selectedPickupLocation;
   const cachedDropoffLocation = normalizeLocation(lastResolvedDropoffLocationRef.current);
   const cachedDropoffMatchesQuery = Boolean(
     cachedDropoffLocation &&
@@ -4333,6 +4361,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     routePreviewLocations.dropoff ||
     dropoffLocationRef.current ||
     (cachedDropoffMatchesQuery ? cachedDropoffLocation : null) ||
+    coordinateDropoffLocation ||
     selectedDropoffLocation;
   const directTripDistanceKm = calculateDirectDistanceKm(effectivePickupLocation, effectiveDropoffLocation);
   const fareDistanceKm = getFareDistanceKm(fare);
