@@ -59,6 +59,7 @@ export default function AdminDashboard({
   const { metrics, loading: metricsLoading, error: metricsError, refetch: refetchMetrics } = useAdminMetrics(token, timeRange);
   const { health, loading: healthLoading, error: healthError, refetch: refetchHealth } = useSystemHealth(token);
   const { alerts, loading: alertsLoading, error: alertsError, refetch: refetchAlerts } = useAdminAlerts(token);
+  const safeAlerts = Array.isArray(alerts) ? alerts : [];
   const safeMetrics = {
     newDriversToday: 0,
     openTickets: 0,
@@ -237,21 +238,21 @@ export default function AdminDashboard({
         </View>
 
         {/* Critical Alerts */}
-        {(alerts || []).filter(a => a?.severity === 'critical' || a?.severity === 'high')
+        {safeAlerts.filter(a => a?.severity === 'critical' || a?.severity === 'high')
           .length > 0 && (
           <View style={styles.card}>
             <View style={styles.cardHeader}>
               <Text style={styles.cardTitle}>
                 🚨 ALERTS (
-                {(alerts || []).filter(a => a?.severity === 'critical').length})
+                {safeAlerts.filter(a => a?.severity === 'critical').length})
               </Text>
               <Pressable>
                 <Text style={styles.viewAllLink}>View all</Text>
               </Pressable>
             </View>
-            {(alerts || []).slice(0, 3).map(alert => (
+            {safeAlerts.slice(0, 3).map(alert => (
               <View
-                key={alert?.id || Math.random()}
+                key={alert?.id || `${alert?.title || 'alert'}-${alert?.message || 'no-details'}`}
                 style={[
                   styles.alertItem,
                   { borderLeftColor: getSeverityColor(alert?.severity) },

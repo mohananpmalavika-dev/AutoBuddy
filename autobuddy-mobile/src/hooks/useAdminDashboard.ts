@@ -41,6 +41,29 @@ export interface AdminAlert {
   actionable: boolean;
 }
 
+type AdminAlertsResponse =
+  | AdminAlert[]
+  | {
+      alerts?: AdminAlert[];
+      data?: AdminAlert[] | { alerts?: AdminAlert[] };
+    };
+
+export function normalizeAdminAlertsResponse(response: AdminAlertsResponse | null | undefined): AdminAlert[] {
+  if (Array.isArray(response)) {
+    return response;
+  }
+  if (Array.isArray(response?.alerts)) {
+    return response.alerts;
+  }
+  if (Array.isArray(response?.data)) {
+    return response.data;
+  }
+  if (response?.data && !Array.isArray(response.data) && Array.isArray(response.data.alerts)) {
+    return response.data.alerts;
+  }
+  return [];
+}
+
 export interface ComplianceData {
   score: number;
   totalChecks: number;
@@ -249,11 +272,11 @@ export function useAdminAlerts(token: string | null) {
     try {
       setLoading(true);
       setError(null);
-      const response = await apiRequest<AdminAlert[]>(
+      const response = await apiRequest<AdminAlertsResponse>(
         '/admin/alerts',
         { token }
       );
-      setAlerts(response || []);
+      setAlerts(normalizeAdminAlertsResponse(response));
     } catch (err: unknown) {
       const apiError = err as any;
       setError({
