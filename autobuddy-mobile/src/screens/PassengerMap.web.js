@@ -4403,6 +4403,16 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       effectiveDropoffLocation
   );
   
+  // DEBUG: Log to verify the fix is working
+  console.log('[BUTTON_STATE_FIX_APPLIED]', {
+    quickBookingReady,
+    hasPickup: !!effectivePickupLocation,
+    hasDropoff: !!effectiveDropoffLocation,
+    pickupAddr: effectivePickupLocation?.address?.substring(0, 40),
+    dropoffAddr: effectiveDropoffLocation?.address?.substring(0, 40),
+    timestamp: new Date().toISOString()
+  });
+  
   // FIX: Improved step calculation - step 3 (ready) if both locations exist with distance
   const quickBookingStep = !quickHasDropoffIntent 
     ? 1 
