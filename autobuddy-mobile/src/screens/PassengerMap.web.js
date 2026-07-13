@@ -4404,7 +4404,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   );
   
   // DEBUG: Log to verify the fix is working
-  console.log('[BUTTON_STATE_FIX_APPLIED]', {
+  console.log('[BUTTON_STATE_FIX_APPLIEDAA]', {
     quickBookingReady,
     hasPickup: !!effectivePickupLocation,
     hasDropoff: !!effectiveDropoffLocation,
