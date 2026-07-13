@@ -865,6 +865,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const [routePreviewDistanceKm, setRoutePreviewDistanceKm] = useState(0);
   const pickupLocationRef = useRef(null);
   const dropoffLocationRef = useRef(null);
+  const lastResolvedDropoffLocationRef = useRef(null);
   const refreshDriverDiscoveryRef = useRef(null);
 
   useEffect(() => {
@@ -1433,6 +1434,8 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         setPickupLocation(hydratedLocation);
         setPickupQuery(address);
       } else {
+        lastResolvedDropoffLocationRef.current = hydratedLocation;
+        dropoffLocationRef.current = hydratedLocation;
         setDropoffLocation(hydratedLocation);
         setDropoffQuery(address);
       }
@@ -1765,6 +1768,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       setLocationValidation((prev) => ({ ...prev, pickup: false }));
     } else {
       dropoffLocationRef.current = safeLocation;
+      lastResolvedDropoffLocationRef.current = safeLocation;
       setDropoffLocation(safeLocation);
       setDropoffQuery(safeLocation.address || '');
       setDropoffSuggestions([]);
@@ -1830,7 +1834,9 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       return;
     }
 
-    let resolvedDestination = normalizeLocation(dropoffLocationRef.current || dropoffLocation);
+    let resolvedDestination = normalizeLocation(
+      dropoffLocationRef.current || dropoffLocation || lastResolvedDropoffLocationRef.current,
+    );
     const resolvedAddress = String(resolvedDestination?.address || '').trim();
     if (!resolvedDestination || resolvedAddress.toLowerCase() !== query.toLowerCase()) {
       resolvedDestination = await resolveLocationFromQuery('dropoff', query);
@@ -4321,7 +4327,17 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       .slice(0, 3);
   }, [normalizeLocation, passengerBookings]);
   const effectivePickupLocation = pickupLocation || routePreviewLocations.pickup || pickupLocationRef.current || selectedPickupLocation;
-  const effectiveDropoffLocation = dropoffLocation || routePreviewLocations.dropoff || dropoffLocationRef.current || selectedDropoffLocation;
+  const cachedDropoffLocation = normalizeLocation(lastResolvedDropoffLocationRef.current);
+  const cachedDropoffMatchesQuery = Boolean(
+    cachedDropoffLocation &&
+      String(cachedDropoffLocation.address || '').trim().toLowerCase() === String(dropoffQuery || '').trim().toLowerCase(),
+  );
+  const effectiveDropoffLocation =
+    dropoffLocation ||
+    routePreviewLocations.dropoff ||
+    dropoffLocationRef.current ||
+    (cachedDropoffMatchesQuery ? cachedDropoffLocation : null) ||
+    selectedDropoffLocation;
   const directTripDistanceKm = calculateDirectDistanceKm(effectivePickupLocation, effectiveDropoffLocation);
   const fareDistanceKm = getFareDistanceKm(fare);
   const resolvedTripDistanceKm = fareDistanceKm || directTripDistanceKm || routePreviewDistanceKm;
