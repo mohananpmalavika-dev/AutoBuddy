@@ -5248,10 +5248,14 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         );
       })()}
 
-      <View style={styles.quickFareCard}>
+      <View style={styles.quickFareCard} key={`fare-card-${quickFareValue}-${resolvedTripDistanceKm}`}>
         <View>
-          <Text style={styles.quickFareLabel}>{quickBookingReady ? quickCopy.estimatedFare : quickCopy.tripPreview}</Text>
-          <Text style={styles.quickFareValue}>
+          <Text 
+            key={`fare-label-${quickBookingReady}`}
+            style={styles.quickFareLabel}>{quickBookingReady ? quickCopy.estimatedFare : quickCopy.tripPreview}</Text>
+          <Text 
+            key={`fare-value-${quickFareValue}`}
+            style={styles.quickFareValue}>
             {quickFareLabel !== 'Fare ready soon'
               ? quickFareLabel
               : autoFetchingTripData
@@ -5260,8 +5264,12 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
           </Text>
         </View>
         <View style={styles.quickFareMeta}>
-          <Text style={styles.quickFareMetaText}>{quickDistanceLabel}</Text>
-          <Text style={styles.quickFareMetaText}>{quickEtaLabel}</Text>
+          <Text 
+            key={`distance-${resolvedTripDistanceKm}`}
+            style={styles.quickFareMetaText}>{quickDistanceLabel}</Text>
+          <Text 
+            key={`eta-${visibleDrivers.length}`}
+            style={styles.quickFareMetaText}>{quickEtaLabel}</Text>
         </View>
       </View>
 
