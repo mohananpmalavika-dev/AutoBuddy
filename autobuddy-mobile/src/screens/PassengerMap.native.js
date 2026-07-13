@@ -1283,22 +1283,48 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       .filter(Boolean)
       .slice(0, 3);
   }, [normalizeLocation, passengerBookings]);
-  const quickFareValue = Number(fare?.total_fare || 0);
-  const quickFareLabel = quickFareValue > 0 ? `Rs. ${quickFareValue.toFixed(0)}` : 'Fare ready soon';
-  const effectivePickupLocation = pickupLocation || routePreviewLocations.pickup || pickupLocationRef.current;
-  const effectiveDropoffLocation = dropoffLocation || routePreviewLocations.dropoff || dropoffLocationRef.current;
+  const effectivePickupLocation =
+    [pickupLocation, routePreviewLocations.pickup]
+      .map(normalizeLocation)
+      .find(Boolean) || null;
+  const effectiveDropoffLocation =
+    [dropoffLocation, routePreviewLocations.dropoff]
+      .map(normalizeLocation)
+      .find(Boolean) || null;
   const directTripDistanceKm = calculateDirectDistanceKm(effectivePickupLocation, effectiveDropoffLocation);
   const fareDistanceKm = getFareDistanceKm(fare);
   const resolvedTripDistanceKm = fareDistanceKm || directTripDistanceKm || routePreviewDistanceKm;
+  const localQuickFareValue =
+    resolvedTripDistanceKm > 0
+      ? Math.max(30, 25 + resolvedTripDistanceKm * 12)
+      : 0;
+  const quickFareValue = Number(
+    fare?.total_fare ||
+      fare?.estimated_fare ||
+      localQuickFareValue ||
+      0,
+  );
+  const quickFareLabel = quickFareValue > 0 ? `Rs. ${quickFareValue.toFixed(0)}` : 'Fare ready soon';
   const quickDistanceLabel =
     resolvedTripDistanceKm > 0 ? `${resolvedTripDistanceKm.toFixed(1)} km` : 'Distance calculating';
   const quickEtaLabel = visibleDrivers.length > 0 ? `${visibleDrivers.length} nearby` : autoFetchingTripData ? 'Finding drivers' : 'Driver search live';
+  
+  // FIX: Consider booking ready if we have both locations AND distance (even without fare loaded yet)
   const quickBookingReady = Boolean(
-    (effectivePickupLocation && effectiveDropoffLocation) ||
-      routePreviewDistanceKm > 0 ||
-      (String(pickupQuery || '').trim() && String(dropoffQuery || '').trim()),
+    effectivePickupLocation &&
+      effectiveDropoffLocation &&
+      resolvedTripDistanceKm > 0,
   );
-  const quickBookingStep = !effectiveDropoffLocation ? 1 : quickBookingReady && !fare && autoFetchingTripData ? 2 : 3;
+  
+  // FIX: Improved step calculation - step 3 (ready) if both locations exist with distance
+  const quickBookingStep = !effectiveDropoffLocation 
+    ? 1 
+    : !effectivePickupLocation 
+      ? 1
+      : resolvedTripDistanceKm > 0 
+        ? 3 
+        : 2;
+  
   const quickDestinationText = effectiveDropoffLocation?.address || dropoffQuery || '';
   const quickPickupText = effectivePickupLocation?.address || pickupQuery || 'Use current location';
   const searchBias = useMemo(() => pickupLocation || dropoffLocation || DEFAULT_REGION, [
@@ -1362,17 +1388,23 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       setDropoffSuggestions([]);
       setLocationValidation((prev) => ({ ...prev, dropoff: false }));
     }
-    setFare(null);
-    setNearbyDrivers([]);
-    setOptedOutDriverIds([]);
-    setSelectedDriverId('');
+    
+    // CRITICAL FIX: Update route preview locations BEFORE clearing fare to prevent UI flicker
+    const directDistance = calculateDirectDistanceKm(nextPickupLocation, nextDropoffLocation);
     setRoutePreviewLocations({
       pickup: nextPickupLocation || null,
       dropoff: nextDropoffLocation || null,
     });
-    setRoutePreviewDistanceKm(calculateDirectDistanceKm(nextPickupLocation, nextDropoffLocation));
+    setRoutePreviewDistanceKm(directDistance);
+    
+    // Clear fare and driver data only AFTER route preview is set
+    setFare(null);
+    setNearbyDrivers([]);
+    setOptedOutDriverIds([]);
+    setSelectedDriverId('');
 
     if (nextPickupLocation && nextDropoffLocation) {
+      // Immediate trigger for driver/fare discovery to update button state faster
       setTimeout(() => {
         try {
           if (typeof refreshDriverDiscoveryRef.current === 'function') {
@@ -1381,7 +1413,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         } catch (e) {
           // ignore
         }
-      }, 120);
+      }, 50); // Reduced from 120ms to 50ms for faster response
     }
   };
 

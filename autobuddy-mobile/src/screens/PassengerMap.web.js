@@ -4346,23 +4346,19 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const coordinatePickupLocation = parseCoordinateLocationText(pickupQuery);
   const coordinateDropoffLocation = parseCoordinateLocationText(dropoffQuery);
   const effectivePickupLocation =
-    pickupLocation ||
-    routePreviewLocations.pickup ||
-    pickupLocationRef.current ||
-    coordinatePickupLocation ||
-    selectedPickupLocation;
-  const cachedDropoffLocation = normalizeLocation(lastResolvedDropoffLocationRef.current);
-  const cachedDropoffMatchesQuery = Boolean(
-    cachedDropoffLocation &&
-      String(cachedDropoffLocation.address || '').trim().toLowerCase() === String(dropoffQuery || '').trim().toLowerCase(),
-  );
+    [
+      pickupLocation,
+      routePreviewLocations.pickup,
+      coordinatePickupLocation,
+      selectedPickupLocation,
+    ].map(normalizeLocation).find(Boolean) || null;
   const effectiveDropoffLocation =
-    dropoffLocation ||
-    routePreviewLocations.dropoff ||
-    dropoffLocationRef.current ||
-    (cachedDropoffMatchesQuery ? cachedDropoffLocation : null) ||
-    coordinateDropoffLocation ||
-    selectedDropoffLocation;
+    [
+      dropoffLocation,
+      routePreviewLocations.dropoff,
+      coordinateDropoffLocation,
+      selectedDropoffLocation,
+    ].map(normalizeLocation).find(Boolean) || null;
   const directTripDistanceKm = calculateDirectDistanceKm(effectivePickupLocation, effectiveDropoffLocation);
   const fareDistanceKm = getFareDistanceKm(fare);
   const resolvedTripDistanceKm = fareDistanceKm || directTripDistanceKm || routePreviewDistanceKm;
@@ -4389,13 +4385,12 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const quickDistanceLabel =
     resolvedTripDistanceKm > 0 ? `${resolvedTripDistanceKm.toFixed(1)} km` : 'Distance calculating';
   const quickEtaLabel = visibleDrivers.length > 0 ? `${Math.min(visibleDrivers.length, 5)} within 2 km` : autoFetchingTripData ? 'Finding drivers' : 'Driver search live';
-  const quickPickupIntentText = String(pickupQuery || '').trim();
   const quickDropoffIntentText = String(dropoffQuery || '').trim();
-  const quickHasPickupIntent = Boolean(effectivePickupLocation || quickPickupIntentText);
   const quickHasDropoffIntent = Boolean(effectiveDropoffLocation || quickDropoffIntentText);
   const quickBookingReady = Boolean(
-    (quickHasPickupIntent && quickHasDropoffIntent) ||
-      (effectivePickupLocation && routePreviewDistanceKm > 0),
+    effectivePickupLocation &&
+      effectiveDropoffLocation &&
+      resolvedTripDistanceKm > 0,
   );
   const quickBookingStep = !quickHasDropoffIntent ? 1 : quickBookingReady && !fare && autoFetchingTripData ? 2 : 3;
   const quickDestinationText = effectiveDropoffLocation?.address || dropoffQuery || '';
