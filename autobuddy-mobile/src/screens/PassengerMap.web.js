@@ -1813,26 +1813,15 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
 
     if (nextPickupLocation && nextDropoffLocation) {
       // Immediate trigger for driver/fare discovery to update button state faster
-      console.log('[TRIGGERING_DRIVER_DISCOVERY]', {
-        hasPickup: !!nextPickupLocation,
-        hasDropoff: !!nextDropoffLocation,
-        refIsFunction: typeof refreshDriverDiscoveryRef.current === 'function',
-        timestamp: new Date().toISOString()
-      });
       setTimeout(() => {
         try {
           if (typeof refreshDriverDiscoveryRef.current === 'function') {
-            console.log('[CALLING_DRIVER_DISCOVERY]', { timestamp: new Date().toISOString() });
-            refreshDriverDiscoveryRef.current({ silent: false, force: true }).catch((err) => {
-              console.error('[DRIVER_DISCOVERY_ERROR]', err);
-            });
-          } else {
-            console.warn('[DRIVER_DISCOVERY_REF_NOT_READY]', { timestamp: new Date().toISOString() });
+            refreshDriverDiscoveryRef.current({ silent: false, force: true }).catch(() => null);
           }
         } catch (e) {
-          console.error('[DRIVER_DISCOVERY_CATCH_ERROR]', e);
+          // ignore
         }
-      }, 50); // Reduced from 120ms to 50ms for faster response
+      }, 50);
     }
   }, [normalizeLocation, t.couldNotSelectPlace]);
 
@@ -4379,18 +4368,6 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
   const directTripDistanceKm = calculateDirectDistanceKm(effectivePickupLocation, effectiveDropoffLocation);
   const fareDistanceKm = getFareDistanceKm(fare);
   const resolvedTripDistanceKm = fareDistanceKm || directTripDistanceKm || routePreviewDistanceKm;
-  
-  // DEBUG: Log distance calculation
-  console.log('[DISTANCE_CALCULATION]', {
-    effectivePickupLocation: effectivePickupLocation ? `${effectivePickupLocation.address?.substring(0, 30)}...` : 'NULL',
-    effectiveDropoffLocation: effectiveDropoffLocation ? `${effectiveDropoffLocation.address?.substring(0, 30)}...` : 'NULL',
-    directTripDistanceKm,
-    fareDistanceKm,
-    routePreviewDistanceKm,
-    resolvedTripDistanceKm,
-    timestamp: new Date().toISOString()
-  });
-  
   const localQuickFareEstimate = createLocalFareEstimate(
     resolvedTripDistanceKm,
     effectiveSelectedVehicleTypeId,
@@ -4426,15 +4403,6 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       effectiveDropoffLocation
   );
   
-  // DEBUG: Log to verify the fix is working
-  console.log('[BUTTON_STATE_FIX_APPLIEDAA]', {
-    quickBookingReady,
-    hasPickup: !!effectivePickupLocation,
-    hasDropoff: !!effectiveDropoffLocation,
-    pickupAddr: effectivePickupLocation?.address?.substring(0, 40),
-    dropoffAddr: effectiveDropoffLocation?.address?.substring(0, 40),
-    timestamp: new Date().toISOString()
-  });
   
   // FIX: Improved step calculation - step 3 (ready) if both locations exist with distance
   const quickBookingStep = !quickHasDropoffIntent 
@@ -5284,18 +5252,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         <Text 
           style={styles.quickConfirmText}
           key={`button-${quickBookingReady}-${loading}`}>
-          {(() => {
-            const buttonText = loading ? quickCopy.requesting : quickBookingReady ? quickCopy.confirm : quickCopy.selectDestination;
-            console.log('[BUTTON_TEXT_ACTUAL_RENDER]', {
-              loading,
-              quickBookingReady,
-              quickCopyConfirm: quickCopy.confirm,
-              quickCopySelectDestination: quickCopy.selectDestination,
-              buttonText,
-              timestamp: new Date().toISOString()
-            });
-            return buttonText;
-          })()}
+          {loading ? quickCopy.requesting : quickBookingReady ? quickCopy.confirm : quickCopy.selectDestination}
         </Text>
       </TouchableOpacity>
 
