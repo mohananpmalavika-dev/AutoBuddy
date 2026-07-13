@@ -988,7 +988,6 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
         if (intent?.destinationText || intent?.destinationLabel) {
           const destinationText = intent.destinationText || intent.destinationLabel;
           setDropoffQuery(destinationText);
-          setDropoffLocation(null);
           setTimeout(() => {
             voiceIntentResolverRef.current?.({
               pickupText: intent.pickupText || '',
@@ -2696,10 +2695,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
       setDropoffQuery(normalized);
       setLocationValidation((prev) => ({ ...prev, dropoff: false }));
       if (dropoffLocation && normalized.trim() !== String(dropoffLocation.address || '').trim()) {
-        setDropoffLocation(null);
-        dropoffLocationRef.current = null;
-        setRoutePreviewLocations((prev) => ({ ...prev, dropoff: null }));
-        setRoutePreviewDistanceKm(0);
+        // Preserve the last verified coordinate while replacement text resolves.
         setFare(null);
         setNearbyDrivers([]);
         setOptedOutDriverIds([]);
