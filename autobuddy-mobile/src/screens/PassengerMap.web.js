@@ -4380,17 +4380,20 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     .filter((value) => Number.isFinite(value) && value > 0);
   const quickDriverFareMin = visibleDriverFareValues.length > 0 ? Math.min(...visibleDriverFareValues) : 0;
   const quickDriverFareMax = visibleDriverFareValues.length > 0 ? Math.max(...visibleDriverFareValues) : 0;
-  const quickDriverFareRange =
-    quickDriverFareMin > 0 && quickDriverFareMax > 0
-      ? quickDriverFareMin === quickDriverFareMax
-        ? `Rs. ${quickDriverFareMin.toFixed(0)}`
-        : `Rs. ${quickDriverFareMin.toFixed(0)}-${quickDriverFareMax.toFixed(0)}`
-      : '';
-  const quickFareLabel =
-    quickDriverFareRange || (quickFareValue > 0 ? `Rs. ${quickFareValue.toFixed(0)}` : 'Fare ready soon');
+  
+  // Show highest driver fare when drivers are available, otherwise show estimate
+  const quickDisplayFare = quickDriverFareMax > 0 ? quickDriverFareMax : quickFareValue;
+  const quickFareLabel = quickDisplayFare > 0 ? `Rs. ${quickDisplayFare.toFixed(0)}` : 'Fare ready soon';
+  
+  // Driver info for display
+  const quickDriverCount = visibleDrivers.length;
+  const quickOnlineDriversText = quickDriverCount > 0 
+    ? `${quickDriverCount} driver${quickDriverCount > 1 ? 's' : ''} online` 
+    : '';
+  
   const quickDistanceLabel =
     resolvedTripDistanceKm > 0 ? `${resolvedTripDistanceKm.toFixed(1)} km` : 'Distance calculating';
-  const quickEtaLabel = visibleDrivers.length > 0 ? `${Math.min(visibleDrivers.length, 5)} within 2 km` : autoFetchingTripData ? 'Finding drivers' : 'Driver search live';
+  const quickEtaLabel = quickOnlineDriversText || (autoFetchingTripData ? 'Finding drivers' : 'Driver search live');
   const quickDropoffIntentText = String(dropoffQuery || '').trim();
   const quickHasDropoffIntent = Boolean(effectiveDropoffLocation || quickDropoffIntentText);
   
