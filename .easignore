@@ -1,0 +1,33 @@
+.pytest_cache
+**/.pytest_cache
+# Repository directories outside the mobile app
+.agents/
+.github/
+.kiro/
+.pytest_cache/
+.venv/
+.vercel/
+backend/
+docs/
+grafana/
+memory/
+node_modules/
+pitch-deck/
+scripts/
+tests/
+
+# Mobile dependencies, generated output, secrets, and native prebuilds
+**/node_modules/
+**/.expo/
+**/dist/
+**/web-build/
+**/test-results/
+**/android/
+**/ios/
+**/.env
+**/.env.*
+!**/.env.example
+**/*.log
+**/*.jks
+**/*.keystore
+**/*.pem

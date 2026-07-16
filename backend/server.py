@@ -262,7 +262,6 @@ GOOGLE_OAUTH_CLIENT_ID = os.environ.get(
         ),
     ),
 ).strip()
-GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", os.environ.get("EXPO_PUBLIC_GOOGLE_MAPS_API_KEY", "")).strip()
 AUTO_ASSIGN_RETRY_INTERVAL_SECONDS = int(os.environ.get("AUTO_ASSIGN_RETRY_INTERVAL_SECONDS", "15"))
 AUTO_ASSIGN_RETRY_ATTEMPTS = int(os.environ.get("AUTO_ASSIGN_RETRY_ATTEMPTS", "8"))
 FCM_SERVER_KEY = os.environ.get("FCM_SERVER_KEY", "").strip()
@@ -5085,40 +5084,6 @@ def location_to_geo_point(location: Location) -> Dict[str, Any]:
         "type": "Point",
         "coordinates": [location.longitude, location.latitude]
     }
-
-
-async def fetch_google_maps_json(
-    path: str,
-    params: Dict[str, Any],
-    *,
-    allow_zero_results: bool = False,
-) -> Dict[str, Any]:
-    if not GOOGLE_MAPS_API_KEY:
-        raise HTTPException(
-            status_code=503,
-            detail="Google Places is not configured on server. Set GOOGLE_MAPS_API_KEY.",
-        )
-
-    query_params = {**params, "key": GOOGLE_MAPS_API_KEY}
-    url = f"https://maps.googleapis.com/maps/api/{path}"
-    timeout = httpx.Timeout(8.0, connect=3.0)
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client_http:
-            response = await client_http.get(url, params=query_params)
-    except Exception as exc:
-        logger.warning(f"Google Maps request failed: {exc}")
-        raise HTTPException(status_code=502, detail="Google Maps request failed.") from exc
-
-    if response.status_code >= 300:
-        raise HTTPException(status_code=502, detail="Google Maps request failed.")
-
-    payload = response.json()
-    status_text = payload.get("status")
-    if status_text == "OK" or (allow_zero_results and status_text == "ZERO_RESULTS"):
-        return payload
-
-    message = payload.get("error_message") or f"Google Maps request failed ({status_text or 'unknown'})."
-    raise HTTPException(status_code=400, detail=message)
 
 
 ROUTE_METRICS_CACHE: Dict[str, tuple[float, Dict[str, Any]]] = {}
@@ -11084,7 +11049,8 @@ async def places_autocomplete(
         # Convert Nominatim results to our format
         for result in nominatim_results:
             results.append({
-                "placeId": str(result.get("place_id", "")),
+                "placeId": f"{result.get('lat', '')},{result.get('lon', '')}",
+                "nominatimPlaceId": str(result.get("place_id", "")),
                 "description": result.get("display_name", result.get("name", "")),
                 "name": result.get("name", ""),
                 "address": result.get("display_name", result.get("name", "")),
@@ -11105,27 +11071,34 @@ async def places_details(place_id: str, language: str = "en"):
     if not pid:
         raise HTTPException(status_code=400, detail="place_id is required")
 
-    payload = await fetch_google_maps_json(
-        "place/details/json",
-        {
-            "place_id": pid,
-            "fields": "formatted_address,geometry,name",
-            "language": language or "en",
-        },
-    )
-    result = payload.get("result") or {}
-    location = ((result.get("geometry") or {}).get("location") or {})
-    lat = location.get("lat")
-    lng = location.get("lng")
-    if not isinstance(lat, (float, int)) or not isinstance(lng, (float, int)):
-        raise HTTPException(status_code=400, detail="Could not read coordinates for selected place.")
+    try:
+        latitude_text, longitude_text = pid.split(",", 1)
+        lat = float(latitude_text)
+        lng = float(longitude_text)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid OpenStreetMap place identifier.")
+    if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+        raise HTTPException(status_code=400, detail="Invalid place coordinates.")
+
+    address = f"Lat {lat}, Lng {lng}"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                "https://nominatim.openstreetmap.org/reverse",
+                params={"lat": lat, "lon": lng, "format": "jsonv2", "accept-language": language or "en"},
+                headers={"User-Agent": "AutoBuddy/1.0 (Passenger booking app)"},
+            )
+            response.raise_for_status()
+            payload = response.json()
+            address = payload.get("display_name") or address
+    except Exception as exc:
+        logger.warning("Nominatim place details fallback in use: %s", exc)
 
     return {
-        "latitude": round(float(lat), 6),
-        "longitude": round(float(lng), 6),
-        "address": result.get("formatted_address") or result.get("name") or f"Lat {lat}, Lng {lng}",
+        "latitude": round(lat, 6),
+        "longitude": round(lng, 6),
+        "address": address,
     }
-
 @api_router.get("/drivers/nearby", response_model=List[NearbyDriverResponse])
 async def get_nearby_drivers(
     latitude: float,

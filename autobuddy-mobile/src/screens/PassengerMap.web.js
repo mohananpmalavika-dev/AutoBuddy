@@ -2742,7 +2742,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     }
 
     if (!placesConfigured) {
-      setError(t.googlePlacesMissing);
+      setError(t.placesUnavailable);
       return;
     }
 
@@ -2779,7 +2779,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     try {
       setError('');
       if (!placesConfigured) {
-        setError(t.googlePlacesMissing);
+        setError(t.placesUnavailable);
         return;
       }
       if (point === 'pickup') {

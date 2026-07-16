@@ -65,7 +65,7 @@ Legend: ✅ Complete | □ To be created
 #### Priority 1: Component Tests
 - **DriverInfoCard.test.tsx** - Driver information display with API data
 - **RideCard.test.tsx** - Ride information display and actions
-- **LocationPicker.test.tsx** - Location selection with Google Maps API
+- **LocationPicker.test.tsx** - Location selection with OpenStreetMap
 - **PaymentMethodSelector.test.tsx** - Payment method selection and validation
 
 #### Priority 2: Screen Tests
@@ -105,7 +105,7 @@ Legend: ✅ Complete | □ To be created
 - **@react-native-async-storage/async-storage** - Mock storage
 - **react-native** - Mock native modules (Alert, Platform, etc.)
 - **Socket.IO** - Mock WebSocket connections
-- **Google Maps** - Mock map components
+- **MapLibre/OpenStreetMap** - Mock map components
 
 ## Running Tests
 

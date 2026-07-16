@@ -27,7 +27,7 @@ jest.mock('expo-location', () => ({
   Accuracy: { Balanced: 'balanced' },
 }));
 
-jest.mock('react-native-maps', () => {
+jest.mock('../components/FreeMap', () => {
   const React = require('react');
   const { View } = require('react-native');
   const MockMap = React.forwardRef((props, ref) => (

@@ -8,7 +8,7 @@ import {
   View,
   Alert,
 } from 'react-native';
-import MapView, { Marker, Circle } from 'react-native-maps';
+import MapView, { Marker, Circle } from './FreeMap';
 import { COLORS, SHADOWS } from '../theme';
 import { demandTrafficAPI } from '../services/apiClient';
 // BUG-008 FIX: Import coordinate validation

@@ -21,10 +21,8 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    ```bash
    cp .env.example .env
    ```
-
-   Set `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY` to render Google map embeds in the web UI.
-   For production, set this variable in the frontend host environment (Vercel/Render static service) and redeploy so it is baked into the web build.
-   For typed pickup/drop search on web, set `GOOGLE_MAPS_API_KEY` in the backend runtime env because browser-direct Places web-service calls are blocked by CORS.
+   Maps use MapLibre/OpenStreetMap on native and Leaflet/OpenStreetMap on web; no map API key is required.
+   Pickup/drop search and reverse geocoding use the backend Nominatim endpoints.
    Location permission enables "Use Current Location" pickup autofill (still editable after autofill).
 
 In the output, you'll find options to open the app in a

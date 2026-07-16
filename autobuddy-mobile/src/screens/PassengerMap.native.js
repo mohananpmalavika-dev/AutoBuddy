@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import * as Location from 'expo-location';
 import { SymbolView } from 'expo-symbols';
-import MapView, { Marker } from 'react-native-maps';
+import MapView, { Marker } from '../components/FreeMap';
 
 import { apiRequest } from '../lib/api';
 import { getDisplayText } from '../lib/displayText';
@@ -2272,7 +2272,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     }
 
     if (!placesConfigured) {
-      setError('Google Places key missing. Set EXPO_PUBLIC_GOOGLE_MAPS_API_KEY.');
+      setError('Location search is temporarily unavailable.');
       return;
     }
 
@@ -2312,7 +2312,7 @@ export function PassengerMapContent({ token, user, onLogout, onProfilePress = un
     try {
       setError('');
       if (!placesConfigured) {
-        setError('Google Places key missing. Set EXPO_PUBLIC_GOOGLE_MAPS_API_KEY.');
+        setError('Location search is temporarily unavailable.');
         return;
       }
 

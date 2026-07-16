@@ -83,7 +83,7 @@ import {
   normalizeBlockedPassengerRows,
 } from '../lib/driverBlockedPassengers';
 import {
-  buildGoogleMapsDirectionsUrl,
+  buildOpenStreetMapDirectionsUrl,
   canCancelRide,
   getNextActionLabel,
   getNextRideStatus,
@@ -2110,7 +2110,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       return;
     }
 
-    const mapsUrl = buildGoogleMapsDirectionsUrl({ origin, destination });
+    const mapsUrl = buildOpenStreetMapDirectionsUrl({ origin, destination });
     if (typeof window !== 'undefined' && typeof window.open === 'function') {
       window.open(mapsUrl, '_blank', 'noopener,noreferrer');
     } else {
@@ -2138,7 +2138,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       setError('Scheduled ride location unavailable.');
       return;
     }
-    const mapsUrl = buildGoogleMapsDirectionsUrl({ origin: driverLocation, destination });
+    const mapsUrl = buildOpenStreetMapDirectionsUrl({ origin: driverLocation, destination });
     if (typeof window !== 'undefined' && typeof window.open === 'function') {
       window.open(mapsUrl, '_blank', 'noopener,noreferrer');
     } else {

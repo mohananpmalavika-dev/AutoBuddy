@@ -8,7 +8,7 @@ import {
   Dimensions,
   Platform,
 } from 'react-native';
-import MapView, { Marker, Polyline, Circle } from 'react-native-maps';
+import MapView, { Marker, Polyline, Circle, type FreeMapRef } from './FreeMap';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { DriverLocation, RideTracking } from '../hooks/useRealtimeTracking';
@@ -30,7 +30,7 @@ export const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({
   onRideCancel,
   onCallDriver,
 }) => {
-  const mapRef = useRef<MapView>(null);
+  const mapRef = useRef<FreeMapRef>(null);
   const [isAutoFollowEnabled, setIsAutoFollowEnabled] = useState(true);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [displayedLocation, setDisplayedLocation] = useState<DriverLocation | null>(driverLocation);

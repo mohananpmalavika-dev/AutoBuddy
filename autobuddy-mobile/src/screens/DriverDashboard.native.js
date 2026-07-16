@@ -13,7 +13,7 @@ import {
 import * as Location from 'expo-location';
 import * as WebBrowser from 'expo-web-browser';
 import * as DocumentPicker from 'expo-document-picker';
-import MapView, { Marker, Polyline } from 'react-native-maps';
+import MapView, { Marker, Polyline } from '../components/FreeMap';
 import BottomSheet from '@gorhom/bottom-sheet';
 
 import { driverAPI } from '../services/apiClient';
@@ -93,7 +93,7 @@ import {
   normalizeBlockedPassengerRows,
 } from '../lib/driverBlockedPassengers';
 import {
-  buildGoogleMapsDirectionsUrl,
+  buildOpenStreetMapDirectionsUrl,
   canCancelRide,
   getNextActionLabel,
   getNextRideStatus,
@@ -878,7 +878,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
   const handleNavigateToHotspot = useCallback(
     (hotspot) => {
       const destination = normalizeLocation(hotspot);
-      const mapsUrl = buildGoogleMapsDirectionsUrl({ origin: driverLocation, destination });
+      const mapsUrl = buildOpenStreetMapDirectionsUrl({ origin: driverLocation, destination });
       if (!mapsUrl) {
         setError('Hotspot location unavailable.');
         return;
@@ -2177,7 +2177,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       return;
     }
 
-    const mapsUrl = buildGoogleMapsDirectionsUrl({ origin: driverLocation, destination });
+    const mapsUrl = buildOpenStreetMapDirectionsUrl({ origin: driverLocation, destination });
     try {
       await Linking.openURL(mapsUrl);
     } catch {
@@ -2205,7 +2205,7 @@ function DriverDashboardContent({ token, user, onLogout, onProfilePress = undefi
       setError('Scheduled ride location unavailable.');
       return;
     }
-    const mapsUrl = buildGoogleMapsDirectionsUrl({ origin: driverLocation, destination });
+    const mapsUrl = buildOpenStreetMapDirectionsUrl({ origin: driverLocation, destination });
     try {
       await Linking.openURL(mapsUrl);
     } catch {

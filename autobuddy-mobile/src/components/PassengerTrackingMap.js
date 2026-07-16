@@ -139,7 +139,7 @@ export default function PassengerTrackingMap({
       <View style={styles.helperSection}>
         <Text style={styles.helperTitle}>Navigation Tips:</Text>
         <Text style={styles.helperText}>
-          • Open Google Maps for turn-by-turn directions
+          • Open OpenStreetMap for turn-by-turn directions
         </Text>
         <Text style={styles.helperText}>
           • Let passenger know your ETA

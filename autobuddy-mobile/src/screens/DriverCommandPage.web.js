@@ -66,7 +66,7 @@ import {
   toDriverLocationApiBody,
 } from '../lib/driverAvailabilityStatus';
 import {
-  buildGoogleMapsDirectionsUrl,
+  buildOpenStreetMapDirectionsUrl,
   getNextActionLabel,
   getNextRideStatus,
   getRideNavigationTarget,
@@ -1147,7 +1147,7 @@ export default function DriverCommandPage({
       status: activeRideStatus,
       normalizeLocation,
     });
-    const url = buildGoogleMapsDirectionsUrl({
+    const url = buildOpenStreetMapDirectionsUrl({
       origin: normalizeLocation(driverLocation),
       destination: navigation.destination,
     });
@@ -1301,7 +1301,7 @@ export default function DriverCommandPage({
       status: ride?.status,
       normalizeLocation,
     });
-    const url = buildGoogleMapsDirectionsUrl({
+    const url = buildOpenStreetMapDirectionsUrl({
       origin: normalizeLocation(driverLocation),
       destination: navigation.destination,
     });
@@ -1327,7 +1327,7 @@ export default function DriverCommandPage({
 
   const openDemandHotspotNavigation = useCallback((hotspot) => {
     const destination = normalizeLocation(hotspot);
-    const url = buildGoogleMapsDirectionsUrl({
+    const url = buildOpenStreetMapDirectionsUrl({
       origin: normalizeLocation(driverLocation),
       destination,
     });

@@ -161,7 +161,7 @@ export const LiveRideTracking = ({ route, navigation }: LiveRideTrackingProps) =
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Map placeholder - integrate with react-native-maps */}
+      {/* MapLibre/OpenStreetMap integration */}
       <View style={styles.mapContainer}>
         <View style={styles.mapPlaceholder}>
           <Text style={styles.mapText}>

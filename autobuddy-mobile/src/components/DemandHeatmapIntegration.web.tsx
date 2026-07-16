@@ -41,17 +41,6 @@ type DemandHeatmapIntegrationProps = {
   disabled?: boolean;
 };
 
-const GOOGLE_MAPS_WEB_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
-
-const buildDemandMapFallbackUrl = (location?: LocationCoords | Hotspot | null) => {
-  const latitude = Number(location?.latitude);
-  const longitude = Number(location?.longitude);
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-    return 'https://www.google.com/maps?output=embed&q=9.9312,76.2673&z=11';
-  }
-  return `https://www.google.com/maps?output=embed&q=${latitude},${longitude}&z=14`;
-};
-
 const getHotspotMarkerStyle = (
   hotspot: Hotspot,
   center: LocationCoords,
@@ -78,7 +67,6 @@ export default function DemandHeatmapIntegration({
   const [selectedHotspot, setSelectedHotspot] = useState<Hotspot | null>(null);
   const [error, setError] = useState('');
   const mapCenter = selectedHotspot || currentLocation || null;
-  const mapFallbackUrl = buildDemandMapFallbackUrl(mapCenter);
   const hotspotBounds = {
     latitudeRange: Math.max(
       0.01,

@@ -128,6 +128,8 @@ export const setupLocalNotifications = () => {
 
         return {
           shouldShowAlert: true,
+          shouldShowBanner: true,
+          shouldShowList: true,
           shouldPlaySound: true,
           shouldSetBadge: true,
         };
@@ -190,6 +192,7 @@ export const sendLocalNotification = async (
         badge: 1,
       },
       trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
         seconds: 1,
       },
     });

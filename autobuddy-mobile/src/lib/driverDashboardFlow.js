@@ -76,7 +76,7 @@ export function getRideNavigationTarget({ ride, status, normalizeLocation }) {
   };
 }
 
-export function buildGoogleMapsDirectionsUrl({ origin, destination }) {
+export function buildOpenStreetMapDirectionsUrl({ origin, destination }) {
   if (!destination) {
     return '';
   }

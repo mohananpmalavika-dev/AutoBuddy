@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "AutoBuddy",
-    "slug": "autobuddy",
+    "slug": "autobuddy-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -76,7 +76,7 @@
           "isIosBackgroundLocationEnabled": true
         }
       ],
-      "expo-maps",
+      "@maplibre/maplibre-react-native",
       [
         "@react-native-voice/voice",
         {

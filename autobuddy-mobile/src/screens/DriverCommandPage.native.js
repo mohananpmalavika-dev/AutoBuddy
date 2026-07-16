@@ -11,7 +11,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import * as Location from 'expo-location';
-import MapView, { Marker, Polyline } from 'react-native-maps';
+import MapView, { Marker, Polyline } from '../components/FreeMap';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import DriverTabBar from '../components/DriverTabBar';
@@ -68,7 +68,7 @@ import {
   toDriverLocationApiBody,
 } from '../lib/driverAvailabilityStatus';
 import {
-  buildGoogleMapsDirectionsUrl,
+  buildOpenStreetMapDirectionsUrl,
   getNextActionLabel,
   getNextRideStatus,
   getRideNavigationTarget,
@@ -1009,7 +1009,7 @@ export default function DriverCommandPageNative({
       status: activeRideStatus,
       normalizeLocation,
     });
-    const url = buildGoogleMapsDirectionsUrl({
+    const url = buildOpenStreetMapDirectionsUrl({
       origin: normalizeLocation(driverLocation),
       destination: navigation.destination,
     });
@@ -1161,7 +1161,7 @@ export default function DriverCommandPageNative({
       status: ride?.status,
       normalizeLocation,
     });
-    const url = buildGoogleMapsDirectionsUrl({
+    const url = buildOpenStreetMapDirectionsUrl({
       origin: normalizeLocation(driverLocation),
       destination: navigation.destination,
     });
@@ -1187,7 +1187,7 @@ export default function DriverCommandPageNative({
 
   const openDemandHotspotNavigation = useCallback((hotspot) => {
     const destination = normalizeLocation(hotspot);
-    const url = buildGoogleMapsDirectionsUrl({
+    const url = buildOpenStreetMapDirectionsUrl({
       origin: normalizeLocation(driverLocation),
       destination,
     });

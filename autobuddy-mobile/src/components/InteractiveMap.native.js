@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
+import MapView, { Marker } from './FreeMap';
 import { COLORS, SHADOWS } from '../theme';
 import { reverseGeocodeLocation } from '../lib/places';
 
